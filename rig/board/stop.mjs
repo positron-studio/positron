@@ -39,8 +39,9 @@ const safe = async (fn) => { try { return { did: await fn() }; } catch (e) { ret
  * @param {{ held(): string[], unlink(link: string): any }} o.jack  the board's own `jack.link` keys
  * @param {null | { ports: string[], read(): { rows: object[], error?: string|null }, cut(): any }} o.output  the PWM output on the JACK graph
  * @param {null | { stopped(level: string): any }} [o.screen]
+ * @param {{ name: string, showing(): string|null, stop(): any }[]} [o.displays]  a picture on an HDMI screen (hdmi.mjs), taken down with the engines
  */
-export function createStop({ sequencer, keyboard, circuitDrums, circuit = null, engines = [], jack, output = null, screen = null,
+export function createStop({ sequencer, keyboard, circuitDrums, circuit = null, engines = [], jack, output = null, screen = null, displays = [],
   log = () => {}, now = () => Date.now() }) {
   let chain = Promise.resolve();
 
@@ -79,6 +80,7 @@ export function createStop({ sequencer, keyboard, circuitDrums, circuit = null, 
     engines: async () => {
       const down = [];
       for (const e of engines) if (e.up()) { await e.down(); down.push(e.name); }
+      for (const x of displays) if (x.showing()) { await x.stop(); down.push(x.name); }
       return { down };
     },
     screen: async () => { await screen?.stopped('full'); return { drawn: !!screen }; },
@@ -137,6 +139,12 @@ export function createStop({ sequencer, keyboard, circuitDrums, circuit = null, 
       const n = e.held();
       if (n == null) row(`${e.name}Notes`, e.name, null, 'running, and what it holds cannot be read');
       else row(`${e.name}Notes`, e.name, n === 0, n ? `${n} held` : 'running, nothing held');
+    }
+    // A picture is not a sound, so a silence leaves it up and only a full stop promises it off.
+    for (const x of displays) {
+      const on = x.showing();
+      if (level === 'full') row(x.name, x.name, !on, on ? `shows the ${on}` : 'shows nothing');
+      else row(x.name, x.name, true, on ? `shows the ${on}, as a silence leaves it` : 'shows nothing');
     }
     const up = engines.filter((e) => e.up()).map((e) => e.name);
     // A silence leaves the engines warm on purpose; only a full stop promises them down.

@@ -246,7 +246,8 @@ export function startCamera(cam, { w = 1280, h = 720, fps = 30, bitrate = 1_500_
 // The board's side of the keyed room: joins, proves the key, runs the camera while a keyed viewer
 // watches. relay, room `<room>-cam`, key (empty: off), encoderBusy (the shader holds the encoder).
 // why: lessons/rig-board-io.md#camera-room
-export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy = () => false,
+// `held()` answers why another board user (the HDMI show, hdmi.mjs) holds the camera now, or ''.
+export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy = () => false, held = () => '',
   find = findCamera, start = startCamera, WS = globalThis.WebSocket, idleMs = CAM_IDLE_MS,
   size = {}, now = () => Date.now() } = {}) {
   if (!key) {
@@ -337,6 +338,8 @@ export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy
     if (cam) return;
     if (refusal && now() - refusal.at < 30_000) { say(refusal.msg); return; }
     refusal = null;
+    const h = held();
+    if (h) { say({ type: 'cam.refused', why: h }); return; }
     if (encoderBusy()) { say({ type: 'cam.refused', why: 'the hardware encoder is drawing the shader picture (/remote/shader-on-pi/), so the camera waits' }); return; }
     sweepStrayCameras((l) => log(`camera: ${l}`));
     const found = find();

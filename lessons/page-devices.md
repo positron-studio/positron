@@ -44,6 +44,12 @@ MEASURED against `demo/fake-board.mjs`, 2026-10-15, eight rows with the four ext
 
 The self check drives a board only on a relay on this machine (`relayOverride`), so `?selfcheck=1&board=1` without one cannot make the link on the real Pi. Against `demo/fake-board.mjs` it plays the stand-in keyboard with `fake.kbd.play` and reads back exactly what the stand-in Circuit was written: `90 3c 64 | 80 3c 00` on synth 1, `91 3e 5a | 81 3e 00` on synth 2, nothing for SysEx, clock and start, nothing after off. MEASURED 2026-10-15: 8 asserts alone, 12 against the stand-in, all green.
 
+## hdmi
+
+`/devices/hdmi/`, 2026-10-16: the Pi's HDMI0 screen (rig/board/hdmi.mjs, `lessons/rig-board-hdmi.md`). Play asks `hdmi.status` first, so a tab opened while the board already shows something turns play into stop; then `hdmi.show { source }` or `hdmi.stop`, each answered `hdmi.state`. The choice camera or pattern changes the source only while something shows. The picture draws `pi-1:camera` or `pi-1:pattern` into `pi-1:hdmi0` by `fbdev`, from what the board answers, never from the press. While a show runs the page asks `hdmi.status` every 3 s for the CPU cell; nothing is asked while the screen is off, and nothing on load.
+
+The self check never drives the Pi (only `board=1` on a relay on this machine may, and `demo/fake-board.mjs` does not know the hdmi verbs): it draws locally and grades the links. MEASURED 2026-10-16: 10/10 under `?selfcheck=1`, 8 of them the page's, and a visit contacted only the dev server.
+
 ## circuit
 
 `/devices/circuit/`, 2026-10-15: the Circuit's drums play the Pi's SuperCollider drums, heard in the tab over the relay (rig/board/circuit-drums.mjs, `lessons/rig-board-circuit-drums.md`). A new devices page rather than a mode on /drums/remote/: that page is a crossfade between a drum machine in the tab and the Pi with a simulated Pi behind it, and its sequencer link, scope and asserts would all have to learn a second source; this page is the /devices/keys/ pattern (a link the board holds, asked for on a press) plus the Pi's screen.

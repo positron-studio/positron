@@ -19,12 +19,10 @@ export const SCREENS = [
   { key: 'landscape', what: 'the scan landscape of /shader/landscape/, its own shader, dithered as the Pi dithers its camera', by: '/radio/scenery/, /shader/landscape/' },
   { key: 'shader', what: 'a shader preset in one bit dots, the presets taking turns', by: '/shader/mirror/, /shader/remote/' },
   { key: 'tuner', what: 'a dial, a mark per station, the needle moving between them', by: '/radio/tuner/' },
+  { key: 'tuner thin', what: 'the tuner with a thinner needle', by: '/radio/tuner/' },
   { key: 'piano roll', what: 'notes scrolling past a playhead', by: '/synth/recorder/, /synth/timeline/' },
   { key: 'keyboard', what: 'two octaves of empty keys, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
-  { key: 'keyboard wide', what: 'two octaves of empty keys, the black keys wider, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
-  { key: 'keyboard names', what: 'one octave, wider keys, the white keys named, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
   { key: 'grains', what: 'a waveform with a line where each grain reads', by: '/granulator/grains/, /granulator/beat/' },
-  { key: 'tempo', what: 'a waveform, a tick on each beat, a full line on each bar', by: '/radio/tempo/, /radio/live/' },
 ];
 
 const PATTERN = ['1000100010001000', '0000100000001000', '1010101010101010', '0000000000000010',
@@ -189,17 +187,20 @@ export function createScreens(ui) {
   };
   // the tuner: a scale of ticks, a taller mark per station, the needle gliding to the next station every 3 s
   const STATIONS = [0.08, 0.21, 0.36, 0.5, 0.63, 0.79, 0.92];
-  const tuner = (sf, t) => {
-    const y0 = Math.round(sf.h * 0.62), k = Math.floor(t / 3000), f = Math.min(1, (t % 3000) / 900), e = f * f * (3 - 2 * f);
+  const tuner = (sf, t, nw = 9) => {
+    // the full height: the scale at the foot, the stations half the height, the needle top to bottom
+    const y0 = sf.h - 5, k = Math.floor(t / 3000), f = Math.min(1, (t % 3000) / 900), e = f * f * (3 - 2 * f);
     for (let x = 4; x < sf.w - 4; x += 4) sf.fill(x, y0, 1, x % 16 === 0 ? 3 : 2);
     sf.fill(4, y0 + 3, sf.w - 8, 1);
-    for (const st of STATIONS) sf.fill(Math.round(4 + st * (sf.w - 8)), y0 - Math.round(sf.h * 0.18), 1, Math.round(sf.h * 0.18));
+    const mh = Math.round(sf.h * 0.5);
+    for (const st of STATIONS) sf.fill(Math.round(4 + st * (sf.w - 8)), y0 - mh, 1, mh);
     const a = STATIONS[k % STATIONS.length], b = STATIONS[(k + 1) % STATIONS.length], at = a + (b - a) * e;
     const nx = Math.round(4 + at * (sf.w - 8));
-    // the needle as the drum grid's running step: a frame 9 px wide, the ticks and marks under it showing inside
-    const top = 1, bot = y0 + 3, nw = 9, x = nx - 4;
+    // the needle as the drum grid's running step: a frame, the ticks and marks under it showing inside
+    const top = 0, bot = sf.h - 1, x = nx - Math.floor(nw / 2);
     sf.fill(x + 1, top, nw - 2, 1); sf.fill(x + 1, bot, nw - 2, 1); sf.fill(x, top + 1, 1, bot - top - 1); sf.fill(x + nw - 1, top + 1, 1, bot - top - 1);
   };
+  const tunerThin = (sf, t) => tuner(sf, t, 5);
   // piano roll: notes as bars scrolling left past a playhead a quarter in
   const ROLL = [[0, 4, 7], [2, 3, 5], [4, 2, 9], [6, 6, 3], [8, 4, 10], [10, 2, 6], [11, 3, 1], [13, 5, 8], [15, 2, 4]];
   const pianoRoll = (sf, t) => {
@@ -234,38 +235,21 @@ export function createScreens(ui) {
     }
   };
   const keyboard = (sf, t) => keys(sf, t, 2, false);
-  const keyboardWide = (sf, t) => keys(sf, t, 2, false, true);
-  const keyboardNames = (sf, t) => keys(sf, t, 1, true);
-  // a waveform's envelope as a mirrored outline, smooth, the shared ground for grains and tempo
-  const smooth = (x) => Math.sin(x * 0.05) * 0.6 + Math.sin(x * 0.017 + 1) * 0.4;
-  const envelope = (sf, scroll) => {
-    const mid = Math.floor(sf.h / 2);
-    for (let x = 0; x < sf.w; x++) {
-      const a = Math.round((Math.abs(smooth(x + scroll)) * 0.6 + 0.2) * (mid - 2));
-      sf.set(x, mid - a); sf.set(x, mid + a);
-    }
-  };
-  // grains as the web granulator draws them: the waveform as filled columns, every other pixel so it reads
-  // as grey, and each grain a line almost top to bottom with a black column either side so it stands out
+  // grains as the web granulator draws them: the waveform as columns, every other pixel so it reads as grey,
+  // each column's height a sound's peak (a slow swell times a jagged per-sample value tied to the sound, not
+  // the screen) scrolling past in whole pixels; each grain a line almost top to bottom, a black column either side
+  const peak = (n) => { const h = Math.sin(n * 12.9898) * 43758.5453; return h - Math.floor(h); };
   const grains = (sf, t) => {
-    const mid = Math.floor(sf.h / 2);
+    const mid = Math.floor(sf.h / 2), scroll = Math.floor(t / 50) * 2;
     for (let x = 0; x < sf.w; x += 2) {
-      const a = Math.round((Math.abs(smooth(x)) * 0.6 + 0.2) * (mid - 2));
+      const n = (x + scroll) / 2, swell = 0.35 + 0.65 * Math.abs(Math.sin(n * 0.07)) * (0.6 + 0.4 * Math.sin(n * 0.013));
+      const a = Math.max(1, Math.round(swell * (0.35 + 0.65 * peak(n)) * (mid - 1)));
       sf.fill(x, mid - a, 1, a * 2 + 1);
     }
     for (let g = 0; g < 8; g++) {
       const ph = (t / 2600 + g * 0.125) % 1, x = (Math.round((0.3 + ph * 0.4 + Math.sin(g * 2.1) * 0.08) * sf.w) | 1);
       for (let y = 0; y < sf.h; y++) { sf.set(x - 1, y, 0); sf.set(x + 1, y, 0); }
       sf.fill(x, 1, 1, sf.h - 2);
-    }
-  };
-  // tempo: a short tick at the top and bottom on each beat, a full line on each bar, scrolling in whole pixels
-  const tempo = (sf, t) => {
-    const beatPx = 16, scroll = Math.floor(t / 31.25);
-    envelope(sf, scroll);
-    for (let x = -(scroll % beatPx); x < sf.w; x += beatPx) {
-      const n = Math.round((x + scroll) / beatPx);
-      if (n % 4 === 0) sf.fill(x, 0, 1, sf.h); else { sf.fill(x, 0, 1, 3); sf.fill(x, sf.h - 3, 1, 3); }
     }
   };
   const surfaceFrame = (draw, t) => { const sf = createSurface(W, 64), f = new Uint8Array(1024); draw(sf, t); blit(f, sf, 0, 0); return f; };
@@ -281,12 +265,10 @@ export function createScreens(ui) {
     landscape: (t) => landscapeFull(t),
     shader: (t) => surfaceFrame(shader, t),
     tuner: (t) => surfaceFrame(tuner, t),
+    'tuner thin': (t) => surfaceFrame(tunerThin, t),
     'piano roll': (t) => surfaceFrame(pianoRoll, t),
     keyboard: (t) => surfaceFrame(keyboard, t),
-    'keyboard wide': (t) => surfaceFrame(keyboardWide, t),
-    'keyboard names': (t) => surfaceFrame(keyboardNames, t),
     grains: (t) => surfaceFrame(grains, t),
-    tempo: (t) => surfaceFrame(tempo, t),
     knobs: (t) => surfaceFrame(knobs, t),
   };
   // half: 128x32 surfaces, the same content made to fit
@@ -297,7 +279,7 @@ export function createScreens(ui) {
     steps: (s, t) => { drawDrums(s, { pattern: PATTERN.slice(0, 4), step: step(t), playing: true }); },
     camera: (s, t) => camera(s, t),
     scope: (s, t) => scope(s, t),
-    landscape, shader, tuner, 'piano roll': pianoRoll, keyboard, 'keyboard wide': keyboardWide, 'keyboard names': keyboardNames, grains, tempo, knobs,
+    landscape, shader, tuner: (sf, t) => tuner(sf, t), 'tuner thin': tunerThin, 'piano roll': pianoRoll, keyboard, grains, knobs,
   };
   return {
     /** One screen, `full` (the whole 128x64) or `half` (128x32, at `top` or bottom). */

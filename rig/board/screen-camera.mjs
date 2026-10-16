@@ -44,7 +44,7 @@ export function createFrameCutter(size, onFrame) {
  * renews `screen.camera { on: true }`, and draws every frame on the panel.
  * `panel()` the open panel or null; `cameraBusy()` true while camera.mjs streams the H.264 picture.
  */
-export function createScreenCamera({ relay, room, key, log = () => {}, panel = () => null, cameraBusy = () => false,
+export function createScreenCamera({ relay, room, key, log = () => {}, panel = () => null, cameraBusy = () => false, held = () => '',
   find = findCamera, spawnImpl = spawn, WS = globalThis.WebSocket, leaseMs = LEASE_MS, now = () => Date.now() } = {}) {
   if (!key) return { enabled: false, running: () => false, status: () => ({ enabled: false }), stop() {} };
   const FROM = `board-screen-${randomBytes(3).toString('hex')}`;
@@ -87,6 +87,8 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
 
   function begin() {
     if (proc) return;
+    const h = held();
+    if (h) { say({ type: 'screen.camera.refused', why: h }); return; }
     if (cameraBusy()) { say({ type: 'screen.camera.refused', why: 'the camera is streaming its picture to /remote/circuit/, so the screen waits' }); return; }
     const cam = find();
     if (!cam.ok) { log(`screen camera: ${cam.reason} (${cam.detail})`); say({ type: 'screen.camera.refused', why: cam.reason, detail: cam.detail }); return; }

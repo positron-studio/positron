@@ -33,6 +33,8 @@ export function graphOf(f) {
     ...(f.patches && typeof f.patches === 'object' ? { patches: f.patches } : {}),
     ...(f.drums && typeof f.drums === 'object' ? { drums: f.drums } : {}),
     sequencer: f.sequencer === true,
+    // A connected HDMI screen, asked every beat like an input's MIDI (hdmi.mjs `screens`).
+    screens: typeof f.screens === 'function' ? f.screens() : (Array.isArray(f.screens) ? f.screens : []),
   });
 }
 

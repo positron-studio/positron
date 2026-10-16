@@ -18,6 +18,7 @@ import { captureHolders } from './jacksynth.mjs';
 import { openPappus, CHARACTER_NAMES } from './pappus.mjs';
 import { startVideo, videoAvailable, sweepStrayEncoders, V3DPIPE } from './video.mjs';
 import { createCameraRoom, framePieces, findCamera } from './camera.mjs';
+import { createHdmi } from './hdmi.mjs';
 import { parseInputs, createInputs } from './inputs.mjs';
 import { createOutputs, outputFacts } from './outputs.mjs';
 import { createMainDirect } from './rtc.mjs';
@@ -671,6 +672,7 @@ async function handle(msg, replyVia = null) {
   if (drumSeq.handles(msg)) return drumSeq.handle(msg, reply).then(() => true);
   if (kbd.handles(msg)) return kbd.handle(msg, reply).then(() => true);
   if (cdrums.handles(msg)) return cdrums.handle(msg, reply).then(() => true);
+  if (hdmi.handles(msg)) return hdmi.handle(msg, reply).then(() => true);
   switch (msg.type) {
     // A page that joins late asks, and gets the beat now rather than up to five
     // seconds from now. The beat already carries the graph (`beat.mjs`), so the
@@ -1321,7 +1323,8 @@ function connect() {
                    drums: { circuit: DRUM_MAPS.circuit, drums: DRUM_MAPS.gm }, sequencer: true,
                    midiPresent: (port) => fsMod.existsSync(`/proc/asound/${port}`),
                    ...outputFacts({ pwm: HAS_PWM }),
-                   frameMs: 1000 * FRAME / RATE, gpu: videoAvailable(), camera: cameraFound };
+                   frameMs: 1000 * FRAME / RATE, gpu: videoAvailable(), camera: cameraFound,
+                   screens: () => hdmi.screens() };
     send(helloMsg({ name: NAME, id: BOARD_ID, backend: s.backend, ports: s.ports, dry: DRY, since,
                     frameMs: 1000 * FRAME / RATE, instruments, error: s.error, hint: s.hint, graphFacts,
                     direct: !!mainDirect?.direct, kbd: kbd.beat(), cdrums: cdrums.beat() }));
@@ -1452,6 +1455,7 @@ sweepStrayEncoders((l) => log('video:', l));
 const camera = (DRY || ONCE) ? null : createCameraRoom({
   relay: RELAY, room: `${ROOM}-cam`, key: process.env.BOARD_CAM_KEY || '',
   log: (l) => log(l), encoderBusy: () => !!video,
+  held: () => (hdmi.showing() === 'camera' ? 'the camera is on the Pi\'s HDMI screen (/devices/hdmi/), so it waits until hdmi.stop' : ''),
   size: {
     w: Math.min(Number(process.env.BOARD_CAM_W) || 1280, 1920),
     h: Math.min(Number(process.env.BOARD_CAM_H) || 720, 1080),
@@ -1464,7 +1468,14 @@ const camera = (DRY || ONCE) ? null : createCameraRoom({
 const screenCam = (DRY || ONCE) ? null : createScreenCamera({
   relay: RELAY, room: `${ROOM}-cam`, key: process.env.BOARD_CAM_KEY || '',
   log: (l) => log(l), panel: () => (screenTaken() ? null : panel), cameraBusy: () => !!camera?.running(),
+  held: () => (hdmi.showing() === 'camera' ? 'the camera is on the Pi\'s HDMI screen (/devices/hdmi/), so the OLED waits' : ''),
 });
+
+// The HDMI0 screen (hdmi.mjs): one show at a time into /dev/fb0, refused while camera.mjs or the
+// OLED's camera holds the camera, or another program holds the screen.
+const hdmi = createHdmi({ spawn, findCamera: () => findCamera(), log: (l) => log(l),
+  cameraBusy: () => (camera?.running() ? 'the camera is streaming its picture to /remote/circuit/, so the screen waits'
+    : screenCam?.running() ? 'the camera is on the Pi\'s OLED (/devices/camera/), so the screen waits' : '') });
 
 // Announce `pi-1:camera` only with a key and a camera found, asked once (findCamera spawns
 // synchronously).
@@ -1564,8 +1575,9 @@ stopper = createStop({
     },
   } : null,
   screen: { stopped: () => { if (panel) panel.text('all stopped\nengines down'); } },
+  displays: [{ name: 'hdmi', showing: () => hdmi.showing(), stop: () => hdmi.stop('the board stopped everything') }],
   log: (l) => log(l),
 });
 
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { drumSeq.stop(); kbd.stop(); cdrums.stop(); camera?.stop(); screenCam?.stop(); stopAudio(); collide.stop(); plaits.stop(); stopSampler(); hwInputs.close(); outs.close(); mainDirect?.close(); try { ws?.close(); } catch {} process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { drumSeq.stop(); kbd.stop(); cdrums.stop(); camera?.stop(); screenCam?.stop(); hdmi.stop('the board is stopping'); stopAudio(); collide.stop(); plaits.stop(); stopSampler(); hwInputs.close(); outs.close(); mainDirect?.close(); try { ws?.close(); } catch {} process.exit(0); });
 connect();
