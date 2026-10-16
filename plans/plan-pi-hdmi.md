@@ -90,7 +90,12 @@ top left. No install, no desktop, no browser. CPU not read. Then, asked *"yes"*:
 appended to /boot/firmware/cmdline.txt (backup cmdline.txt.bak-2026-10-16), `getty@tty1` disabled and stopped,
 reboot: KMS 1920x1080@60.00, fb0 1920x1080, the board service back. Full screen testsrc2 1920x1080 at 30 fps into
 fb0 as rgb565le: **82.7 % of one core, 130 MB rss, SoC 52.1 C, throttled=0x0**, 20 s, exit 0. Undo: the backup
-over cmdline.txt and `systemctl enable --now getty@tty1`. Next: the console aside (getty@tty1 stopped, cursor
+over cmdline.txt and `systemctl enable --now getty@tty1`. **The camera**, asked *"pi camera"*: the Logitech C925e on USB
+(`/dev/video0`, YUYV and MJPG; `rpicam-hello` lists no CSI camera), `ffmpeg -f v4l2 -input_format mjpeg -video_size
+1280x720 -framerate 30 -i /dev/video0 -vf scale=1920:1080 -pix_fmt rgb565le -f fbdev /dev/fb0`, 20 s, exit 0:
+**187 % of one core**, 133 MB rss, SoC 56.0 C. Software MJPEG decode, scale and 565 conversion; cheaper next: 1:1
+at 720p centred, the V4L2 hardware decoder, or the GPU path (way A). ffmpeg warns of repeated dts from the camera's
+timestamps, harmless to the picture. Next: the console aside (getty@tty1 stopped, cursor
 off), a 1920x1080@60 mode (`video=HDMI-A-1:1920x1080@60` on the kernel command line) so full screen is a quarter
 of the pixels, then real content.
 
