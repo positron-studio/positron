@@ -22,7 +22,7 @@ import { parseInputs, createInputs } from './inputs.mjs';
 import { createOutputs, outputFacts } from './outputs.mjs';
 import { createMainDirect } from './rtc.mjs';
 import { helloMsg, aliveMsg, graphOf } from './beat.mjs';
-import { jackRows } from '../../demo/shell/graph-registry.mjs';
+import { jackRows, PWM_PORTS } from '../../demo/shell/graph-registry.mjs';
 import { listJack, plan as jackPlan, apply as jackApply, canonical as jackCanonical, diff as jackDiff } from './jack.mjs';
 import { openPanel } from './panel.mjs';
 import { createSequencerService } from './sequencer.mjs';
@@ -30,6 +30,7 @@ import { createKeyboardService, rawMidiReader } from './keyboard.mjs';
 import { createCircuitDrumsService } from './circuit-drums.mjs';
 import { DRUM_MAPS } from '../../demo/shell/drum-maps.mjs';
 import { createScreenCamera } from './screen-camera.mjs';
+import { createManager, createHold, checkLines, HOLD_MS } from './manager.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import * as fsMod from 'node:fs';
 
@@ -352,8 +353,45 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const send = (msg) => { if (ws?.readyState === 1) { ws.send(format(msg, { from: FROM, seq: seq++ })); return true; } return false; };
 // The OLED and keys, when a screen answers (panel.mjs). A key is a message to the whole room.
 let panel = null;
-openPanel({ log: (l) => log(l), onKey: (k) => send({ type: 'panel.key', ...k, at: Date.now() }) })
-  .then((p) => { panel = p; }).catch((e) => log('panel: did not open:', e.message));
+// The patchbay manager (manager.mjs), made at the bottom of this file once every service it stops exists.
+let manager = null;
+// `*` held HOLD_MS is stop all (a silence); a bar fills along the bottom while it is held. Every edge still
+// reaches the room as `panel.key`; the release after a hold that fired carries `stopAll: true`.
+// why: lessons/rig-board-manager.md#hold
+const starHold = createHold({ onFire: () => stopFromKeys() });
+let starTick = null;
+function starKey(down) {
+  if (down) {
+    starHold.down(Date.now());
+    clearInterval(starTick);
+    starTick = setInterval(() => {
+      const p = starHold.tick(Date.now());
+      if (starHold.fired()) { clearInterval(starTick); starTick = null; return; }
+      panel?.bar(p);
+    }, 66);
+    starTick.unref?.();
+    return false;
+  }
+  clearInterval(starTick); starTick = null;
+  const r = starHold.up(Date.now());
+  panel?.bar(null);
+  return r.fired;
+}
+function stopFromKeys() {
+  panel?.bar(null);
+  if (!manager) { log('manager: * held, but the board is still starting'); return; }
+  log(`manager: * held ${HOLD_MS} ms on the Pi's keys, stop all (silence)`);
+  manager.stop({ level: 'silence', asked: 'keys' }).then((r) => {
+    const check = manager.check({ level: 'silence' });
+    panel?.text(`stopped\n${checkLines(check)}`);
+    log(`manager: check after the keys' stop ${check.ok ? 'all green' : `red: ${check.rows.filter((x) => x.ok === false).map((x) => `${x.key} (${x.said})`).join(', ')}`}`);
+    send({ type: 'manager.stopped', ...r, check, via: 'keys' });
+  }).catch((e) => log('manager: the stop from the keys threw:', e.message));
+}
+openPanel({ log: (l) => log(l), onKey: (k) => {
+  const fired = k.k === 4 ? starKey(k.down) : false;
+  send({ type: 'panel.key', ...k, ...(fired ? { stopAll: true } : {}), at: Date.now() });
+} }).then((p) => { panel = p; }).catch((e) => log('panel: did not open:', e.message));
 // The main socket's direct path (rtc.mjs `createMainDirect`), made at the
 // bottom of this file once node-datachannel has been asked for. Null until then.
 let mainDirect = null;
@@ -1221,6 +1259,17 @@ async function handle(msg, replyVia = null) {
       return answer({ ok: r.ok, applied: !DRY, held: had, rows: jr.rows, cut, kept: jr.rows.filter((x) => keep.has(k(x))),
                       steps: planned.steps, feeding: after ? feeding(after) : null });
     }
+    // The patchbay manager: stop all in its order (`level` silence or full, full by default) and the
+    // read only check, which a stop answers with too.
+    // why: lessons/rig-board-manager.md#verbs
+    case 'manager.stop': {
+      if (!manager) return reply('manager.stopped', { ok: false, why: 'the board is still starting' });
+      const r = await manager.stop({ level: msg.level ?? 'full', asked: msg.from ?? null });
+      return reply('manager.stopped', { ...r, check: r.steps ? manager.check({ level: r.level }) : null });
+    }
+    case 'manager.check':
+      if (!manager) return reply('manager.checked', { ok: false, why: 'the board is still starting' });
+      return reply('manager.checked', manager.check({ level: msg.level === 'silence' ? 'silence' : 'full' }));
     case 'outputs.status': return reply('outputs.status', { ok: true, pwm: HAS_PWM, clients: outs.status(), level: outs.level().db ?? null });
     case 'pwm.level': return reply('pwm.level', outs.level(msg.db));
     case 'jack.links': {
@@ -1477,6 +1526,46 @@ const outs = createOutputs({ pwm: HAS_PWM, spawn,
   run: (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), log: (...a) => log('output', ...a),
   jack: { ensure: () => ensureJackd({ onLog: (l) => log('output', l) }) } });
 if (!DRY && !ONCE && backend() === 'alsa') outs.start();
+
+// The manager calls the board's own verbs and the same calls `note.panic` and the SIGTERM handler make.
+// why: lessons/rig-board-manager.md#board
+const quiet = () => {};
+const circuitIn = () => hwInputs.get('circuit');
+manager = createManager({
+  sequencer: { stop: () => drumSeq.handle({ type: 'seq.stop', from: 'manager' }, quiet), running: () => drumSeq.core.running() },
+  keyboard: { release: () => kbd.handle({ type: 'kbd.unlink', from: 'manager' }, quiet), held: () => kbd.beat().held },
+  circuitDrums: { release: () => cdrums.handle({ type: 'cdrums.unlink', from: 'manager' }, quiet), held: () => cdrums.held() },
+  circuit: circuitIn()?.status().midi ? {
+    panic: () => { let n = 0; circuitIn()?.handle({ type: 'midi.panic' }, (type, body) => { n = body?.n ?? 0; }); return n; },
+    allOff: (ch) => { let why = ''; circuitSend([0xB0 | (ch - 1), 123, 0], (w) => { why = w || 'refused'; }); return why; },
+    held: () => circuitIn()?.status().midi?.held ?? null,
+  } : null,
+  engines: [
+    { name: 'instrument', up: () => !!(inst || stopSynth || audio), held: () => null, down: () => stopAudio(),
+      panic: () => { inst?.panic(); synth?.allOff(); if (fxOn) pappusPanic(); pap?.notes.panic(); } },
+    { name: 'collide', up: () => !!collide.core(), held: () => collide.core()?.stats().live ?? 0, panic: () => collide.core()?.panic(), down: () => collide.stop() },
+    { name: 'plaits', up: () => !!plaits.core(), held: () => plaits.core()?.stats().held ?? 0, panic: () => plaits.core()?.panic(), down: () => plaits.stop() },
+    { name: 'sampler', up: () => !!samp, held: () => null, panic: () => samp?.panic(), down: () => stopSampler() },
+  ],
+  jack: {
+    held: () => [...bayLinks.keys()],
+    unlink: async (link) => { let got = null; await handle({ type: 'jack.unlink', link, from: 'manager' }, (type, body) => { got = body; }); return got; },
+  },
+  // Anything still on the output after the board's own links are cut (a jack.apply, say) is cut too.
+  output: HAS_PWM ? {
+    ports: PWM_PORTS,
+    read: () => listJack(),
+    cut: () => {
+      const g = listJack();
+      const planned = jackPlan({ v: 1, own: PWM_PORTS.filter((p) => g.rows.some((r) => r.port === p)), links: [] }, g.rows);
+      if (!planned.ok) { log(`manager: the output could not be cut, ${planned.problems.join('; ')}`); return planned; }
+      log(`manager: cutting what was left on the output, ${planned.steps.map((x) => `${x.from} -> ${x.to}`).join(', ')}`);
+      return jackApply(planned, { dry: DRY });
+    },
+  } : null,
+  screen: { stopped: () => { if (panel) panel.text('all stopped\nengines down'); } },
+  log: (l) => log(l),
+});
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { drumSeq.stop(); kbd.stop(); cdrums.stop(); camera?.stop(); screenCam?.stop(); stopAudio(); collide.stop(); plaits.stop(); stopSampler(); hwInputs.close(); outs.close(); mainDirect?.close(); try { ws?.close(); } catch {} process.exit(0); });
 connect();

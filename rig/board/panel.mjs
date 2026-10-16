@@ -24,6 +24,19 @@ const hex = (b) => `0x${b.toString(16).padStart(2, '0')}`;
 const run = promisify(execFile);
 const write = (bytes) => run(T, ['-y', BUS, `w${bytes.length}@${ADDR}`, ...bytes.map(hex)]);
 
+/**
+ * A frame with the hold bar over its bottom two rows (page 7, bits 6 and 7), `share` 0 to 1 of the width,
+ * on a copy so the mode's own frame is untouched. `null` is no bar.
+ * why: lessons/rig-board-manager.md#bar
+ */
+export function withBar(fb, share) {
+  if (share == null) return fb;
+  const out = Uint8Array.from(fb);
+  const w = Math.round(128 * Math.max(0, Math.min(1, share)));
+  for (let x = 0; x < w; x++) out[7 * 128 + x] |= 0xC0;
+  return out;
+}
+
 /** The panel, or null when no screen answers. `onKey({ k, sym, gpio, down })`. */
 export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
   if (!existsSync(T) || !existsSync(WASM) || !existsSync(LAYOUT)) { log('panel: no i2ctransfer, oled-ui.wasm or panel-screen.mjs, no screen'); return null; }
@@ -44,7 +57,7 @@ export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
 
   const { createRings } = await import(RINGS.href);
   const rings = createRings();
-  const state = { text: '', held: new Set(), shown: 0, layoutAt: 0, mode: 'text', frameMs: 0 };
+  const state = { text: '', held: new Set(), shown: 0, layoutAt: 0, mode: 'text', frameMs: 0, bar: null };
   // One draw at a time; a change during a draw is drawn once it ends.
   let busy = false, again = false;
   async function draw() {
@@ -58,7 +71,7 @@ export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
           : state.mode === 'steps' ? { mode: 'steps', steps: state.steps } : { text: state.text, held: [...state.held] });
       // the whole frame in one transfer: the window, then 1024 bytes
       await write([0x00, 0x21, 0, 127, 0x22, 0, 7]);
-      await write([0x40, ...fb]);
+      await write([0x40, ...withBar(fb, state.bar)]);
       state.shown++;
       state.frameMs = Date.now() - t0;
     } catch (e) {
@@ -146,7 +159,14 @@ export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
       state.mode = 'raw'; state.raw = bytes; draw();
       return state.shown;
     },
-    status: () => ({ mode: state.mode, text: state.text, held: [...state.held], shown: state.shown, layoutAt: state.layoutAt, frameMs: state.frameMs }),
+    /** The hold bar, 0 to 1, over whatever mode is showing; `null` takes it away. */
+    bar(share) {
+      const v = share == null ? null : Math.max(0, Math.min(1, Number(share) || 0));
+      if (v === state.bar) return state.shown;
+      state.bar = v; draw();
+      return state.shown;
+    },
+    status: () => ({ mode: state.mode, text: state.text, held: [...state.held], shown: state.shown, layoutAt: state.layoutAt, frameMs: state.frameMs, bar: state.bar }),
     close() { mon?.kill(); write([0x00, 0xAE]).catch(() => {}); },
   };
 }
