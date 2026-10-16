@@ -79,6 +79,17 @@ started on that connector, as a JACK link is a connection.
 4. Way A for the shader.
 5. The `hdmi0` and `hdmi1` nodes in `boardGraph`, and a `/devices/` page.
 
+## 5b. Measured 2026-10-16
+
+A 4K screen on HDMI0: `card1-HDMI-A-1 connected`, HDMI-A-2 disconnected; KMS runs it at 3840x2160@30 (kmsprint),
+and `/dev/fb0` is 3840x2160 at 16 bit (RGB565), writable by the board's user (group video). The console takes it
+at boot (`console=tty1` on the command line), so the screen shows the login prompt. **First picture**:
+`ffmpeg -re -f lavfi -i testsrc2=size=1280x720:rate=25 -pix_fmt rgb565le -f fbdev -xoffset 1280 -yoffset 720 /dev/fb0`
+drew the moving test pattern centred on the screen, photographed by the owner at 00:00:14, the login text still
+top left. No install, no desktop, no browser. CPU not read. Next: the console aside (getty@tty1 stopped, cursor
+off), a 1920x1080@60 mode (`video=HDMI-A-1:1920x1080@60` on the kernel command line) so full screen is a quarter
+of the pixels, then real content.
+
 ## 6. What could not be settled here
 
 Everything on the board: whether the screen is detected after boot or needs
