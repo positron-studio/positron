@@ -1,4 +1,4 @@
-// demo/devices/control/screens.mjs: the Pi's five OLED screens, each in a full (128x64) and a half (128x32)
+// demo/devices/control/screens.mjs: the Pi's OLED screens, each in a full (128x64) and a half (128x32)
 // version, simulated. Full versions use the board's own renderer (oled-ui.wasm) where it has the mode;
 // half versions draw on a 128x32 surface. Nothing names a screen on the screen itself.
 
@@ -16,6 +16,13 @@ export const SCREENS = [
   { key: 'knobs16', what: 'sixteen sliders, the fills only', by: 'new, not on the Pi yet' },
   { key: 'knobs fill', what: 'eight sliders as fills alone, no outline', by: 'new, not on the Pi yet' },
   { key: 'knobs line', what: 'eight sliders as an outline that rises to the value, no fill', by: 'new, not on the Pi yet' },
+  { key: 'landscape', what: 'a horizon scrolling past, its height from the sound', by: '/radio/scenery/, /shader/landscape/' },
+  { key: 'shader', what: 'a shader preset in one bit dots, the presets taking turns', by: '/shader/mirror/, /shader/remote/' },
+  { key: 'tuner', what: 'a dial, a mark per station, the needle moving between them', by: '/radio/tuner/' },
+  { key: 'piano roll', what: 'notes scrolling past a playhead', by: '/synth/recorder/, /synth/timeline/' },
+  { key: 'keyboard', what: 'two octaves, the keys held drawn pressed', by: '/synth/keyboard/, /code/piano/' },
+  { key: 'grains', what: 'a waveform with a line where each grain reads', by: '/granulator/grains/, /granulator/beat/' },
+  { key: 'tempo', what: 'a waveform with a line on each beat, the bar line longer', by: '/radio/tempo/, /radio/live/' },
 ];
 
 const PATTERN = ['1000100010001000', '0000100000001000', '1010101010101010', '0000000000000010',
@@ -114,6 +121,95 @@ export function createScreens(ui) {
     wire(seq, drums, true, 0); wire(circ, drums, true, 1); wire(mk, plaits, true, 2);
     wire(drums, pwm, false, 3); wire(plaits, pwm, false, 4);
   };
+  // a bumpy value, the same at any width: two slow sines and a faster one
+  const hill = (x, t, k = 1) => Math.sin(x * 0.045 * k + t / 2400) * 0.5 + Math.sin(x * 0.11 * k - t / 1700) * 0.3 + Math.sin(x * 0.27 * k + t / 900) * 0.2;
+  const landscape = (sf, t) => {
+    const off = t / 40;
+    for (let x = 0; x < sf.w; x++) {
+      const y = Math.round(sf.h * 0.55 - hill(x + off, 0) * sf.h * 0.3);
+      sf.set(x, y);
+      for (let yy = y + 2; yy < sf.h; yy += 2) if ((x + yy) % 4 === 0) sf.set(x, yy);
+    }
+  };
+  // shader presets taking turns every 4 s, as /shader/mirror/ steps its looks
+  const shader = (sf, t) => {
+    const which = Math.floor(t / 4000) % 3, u = t / 1000;
+    for (let y = 0; y < sf.h; y++) for (let x = 0; x < sf.w; x++) {
+      const nx = x / sf.h, ny = y / sf.h;
+      const v = which === 0 ? Math.sin(nx * 6 + u) + Math.sin(ny * 7 - u * 1.3) + Math.sin((nx + ny) * 5 + u * 0.7)
+        : which === 1 ? Math.sin(Math.hypot(nx - sf.w / sf.h / 2, ny - 0.5) * 18 - u * 3) * 2
+          : Math.sin(nx * 14 + Math.sin(ny * 6 + u) * 2) * 2;
+      if ((v + 3) / 6 * 16 > BAYER[(y & 3) * 4 + (x & 3)]) sf.set(x, y);
+    }
+  };
+  // the tuner: a scale of ticks, a taller mark per station, the needle gliding to the next station every 3 s
+  const STATIONS = [0.08, 0.21, 0.36, 0.5, 0.63, 0.79, 0.92];
+  const tuner = (sf, t) => {
+    const y0 = Math.round(sf.h * 0.62), k = Math.floor(t / 3000), f = Math.min(1, (t % 3000) / 900), e = f * f * (3 - 2 * f);
+    for (let x = 4; x < sf.w - 4; x += 4) sf.fill(x, y0, 1, x % 16 === 0 ? 3 : 2);
+    sf.fill(4, y0 + 3, sf.w - 8, 1);
+    for (const st of STATIONS) sf.fill(Math.round(4 + st * (sf.w - 8)), y0 - Math.round(sf.h * 0.18), 1, Math.round(sf.h * 0.18));
+    const a = STATIONS[k % STATIONS.length], b = STATIONS[(k + 1) % STATIONS.length], at = a + (b - a) * e;
+    const nx = Math.round(4 + at * (sf.w - 8));
+    sf.fill(nx - 1, 1, 3, y0 + 3);
+  };
+  // piano roll: notes as bars scrolling left past a playhead a quarter in
+  const ROLL = [[0, 4, 7], [2, 3, 5], [4, 2, 9], [6, 6, 3], [8, 4, 10], [10, 2, 6], [11, 3, 1], [13, 5, 8], [15, 2, 4]];
+  const pianoRoll = (sf, t) => {
+    const px = 6, beats = 16, span = beats * px, off = (t / 125) * (px / 2) % span, ph = Math.round(sf.w / 4), rh = Math.max(2, Math.floor(sf.h / 12));
+    for (let rep = -1; rep < 3; rep++) for (const [st, len, row] of ROLL) {
+      const x = Math.round(st * px + rep * span - off), y = sf.h - 1 - (row + 1) * rh;
+      sf.fill(x, y, len * px - 1, rh - 1);
+    }
+    for (let y = 0; y < sf.h; y += 2) sf.set(ph, y);
+  };
+  // the keyboard: two octaves, white keys as outlines, black ones filled; a held white key filled, a held black one hollow
+  const WHITE = [0, 2, 4, 5, 7, 9, 11], BLACK = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+  const keyboard = (sf, t) => {
+    const k = Math.floor(t / 900), chord = [[0, 4, 7], [5, 9, 12], [7, 11, 14], [9, 12, 16]][k % 4].map((n) => n + (k % 8 >= 4 ? 1 : 0));
+    const held = new Set(chord), ww = Math.floor(sf.w / 14), x0 = Math.floor((sf.w - ww * 14) / 2), h = sf.h - 1, bh = Math.round(h * 0.6);
+    for (let o = 0; o < 2; o++) WHITE.forEach((n, i) => {
+      const x = x0 + (o * 7 + i) * ww, on = held.has(o * 12 + n);
+      sf.fill(x, 0, 1, h); sf.fill(x, h - 1, ww, 1);
+      // held: filled below the black keys, where a finger presses a white key
+      if (on) sf.fill(x + 2, bh + 2, ww - 3, h - bh - 4);
+    });
+    sf.fill(x0 + ww * 14, 0, 1, h);
+    for (let o = 0; o < 2; o++) for (const [n, wi] of Object.entries(BLACK)) {
+      const x = x0 + (o * 7 + wi) * ww + Math.round(ww * 0.65), bw = Math.max(3, Math.round(ww * 0.6)), on = held.has(o * 12 + Number(n));
+      for (let yy = 0; yy < bh; yy++) for (let xx = 0; xx < bw; xx++) {
+        const edge = xx === 0 || xx === bw - 1 || yy === bh - 1;
+        sf.set(x + xx, yy, on ? edge : 1);
+        if (on && !edge) sf.set(x + xx, yy, 0);
+      }
+    }
+  };
+  // a waveform's envelope drawn as a mirrored outline, the shared ground for grains and tempo
+  const envelope = (sf, t, scroll) => {
+    const mid = Math.floor(sf.h / 2);
+    for (let x = 0; x < sf.w; x++) {
+      const v = Math.abs(hill(x + scroll, t, 1.7)) * 0.7 + 0.15, a = Math.round(v * (mid - 1));
+      sf.set(x, mid - a); sf.set(x, mid + a);
+      if (x % 2 === 0) sf.set(x, mid);
+    }
+  };
+  const grains = (sf, t) => {
+    envelope(sf, 0, 0);
+    // twelve grains, each a short line at where it reads, drifting forward and spreading a little
+    for (let g = 0; g < 12; g++) {
+      const ph = (t / 2600 + g * 0.083) % 1, x = Math.round((0.3 + ph * 0.4 + Math.sin(g * 2.1) * 0.08) * sf.w);
+      const len = Math.round(sf.h * (0.25 + 0.35 * Math.sin(ph * Math.PI)));
+      sf.fill(x, Math.floor((sf.h - len) / 2), 1, len);
+    }
+  };
+  const tempo = (sf, t) => {
+    const beatPx = 16, scroll = t / 31.25;
+    envelope(sf, t, scroll);
+    for (let x = -((scroll % beatPx) | 0); x < sf.w; x += beatPx) {
+      const n = Math.round((x + scroll) / beatPx), bar = n % 4 === 0;
+      if (bar) sf.fill(x, 0, 1, sf.h); else for (let y = Math.round(sf.h * 0.2); y < sf.h * 0.8; y += 2) sf.set(x, y);
+    }
+  };
   const surfaceFrame = (draw, t) => { const sf = createSurface(W, 64), f = new Uint8Array(1024); draw(sf, t); blit(f, sf, 0, 0); return f; };
   const full = {
     // The board's text screen draws the four key symbols down its right edge; here only the text.
@@ -128,6 +224,13 @@ export function createScreens(ui) {
     knobs16: (t) => surfaceFrame(knobs16, t),
     'knobs fill': (t) => surfaceFrame(knobsFill, t),
     'knobs line': (t) => surfaceFrame(knobsLine, t),
+    landscape: (t) => surfaceFrame(landscape, t),
+    shader: (t) => surfaceFrame(shader, t),
+    tuner: (t) => surfaceFrame(tuner, t),
+    'piano roll': (t) => surfaceFrame(pianoRoll, t),
+    keyboard: (t) => surfaceFrame(keyboard, t),
+    grains: (t) => surfaceFrame(grains, t),
+    tempo: (t) => surfaceFrame(tempo, t),
   };
   // half: 128x32 surfaces, the same content made to fit
   const half = {
@@ -141,6 +244,7 @@ export function createScreens(ui) {
     knobs16: (s, t) => knobs16(s, t),
     'knobs fill': (s, t) => knobsFill(s, t),
     'knobs line': (s, t) => knobsLine(s, t),
+    landscape, shader, tuner, 'piano roll': pianoRoll, keyboard, grains, tempo,
   };
   return {
     /** One screen, `full` (the whole 128x64) or `half` (128x32, at `top` or bottom). */
