@@ -28,3 +28,29 @@ Track Pro's, so pitch sits about 3 cents flat and wanders while its ratio settle
 62 ms (jackd 512 x 3 plus alsa_out's own buffer). Fine for monitoring and checks, not for recording in tune.
 Not measured: a longer take (does the pitch settle at 1000.0), the input gain, frequency response, the 1 kHz
 line's source.
+
+## HDMI sound, the same day, through an audio extractor into input 1
+
+Asked: *"hdmi2 on pi is going throug audio extractor and to ftpro input 1"*. HDMI-A-2 reads connected; its ELD
+reads `monitor_name MS-HDMI-RX`, one SAD: LPCM, 2 channels, 32 to 192 kHz, 16/20/24 bit, so **the Pi sees the
+extractor as a sink that takes sound, with no screen behind it**. The tone was played straight to ALSA
+(`ffmpeg ... aevalsrc=0.5*sin(2*PI*1000*t) -f alsa hdmi:CARD=vc4hdmi1,DEV=0`, no JACK, no resampler); the round
+trip through a temporary `alsa_out -j hdmi1 -d hdmi:CARD=vc4hdmi1,DEV=0` bridge. ALSA card numbers moved today
+(vc4hdmi1 is card 8): resolve by name.
+
+| measure | HDMI, input 1 | PWM, input 2 |
+| --- | --- | --- |
+| floor | -55.2 dBFS rms (peak -36.9) | -62.2 |
+| hum 50 / 100 / 150 Hz | **-83.0 / -107.1 / -81.0 dBFS** | -109.6 / -119.8 / -115.0 |
+| 1 kHz line in the floor | -69.0 dBFS | -76.0 |
+| tone, sent at -9.0 dBFS rms | -4.3 dBFS (+4.7 dB) | -9.4 |
+| THD 2 to 10 | **0.070 % (-63.1 dB)**; 3rd -66.1, 4th -71.0, 2nd -80.0 | 0.18 % |
+| THD+N, 0.1 s slices | 0.31 to 0.62 %, two slices 0.86 and 0.98 % | 0.33 to 0.54 % |
+| pitch | **1000.20 Hz, steady** (+199 ppm, the two clocks) | 998.15 Hz, drifting |
+| round trip through a JACK bridge | **38.3 to 38.4 ms** | 61.6 to 62.0 ms |
+
+**Reading.** HDMI is the cleaner output by distortion (a third of PWM's) and, played straight to ALSA, keeps a
+steady pitch; through a JACK bridge its round trip is 24 ms shorter. It brings about 25 dB more hum at 50 and
+150 Hz, likely a ground loop through the HDMI cable and the extractor. Input 1 appears to have more gain than
+input 2 (+4.7 dB on the tone; BACKLOG records the Circuit clipping on input 1), which also lifts its floor, so
+the floors are not a fair comparison. Not measured: the same input for both, a longer take, the hum's source.
