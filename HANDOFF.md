@@ -1,3 +1,28 @@
+# Handoff, 2026-10-16, session 81: the Väin cast runs in a Container and went on air on their radio1965
+
+## Where it is right now
+
+- **Site: BUILD `d5c43eeb-195454-d4f3`**, confirmed on the edge. Commits this session: `b414acb2` (container), `d5c43eeb` (radio1965 target, page fixes), `10d88e46` (card text). GitHub: not pushed.
+- **Cast worker `positron-cast` version `5ebfafa4`** at https://cast.positron.studio. Secrets: `CAST_KEY`, `TEST_PW`, and now **`VAIN_SOURCE_PW`** (the owner set it with `wrangler secret put`, value read from `~/personal/radio1965/app/icecastbroadcaster.cpp` `ICECAST_PASSWORD`; it is not in any file here).
+- **Nothing is casting.** All six targets read `onAir: false` at 19:53Z.
+- **The M1 (`ssh mbp`, 192.168.1.241)** has Qt 6.12.0 from brew and two builds of Väin at `~/build/radio1965-preview` and `~/build/radio1965-full` (`open ~/build/radio1965-full/appradio65.app`). The full one needs `PKG_CONFIG_PATH=~/build/radio1965-full/pkgconfig` on a fresh configure (a hand-written `libmp3lame.pc`). Both were left open. brew's cleanup removed old kegs and caches there (libx11 1.8.6, tesseract 5.2.0, a 214 MB claude-code cache).
+
+## Väin cast (deadline Üle Heli 2026-10-25)
+
+- **Permission:** Raul (ECCM) answered, forwarded by the owner: *"Tsau, jah võib saata ükskõik kuhu userisse"*, then *"/radio1965 on parem, see automaatselt ei salvesta. On praegu vaba"*. So **radio1965 is our mount**. Their on-connect hook (`server/icecast_on_connect.sh`) forces no notification and no recording on radio1965 and still publishes a `livestream` event (a card in the app) on every connect.
+- **First real cast, measured:** on air on `live.uuu.ee:8001/radio1965` 19:51:48 to 19:52:50 UTC, lag -1.8 s (the 2 s lead), container up in 827 ms. The password in their repo is current.
+- **The source runs in a Container** (`workers/cast/container/server.mjs`, node:22-alpine, `{ vcpu: 0.25, memoryMib: 1024, diskMb: 2048 }`, about 80 MB used). `Caster` is control only: `want`, `progress`, `deaths`, `boot` in DO storage, an alarm every 30 s, restart from the last progress. Deploy needs wrangler 4.148 from `rig/containers-next` (`node workers/cast/deploy.mjs` does it).
+  - Measured into our own receiver: on air past 30 min at lag about -2 s; mean -22.2 dB against a -91 dB silence control; boot 8.9 s after an image push, 0.5 to 1.7 s otherwise; a deliberate kill back on air in 2.3 s (about 11 s replayed, progress is saved every 30 s). The first kill took 123 s because a start after destroy never listened; boot now retries.
+  - Our `Rx` (a DO) restarted twice by itself and needed a WebSocket ingest, because the edge holds a streamed PUT body until it ends. `lessons/workers-cast.md` has it.
+- **The page:** https://positron.studio/radio/cast/?key=<CAST_KEY> once, then plain. Opens on `radio1965`, switches target while anything is on air, ignores another target's status, the native player shows only for `test`.
+- **To ask Tarmo still:** who answers while he is in Italy; whether their app keeps playing with a web page open (the pad). **Raise privately:** source passwords in their public repo, `POST /events/publish` takes no credential, RTMP takes any key, the shelved "Positron Radio Demo" event points at a 404.
+
+## Next, asked and not done (BACKLOG.md)
+
+- **Our own player** (*"test receiver is a mess adn the web audio player. can you not make your own player"*): a kit transport instead of `<audio controls>`. Their mounts are plain http, so an https page needs a proxy through cast.positron.studio (one upstream per mount, the `workers/shout` rule) to play them. Decide whether `test` stays on the page.
+- **A key box on the page:** started, stopped by the owner, not built.
+- **Stage 1 mixing** (crossfades, tuning noise) and **the audience pad**, `plans/plan-vain-cast-processing.md`.
+
 # Handoff, 2026-10-16, session 80: Pi HDMI (camera, OLED mirror, fps), PWM and HDMI sound measured, Väin cast in Cloudflare
 
 ## Where it is right now
