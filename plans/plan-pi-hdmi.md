@@ -95,7 +95,18 @@ over cmdline.txt and `systemctl enable --now getty@tty1`. **The camera**, asked 
 1280x720 -framerate 30 -i /dev/video0 -vf scale=1920:1080 -pix_fmt rgb565le -f fbdev /dev/fb0`, 20 s, exit 0:
 **187 % of one core**, 133 MB rss, SoC 56.0 C. Software MJPEG decode, scale and 565 conversion; cheaper next: 1:1
 at 720p centred, the V4L2 hardware decoder, or the GPU path (way A). ffmpeg warns of repeated dts from the camera's
-timestamps, harmless to the picture. Next: the console aside (getty@tty1 stopped, cursor
+timestamps, harmless to the picture. Then, 15 s each, CPU read at 8 s:
+
+| camera 1280x720 MJPEG at 30 fps into fb0 | one core |
+| --- | --- |
+| scaled to 1920x1080, default (bicubic) | 187 % |
+| scaled, `flags=fast_bilinear` | 97.6 % |
+| scaled, `flags=neighbor` | 103 % |
+| **1:1, 1280x720 centred** (`-xoffset 320 -yoffset 180`), no scale | **48.4 %** |
+
+The owner saw the 1:1 picture work. The scale is most of the cost; this ffmpeg has no `mjpeg_v4l2m2m` decoder, so
+hardware decode is not a route here. Full screen cheaply is the GPU path (way A): the GPU scales, the CPU only
+decodes. Next: the console aside (getty@tty1 stopped, cursor
 off), a 1920x1080@60 mode (`video=HDMI-A-1:1920x1080@60` on the kernel command line) so full screen is a quarter
 of the pixels, then real content.
 
