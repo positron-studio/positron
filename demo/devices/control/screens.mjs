@@ -205,9 +205,9 @@ export function createScreens(ui) {
     const px = 6, beats = 16, span = beats * px, off = (t / 125) * (px / 2) % span, ph = Math.round(sf.w / 4), rh = Math.max(2, Math.floor(sf.h / 12));
     for (let rep = -1; rep < 3; rep++) for (const [st, len, row] of ROLL) {
       const x = Math.round(st * px + rep * span - off), y = sf.h - 1 - (row + 1) * rh, w = len * px - 1, h = rh - 1;
-      // each note an outline, empty inside, the corner pixels off; a note too short to hollow stays a line
+      // each note an outline with square corners, empty inside; a note too short to hollow stays a line
       if (h < 3) sf.fill(x, y, w, h);
-      else { sf.fill(x + 1, y, w - 2, 1); sf.fill(x + 1, y + h - 1, w - 2, 1); sf.fill(x, y + 1, 1, h - 2); sf.fill(x + w - 1, y + 1, 1, h - 2); }
+      else { sf.fill(x, y, w, 1); sf.fill(x, y + h - 1, w, 1); sf.fill(x, y + 1, 1, h - 2); sf.fill(x + w - 1, y + 1, 1, h - 2); }
     }
     for (let y = 0; y < sf.h; y += 2) sf.set(ph, y);
   };
