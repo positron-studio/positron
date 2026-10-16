@@ -35,18 +35,19 @@
   const d = mount({ name: 'Circuit on Pi screen', what: '', readout: null, index: '/', indexLabel: 'positron' });
   conceptNav('devices/knobs');
 
-  // Ten columns, gap 2, so a three digit value fits: volume on the left, eight in the centre, filter right.
+  // The Pi screens' knobs size, twelve columns, gap 3, values 0 to 99: the eight on the left, the empty volume
+  // column, then the filter; the last two stay empty.
   // The Circuit's VOLUME knob is not drawn: whether it sends MIDI at all is not measured. To add it once it
-  // is, give column 0 `{ id: 'vol', name: 'VO', ch, cc }` in each view below.
-  const COLS = 10, VOL = 0;
+  // is, give column 8 `{ id: 'vol', name: 'VO', ch, cc }` in each view below.
+  const COLS = 12, VOL = 8;
   const FILTER = { id: 'fi', name: 'FI', ch: '16', cc: 74, how: 'measured' };
   const macros = (midi) => Array.from({ length: 8 }, (_, i) => ({ id: `m${i + 1}`, name: `M${i + 1}`, ch: '1/2', midi, cc: 80 + i, how: midi === 1 ? 'measured' : 'Reference' }));
   const drum = (n, what, letter) => ({ id: `d${n}${letter}`, name: `${n}${letter}`, ch: '10',
     cc: onChannel('10').find((p) => p.name === `drum ${n} ${what}`).cc, how: 'Reference' });
   const VIEWS = [
-    { key: 'synth 1', cols: [null, ...macros(1), FILTER] },
-    { key: 'synth 2', cols: [null, ...macros(2), FILTER] },
-    { key: 'drums', cols: [null, ...[1, 2, 3, 4].flatMap((n) => [drum(n, 'level', 'L'), drum(n, 'pitch', 'P')]), null] },
+    { key: 'synth 1', cols: [...macros(1), null, FILTER, null, null] },
+    { key: 'synth 2', cols: [...macros(2), null, FILTER, null, null] },
+    { key: 'drums', cols: [...[1, 2, 3, 4].flatMap((n) => [drum(n, 'level', 'L'), drum(n, 'pitch', 'P')]), null, null, null, null] },
   ];
   // each knob's own slow drift, a phase and a period from its place, 0 to 127
   const valueOf = (vi, i, t) => Math.round(63.5 + 50 * Math.sin(t / (5000 + i * 900 + vi * 1300) + i * 1.7 + vi));
@@ -56,7 +57,7 @@
   let at = 0, lastFrame = null;
   const top = (vi, t) => {
     const sf = createSurface(W, 32);
-    const geo = drawSliders(sf, VIEWS[vi].cols.map((c, i) => c && { v: valueOf(vi, i, t) / 127, name: c.name, value: String(valueOf(vi, i, t)) }), { gap: 2 });
+    const geo = drawSliders(sf, VIEWS[vi].cols.map((c, i) => c && { v: valueOf(vi, i, t) / 127, name: c.name, value: String(Math.round(valueOf(vi, i, t) / 127 * 99)) }), { gap: 3 });
     return { sf, geo };
   };
   const bottom = (t) => { const sf = createSurface(W, 32); drawDrums(sf, { pattern: PATTERN, step: step(t), playing: true }); return sf; };
@@ -96,7 +97,7 @@
     { view: 'synth 2', knobs: 'FI, master filter', cc: '74', ch: '16', how: 'measured', top: 1 },
     ...['level', 'pitch'].map((what) => ({ view: 'drums', knobs: `1${what[0].toUpperCase()} to 4${what[0].toUpperCase()}, drum ${what}`,
       cc: VIEWS[2].cols.filter((c) => c?.name.endsWith(what[0].toUpperCase())).map((c) => c.cc).join(', '), ch: '10', how: 'Reference', top: 2 })),
-    { view: 'any', knobs: 'VO, master volume, the empty left column', cc: 'not drawn', ch: '', how: 'not measured', top: -1 },
+    { view: 'any', knobs: 'VO, master volume, the empty column before FI', cc: 'not drawn', ch: '', how: 'not measured', top: -1 },
     { view: 'grid', knobs: 'drums 1 to 4, 16 steps', cc: 'notes 60, 62, 64, 65', ch: '10', how: 'measured', top: -2 },
   ];
   function label() {
@@ -141,8 +142,8 @@
       && after.some((v, i) => v !== before[i]) && say.textContent.startsWith(`top ${VIEWS[at].key}`));
     keys.button('up').click();
     d.assert('up brings the first view back', at === was);
-    // negative control: the volume column is empty in every view, while M1 beside it is drawn
-    const { geo } = top(0, 1000), vol = geo[VOL], m1 = geo[1];
+    // negative control: the volume column is empty in every view, while M1 is drawn
+    const { geo } = top(0, 1000), vol = geo[VOL], m1 = geo[0];
     let empty = true;
     for (let vi = 0; vi < VIEWS.length; vi++) if (lit(compose(1000, { only: 'top', view: vi }), 0, 32, vol.x, vol.x + vol.w)) empty = false;
     d.assert('the volume column is not drawn, since its MIDI is not measured', COLS === VIEWS[0].cols.length && empty
