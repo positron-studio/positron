@@ -18,10 +18,10 @@ const FEED_HOSTS = new Set(['eccm.ee', 'uuu.ee', 'www.uuu.ee']);
 const CAST_INSTANCE = { vcpu: 0.25, memoryMib: 1024, diskMb: 2048 };
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 
-/** Where each target sends: our receiver, or one of Väin's user channels once a password is set. */
+/** Where each target sends: our receiver, or one of Väin's mounts (radio1965 never records or notifies, their on-connect hook). */
 function targets(env) {
   const t = { test: { kind: 'ws', url: 'wss://cast.positron.studio/ingest/test', mount: 'test', label: 'our test receiver', pw: env.TEST_PW || '' } };
-  for (const n of [1, 2, 3, 4]) t[`user${n}`] = { kind: 'icecast', host: 'live.uuu.ee', port: 8001, mount: `user${n}`, label: `Väin user${n}`, pw: env.VAIN_SOURCE_PW || '' };
+  for (const m of ['radio1965', 'user1', 'user2', 'user3', 'user4']) t[m] = { kind: 'icecast', host: 'live.uuu.ee', port: 8001, mount: m, label: `Väin ${m}`, pw: env.VAIN_SOURCE_PW || '' };
   return t;
 }
 

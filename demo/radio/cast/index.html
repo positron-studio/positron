@@ -36,8 +36,8 @@
 
   // ── the patch: their archive, the caster in Cloudflare, the mount it plays into ──
   // [label, value], as createChoice takes them
-  const TARGETS = [['test receiver', 'test'], ['user1', 'user1'], ['user2', 'user2'], ['user3', 'user3'], ['user4', 'user4']];
-  let target = 'test';
+  const TARGETS = [['radio1965', 'radio1965'], ['test receiver', 'test'], ['user1', 'user1'], ['user2', 'user2'], ['user3', 'user3'], ['user4', 'user4']];
+  let target = 'radio1965';
   const bay = createBay();
   bay.addNode({ id: 'vain:archive', kind: 'external', label: 'Väin archive', place: 'eccm.ee' });
   bay.addNode({ id: 'cf-cast:caster', kind: 'endpoint', label: 'caster', place: 'cloudflare', net: 'cloudflare' });
@@ -47,7 +47,7 @@
   bay.addPort({ id: 'cf-cast:caster:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-out', dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
   bay.addPort({ id: 'cf-rx:test:audio-in', dir: 'in', medium: 'audio', label: '/test', transports: ['icecast'] });
-  bay.addPort({ id: 'vain:icecast:audio-in', dir: 'in', medium: 'audio', label: 'user1 to user4', transports: ['icecast'] });
+  bay.addPort({ id: 'vain:icecast:audio-in', dir: 'in', medium: 'audio', label: 'radio1965, user1 to user4', transports: ['icecast'] });
   const SINK = (t) => (t === 'test' ? 'cf-rx:test:audio-in' : 'vain:icecast:audio-in');
   let onAir = false;
   const pb = createPatchbay(bay, { flowing: () => onAir });
@@ -99,6 +99,7 @@
   }
   let said = '';
   function take(st) {
+    if (st.target && st.target !== target) return;
     status = st;
     onAir = !!st.onAir;
     d.set('on air', onAir ? (st.now?.title || 'yes') : 'off');
@@ -116,19 +117,17 @@
     await send({ cmd: 'play', ids });
   }
   // Read only: the status every 2 s while nobody holds the control socket.
-  setInterval(async () => {
-    if (ws) return;
-    try { take(await (await fetch(`${BASE}/status/${target}`)).json()); } catch { /* next time */ }
-  }, 2000);
+  async function refresh() { try { take(await (await fetch(`${BASE}/status/${target}`)).json()); } catch { /* next time */ } }
+  setInterval(() => { if (!ws) refresh(); }, 2000);
 
   const transport = createButtonGroup({ buttons: [
     { id: 'play', icon: 'play', label: 'play', onPress: () => (onAir ? send({ cmd: 'stop' }) : play(0)) },
     { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send({ cmd: 'next' }) },
   ] });
   const pick = createChoice({ label: 'to', options: TARGETS, at: 0,
-    title: (v) => (v === 'test' ? 'our own receiver, which you can listen to below' : `Väin's ${v} channel, once they give the source password`),
-    onPick: (v) => { if (onAir) { d.log('stop first, then change where it plays', 'warn'); pick.set(TARGETS.findIndex(([, t]) => t === target), true); return; }
-      target = v; try { ws?.close(); } catch { /* gone */ } ws = null; wire(); } });
+    title: (v) => (v === 'test' ? 'our own receiver, which you can listen to below' : `Väin's ${v} channel`),
+    // Each target is its own caster, so switching only changes which one this page drives.
+    onPick: (v) => { target = v; said = ''; try { ws?.close(); } catch { /* gone */ } ws = null; wire(); showListen(); refresh(); } });
   const row = el('div', 'vc-row');
   row.append(transport.el, pick.el);
 
@@ -136,7 +135,15 @@
   const audio = Object.assign(document.createElement('audio'), { controls: true, preload: 'none', className: 'vc-audio' });
   audio.src = `${BASE}/listen/test`;
   const listenBox = el('div', 'cc-stack');
-  listenBox.append(el('h3', 'pos-sec-h', 'the test receiver'), audio);
+  const listenNote = el('p', 'pos-what', '');
+  listenBox.append(el('h3', 'pos-sec-h', 'listen'), audio, listenNote);
+  function showListen() {
+    const test = target === 'test';
+    audio.hidden = !test;
+    if (!test) audio.pause();
+    listenNote.textContent = test ? '' : `In the Väin app pick channel ${target}, or open http://live.uuu.ee:8001/${target}`;
+  }
+  showListen();
 
   d.stack.add(row, table.el, listenBox, pb.el);
   await loadFeed();
@@ -145,13 +152,14 @@
   window.__demo.probe = () => ({ items: items.length, target, onAir, key: !!key, links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
 
   if (SELFCHECK) {
+    pick.buttons[1].click();
     d.assert('the patch holds the archive into the caster and the caster into the test receiver',
       bay.links().length === 2 && bay.links().some((l) => l.to === 'cf-rx:test:audio-in'));
     d.assert('NEGATIVE CONTROL: a link out of their archive without consent is refused',
       !bay.link('vain:archive:audio-out', 'cf-cast:caster:audio-in', [], { via: 'https' }).ok);
-    pick.buttons[1].click();
+    pick.buttons[2].click();
     d.assert('picking user1 redraws the source link into their Icecast', bay.links().some((l) => l.to === 'vain:icecast:audio-in') && target === 'user1');
-    pick.buttons[0].click();
+    pick.buttons[1].click();
     d.assert('a visit opens no control socket and plays nothing', !ws && audio.paused);
   }
   d.ready();
