@@ -1,6 +1,7 @@
 // hdmi-scan: draw full screen on the Pi's HDMI through KMS, GPU scaled.
 //   ./hdmi-scan bars SECONDS              sliding colour bars, shows tearing and rate
 //   ./hdmi-scan camera SECONDS [/dev/videoN]   MJPEG 1280x720 at 30, decoded by libjpeg-turbo to YUV, scaled by the GPU
+//   ./hdmi-scan oled SECONDS              1024 byte SSD1306 frames on stdin, page major, drawn at a whole scale with square pixels
 // Takes the connected connector on /dev/dri/card1 at its current mode, restores the previous CRTC on exit.
 #include <stdio.h>
 #include <stdlib.h>
@@ -150,6 +151,10 @@ static const char *FS_YUV =
   "void main(){ float y = texture2D(ty, uv).r, u = texture2D(tu, uv).r - 0.5, v = texture2D(tv, uv).r - 0.5;\n"
   "  gl_FragColor = vec4(y + 1.402 * v, y - 0.344136 * u - 0.714136 * v, y + 1.772 * u, 1.0); }\n";
 
+static const char *FS_MONO =
+  "precision mediump float; varying vec2 uv; uniform sampler2D ty;\n"
+  "void main(){ gl_FragColor = vec4(vec3(texture2D(ty, uv).r), 1.0); }\n";
+
 static GLuint prog(const char *fs){
   GLuint v = glCreateShader(GL_VERTEX_SHADER), f = glCreateShader(GL_FRAGMENT_SHADER);
   glShaderSource(v, 1, &VS, NULL); glCompileShader(v);
@@ -211,8 +216,8 @@ static void tick(long frames, long dropped){
 }
 
 int main(int argc, char **argv){
-  if (argc < 3) { fprintf(stderr, "usage: %s bars|camera SECONDS [/dev/videoN]\n", argv[0]); return 2; }
-  int camera = !strcmp(argv[1], "camera");
+  if (argc < 3) { fprintf(stderr, "usage: %s bars|camera|oled SECONDS [/dev/videoN]\n", argv[0]); return 2; }
+  int camera = !strcmp(argv[1], "camera"), oled = !strcmp(argv[1], "oled");
   double secs = atof(argv[2]);
   const char *card = getenv("HDMI_CARD") ? getenv("HDMI_CARD") : "/dev/dri/card1";
   struct sigaction sa = { .sa_handler = on_sig }; sigaction(SIGINT, &sa, NULL); sigaction(SIGTERM, &sa, NULL);
@@ -221,7 +226,52 @@ int main(int argc, char **argv){
   long frames = 0, dropped = 0; double dec = 0, up = 0;
   double t0 = now_s(), c0 = cpu_s();
 
-  if (!camera) {
+  if (oled) {
+    // The largest whole scale that fits (15x on 1920x1080, 1920x960), centred, black around it.
+    int k = mode.hdisplay / 128 < mode.vdisplay / 64 ? mode.hdisplay / 128 : mode.vdisplay / 64;
+    if (k < 1) k = 1;
+    int vx = (mode.hdisplay - 128 * k) / 2, vy = (mode.vdisplay - 64 * k) / 2;
+    fprintf(stderr, "oled 128x64 at %dx, %dx%d at %d,%d\n", k, 128 * k, 64 * k, vx, vy);
+    GLuint p = prog(FS_MONO), tex; (void)p;
+    glGenTextures(1, &tex); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glClearColor(0, 0, 0, 1);
+    fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
+    unsigned char in[1024], px[128 * 64] = { 0 }; size_t have = 0; int fresh = 1, eof = 0;
+    while (!stop && !eof && now_s() - t0 < secs) {
+      if (!fresh) {
+        struct pollfd pf = { 0, POLLIN, 0 };
+        if (poll(&pf, 1, 200) > 0) {
+          // Read all there is; only the newest whole frame is drawn, the rest count as dropped.
+          for (;;) {
+            ssize_t n = read(0, in + have, sizeof in - have);
+            if (n == 0) { eof = 1; break; }
+            if (n < 0) break;
+            have += (size_t)n;
+            if (have == sizeof in) {
+              if (fresh) dropped++;
+              // SSD1306 page major: byte p * 128 + x, bit b is the pixel at x, p * 8 + b
+              for (int pg = 0; pg < 8; pg++) for (int x = 0; x < 128; x++) for (int b = 0; b < 8; b++)
+                px[(pg * 8 + b) * 128 + x] = (in[pg * 128 + x] >> b & 1) ? 255 : 0;
+              have = 0; fresh = 1;
+            }
+          }
+        }
+      }
+      if (fresh) {
+        glViewport(0, 0, mode.hdisplay, mode.vdisplay); glClear(GL_COLOR_BUFFER_BIT);
+        glViewport(vx, vy, 128 * k, 64 * k);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 128, 64, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, px);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        present(); frames++; fresh = 0;
+      }
+      tick(frames, dropped);
+    }
+  } else if (!camera) {
     GLuint p = prog(FS_BARS); GLint ut = glGetUniformLocation(p, "t");
     while (!stop && now_s() - t0 < secs) {
       glUniform1f(ut, (float)(now_s() - t0));

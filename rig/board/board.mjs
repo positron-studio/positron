@@ -389,7 +389,9 @@ function stopFromKeys() {
     send({ type: 'board.stopped', ...r, check, via: 'keys' });
   }).catch((e) => log('stop: the stop from the keys threw:', e.message));
 }
-openPanel({ log: (l) => log(l), onKey: (k) => {
+// The OLED's frames to the HDMI screen while it mirrors the OLED; set once `hdmi` exists further down.
+let mirrorFrame = () => {};
+openPanel({ log: (l) => log(l), onFrame: (fb) => mirrorFrame(fb), onKey: (k) => {
   const fired = k.k === 4 ? starKey(k.down) : false;
   send({ type: 'panel.key', ...k, ...(fired ? { stopAll: true } : {}), at: Date.now() });
 } }).then((p) => { panel = p; }).catch((e) => log('panel: did not open:', e.message));
@@ -1475,7 +1477,9 @@ const screenCam = (DRY || ONCE) ? null : createScreenCamera({
 // OLED's camera holds the camera, or another program holds the screen.
 const hdmi = createHdmi({ spawn, findCamera: () => findCamera(), log: (l) => log(l),
   cameraBusy: () => (camera?.running() ? 'the camera is streaming its picture to /remote/circuit/, so the screen waits'
-    : screenCam?.running() ? 'the camera is on the Pi\'s OLED (/devices/camera/), so the screen waits' : '') });
+    : screenCam?.running() ? 'the camera is on the Pi\'s OLED (/devices/camera/), so the screen waits' : ''),
+  oledFrame: () => panel?.lastFrame?.() ?? null });
+mirrorFrame = (fb) => hdmi.frame(fb);
 
 // Announce `pi-1:camera` only with a key and a camera found, asked once (findCamera spawns
 // synchronously).

@@ -11139,3 +11139,4 @@ Struck because the work exists, with the evidence that showed it.
   real `jack_lsp -c` parses as the fixture does, and that a real `jack_connect`
   repairs a real drift. Deploy with `rig/board/push.sh` and confirm with the md5s
   it prints, which now cover `jacksynth.mjs` as well as `board.mjs`.~~ DONE 2026-10-10, 201 and 201, 640x360 at 20 fps, rtt 28 ms; capped at 20 s with a 5 s fade (*"limit to 20sec. fade out sloowly"*). Its say line landed in commit f83b3cc1, whose message is about 070.
+- ~~**OLED mirroring on /devices/hdmi/**~~ (2026-10-16, DONE: `hdmi-scan oled` at 15x, 1.6 % of one core at 15 fps from a test feed, the real OLED mirrored over the relay): *"add oled mirroring to hdmi demo"*, then *"go on"*. plans/plan-pi-hdmi.md §3 way B, with hdmi-scan's GPU instead of plane scaling: `hdmi-scan oled` reads 1024-byte frames on stdin, panel.mjs hands each frame it draws to it, a third source `oled` on the page.

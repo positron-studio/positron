@@ -1,5 +1,6 @@
 // The Pi's HDMI0 screen as `pi-1:hdmi0`: one show at a time, no browser and no desktop. With
-// rig/hdmi's `hdmi-scan` on the board the GPU draws it full screen through KMS (`camera`, `bars`);
+// rig/hdmi's `hdmi-scan` on the board the GPU draws it full screen through KMS (`camera`, `bars`, and
+// `oled`, the OLED's own frames mirrored);
 // without it ffmpeg draws into /dev/fb0, the camera at 1:1 centred and testsrc2 for the pattern.
 // The screen and the camera are each one process's at a time, so a show refuses in words while
 // another program holds either. Every service is injected, so hdmi-test.mjs runs it on fakes.
@@ -7,7 +8,7 @@
 import { spawn as nodeSpawn, execFileSync } from 'node:child_process';
 import * as nodeFs from 'node:fs';
 
-export const SOURCES = Object.freeze(['camera', 'pattern']);
+export const SOURCES = Object.freeze(['camera', 'pattern', 'oled']);
 export const FB = '/dev/fb0';
 export const CONNECTOR = '/sys/class/drm/card1-HDMI-A-1/status';
 /** The KMS device hdmi-scan takes; nothing else on the board opens it. */
@@ -41,6 +42,9 @@ export function centre(fb, src) {
 /** The command for one show, or `{ why }`. `fb` is `{ w, h, bits }`, `cam` a findCamera() answer, `scan` hdmi-scan's path or null. */
 export function showCommand(source, { fb, cam = null, fbPath = FB, scan = null } = {}) {
   const noCam = (c) => (c?.ok ? `the camera here is ${c.kind}, and the screen takes a USB camera` : `no camera on this board${c?.detail ? ` (${c.detail})` : ''}`);
+  // The OLED's frames arrive on hdmi-scan's stdin (`frame()`); there is no ffmpeg way for them.
+  if (source === 'oled') return scan ? { cmd: scan, args: ['oled', String(SCAN_SECONDS)], w: fb?.w, h: fb?.h, fps: 15, by: 'gpu', input: true }
+    : { why: 'the OLED picture needs hdmi-scan (rig/hdmi/README.md), and it is not on this board' };
   // hdmi-scan decodes MJPEG only, so a camera without it falls back to ffmpeg.
   if (scan && source === 'pattern') return { cmd: scan, args: ['bars', String(SCAN_SECONDS)], w: fb?.w, h: fb?.h, fps: 60, by: 'gpu' };
   if (scan && source === 'camera' && cam?.ok && cam.kind === 'usb' && cam.inputFormat === 'mjpeg') {
@@ -105,7 +109,7 @@ export function cpuShare(statText, uptimeText, hz = 100) {
  * @param {() => object} [o.findCamera]  camera.mjs `findCamera`
  */
 export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFileSync('ps', ['-eo', 'pid,args', '--no-headers'], { encoding: 'utf8' }),
-  findCamera = () => ({ ok: false, reason: 'no camera finder given' }), cameraBusy = () => '',
+  findCamera = () => ({ ok: false, reason: 'no camera finder given' }), cameraBusy = () => '', oledFrame = () => null,
   log = () => {}, now = () => Date.now(), setTimer = setTimeout, scanPaths = SCAN_PATHS,
   paths = { fb: FB, card: CARD, connector: CONNECTOR, size: FB_SIZE, bits: FB_BITS } } = {}) {
   let show = null;            // { source, proc, pid, since, w, h, fps, stopping, exited }
@@ -202,7 +206,7 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
     const c = showCommand(source, { fb, cam, fbPath: paths.fb, scan: scan() });
     if (c.why) return { ok: false, why: c.why };
     let proc;
-    try { proc = spawn(c.cmd, c.args, { stdio: ['ignore', 'pipe', 'pipe'] }); }
+    try { proc = spawn(c.cmd, c.args, { stdio: [c.input ? 'pipe' : 'ignore', 'pipe', 'pipe'] }); }
     catch (e) { return { ok: false, why: `${c.cmd} would not start: ${e.message}` }; }
     const s = { source, proc, pid: proc.pid ?? null, since: now(), w: c.w, h: c.h, fps: c.fps, at: c.at ?? { x: 0, y: 0 }, by: c.by,
       cmd: c.cmd.split('/').pop(), stopping: false, exited: false, onExit: null, tail: [] };
@@ -224,10 +228,19 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
       clear();
       log(`hdmi: the ${source} stopped on its own, ${last.why}`);
     };
+    proc.stdin?.on?.('error', () => {});
+    if (c.input) feed(oledFrame());
     proc.on('exit', (code, sig) => ended(`exited (${sig ?? code})`));
     proc.on('error', (e) => ended(`could not run, ${e.code || e.message}`));
     log(`hdmi: the ${source} on HDMI0 by ${s.cmd}, ${c.by === 'gpu' ? 'full screen, scaled by the GPU' : `${c.w}x${c.h} at ${c.fps} fps${c.at ? ` at ${c.at.x},${c.at.y}` : ''}`} on a ${fb.w}x${fb.h} screen`);
     return { ok: true, ...status() };
+  }
+
+  /** One OLED frame (1024 bytes, page major) to the screen while it mirrors the OLED; dropped while the pipe is full. */
+  function feed(bytes) {
+    const st = show?.proc?.stdin;
+    if (show?.source !== 'oled' || show.exited || !st || !bytes || bytes.length !== 1024 || st.writableNeedDrain) return false;
+    try { st.write(Buffer.from(bytes)); return true; } catch { return false; }
   }
 
   function status() {
@@ -240,7 +253,7 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
   }
 
   return {
-    start, stop, status, refusal, clear,
+    start, stop, status, refusal, clear, frame: feed,
     showing: () => show?.source ?? null,
     /** The graph's facts: HDMI0 while a screen is connected, asked every beat. */
     screens: () => (connected() ? [{ name: 'hdmi0', label: 'HDMI screen' }] : []),

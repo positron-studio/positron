@@ -38,7 +38,7 @@ export function withBar(fb, share) {
 }
 
 /** The panel, or null when no screen answers. `onKey({ k, sym, gpio, down })`. */
-export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
+export async function openPanel({ log = () => {}, onKey = () => {}, onFrame = () => {} } = {}) {
   if (!existsSync(T) || !existsSync(WASM) || !existsSync(LAYOUT)) { log('panel: no i2ctransfer, oled-ui.wasm or panel-screen.mjs, no screen'); return null; }
   try { await write([0x00, 0xE3]); } catch { log(`panel: nothing answers at ${ADDR} on i2c-${BUS}, no screen`); return null; }
   const wasm = readFileSync(WASM);
@@ -71,7 +71,11 @@ export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
           : state.mode === 'steps' ? { mode: 'steps', steps: state.steps } : { text: state.text, held: [...state.held] });
       // the whole frame in one transfer: the window, then 1024 bytes
       await write([0x00, 0x21, 0, 127, 0x22, 0, 7]);
-      await write([0x40, ...withBar(fb, state.bar)]);
+      const out = withBar(fb, state.bar);
+      await write([0x40, ...out]);
+      // the same bytes to whoever mirrors the OLED (hdmi.mjs `frame`)
+      state.last = out;
+      try { onFrame(out); } catch (e) { log(`panel: the mirror threw: ${e.message}`); }
       state.shown++;
       state.frameMs = Date.now() - t0;
     } catch (e) {
@@ -166,6 +170,8 @@ export async function openPanel({ log = () => {}, onKey = () => {} } = {}) {
       state.bar = v; draw();
       return state.shown;
     },
+    /** The frame on the OLED now, 1024 bytes, or null before the first draw. */
+    lastFrame: () => state.last ?? null,
     status: () => ({ mode: state.mode, text: state.text, held: [...state.held], shown: state.shown, layoutAt: state.layoutAt, frameMs: state.frameMs, bar: state.bar }),
     close() { mon?.kill(); write([0x00, 0xAE]).catch(() => {}); },
   };

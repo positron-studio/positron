@@ -39,12 +39,12 @@
   const MAY_SEND = !SELFCHECK || (q.get('board') === '1' && !!relayOverride(location.search));
   const P = BOARD_SITE;
   const SCREEN_IN = `${P}:hdmi0:video-in`;
-  const SOURCE_OUT = { camera: `${P}:camera:video-out`, pattern: `${P}:pattern:video-out` };
+  const SOURCE_OUT = { camera: `${P}:camera:video-out`, pattern: `${P}:pattern:video-out`, oled: `${P}:oled:video-out` };
 
-  // ── the bay: the camera, the test pattern and the screen as the board announces them ──
+  // ── the bay: the camera, the test pattern, the OLED and the screen as the board announces them ──
   const G = boardGraph({ room: ROOM, gpu: false, camera: true, screens: [{ name: 'hdmi0', label: 'HDMI screen' }] });
   const bay = createBay();
-  for (const n of ['camera', 'pattern', 'hdmi0']) addBoardNode(bay, G, n);
+  for (const n of ['camera', 'pattern', 'oled', 'hdmi0']) addBoardNode(bay, G, n);
 
   let pb = null, showing = null;
   const screenLink = () => bay.links().find((l) => l.to === SCREEN_IN) || null;
@@ -95,7 +95,7 @@
     if (showing && MAY_SEND) poll = setInterval(async () => { const s = await board.ask({ type: 'hdmi.status' }, 'hdmi.state', 3000); if (s) take(s); }, 3000);
   }
 
-  const SOURCES = ['camera', 'pattern'];
+  const SOURCES = ['camera', 'pattern', 'oled'];
   let choice = 'camera', pending = null;
   async function show(source) {
     if (!MAY_SEND) { take({ ok: true, showing: source, cpu: null }); d.log('this run may not drive the Pi, add board=1 and a relay on this machine', 'dim'); return null; }
@@ -127,7 +127,7 @@
 
   const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => { pending = play(); } }] });
   const pick = createChoice({ label: 'show', options: SOURCES.map((s) => [s, s]), at: 0,
-    title: (v) => (v === 'camera' ? 'the USB camera on the Pi, full screen' : 'a moving test pattern'),
+    title: (v) => (v === 'camera' ? 'the USB camera on the Pi, full screen' : v === 'oled' ? 'the Pi\'s OLED, mirrored at 15x with square pixels' : 'a moving test pattern'),
     onPick: (v) => { choice = v; if (showing && showing !== v) pending = show(v); } });
 
   pb = createPatchbay(bay, { room: ROOM, flowing: (l) => l.to === SCREEN_IN && !!showing });
@@ -144,8 +144,8 @@
     await new Promise((r) => setTimeout(r, 300));
     d.assert('a visit reaches nothing until a press', !board);
     d.assert('NEGATIVE CONTROL: nothing is drawn into the screen before a press', !screenLink());
-    d.assert('the bay holds the camera, the pattern and the screen as the board announces them',
-      ['camera', 'pattern', 'hdmi0'].every((n) => bay.node(`${P}:${n}`)) && bay.port(SCREEN_IN)?.transports?.join() === 'fbdev');
+    d.assert('the bay holds the camera, the pattern, the OLED and the screen as the board announces them',
+      ['camera', 'pattern', 'oled', 'hdmi0'].every((n) => bay.node(`${P}:${n}`)) && bay.port(SCREEN_IN)?.transports?.join() === 'fbdev');
     const plain = bay.link(SOURCE_OUT.camera, SCREEN_IN);
     d.assert('NEGATIVE CONTROL: a link that does not ask for fbdev is refused in words', !plain.ok && /only travels by/.test(plain.why), plain.why);
     if (!MAY_SEND) {
@@ -154,6 +154,8 @@
         screenLink()?.from === SOURCE_OUT.camera && screenLink()?.session?.transport === 'fbdev' && !board, screenLink() ? printLink(screenLink()) : 'no link');
       pick.buttons[1].click(); await pending;
       d.assert('pattern while showing redraws one link, from the pattern', bay.links().length === 1 && screenLink()?.from === SOURCE_OUT.pattern);
+      pick.buttons[2].click(); await pending;
+      d.assert('oled while showing redraws one link, from the OLED', bay.links().length === 1 && screenLink()?.from === SOURCE_OUT.oled);
       transport.el.querySelector('button').click(); await pending;
       d.assert('stop takes the link away and the play icon back', !screenLink() && !showing && !board);
       pick.buttons[0].click();

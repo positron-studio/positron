@@ -36,9 +36,10 @@ function fakeMachine({ status = 'connected', size = '1920,1080', bits = '16', ps
       writeFileSync: (p, buf) => { writes.push({ p, n: buf.length, zero: buf.every((b) => b === 0) }); },
       existsSync: (p) => scan && p === SCAN_AT,
     },
-    spawn: (cmd, args) => {
+    spawn: (cmd, args, opts) => {
       const p = new EventEmitter();
       p.pid = ++pid; p.stderr = new EventEmitter(); p.stdout = new EventEmitter(); p.killed = [];
+      if (opts?.stdio?.[0] === 'pipe') { p.written = []; p.stdin = Object.assign(new EventEmitter(), { writableNeedDrain: false, write: (b) => { p.written.push(b); return true; } }); }
       p.kill = (sig) => { p.killed.push(sig); if (sig === 'SIGTERM' && !p.ignoreTerm) queueMicrotask(() => p.emit('exit', null, sig)); };
       spawned.push({ cmd, args, p });
       // utime 30 s and stime 10 s of ticks, started at 900 s: 40 s over 100 s is 40 % of a core.
@@ -268,6 +269,31 @@ console.log('\n== the measured frame rate, once a second from hdmi-scan ==');
   ok('the fps lines stay out of what it said', st.said.every((l) => !/^fps /.test(l)) && st.said.includes('GL_RENDERER V3D 7.1'), JSON.stringify(st.said));
   await h.stop();
   ok('a stopped show measures nothing', h.status().measured === null);
+}
+
+console.log('\n== the OLED mirrored: its frames into hdmi-scan ==');
+{
+  const m = fakeMachine({ scan: true });
+  const first = new Uint8Array(1024).fill(0x0f);
+  const h = make(m, { oledFrame: () => first });
+  const r = await h.start('oled');
+  const sp = m.spawned[0];
+  ok('oled starts hdmi-scan oled with a pipe on its stdin', r.ok && sp?.cmd === SCAN_AT && sp.args[0] === 'oled' && !!sp.p.stdin, JSON.stringify(sp?.args));
+  ok('the frame the OLED shows now goes first, so the screen is not black until the OLED changes', sp.p.written.length === 1 && sp.p.written[0][0] === 0x0f);
+  ok('each new frame is written whole', h.frame(new Uint8Array(1024)) && sp.p.written.length === 2 && sp.p.written[1].length === 1024);
+  ok('NEGATIVE CONTROL: a frame that is not 1024 bytes is not written', !h.frame(new Uint8Array(10)) && sp.p.written.length === 2);
+  sp.p.stdin.writableNeedDrain = true;
+  ok('a full pipe drops the frame rather than queueing it', !h.frame(new Uint8Array(1024)) && sp.p.written.length === 2);
+  await h.stop();
+  ok('NEGATIVE CONTROL: after the stop nothing is written', !h.frame(new Uint8Array(1024)));
+  const m2 = fakeMachine();
+  const r2 = await make(m2).start('oled');
+  ok('without hdmi-scan the OLED is refused in words, nothing spawned', !r2.ok && /needs hdmi-scan/.test(r2.why) && !m2.spawned.length, r2.why);
+  const m3 = fakeMachine({ scan: true });
+  const h3 = make(m3);
+  await h3.start('pattern');
+  ok('NEGATIVE CONTROL: the pattern has no stdin and takes no OLED frames', !m3.spawned[0].p.stdin && !h3.frame(new Uint8Array(1024)));
+  await h3.stop();
 }
 
 console.log(`\n${pass}/${pass + fail} ${fail ? 'RED' : 'green'}`);
