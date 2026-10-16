@@ -1,3 +1,49 @@
+# Handoff, 2026-10-16, session 80: Pi HDMI (camera, OLED mirror, fps), PWM and HDMI sound measured, Väin cast in Cloudflare
+
+## Where it is right now
+
+- **Site: BUILD `3102c20c-172448-b454`**, confirmed on the edge; the deployed build is committed (`d70c5d13`). Plans committed after it (`283bfd7c`). Counted tonight: **63 demo rows, 62 built**; **133 plans**. No headless Chrome left running. GitHub: not pushed this session.
+- **The Pi (pi-1, 192.168.1.213)** runs everything below (pushed with `rig/board/push.sh`). Its HDMI screen is off. The board's PWM `alsa_out` bridge is up.
+- **A new worker, `positron-cast`** at https://cast.positron.studio (`workers/cast/`, deploy `node workers/cast/deploy.mjs`). Secrets `CAST_KEY` and `TEST_PW` are set on it and kept in `.env` (`CAST_KEY=`, `CAST_TEST_PW=`). `VAIN_SOURCE_PW` is NOT set: nothing can reach Väin's Icecast until Tarmo OKs a source password.
+
+## Väin cast (the open thread, deadline Üle Heli 2026-10-25)
+
+ECCM asked (Estonian, 2026-10-16) to run their archive through positron's videoradio before Tarmo leaves for Italy on Monday 10-19, for a test at Üle Heli on the 25th. The owner then: *"we are not giving files, they want live experience"*, *"i can not donate my machines. i am offseite"*, and *"v2in has minimum time to adjust anything from their side"*.
+
+- **Built and deployed:** https://positron.studio/radio/cast/?key=<CAST_KEY> (the key once, kept in localStorage). It lists their archive from `GET /feed` (their public events API, cached 60 s, audio and recordings on eccm.ee/uuu.ee only), with play/stop/next, a target choice (`test` receiver or `user1..4`), a player on our test receiver, and the patchbay (`vain:archive` external -> `cf-cast:caster` -> `cf-rx:test` or `vain:icecast`). Self-check 6/6. `icecast` was added to `TRANSPORT_NAMES` in bay.mjs.
+- **The worker:** `Caster` DO per target, which fetches the mp3s and writes their frames paced to the wall clock into an Icecast source connection. Its handshake is copied from Väin's own app (`app/icecastbroadcaster.cpp`): `PUT /<mount> HTTP/1.0`, Basic `source:<pw>`, `ice-audio-info: send_notification=0;save_stream=0`, on air at ` 200`. The `Rx` DO is our own Icecast receiver (`PUT /ingest/test`, `GET /listen/test`, `GET /rx/test` shows the headers and what Väin's hook would do). `workers/cast/mp3.mjs` is the framer, and `mp3-test.mjs` is 10/10 against ffprobe.
+- **Measured:**
+  - A 22 s run into Rx: 371,561 bytes in, the same out to a listener; valid mp3 at 44.1 kHz/128k with real sound (mean -37.8 dB); `wouldNotify:false, wouldRecord:false`.
+  - The long run kept pace for 10 minutes (595 s sent in 593 s, 8 files) and was **dead by 21:45**. Both DOs keep state in memory only, so the end time is lost. **A Durable Object cannot hold the broadcast.** Next: the source and the audio move into a Cloudflare Container (as `workers/pub`), the DO stays control only, and progress and deaths are written to storage so they are dated.
+- **Plans, reported in full in chat:**
+  - `plans/plan-vain-videoradio.md`: their archive (13 recordings, about 216 min, no CORS, `v-in` 0 bytes), the delivery matrix ranked by how much Väin must change, questions for Tarmo.
+  - `plans/plan-vain-cast-processing.md`: processing in a Container. Stage 1 (crossfades and tuning noise, `tuner-mix.mjs` in node plus ffmpeg) is about 3 days, by the 25th. Stage 2 (grain ring on scsynth + jackd dummy) is November. Also the audience X/Y pad (a `Crowd` DO, about 1 day for a copy-only "vote the next file" version, opened in Väin as a `webcontent` item), other sources, and the dated steps.
+- **To ask Tarmo (owner):** a `user` channel source password and the OK to use it; whether their app keeps playing while a web page is open; who answers while he is away. **Raise privately:** their Icecast source passwords are in their public repo (`app/icecastbroadcaster.cpp`); `POST /events/publish` takes no credential; their RTMP accepts any key. A shelved webcontent event "Positron Radio Demo" points at https://positron.studio/radio/, which is a 404 since 2026-10-13.
+- **Suggested next, not yet agreed:** the Container source first (a 4 h run against Rx), then the queue command and pad v0, then stage 1 mixing.
+
+## The Pi, this session
+
+- **HDMI** (`rig/board/hdmi.mjs`, `rig/hdmi/hdmi-scan.c`):
+  - `hdmi-scan` (KMS + GLES2) has three modes: `bars`, `camera` and `oled`. It prints `fps N dropped N` every second, and hdmi.mjs puts that in `hdmi.status` as `measured`.
+  - **oled** draws 1024 byte SSD1306 frames from stdin at 15x (1920x960, square pixels). `panel.mjs` hands it every frame it draws (`onFrame`, `lastFrame()`).
+  - The oled source also holds the dithered camera on the OLED (`screen-camera.mjs` `hold()`, no lease, the picture stays on the board).
+  - https://positron.studio/devices/hdmi/ offers **camera** (default) or **oled**, the choice beside play, fps and cpu glued to the log. The test pattern is off the page (the board still has it).
+  - Measured: camera 24 to 29.5 fps; oled 23.8 fps with the dithered camera; hdmi-scan oled 1.6 % of a core from a test feed. hdmi-test 81/81.
+- **Sound out, measured** (`research/pwm-measured-2026-10-16.md`):
+  - PWM into FT Pro input 2: THD 0.18 %, 3 cents flat and drifting through alsa_out, 62 ms round trip.
+  - HDMI-A-2 through an audio extractor (EDID `MS-HDMI-RX`, LPCM 2ch) into input 1: THD 0.07 %, steady pitch, 38 ms, but 25 dB more 50/150 Hz hum.
+  - The extractor's 2.1/5.1/PASS switch stays on 2.1.
+- **Pi screens** (https://positron.studio/devices/control/): one tuner (the thin needle, stations up to 11 px under the top). A grid of every half screen is at `~/Downloads/pi-screens-half-grid.png`.
+- **Knobs** (https://positron.studio/devices/knobs/): M1 to M8 from the left at the 12 slider size (values 0 to 99), FI at the right edge.
+
+## Open, in BACKLOG.md
+
+- The merge of /devices/knobs/ into /devices/beat/ was **reverted and parked**: the split screen drew 0 frames, cause not found.
+- A drum grid without sharp corners.
+- Rewire /devices/drums/ and /devices/synth/ from PWM to the Fast Track Pro's own outputs (the owner can listen there now).
+- Measure the FT Pro output with a loopback cable (line out 1 into input 2, direct monitor off).
+- Older items from session 79 below are unchanged.
+
 # Handoff, 2026-10-15, session 79: the Pi plays the Circuit, the Pi's screen draws patches, social patchbay done
 
 ## Where it is right now
