@@ -3390,11 +3390,13 @@ button.pos-linkbtn:active { background: none; }
 /* why: lessons/css-shell.md#pos-kgrid-hidden-pos-kgrid-cell-hidden */
 .pos-kgrid[hidden], .pos-kgrid-cell[hidden] { display: none; }
 
-/* Info and switch boxes (shell/info-box.mjs): a readout cell's number over its name, centred in a knob
-   row's box; the grid's cell paints the box. */
-.pos-info { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--ctl-gap);
-  width: var(--knob-w); min-height: 100%; text-align: center; }
-.pos-info .pos-v { max-width: 100%; }
+/* Info and switch boxes (shell/info-box.mjs): a knob's column. The face stacks its content on an
+   invisible copy of the dial, so the box is a knob box's height whatever the face holds. */
+.pos-info-face { display: grid; place-items: center; width: var(--knob-w); }
+.pos-info-face > * { grid-area: 1 / 1; }
+.pos-info-sizer { visibility: hidden; }
+/* The number: the readout's weight at a size a knob's width holds, `26.4 °C` whole. */
+.pos-info-n { font: 600 15px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--fg); white-space: nowrap; }
 /* No lone unit: an empty box shows nothing, as a pending readout cell does. */
 .pos-info[data-empty] .pos-u { display: none; }
 /* A sliding switch: the track is the control's edge, the thumb slides. Off is the ground, on the accent. */
