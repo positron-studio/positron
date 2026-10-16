@@ -41,43 +41,22 @@
     return box;
   };
   const OOMI = 'https://www.oomipood.ee';
-  // The Pi 4's two micro-HDMI outputs to a screen: one cable per screen, any one of these.
-  const PICTURE = [
-    { part: 'Raspberry Pi micro-HDMI to HDMI cable, 1 m, white', stock: 'in stock', price: '€9.50', url: `${OOMI}/product/3107125_raspberry_pi_kaabel_micro_hdmi_hdmi_1m_valge` },
-    { part: 'Micro-HDMI to HDMI 2.0 cable, 1 m, 4K at 60 Hz', stock: 'in stock', price: '€8.00', url: `${OOMI}/product/hs_518d08_1m_hdmi_micro_hdmi_2_0_kaabel_1m_premium_must_4k_60hz_18gbps` },
-    { part: 'Micro-HDMI to HDMI 2.0 cable, 2 m, 4K at 60 Hz', stock: 'in stock', price: '€11.00', url: `${OOMI}/product/hs_518d08_2m_hdmi_micro_hdmi_2_0_kaabel_2m_premium_must_4k_60hz_18gbps` },
-    { part: 'Micro-HDMI to HDMI 2.0 cable, 3 m, 4K at 60 Hz', stock: 'in stock', price: '€14.00', url: `${OOMI}/product/hs_518d08_3m_hdmi_micro_hdmi_2_0_kaabel_3m_premium_must_4k_60hz_18gbps` },
-    { part: 'Micro-HDMI plug to HDMI socket adapter, 20 cm, for a cable you have', stock: 'in stock', price: '€6.00', url: `${OOMI}/product/cvgp34790bk02_micro_hdmi_pistik_hdmi_pesa_uleminek_20cm_must_juhe` },
-  ];
-  // The Pi's HDMI sound out to a mixer, an amplifier or the Fast Track Pro, by an extractor.
+  // Read at Oomipood on 2026-10-16. A breadboard and jumper wires are already on the desk.
   const SOUND = [
-    { part: 'Goobay HDMI 1.4 audio extractor, HDMI through, Toslink and 3.5 mm out', stock: 'in stock', price: '€32.00', url: `${OOMI}/product/hdmi_14_heli_ekstraktor_hdmi_toslink_35_mm_arc` },
+    { part: 'Micro-HDMI plug to HDMI socket adapter, 20 cm', qty: '1', price: '€6.00', url: `${OOMI}/product/cvgp34790bk02_micro_hdmi_pistik_hdmi_pesa_uleminek_20cm_must_juhe` },
+    { part: 'HDMI to VGA converter with a 3.5 mm audio out', qty: '1', price: '€9.50', url: `${OOMI}/product/hdmi_vga_adapter_muundur_audio_19201080_must` },
   ];
-  // HDMI to VGA with a 3.5 mm audio out: an old VGA screen, and the sound out of the same adapter.
-  const VGA = [
-    { part: 'HDMI to VGA adapter with audio out, 1920x1080', stock: 'in stock', price: '€9.50', url: `${OOMI}/product/hdmi_vga_adapter_muundur_audio_19201080_must` },
-    { part: 'HDMI to VGA adapter with audio out, 1080p', stock: 'in stock', price: '€12.00', url: `${OOMI}/product/hdmi_vga_audio_adapter_muundur_1080p_resolutsioonu_must` },
+  const PICTURE = [
+    { part: 'Micro-HDMI to HDMI 2.0 cable, 1 m', qty: '1', price: '€8.00', url: `${OOMI}/product/hs_518d08_1m_hdmi_micro_hdmi_2_0_kaabel_1m_premium_must_4k_60hz_18gbps` },
   ];
-  // Two sound kits: the Pi's micro-HDMI, the short adapter, a VGA converter whose 3.5 mm jack is the sound.
-  const byUrl = (u) => [...PICTURE, ...SOUND, ...VGA].find((p) => p.url.endsWith(u));
-  const ADAPTER = byUrl('cvgp34790bk02_micro_hdmi_pistik_hdmi_pesa_uleminek_20cm_must_juhe');
-  const KITS = [
-    { name: 'KIT A, SOUND', parts: [ADAPTER, byUrl('hdmi_vga_adapter_muundur_audio_19201080_must')] },
-    { name: 'KIT B, PICTURE, OPTIONAL', parts: [byUrl('hs_518d08_1m_hdmi_micro_hdmi_2_0_kaabel_1m_premium_must_4k_60hz_18gbps')],
-      say: 'Only if a screen is wanted. Pi micro-HDMI straight to the screen. With an HDMI cable you already have, the 20 cm adapter for €6 does instead.' },
-  ];
-  // Four rotary encoders on the Pi's header beside its screen, and two distance sensors for a theremin on the
-  // screen's I2C wires. Read at Oomipood on 2026-10-16; wiring from rig/board/panel-wiring.mjs, untried.
   const ENCODERS = [
-    { part: 'Rotary encoder with push button', stock: '4', price: '€3.00', url: `${OOMI}/product/oky3431_enkooder_rotary_encoder` },
-    { part: 'Jumper wires, female to female, 20 cm, 40, Pi pin to encoder pin', stock: '1', price: '€3.00', url: `${OOMI}/product/oky0060_maketeerimislaua_juhtmed_40tk_ema_ema_20cm_2_54mm` },
-    { part: 'Jumper wires, male to female, 20 cm, 40, power through the breadboard', stock: '1', price: '€3.50', url: `${OOMI}/product/oky0062_maketeerimislaua_juhtmed_40tk_isa_ema_20cm_2_54mm` },
-    { part: 'Breadboard, 400 holes, its rails share 3.3 V and ground', stock: '1', price: '€4.00', url: `${OOMI}/en/product/maketeerimislaud_5483mm_400_punkti` },
+    { part: 'Rotary encoder with push button', qty: '4', price: '€3.00', url: `${OOMI}/product/oky3431_enkooder_rotary_encoder` },
   ];
   const THEREMIN = [
-    { part: 'VL53L1X laser distance sensor, the pitch hand', stock: '1', price: '€25.00', url: `${OOMI}/product/tof_laser_moodul_vl53l1x_35vdc_0044m_cjmcu531_i2c` },
-    { part: 'VL53L0X laser distance sensor, the volume hand', stock: '1', price: '€12.00', url: `${OOMI}/product/tof_laser_moodul_vl53l0x_35vdc_00512m_vl53l0x_i2c` },
+    { part: 'VL53L1X laser distance sensor, the pitch hand', qty: '1', price: '€25.00', url: `${OOMI}/product/tof_laser_moodul_vl53l1x_35vdc_0044m_cjmcu531_i2c` },
+    { part: 'VL53L0X laser distance sensor, the volume hand', qty: '1', price: '€12.00', url: `${OOMI}/product/tof_laser_moodul_vl53l0x_35vdc_00512m_vl53l0x_i2c` },
   ];
+  // Pi header pins (physical, then GPIO); the screen and its keys use 1, 3, 5, 29, 31, 33 and 37.
   const ENC_PINS = [
     { enc: '1', a: '11 (GPIO17)', b: '13 (GPIO27)', push: '15 (GPIO22)' },
     { enc: '2', a: '16 (GPIO23)', b: '18 (GPIO24)', push: '22 (GPIO25)' },
@@ -86,56 +65,29 @@
   ];
   const cols = [
     { key: 'part', label: 'part', grow: true, link: 'url' },
-    { key: 'stock', label: 'stock', width: 80 },
+    { key: 'qty', label: 'qty', width: 48 },
     { key: 'price', label: 'price', width: 72 },
   ];
-  const picture = createTable({ columns: cols });
-  picture.set(PICTURE);
-  const sound = createTable({ columns: cols });
-  sound.set(SOUND);
-  const vga = createTable({ columns: cols });
-  vga.set(VGA);
-  const sum = (ps) => ps.reduce((n, p) => n + parseFloat(p.price.slice(1)), 0);
-  for (const k of KITS) {
-    const t = createTable({ columns: cols });
-    t.set(k.parts.map((p) => ({ ...p, stock: 'in stock' })));
-    d.stack.titled(k.name, t.el, say(`€${sum(k.parts).toFixed(2)}. ${k.say ?? 'Pi micro-HDMI, then the adapter, then the converter, whose 3.5 mm jack goes to a mixer, speakers or the Fast Track Pro. No screen needed.'}`));
-  }
-  d.stack.titled('WHY THESE', say('Kit A on one of the Pi\'s two micro-HDMI outputs, kit B on the other if it is bought.',
-    'The converter tells the Pi it is a display that takes sound and is powered by the HDMI line, so the Pi should send sound with nothing in its VGA socket.',
-    'Not measured until the parts are here. Plug it in before the Pi powers on, the safe way for the Pi to see it. The Pi\'s own 3.5 mm socket already plays, 11 bit and noisy, and this route is digital up to the converter.'));
+  const sum = (ps) => ps.reduce((n, p) => n + parseFloat(p.price.slice(1)) * Number(p.qty), 0);
+  const list = (rows) => { const t = createTable({ columns: cols }); t.set(rows); return t.el; };
 
-  const qcols = [cols[0], { key: 'stock', label: 'qty', width: 64 }, cols[2]];
-  const enc = createTable({ columns: qcols });
-  enc.set(ENCODERS);
-  const encPins = createTable({ columns: [
+  d.stack.titled('SOUND FROM THE PI\'S HDMI', list(SOUND),
+    say(`€${sum(SOUND).toFixed(2)}. Pi micro-HDMI, then the adapter, then the converter; its 3.5 mm jack goes to a mixer, speakers or the Fast Track Pro, no screen needed.`,
+      'Digital up to the converter, so cleaner than the Pi\'s own PWM socket. Whether this converter tells the Pi it takes sound with no screen behind it is not measured.'));
+  d.stack.titled('PICTURE, OPTIONAL', list(PICTURE),
+    say(`€${sum(PICTURE).toFixed(2)}. The Pi's other micro-HDMI straight to a screen. Plug screens in before the Pi powers on.`));
+  const pins = createTable({ columns: [
     { key: 'enc', label: 'encoder', width: 72 }, { key: 'a', label: 'turn A', grow: true }, { key: 'b', label: 'turn B', width: 120 }, { key: 'push', label: 'push', width: 120 },
   ] });
-  encPins.set(ENC_PINS);
-  const encTotal = ENCODERS.reduce((n, p) => n + parseFloat(p.price.slice(1)) * Number(p.stock), 0);
-  d.stack.titled('ENCODERS ON THE PI', enc.el, encPins.el,
-    say(`€${encTotal.toFixed(2)}. Four knobs that turn without end and click, on the Pi's header beside its screen, which uses pins 1, 3, 5, 29, 31, 33 and 37.`,
-      'Each encoder\'s three signals go straight to the Pi pins above with the female to female wires. Every encoder\'s + goes to 3.3 V and its GND to ground through the breadboard\'s rails, fed from Pi pin 17 (3.3 V) and pin 20 (ground). Never 5 V, the module\'s pull ups would put it on the Pi\'s pins.',
-      'Linux counts the turns itself (the rotary-encoder overlay, one line in the boot config), so a fast turn loses no step. Not tried on this Pi yet.'));
-  const ther = createTable({ columns: qcols });
-  ther.set(THEREMIN);
-  d.stack.titled('THEREMIN, OPTIONAL', ther.el,
-    say('€37.00. Two hands, pitch and volume, on the same two I2C wires as the screen (pins 3 and 5); their address 0x29 does not clash with the screen\'s 0x3C, and the second one is held off by one more pin while the first is given a new address.',
-      'Played over the relay it answers in about 220 ms, so it sweeps and swells rather than playing in tune. research/pico-theremin-2026-10-16.md has the numbers.'));
+  pins.set(ENC_PINS);
+  d.stack.titled('ENCODERS ON THE PI', list(ENCODERS), pins.el,
+    say(`€${sum(ENCODERS).toFixed(2)}. Each encoder's three signals straight to the Pi pins above; every + to 3.3 V and GND to ground through the breadboard's rails, fed from Pi pin 17 (3.3 V) and pin 20 (ground). Never 5 V.`,
+      'Linux counts the turns itself (the rotary-encoder overlay), so a fast turn loses no step. Not tried on this Pi yet.'));
+  d.stack.titled('THEREMIN, OPTIONAL', list(THEREMIN),
+    say(`€${sum(THEREMIN).toFixed(2)}. Two hands, pitch and volume, on the screen's two I2C wires (pins 3 and 5); their address does not clash with the screen's.`,
+      'Over the relay it answers in about 220 ms, so it sweeps and swells rather than plays in tune.'));
 
-  d.stack.titled('HDMI, PICTURE', picture.el,
-    say('The Pi 4 has two micro-HDMI outputs and no input, so one cable per screen, two screens at most.',
-      'HDMI0, the socket beside the USB-C power, is the one to use first. Read at Oomipood on 2026-10-16.'));
-  d.stack.titled('HDMI, SOUND', sound.el,
-    say('HDMI carries sound too, and an extractor takes it out to a 3.5 mm or optical cable while the picture passes through.',
-      'Its page does not say whether it works with no screen behind it, and the Pi sends HDMI sound only to something that says it takes sound, so with a screen behind it is the safe way. Read at Oomipood on 2026-10-16.'));
-
-  d.stack.titled('VGA, PICTURE AND SOUND', vga.el,
-    say('The cheap way to an old VGA screen, with the sound on a 3.5 mm jack of the adapter itself.',
-      'Both have a full size HDMI plug, so on the Pi each goes on the 20 cm micro-HDMI to HDMI socket adapter above, then your VGA cable into the converter. Whether the Pi sends sound to the jack is not measured. Read at Oomipood on 2026-10-16.'));
-
-  const ALL = [...PICTURE, ...SOUND, ...VGA, ...ENCODERS, ...THEREMIN];
-  d.assert('every kit part is from the lists', KITS.every((k) => k.parts.every((p) => p?.url)));
+  const ALL = [...SOUND, ...PICTURE, ...ENCODERS, ...THEREMIN];
   d.assert('every part has a shop link', ALL.every((p) => p.url.startsWith(OOMI)));
   d.assert('every price was read', ALL.every((p) => /^€\d+\.\d\d$/.test(p.price)));
   d.assert('the description is one sentence', !/[;:]/.test(WHAT), WHAT);
