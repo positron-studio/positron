@@ -21,6 +21,7 @@ export const SCREENS = [
   { key: 'tuner', what: 'a dial, a mark per station, the needle moving between them', by: '/radio/tuner/' },
   { key: 'piano roll', what: 'notes scrolling past a playhead', by: '/synth/recorder/, /synth/timeline/' },
   { key: 'keyboard', what: 'two octaves of empty keys, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
+  { key: 'keyboard wide', what: 'two octaves of empty keys, the black keys wider, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
   { key: 'keyboard names', what: 'one octave, wider keys, the white keys named, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
   { key: 'grains', what: 'a waveform with a line where each grain reads', by: '/granulator/grains/, /granulator/beat/' },
   { key: 'tempo', what: 'a waveform, a tick on each beat, a full line on each bar', by: '/radio/tempo/, /radio/live/' },
@@ -214,10 +215,10 @@ export function createScreens(ui) {
   // the keyboard: every key an outline, a held key marked by a dot. `names`: one octave, wider keys, the
   // white keys named under them.
   const WHITE = [0, 2, 4, 5, 7, 9, 11], BLACK = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 }, LETTERS = 'CDEFGAB';
-  const keys = (sf, t, octaves, names) => {
+  const keys = (sf, t, octaves, names, wideBlacks = false) => {
     const k = Math.floor(t / 900), chord = [[0, 4, 7], [5, 9, 12], [7, 11, 14], [9, 12, 16]][k % 4].map((n) => (n + (k % 8 >= 4 ? 1 : 0)) % (octaves * 12));
     const held = new Set(chord), nw = octaves * 7, ww = Math.floor((sf.w - 1) / nw), x0 = Math.floor((sf.w - ww * nw - 1) / 2);
-    const h = sf.h - (names ? 7 : 1), bh = Math.round(h * 0.6), bw = Math.max(3, Math.round(ww * 0.6) | 1);
+    const h = sf.h - (names ? 7 : 1), bh = Math.round(h * 0.6), bw = wideBlacks ? Math.max(3, (ww - 2) | 1) : Math.max(3, Math.round(ww * 0.6) | 1);
     const dot = (cx, cy) => sf.fill(cx - 1, cy - 1, 2, 2);
     for (let i = 0; i < nw; i++) {
       const x = x0 + i * ww, n = Math.floor(i / 7) * 12 + WHITE[i % 7];
@@ -233,6 +234,7 @@ export function createScreens(ui) {
     }
   };
   const keyboard = (sf, t) => keys(sf, t, 2, false);
+  const keyboardWide = (sf, t) => keys(sf, t, 2, false, true);
   const keyboardNames = (sf, t) => keys(sf, t, 1, true);
   // a waveform's envelope as a mirrored outline, smooth, the shared ground for grains and tempo
   const smooth = (x) => Math.sin(x * 0.05) * 0.6 + Math.sin(x * 0.017 + 1) * 0.4;
@@ -281,6 +283,7 @@ export function createScreens(ui) {
     tuner: (t) => surfaceFrame(tuner, t),
     'piano roll': (t) => surfaceFrame(pianoRoll, t),
     keyboard: (t) => surfaceFrame(keyboard, t),
+    'keyboard wide': (t) => surfaceFrame(keyboardWide, t),
     'keyboard names': (t) => surfaceFrame(keyboardNames, t),
     grains: (t) => surfaceFrame(grains, t),
     tempo: (t) => surfaceFrame(tempo, t),
@@ -294,7 +297,7 @@ export function createScreens(ui) {
     steps: (s, t) => { drawDrums(s, { pattern: PATTERN.slice(0, 4), step: step(t), playing: true }); },
     camera: (s, t) => camera(s, t),
     scope: (s, t) => scope(s, t),
-    landscape, shader, tuner, 'piano roll': pianoRoll, keyboard, 'keyboard names': keyboardNames, grains, tempo, knobs,
+    landscape, shader, tuner, 'piano roll': pianoRoll, keyboard, 'keyboard wide': keyboardWide, 'keyboard names': keyboardNames, grains, tempo, knobs,
   };
   return {
     /** One screen, `full` (the whole 128x64) or `half` (128x32, at `top` or bottom). */
