@@ -86,7 +86,11 @@ and `/dev/fb0` is 3840x2160 at 16 bit (RGB565), writable by the board's user (gr
 at boot (`console=tty1` on the command line), so the screen shows the login prompt. **First picture**:
 `ffmpeg -re -f lavfi -i testsrc2=size=1280x720:rate=25 -pix_fmt rgb565le -f fbdev -xoffset 1280 -yoffset 720 /dev/fb0`
 drew the moving test pattern centred on the screen, photographed by the owner at 00:00:14, the login text still
-top left. No install, no desktop, no browser. CPU not read. Next: the console aside (getty@tty1 stopped, cursor
+top left. No install, no desktop, no browser. CPU not read. Then, asked *"yes"*: `video=HDMI-A-1:1920x1080@60 vt.global_cursor_default=0`
+appended to /boot/firmware/cmdline.txt (backup cmdline.txt.bak-2026-10-16), `getty@tty1` disabled and stopped,
+reboot: KMS 1920x1080@60.00, fb0 1920x1080, the board service back. Full screen testsrc2 1920x1080 at 30 fps into
+fb0 as rgb565le: **82.7 % of one core, 130 MB rss, SoC 52.1 C, throttled=0x0**, 20 s, exit 0. Undo: the backup
+over cmdline.txt and `systemctl enable --now getty@tty1`. Next: the console aside (getty@tty1 stopped, cursor
 off), a 1920x1080@60 mode (`video=HDMI-A-1:1920x1080@60` on the kernel command line) so full screen is a quarter
 of the pixels, then real content.
 
