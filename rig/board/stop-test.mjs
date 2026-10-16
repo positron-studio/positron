@@ -1,10 +1,10 @@
-// rig/board/manager-test.mjs: the patchbay manager's stop all and check, on the board's real sequencer,
+// rig/board/stop-test.mjs: the board's stop's stop all and check, on the board's real sequencer,
 // keyboard and Circuit drums services and the Circuit input's real gate, with fake engines and a fake
-// JACK graph. No board, socket or instrument.  node rig/board/manager-test.mjs
+// JACK graph. No board, socket or instrument.  node rig/board/stop-test.mjs
 // Most are NEGATIVE CONTROLS: each stop step is skipped in turn and the check row it answers must go red.
-// why: lessons/rig-board-manager.md#test
+// why: lessons/rig-board-stop.md#test
 
-import { createManager, createHold, checkLines, STEPS, HOLD_MS, CIRCUIT_ALL_OFF } from './manager.mjs';
+import { createStop, createHold, checkLines, STEPS, HOLD_MS, CIRCUIT_ALL_OFF } from './stop.mjs';
 import { createSequencerService } from './sequencer.mjs';
 import { createKeyboardService } from './keyboard.mjs';
 import { createCircuitDrumsService } from './circuit-drums.mjs';
@@ -144,7 +144,7 @@ const redKeys = (c) => c.rows.filter((r) => r.ok === false).map((r) => r.key).so
 console.log('\n== the board playing, before any stop: the check sees every thing that sounds ==');
 {
   const b = await playingBoard();
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   const c = m.check();
   ok('the sequencer row is red while it runs', rowOf(c, 'sequencer').ok === false);
   ok('the keyboard and Circuit drums rows are red while their links are held', rowOf(c, 'keyboard').ok === false && rowOf(c, 'circuitDrums').ok === false);
@@ -164,7 +164,7 @@ console.log('\n== the board playing, before any stop: the check sees every thing
 console.log('\n== a full stop, in order ==');
 {
   const b = await playingBoard();
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   const r = await m.stop({ level: 'full', asked: 'test' });
   ok('six steps, numbered in order', r.ok && r.steps.map((s) => s.n).join('') === '123456', r.steps.map((s) => s.key).join(' '));
   const at = (x) => b.trace.indexOf(x);
@@ -186,7 +186,7 @@ console.log('\n== a full stop, in order ==');
 console.log('\n== a silence: steps 1 to 4, the engines left warm ==');
 {
   const b = await playingBoard();
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   const r = await m.stop({ level: 'silence' });
   ok('four steps and no engine went down', r.steps.map((s) => s.n).join('') === '1234' && !b.trace.some((x) => /\.down$/.test(x)) && b.screens.length === 0);
   const c = m.check({ level: 'silence' });
@@ -207,7 +207,7 @@ const SABOTAGE = [
 for (const s of SABOTAGE) {
   const b = await playingBoard();
   s.cut(b.deps);
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   await m.stop({ level: s.level });
   const c = m.check({ level: s.level });
   ok(`NEGATIVE CONTROL: step ${s.n} (${STEPS[s.n - 1].key}) skipped on a ${s.level} stop, exactly ${s.red} red`, redKeys(c) === s.red, redKeys(c) || 'all green');
@@ -216,7 +216,7 @@ for (const s of SABOTAGE) {
 {
   const b = await playingBoard();
   b.deps.output.cut = noop;
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   await m.stop({ level: 'silence' });
   const c = m.check({ level: 'silence' });
   ok('NEGATIVE CONTROL: the output row reads the graph, not the ledger: a stray feed left on the PWM is red while the links row is green',
@@ -226,7 +226,7 @@ for (const s of SABOTAGE) {
 {
   const b = await playingBoard();
   b.deps.screen.stopped = noop;
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   await m.stop({ level: 'full' });
   ok('step 6 has no row of its own: the screen is feedback, and a skipped one leaves the check green', m.check().ok && b.screens.length === 0);
   b.inputs.close();
@@ -235,7 +235,7 @@ for (const s of SABOTAGE) {
 console.log('\n== a stop is never refused, and a step that throws does not stop the rest ==');
 {
   const b = await playingBoard();
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   const bad = await m.stop({ level: 'loud' });
   ok('NEGATIVE CONTROL: an unknown level is refused in words and runs nothing', bad.ok === false && /silence or full/.test(bad.why) && b.trace.length === 0);
   const [one, two] = await Promise.all([m.stop({ level: 'silence', asked: 'a' }), m.stop({ level: 'full', asked: 'b' })]);
@@ -246,7 +246,7 @@ console.log('\n== a stop is never refused, and a step that throws does not stop 
 {
   const b = await playingBoard();
   b.deps.sequencer.stop = () => { throw new Error('wedged'); };
-  const m = createManager(b.deps);
+  const m = createStop(b.deps);
   const r = await m.stop({ level: 'full' });
   ok('a step that throws is reported by name and the later steps still run', r.ok === false && r.steps[0].error === 'wedged' && r.steps.length === 6 && m.check().red === 1 && m.check().ok === false,
     redKeys(m.check()));
@@ -256,12 +256,12 @@ console.log('\n== a stop is never refused, and a step that throws does not stop 
 console.log('\n== a board with no Circuit and no PWM says so rather than reading green ==');
 {
   const b = await playingBoard();
-  const m = createManager({ ...b.deps, circuit: null, output: null });
+  const m = createStop({ ...b.deps, circuit: null, output: null });
   await m.stop({ level: 'full' });
   const c = m.check();
   ok('two rows unread, in words, and the rest green', c.ok && c.unread === 2 && /no Circuit input/.test(rowOf(c, 'circuitNotes').said) && /no PWM output/.test(rowOf(c, 'output').said));
   const g = { ...b.deps.output, read: () => ({ rows: [], error: 'jackd is not running, so there is no graph' }) };
-  ok('NEGATIVE CONTROL: an unreadable graph is unread, not green', rowOf(createManager({ ...b.deps, output: g }).check(), 'output').ok === null);
+  ok('NEGATIVE CONTROL: an unreadable graph is unread, not green', rowOf(createStop({ ...b.deps, output: g }).check(), 'output').ok === null);
   ok('the screen line says how many were green, or which were red', checkLines(c) === 'check 7 green\n2 unread'
     && checkLines({ ok: false, red: 2, rows: [{ ok: false, short: 'seq' }, { ok: true, short: 'x' }, { ok: false, short: 'pwm' }] }) === '2 red:\nseq pwm');
   b.inputs.close();

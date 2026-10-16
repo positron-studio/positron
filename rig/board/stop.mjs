@@ -1,7 +1,7 @@
-// rig/board/manager.mjs: the patchbay manager's stop all and the check that proves it
-// (plans/plan-patchbay-manager.md sections 2 and 3, step 1). Every service is injected, so
-// rig/board/manager-test.mjs runs it on fakes and board.mjs passes the real ones.
-// why: lessons/rig-board-manager.md#header
+// rig/board/stop.mjs: the board's stop's stop all and the check that proves it
+// (plans/plan-pi-patches.md sections 2 and 3, step 1). Every service is injected, so
+// rig/board/stop-test.mjs runs it on fakes and board.mjs passes the real ones.
+// why: lessons/rig-board-stop.md#header
 
 export const STOP_LEVELS = Object.freeze(['silence', 'full']);
 /** How long `*` is held for stop all. */
@@ -10,7 +10,7 @@ export const HOLD_MS = 1000;
 export const CIRCUIT_ALL_OFF = Object.freeze([1, 2, 10]);
 
 // A source stops before its target is silenced, a target before its link is cut.
-// why: lessons/rig-board-manager.md#order
+// why: lessons/rig-board-stop.md#order
 export const STEPS = Object.freeze([
   { n: 1, key: 'sequencer', what: 'the board\'s sequencer stopped' },
   { n: 2, key: 'sources', what: 'the keyboard and the Circuit drums links let go' },
@@ -21,7 +21,7 @@ export const STEPS = Object.freeze([
 ]);
 
 // What the check cannot see, said every time rather than read as green.
-// why: lessons/rig-board-manager.md#unseen
+// why: lessons/rig-board-stop.md#unseen
 export const UNSEEN = Object.freeze([
   'notes the Circuit plays from its own pads or sequencer never pass the board, so no ledger holds them; CC 123 on channels 1, 2 and 10 is the only answer, and whether the Circuit obeys it on every channel is unmeasured',
   'the level at the output is not read: the engines\' capture has no measured silence floor yet',
@@ -40,7 +40,7 @@ const safe = async (fn) => { try { return { did: await fn() }; } catch (e) { ret
  * @param {null | { ports: string[], read(): { rows: object[], error?: string|null }, cut(): any }} o.output  the PWM output on the JACK graph
  * @param {null | { stopped(level: string): any }} [o.screen]
  */
-export function createManager({ sequencer, keyboard, circuitDrums, circuit = null, engines = [], jack, output = null, screen = null,
+export function createStop({ sequencer, keyboard, circuitDrums, circuit = null, engines = [], jack, output = null, screen = null,
   log = () => {}, now = () => Date.now() }) {
   let chain = Promise.resolve();
 
@@ -96,7 +96,7 @@ export function createManager({ sequencer, keyboard, circuitDrums, circuit = nul
         steps.push({ n: s.n, key: s.key, what: s.what, ms: now() - t, ...r });
       }
       const errors = steps.filter((s) => s.error);
-      log(`manager: stop ${level} by ${asked ?? 'nobody named'}, ${steps.length} steps in ${now() - t0} ms${errors.length ? `, ${errors.map((s) => `${s.key} threw ${s.error}`).join(', ')}` : ''}`);
+      log(`stop: ${level} by ${asked ?? 'nobody named'}, ${steps.length} steps in ${now() - t0} ms${errors.length ? `, ${errors.map((s) => `${s.key} threw ${s.error}`).join(', ')}` : ''}`);
       return { ok: !errors.length, level, asked, steps, ms: now() - t0 };
     };
     // Never refused: a second stop waits for the first and runs again.
@@ -159,7 +159,7 @@ export function checkLines(c) {
 /**
  * The hold on `*`: `down(t)`, `tick(t)` while held, `up(t)`. Fires `onFire` once when held `ms`;
  * `tick` answers the share of the hold done, 0 to 1. A release resets it.
- * why: lessons/rig-board-manager.md#hold
+ * why: lessons/rig-board-stop.md#hold
  */
 export function createHold({ ms = HOLD_MS, onFire = () => {} } = {}) {
   let downAt = null, fired = false;

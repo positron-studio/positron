@@ -27,7 +27,7 @@ const write = (bytes) => run(T, ['-y', BUS, `w${bytes.length}@${ADDR}`, ...bytes
 /**
  * A frame with the hold bar over its bottom two rows (page 7, bits 6 and 7), `share` 0 to 1 of the width,
  * on a copy so the mode's own frame is untouched. `null` is no bar.
- * why: lessons/rig-board-manager.md#bar
+ * why: lessons/rig-board-stop.md#bar
  */
 export function withBar(fb, share) {
   if (share == null) return fb;
