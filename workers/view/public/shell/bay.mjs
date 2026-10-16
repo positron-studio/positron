@@ -86,7 +86,7 @@ export const READS = {
 // `whip` is declared by ports but never chosen by the table; without it `addPort` throws.
 // why: lessons/kit-bay.md#transport-names
 export const TRANSPORT_NAMES = [...new Set([...Object.values(TRANSPORTS), READS]
-  .flatMap((row) => Object.values(row)).flatMap((c) => [c.transport, c.or]).filter(Boolean).concat('whip', 'jack', 'fbdev'))];
+  .flatMap((row) => Object.values(row)).flatMap((c) => [c.transport, c.or]).filter(Boolean).concat('whip', 'jack', 'fbdev', 'icecast'))];
 // `jack` is chosen by the ports in `sessionFor`, never by a table cell.
 // why: lessons/kit-bay.md#machine-only
 /** The transports that never leave one machine, so `via` cannot ask for them across a wire. */
