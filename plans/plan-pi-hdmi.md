@@ -110,6 +110,12 @@ decodes. Next: the console aside (getty@tty1 stopped, cursor
 off), a 1920x1080@60 mode (`video=HDMI-A-1:1920x1080@60` on the kernel command line) so full screen is a quarter
 of the pixels, then real content.
 
+**Way A, the GPU path** (`rig/hdmi/hdmi-scan.c`, KMS page flip from a GBM surface, V3D renders, 1920x1080@60): sliding bars
+**58.9 fps at 2.6 % of one core**; the camera, MJPEG 1280x720 decoded by libjpeg-turbo to YUV planes and scaled by the GPU,
+full screen at **29.2 fps for 33.7 %** (decode 9.3 ms a frame), against ffmpeg's 187 % scaled and 48.4 % unscaled. The camera
+itself gives 24 fps with `exposure_dynamic_framerate=1`, as it is set; the 30 fps run turned it off and back on. Screen restored
+to fb 721 after each run. `rig/hdmi/README.md`.
+
 ## 6. What could not be settled here
 
 Everything on the board: whether the screen is detected after boot or needs
