@@ -20,7 +20,6 @@ export const SCREENS = [
   { key: 'landscape', what: 'the scan landscape of /shader/landscape/, its own shader, dithered as the Pi dithers its camera', by: '/radio/scenery/, /shader/landscape/' },
   { key: 'shader', what: 'a shader preset in one bit dots, the presets taking turns', by: '/shader/mirror/, /shader/remote/' },
   { key: 'tuner', what: 'a dial, a mark per station, the needle moving between them', by: '/radio/tuner/' },
-  { key: 'tuner thin', what: 'the tuner with a thinner needle', by: '/radio/tuner/' },
   { key: 'piano roll', what: 'notes scrolling past a playhead', by: '/synth/recorder/, /synth/timeline/' },
   { key: 'keyboard', what: 'two octaves of empty keys, a dot on each key held', by: '/synth/keyboard/, /code/piano/' },
   { key: 'grains', what: 'a waveform with a line where each grain reads', by: '/granulator/grains/, /granulator/beat/' },
@@ -166,12 +165,12 @@ export function createScreens(ui) {
   };
   // the tuner: a scale of ticks, a taller mark per station, the needle gliding to the next station every 3 s
   const STATIONS = [0.08, 0.21, 0.36, 0.5, 0.63, 0.79, 0.92];
-  const tuner = (sf, t, nw = 9) => {
-    // the full height: the scale at the foot, the stations half the height, the needle top to bottom
+  const tuner = (sf, t, nw = 5) => {
+    // the scale at the foot, the stations up to 11 px under the top at both heights, the needle top to bottom
     const y0 = sf.h - 5, k = Math.floor(t / 3000), f = Math.min(1, (t % 3000) / 900), e = f * f * (3 - 2 * f);
     for (let x = 4; x < sf.w - 4; x += 4) sf.fill(x, y0, 1, x % 16 === 0 ? 3 : 2);
     sf.fill(4, y0 + 3, sf.w - 8, 1);
-    const mh = Math.round(sf.h * 0.5);
+    const mh = y0 - 11;
     for (const st of STATIONS) sf.fill(Math.round(4 + st * (sf.w - 8)), y0 - mh, 1, mh);
     const a = STATIONS[k % STATIONS.length], b = STATIONS[(k + 1) % STATIONS.length], at = a + (b - a) * e;
     const nx = Math.round(4 + at * (sf.w - 8));
@@ -179,7 +178,6 @@ export function createScreens(ui) {
     const top = 0, bot = sf.h - 1, x = nx - Math.floor(nw / 2);
     sf.fill(x + 1, top, nw - 2, 1); sf.fill(x + 1, bot, nw - 2, 1); sf.fill(x, top + 1, 1, bot - top - 1); sf.fill(x + nw - 1, top + 1, 1, bot - top - 1);
   };
-  const tunerThin = (sf, t) => tuner(sf, t, 5);
   // piano roll: notes as bars scrolling left past a playhead a quarter in
   const ROLL = [[0, 4, 7], [2, 3, 5], [4, 2, 9], [6, 6, 3], [8, 4, 10], [10, 2, 6], [11, 3, 1], [13, 5, 8], [15, 2, 4]];
   const pianoRoll = (sf, t) => {
@@ -244,7 +242,6 @@ export function createScreens(ui) {
     landscape: (t) => landscapeFull(t),
     shader: (t) => surfaceFrame(shader, t),
     tuner: (t) => surfaceFrame(tuner, t),
-    'tuner thin': (t) => surfaceFrame(tunerThin, t),
     'piano roll': (t) => surfaceFrame(pianoRoll, t),
     keyboard: (t) => surfaceFrame(keyboard, t),
     grains: (t) => surfaceFrame(grains, t),
@@ -258,7 +255,7 @@ export function createScreens(ui) {
     steps: (s, t) => { drawDrums(s, { pattern: PATTERN.slice(0, 4), step: step(t), playing: true }); },
     camera: (s, t) => camera(s, t),
     scope: (s, t) => scope(s, t),
-    landscape, shader, tuner: (sf, t) => tuner(sf, t), 'tuner thin': tunerThin, 'piano roll': pianoRoll, keyboard, grains, knobs,
+    landscape, shader, tuner: (sf, t) => tuner(sf, t), 'piano roll': pianoRoll, keyboard, grains, knobs,
   };
   return {
     /** One screen, `full` (the whole 128x64) or `half` (128x32, at `top` or bottom). */
