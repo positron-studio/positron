@@ -22,7 +22,6 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <link rel="stylesheet" href="/shell/concept.css">
 <style>
-  .pc-sec { display: flex; flex-direction: column; gap: 12px; }
 </style>
 <script type="module">
   // The Pico 2 W in studio-1 (rig/pico/net): its BOOTSEL button and chip temperature arrive here as
@@ -32,16 +31,14 @@
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createChoice } from '/shell/choice.mjs';
+  import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createInfoBox, createSwitchBox } from '/shell/info-box.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { createBayNode, randomSite, ROOM_RE } from '/shell/bay-node.mjs';
   import { heldPicture } from '/shell/bay-view.mjs';
   import { createPatchbay } from '/shell/patchbay.mjs';
 
-  const d = mount({ name: 'Pico on Wi-Fi', what: '', index: '/', indexLabel: 'positron',
-    // Readouts on top, the log at the foot (positron-concepts).
-    joined: false,
-    readout: { temp: '°C', button: '', presses: '', light: '' } });
+  const d = mount({ name: 'Pico on Wi-Fi', what: '', readout: null, index: '/', indexLabel: 'positron' });
   conceptNav('devices/pico');
 
   const asked = new URLSearchParams(location.search).get('room');
@@ -84,16 +81,16 @@
   function onKey(e, l) {
     if (e?.of !== 'key') return;
     pb?.pulse(l.from, l.to);
-    d.set('button', e.down ? 'down' : 'up');
+    lamp.set(!!e.down);
     if (e.down) presses++;
-    d.set('presses', presses);
+    count.set(presses);
     heard++;
   }
   function onTemp(e, l) {
     if (e?.of !== 'number' || !Number.isFinite(e.v)) return;
     pb?.pulse(l.from, l.to);
     lastTemp = e.v;
-    d.set('temp', e.v.toFixed(1));
+    gauge.set(Math.round(e.v * 10) / 10);
     heard++;
   }
 
@@ -101,7 +98,7 @@
   const node = createBayNode({
     room: ROOM, graphs: [SELF], bay,
     log: (line, kind) => d.log(line, kind),
-    onJoin: () => { join.enable('join', false, `in ${ROOM}`); d.log(`in ${ROOM}, waiting for a Pico to announce itself`); pb?.refresh(); },
+    onJoin: () => { d.log(`in ${ROOM}, waiting for a Pico to announce itself`); pb?.refresh(); },
     onGraph: () => {
       const p = picoSite();
       if (p && p !== found) { found = p; d.log(`${p} is here: its button, light and temperature are linked to this tab`, 'ok'); }
@@ -115,17 +112,29 @@
     const p = picoSite();
     if (!node.joined() || !p) { d.log('join the room and wait for the Pico first', 'dim'); return false; }
     const ok = node.send({ type: 'light.set', to: `${p}:led:value-in`, hex: on ? '#ffffff' : '#000000' });
-    if (ok) { pb?.pulse(LIGHT_OUT, `${p}:led:value-in`); d.set('light', on ? 'on' : 'off'); d.log(`the Pico's light ${on ? 'on' : 'off'}`, 'ok'); }
+    if (ok) { pb?.pulse(LIGHT_OUT, `${p}:led:value-in`); d.log(`the Pico's light ${on ? 'on' : 'off'}`, 'ok'); }
     return ok;
   }
 
-  const join = createButtonGroup({ buttons: [{ id: 'join', label: `Join ${ROOM}`, primary: true, onPress: () => node.join() }] });
-  const light = createChoice({ label: 'light', options: [['off', false], ['on', true]], at: 0,
-    title: (v) => (v ? 'the Pico\'s green LED on' : 'the Pico\'s green LED off'), onPick: (v) => { setLight(v); } });
+  // Play joins the room and Stop leaves it, as the other Pi pages connect.
+  function play() {
+    if (node.joined() || node.joining()) {
+      node.leave(); found = null; transport.setIcon('play', 'play', 'play');
+      lamp.set(false); d.log(`left ${ROOM}`); pb?.refresh(); return;
+    }
+    transport.setIcon('play', 'stop', 'stop');
+    node.join();
+  }
+  const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: play }] });
+  // What the Pico shows, in knob boxes, one row; its switch in a box of its own, the next row.
+  const gauge = createInfoBox({ label: 'temp', face: 'gauge', min: 15, max: 45, unit: '°C' });
+  const lamp = createInfoBox({ label: 'button', face: 'lamp', format: (v) => (v ? 'down' : 'up') });
+  const count = createInfoBox({ label: 'presses', face: 'count' });
+  const shows = createKnobGrid([{ name: 'temp', knob: gauge }, { name: 'button', knob: lamp }, { name: 'presses', knob: count }], { row: true });
+  const light = createSwitchBox({ label: 'light', word: 'LED', onChange: (on) => { if (!setLight(on)) light.set(false, true); } });
+  const switches = createKnobGrid([{ name: 'light', knob: light }], { row: true });
   pb = createPatchbay(heldPicture(bay, SITE), { room: ROOM, detail: (n) => [{ text: n.label || '', sans: true }] });
-  const sec = el('section', 'pc-sec');
-  sec.append(join.el, light.el);
-  d.stack.add(sec, pb.el);
+  d.stack.add(transport.el, shows.el, switches.el, pb.el);
 
   window.__demo.probe = () => ({ joined: node.joined(), pico: picoSite(), presses, lastTemp, heard });
 
@@ -146,7 +155,9 @@
     b.send(`${P}:temp:value-out`, { of: 'number', cls: 'number', v: 23.4, unit: 'C' });
     b.send(`${P}:button:value-out`, { of: 'key', cls: 'key', k: 0, down: true });
     b.send(`${P}:button:value-out`, { of: 'key', cls: 'key', k: 0, down: false });
-    d.assert('a temperature and a press arrive along the links', lastTemp === 23.4 && presses === 1, `temp ${lastTemp}, presses ${presses}`);
+    d.assert('a temperature and a press arrive along the links and show in their boxes', lastTemp === 23.4 && presses === 1 && gauge.value() === 23.4 && count.value() === 1, `temp ${lastTemp}, presses ${presses}`);
+    const tops = [...shows.el.querySelectorAll('.pos-knob-lab'), ...switches.el.querySelectorAll('.pos-knob-lab')].map((x) => Math.round(x.getBoundingClientRect().bottom - x.closest('.pos-kgrid-cell').getBoundingClientRect().top));
+    d.assert('every box\'s name line sits at one height, so the boxes match a knob\'s', new Set(tops).size === 1, tops.join(' '));
     d.assert('NEGATIVE CONTROL: the light sends nothing before Join', setLight(true) === false);
   }
   d.ready();

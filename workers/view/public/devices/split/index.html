@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Split screen">
+<meta property="og:description" content="Drums, a scope and a status line share the Pi&apos;s small screen. Its keys move between them.">
+<meta property="og:url" content="https://positron.studio/devices/split/">
+<meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Split screen</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<link rel="stylesheet" href="/shell/concept.css">
+<style>
+  /* The simulated module as on /devices/drums/: the panel at a whole number scale, its keys on its right. */
+  .ol-media { display: flex; justify-content: center; align-items: center; gap: 16px; padding: 24px 16px; height: calc(64px * 4 + 48px); background: #07090d; overflow-x: auto; }
+  .ol-media canvas { display: block; flex: none; width: calc(128px * var(--ol-k, 2)); height: calc(64px * var(--ol-k, 2)); image-rendering: pixelated; }
+  .ol-frame { padding: 8px; border: 1px solid var(--line); border-radius: 2px; line-height: 0; background: #000; }
+  .ol-media .pos-bgroup { flex: none; margin-left: auto; align-self: center; }
+  .ol-screen { flex: 1 1 auto; display: flex; justify-content: center; align-items: center; min-width: 0; }
+  .ol-say { font-size: 12px; color: var(--dim); }
+</style>
+<script type="module">
+  // Several things on the Pi's 128x64 screen at once, simulated in the tab: a drum pattern, a synth's
+  // scope and a status line, each drawn into its own region by split-oled.mjs. Nothing leaves the tab.
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { paintFrame } from '/shell/panel-screen.mjs';
+  import { LAYOUTS, SHAPES, TEMPOS, compose, focusStops, strays, lit, wave } from '/devices/split/split-oled.mjs';
+  useMediumColours();
+
+  const d = mount({ name: 'Split screen', what: '', readout: null, index: '/', indexLabel: 'positron' });
+  conceptNav('devices/split');
+
+  const S = 'web', bay = createBay();
+  const SEQ_OUT = `${S}:sequencer:value-out`, SEQ_IN = `${S}:sequencer:value-in`;
+  const SYN_OUT = `${S}:synth:value-out`, SYN_IN = `${S}:synth:value-in`;
+  const KEYS_OUT = `${S}:keys:value-out`, SCR_IN = `${S}:screen:value-in`;
+  const FOC_IN = `${S}:focus:value-in`, FOC_OUT = `${S}:focus:value-out`;
+
+  // ── the sequencer: four drums, 16 steps, its own clock ──
+  const VOICES = ['BD', 'SD', 'CH', 'OH'];
+  const pattern = ['1000100010001000', '0000100000001000', '1010101010101010', '0000000000100000'].map((r) => Array.from(r, (c) => c === '1'));
+  const seq = { playing: true, bpm: 120, step: 0, cursor: 0, t0: performance.now() };
+  const stepsNow = () => ({ cls: 'steps', pattern: pattern.map((r) => r.map((x) => (x ? '1' : '0')).join('')),
+    step: seq.playing ? seq.step : seq.cursor, playing: seq.playing, bpm: seq.bpm });
+  const tellSteps = () => bay.send(SEQ_OUT, stepsNow());
+  function onSeq(ev) {
+    if (ev.cls === 'transport') {
+      if (ev.tempo) { seq.bpm = TEMPOS[(TEMPOS.indexOf(seq.bpm) + 1) % TEMPOS.length]; seq.t0 = performance.now() - seq.step * stepMs(); }
+      if (ev.toggle) { seq.playing = !seq.playing; seq.t0 = performance.now(); seq.step = 0; seq.cursor = 0; d.log(seq.playing ? 'playing' : 'stopped'); }
+    } else if (ev.cls === 'edit') {
+      // playing: the step under the playhead; stopped: the cursor's, and the cursor moves on
+      const s = seq.playing ? seq.step : seq.cursor;
+      pattern[ev.row][s] = !pattern[ev.row][s];
+      d.log(`${VOICES[ev.row]} step ${s + 1} ${pattern[ev.row][s] ? 'on' : 'off'}`);
+      if (!seq.playing) seq.cursor = (seq.cursor + 1) % 16;
+    } else return;
+    tellSteps();
+  }
+  const stepMs = () => 60000 / seq.bpm / 4;
+
+  // ── the synth: a waveform, struck again by every kick, sent as samples for the scope ──
+  const syn = { shape: 'saw', hitAt: performance.now(), phase: 0 };
+  let lastStep = -1;
+  function onSynth(ev) {
+    if (ev.cls === 'shape') { syn.shape = SHAPES[(SHAPES.indexOf(syn.shape) + 1) % SHAPES.length]; d.log(`synth ${syn.shape}`); }
+    else if (ev.cls === 'steps' && ev.playing && ev.step !== lastStep) {
+      lastStep = ev.step;
+      if (ev.pattern[0][ev.step] === '1') syn.hitAt = performance.now();
+    }
+  }
+  const synthAmp = (now) => (seq.playing ? 0.15 + 0.8 * Math.exp(-(now - syn.hitAt) / 260) : 0.85);
+
+  // ── the focus: the keys move it between regions and act in the one it is on; the screen shows it ──
+  // ?layout=stack|bands|halves opens on that arrangement, so two of them can be compared side by side
+  const START = new URLSearchParams(location.search).get('layout');
+  const scr = { layout: LAYOUTS[START] ? START : 'stack', drums: null, scope: null, focus: null, at: 0, frames: 0, last: null, keys: 0 };
+  const stops = () => focusStops(scr.layout, VOICES.length);
+  const stopName = (f) => (f.region === 'drums' ? `drums ${VOICES[f.row]}` : f.region);
+  function onKey(k) {
+    scr.keys++;
+    const all = stops();
+    if (k === 1 || k === 2) {
+      scr.at = (scr.at + (k === 1 ? all.length - 1 : 1)) % all.length;
+      d.log(`focus ${stopName(all[scr.at])}`);
+      tellFocus();
+    } else if (k === 3) {
+      const f = all[scr.at];
+      if (f.region === 'drums') bay.send(FOC_OUT, { cls: 'edit', row: f.row });
+      else if (f.region === 'scope') bay.send(FOC_OUT, { cls: 'shape', next: 1 });
+      else bay.send(FOC_OUT, { cls: 'transport', tempo: 'next' });
+    } else if (k === 4) bay.send(FOC_OUT, { cls: 'transport', toggle: true });
+  }
+  const tellFocus = () => bay.send(FOC_OUT, { cls: 'focus', ...stops()[scr.at] });
+  const onFocus = (ev) => { if (ev.cls === 'key' && ev.down) onKey(ev.k); };
+  function onScreen(ev) {
+    if (ev.cls === 'steps') scr.drums = ev;
+    else if (ev.cls === 'wave') scr.scope = ev;
+    else if (ev.cls === 'focus') scr.focus = { region: ev.region, row: ev.row };
+  }
+  const screenState = () => ({
+    drums: scr.drums || { pattern: [], step: 0 },
+    scope: scr.scope || { samples: [] },
+    status: { playing: scr.drums?.playing, bpm: scr.drums?.bpm, shape: scr.scope?.shape, step: scr.drums?.step },
+    focus: scr.focus,
+  });
+
+  bay.addNode({ id: `${S}:sequencer`, kind: 'engine', label: 'drum steps', place: 'browser' });
+  bay.addNode({ id: `${S}:synth`, kind: 'engine', label: 'synth', place: 'browser' });
+  bay.addNode({ id: `${S}:keys`, kind: 'person', label: 'four keys', place: 'browser' });
+  bay.addNode({ id: `${S}:focus`, kind: 'engine', label: 'focus', place: 'browser' });
+  bay.addNode({ id: `${S}:screen`, kind: 'screen', label: 'OLED 128x64, split', place: 'browser' });
+  bay.addPort({ id: SEQ_OUT, dir: 'out', medium: 'value', emits: ['steps'], label: 'sequencer:value-out' });
+  bay.addPort({ id: SEQ_IN, dir: 'in', medium: 'value', accepts: ['edit', 'transport'], label: 'sequencer:value-in', deliver: onSeq });
+  bay.addPort({ id: SYN_OUT, dir: 'out', medium: 'value', emits: ['wave'], label: 'synth:value-out' });
+  bay.addPort({ id: SYN_IN, dir: 'in', medium: 'value', accepts: ['steps', 'shape'], label: 'synth:value-in', deliver: onSynth });
+  bay.addPort({ id: KEYS_OUT, dir: 'out', medium: 'value', emits: ['key'], label: 'keys:value-out' });
+  bay.addPort({ id: SCR_IN, dir: 'in', medium: 'value', accepts: ['steps', 'wave', 'focus'], label: 'screen:value-in', deliver: onScreen });
+  bay.addPort({ id: FOC_IN, dir: 'in', medium: 'value', accepts: ['key'], label: 'focus:value-in', deliver: onFocus });
+  bay.addPort({ id: FOC_OUT, dir: 'out', medium: 'value', emits: ['edit', 'transport', 'shape', 'focus'], label: 'focus:value-out' });
+  const LINKS = [[SEQ_OUT, SCR_IN], [SEQ_OUT, SYN_IN], [SYN_OUT, SCR_IN], [KEYS_OUT, FOC_IN], [FOC_OUT, SEQ_IN], [FOC_OUT, SYN_IN], [FOC_OUT, SCR_IN]];
+  const held = [];
+  for (const [a, b] of LINKS) {
+    const r = bay.link(a, b, [], { site: S });
+    if (r.ok) held.push(r.id); else d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
+  }
+  const pb = createPatchbay({ nodes: () => bay.nodes(), ports: () => bay.ports(), links: () => bay.links() });
+
+  // ── the simulated module: the screen and its four keys, zoomable ──
+  const cv = Object.assign(document.createElement('canvas'), { width: 128, height: 64 });
+  const SYMS = ['^', 'v', '#', '*'], ICONS = ['chevron-up', 'chevron-down', 'hash', null];
+  const keys = createButtonGroup({ orient: 'column', buttons: SYMS.map((s, i) => ({ id: `k${i + 1}`,
+    ...(ICONS[i] ? { icon: ICONS[i], label: `K${i + 1}, the ${s} key` } : { label: s }) })) });
+  keys.button('k4').dataset.glyph = '1';
+  SYMS.forEach((s, i) => keys.button(`k${i + 1}`).addEventListener('pointerdown', () =>
+    bay.send(KEYS_OUT, { cls: 'key', k: i + 1, sym: s, down: true })));
+  const media = el('div', 'ol-media'), screenBox = el('div', 'ol-screen'), frameEl = el('div', 'ol-frame');
+  frameEl.append(cv);
+  screenBox.append(frameEl);
+  media.append(screenBox, keys.el);
+  const ZOOMS = [1, 2, 4];
+  let zi = 1;
+  const scale = el('span', 'ol-say', '');
+  const zoomBtns = createButtonGroup({ buttons: [
+    { id: 'out', icon: 'zoom-out', label: 'zoom out', onPress: () => setZoom(zi - 1) },
+    { id: 'in', icon: 'zoom-in', label: 'zoom in', onPress: () => setZoom(zi + 1) },
+  ] });
+  function setZoom(i) {
+    zi = Math.max(0, Math.min(ZOOMS.length - 1, i));
+    media.style.setProperty('--ol-k', String(ZOOMS[zi]));
+    scale.textContent = `128×64 at ${ZOOMS[zi]}x`;
+    zoomBtns.enable('out', zi > 0, 'smallest');
+    zoomBtns.enable('in', zi < ZOOMS.length - 1, 'largest');
+  }
+  setZoom(zi);
+  const panel = createVideoPanel({ media, left: scale, right: zoomBtns.el, aspect: 'auto' });
+
+  const NAMES = Object.keys(LAYOUTS);
+  const pick = createChoice({ label: 'layout', options: NAMES.map((n) => [LAYOUTS[n].label, n]), at: NAMES.indexOf(scr.layout),
+    onPick: (v) => {
+      // keep the focus on the same place when the new layout has it, else the first stop
+      const was = stops()[scr.at];
+      scr.layout = v;
+      const i = stops().findIndex((f) => f.region === was.region && f.row === was.row);
+      scr.at = Math.max(0, i);
+      tellFocus();
+      draw();
+    } });
+
+  // ── the clock: the sequencer steps, the synth sends its samples, the screen draws ──
+  function draw() {
+    scr.last = compose(scr.layout, screenState());
+    paintFrame(cv, scr.last);
+    scr.frames++;
+  }
+  function tick() {
+    const now = performance.now();
+    if (seq.playing) {
+      const s = Math.floor((now - seq.t0) / stepMs()) % 16;
+      if (s !== seq.step) { seq.step = s; tellSteps(); }
+    }
+    syn.phase = (syn.phase + 0.004) % 1;
+    bay.send(SYN_OUT, { cls: 'wave', shape: syn.shape, samples: wave(syn.shape, 128, { phase: 0, amp: synthAmp(now) }) });
+    draw();
+    requestAnimationFrame(tick);
+  }
+  tellSteps();
+  tellFocus();
+  tick();
+
+  d.stack.add(panel.el, pick.el, pb.el);
+  window.__demo.bay = bay;
+  window.__demo.probe = () => ({ layout: scr.layout, focus: stops()[scr.at], frames: scr.frames, keys: scr.keys,
+    playing: seq.playing, step: seq.step, bpm: seq.bpm, shape: syn.shape });
+
+  if (SELFCHECK) {
+    d.assert('seven links: steps to the screen and the synth, samples to the screen, keys to the focus, the focus to the sequencer, the synth and the screen',
+      held.length === LINKS.length, `${held.length} of ${LINKS.length}`);
+    d.assert('the screen drew from what arrived on its links', !!scr.drums && !!scr.scope && scr.frames > 0 && lit(scr.last) > 0);
+    // each region alone, read back from the composed frame: ink inside its rectangle and none outside it
+    for (const name of NAMES) {
+      const L = LAYOUTS[name], st = screenState();
+      for (const r of L.regions) {
+        const f = compose(name, st, { only: r.id }), out = strays(f, [r]);
+        d.assert(`${name}: ${r.id} draws inside x ${r.x} y ${r.y} ${r.w}x${r.h} and nowhere else`,
+          lit(f) > 0 && out.length === 0, out.length ? `${out.length} stray pixels, first at ${out[0]}` : `${lit(f)} lit`);
+      }
+      const dv = compose(name, st, { only: 'dividers' });
+      d.assert(`${name}: the dividers draw only themselves`, strays(dv, L.dividers).length === 0 && lit(dv) > 0);
+    }
+    // a key moves the focus, and the bar follows it into the next region's rectangle
+    const at0 = scr.at;
+    bay.send(KEYS_OUT, { cls: 'key', k: 2, down: true });
+    d.assert('v on the keys moves the focus one stop down', scr.at === (at0 + 1) % stops().length, stopName(stops()[scr.at]));
+    bay.send(KEYS_OUT, { cls: 'key', k: 1, down: true });
+    d.assert('^ moves it back', scr.at === at0);
+    for (let i = 0; i < VOICES.length; i++) bay.send(KEYS_OUT, { cls: 'key', k: 2, down: true });
+    const fo = stops()[scr.at], reg = LAYOUTS[scr.layout].regions.find((r) => r.id === fo.region);
+    const a = compose(scr.layout, screenState()), b = compose(scr.layout, { ...screenState(), focus: null });
+    const shown = scr.focus?.region === fo.region && scr.focus?.row === fo.row;
+    const bar = a.map((x, i) => x & ~b[i]);
+    d.assert(`four presses of v put the focus on the ${fo.region}, and its bar is inside that region`, fo.region === 'scope' && shown && lit(bar) > 0 && strays(bar, [reg]).length === 0);
+    // # in the scope changes the waveform, along the focus's link to the synth
+    const was = syn.shape;
+    bay.send(KEYS_OUT, { cls: 'key', k: 3, down: true });
+    d.assert('# with the scope in focus changes the synth\'s waveform, along the focus\'s link to the synth', syn.shape !== was, `${was} -> ${syn.shape}`);
+    syn.shape = was;
+    // # on a drum row toggles a step
+    scr.at = 1;
+    const s = seq.playing ? seq.step : seq.cursor, before = pattern[1][s];
+    bay.send(KEYS_OUT, { cls: 'key', k: 3, down: true });
+    const after = pattern[1][s];
+    d.assert('# on the SD row toggles its step', after === !before);
+    pattern[1][s] = before; scr.at = at0; tellSteps(); tellFocus();
+    // a visit opens nothing: every request is this page's own file, none fetched by script
+    const res = performance.getEntriesByType('resource');
+    const foreign = res.filter((e) => !e.name.startsWith(location.origin) || ['fetch', 'xmlhttprequest', 'beacon'].includes(e.initiatorType));
+    d.assert('a visit opens nothing: only the page\'s own files, none fetched by script', foreign.length === 0,
+      foreign.length ? foreign.map((e) => e.name).join(', ') : `${res.length} files`);
+  }
+  d.ready();
+</script>

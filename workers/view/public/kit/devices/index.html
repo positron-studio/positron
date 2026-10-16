@@ -49,6 +49,7 @@
   import { createInstrument, HEADER_STATES, HEADER_SAYS } from '/shell/instrument.mjs';
   import { createControlGrid } from '/shell/control-grid.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createInfoBox, createSwitchBox } from '/shell/info-box.mjs';
   import { createKitPage } from '/shell/kit-page.mjs';
 
   /**
@@ -134,6 +135,26 @@
    * See lessons/page-kit-devices.md#kit-devices-11
    */
 
+
+  /** Info and switch boxes: a knob's column that shows a value (gauge, lamp, count) or holds a switch. */
+  section('INFO AND SWITCH BOXES',
+    'Boxes that sit in a knob row and show a value rather than set it, and a box holding a switch, each as tall as a knob.',
+    `createInfoBox({ label: 'temp', face: 'gauge', min: 15, max: 45, unit: '°C' })   // .set(v)
+createInfoBox({ label: 'button', face: 'lamp' })      // .set(true | false)
+createInfoBox({ label: 'presses', face: 'count' })    // .set(n)
+createSwitchBox({ label: 'light', word: 'LED', onChange })
+createKnobGrid([{ name, knob: box }, ...], { row: true })`,
+    (box) => {
+      const g = createInfoBox({ label: 'temp', face: 'gauge', min: 15, max: 45, unit: '°C' });
+      const l = createInfoBox({ label: 'button', face: 'lamp', format: (v) => (v ? 'down' : 'up') });
+      const c = createInfoBox({ label: 'presses', face: 'count' });
+      const k = createKnob({ label: 'knob', min: 0, max: 127, value: 64 });
+      const row = createKnobGrid([{ name: 'temp', knob: g }, { name: 'button', knob: l }, { name: 'presses', knob: c }, { name: 'knob', knob: k }], { row: true });
+      const sw = createSwitchBox({ label: 'light', word: 'LED', onChange: (on) => l.set(on) });
+      const row2 = createKnobGrid([{ name: 'light', knob: sw }], { row: true });
+      g.set(27.4); c.set(3); l.set(false);
+      box.append(row.el, row2.el);
+    });
 
   /**
    * knob.receive(v, { from }) glides the dial to a value from outside, lights it and

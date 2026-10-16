@@ -40,6 +40,7 @@ export const CONCEPTS = [
   { id: 'devices/synth', title: 'Keyboard to Pi synth', say: 'The keyboard on the Pi plays Plaits on the Pi, heard from the Pi\'s PWM output.' },
   { id: 'devices/circuit', title: 'Circuit drums on Pi', say: 'The Circuit\'s drums play SuperCollider drums on the Pi, heard here. The Pi\'s screen draws them.' },
   { id: 'devices/pico', title: 'Pico on Wi-Fi', say: 'A Pico on Wi-Fi joins the Pi\'s room. Its button, light and temperature link to this tab.' },
+  { id: 'devices/split', title: 'Split screen', say: 'Drums, a scope and a status line share the Pi\'s small screen. Its keys move between them.' },
   // why: lessons/kit-concept-list.md#draw
   { id: 'radio/blend', title: 'Blend', say: 'Listen to Vikerraadio and Ida Radio Tallinn live and blend between them on a crossfader.' },
   { id: 'radio/tuner', title: 'Tuner', say: 'Turn one dial across four live stations, as on an old AM set, with noise and a whistle in between.' },
