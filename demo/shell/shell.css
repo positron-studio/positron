@@ -3390,6 +3390,17 @@ button.pos-linkbtn:active { background: none; }
 /* why: lessons/css-shell.md#pos-kgrid-hidden-pos-kgrid-cell-hidden */
 .pos-kgrid[hidden], .pos-kgrid-cell[hidden] { display: none; }
 
+/* Info and switch boxes (shell/info-box.mjs): a knob's column whose face shows rather than turns. The face
+   is an svg with the dial's own viewBox, so it is the dial's height and the value and name lines line up. */
+.pos-info .pos-info-face { cursor: default; }
+.pos-info-lamp { fill: none; stroke: var(--dim2); stroke-width: 4; transition: fill .08s linear, stroke .08s linear; }
+.pos-info[data-lit] .pos-info-lamp { fill: var(--hi); stroke: var(--hi); }
+.pos-info-count { fill: var(--fg); font: 600 34px var(--mono); text-anchor: middle; dominant-baseline: central; font-variant-numeric: tabular-nums; }
+/* The switch sits on an empty dial-shaped svg, so its box is a knob box's height. */
+.pos-info-switch { position: relative; display: grid; place-items: center; width: var(--knob-w); }
+.pos-info-switch > * { grid-area: 1 / 1; }
+.pos-info-switch .pos-info-sizer { visibility: hidden; }
+
 /* A parameter's knob can wear `--param-hue`, set on the knob or above it.
    Unset, `--param-ink` is invalid and falls back to `--hi`. Above the
    `data-off` rule at equal weight so off stays grey. */
