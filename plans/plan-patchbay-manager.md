@@ -1,4 +1,4 @@
-# plan-pi-os: the Pi runs itself, switches patches, stops everything, and a page mirrors it
+# plan-patchbay-manager: the Pi keeps its own patches, switches them and stops them, and a page is a remote
 
 Written 2026-10-16 from the tree at `425f02e3`, without ssh, without the relay
 and without the board (the VPN was on). Every claim is marked:
@@ -10,7 +10,7 @@ and without the board (the VPN was on). Every claim is marked:
 
 ## The ask, verbatim
 
-> "we need to work on 'pi os' or smth. currently running desktop demoms, getting
+> "we need to work on 'patchbay manager' or smth. currently running desktop demoms, getting
 > hangin notes etc is a mess. pi should be selfsutainable switching patches.
 > stoppin all etc. we could have "remote control" page that shows mirror of its
 > ui and send button signals."
@@ -25,7 +25,7 @@ and without the board (the VPN was on). Every claim is marked:
 that makes sound already holds its own link in the bay's own vocabulary
 (`printLink` lines, `sequencer.mjs:168`, `keyboard.mjs:80`,
 `circuit-drums.mjs:105`, `board.mjs:1162` for JACK). What is missing is one
-owner above them. The plan adds one module on the board, `rig/board/os.mjs`,
+owner above them. The plan adds one module on the board, `rig/board/manager.mjs`,
 that owns **"what is playing"** as a single record, and four things around it:
 
 1. **A patch is a JSON file of bay link lines** plus the few settings a link
@@ -34,10 +34,10 @@ that owns **"what is playing"** as a single record, and four things around it:
    Built-in patches live in the repo (`rig/board/patches/`), shipped by
    `push.sh` with nothing added to it; the edited state lives on the Pi in a
    state directory a push cannot overwrite.
-2. **One `os.load` and one `os.stop`**, both applied by the board through its
+2. **One `manager.load` and one `manager.stop`**, both applied by the board through its
    own existing verbs (it calls its own `handle()`), in a fixed order: note
    sources off first, then every target silenced, then audio links cut, then
-   engines down. `os.check` proves it by reading JACK, the sequencer, every
+   engines down. `manager.check` proves it by reading JACK, the sequencer, every
    held note ledger and the capture's level.
 3. **The screen and the four keys are the menu**, run inside the board, so the
    Pi is usable with no page and with no relay at all. Hold `*` for 1 s is stop
@@ -86,6 +86,8 @@ ends with a `push.sh`, which restarts the service; the owner's OK is needed for
 that, as before.
 
 ---
+
+> Renamed 2026-10-16 from plan-pi-os.md on *"does not need to be pi os as name. more of that we need somthing for patchbau management"*: the module is `rig/board/manager.mjs` and the verbs `manager.*`.
 
 ## 1. What a patch is
 
@@ -207,20 +209,20 @@ nothing, which comes back the moment anything relinks.
 | 5 | engines down | `plaits.stop()`, `collide.stop()`, `stopSampler()`, `stopAudio()` (READ, the same calls the SIGTERM handler makes, `board.mjs:1481`) | the capture ends, so the relay stream ends |
 | 6 | the screen | to the menu, nothing playing | a person at the Pi sees it stopped |
 
-`os.load` of another patch runs the same steps as a **diff**: links the new
+`manager.load` of another patch runs the same steps as a **diff**: links the new
 patch keeps are left alone, engines it still needs stay up (the drums' eight
 voices stay compiled from `drums` to `circuit`), and the new patch is brought
 up in the reverse order: engines, then audio links, then note sources, then the
 sequencer starts. Sources last on the way up, first on the way down.
 
-⚠️ **Two stops, not one, and the plan recommends both:** `os.stop` is steps 1
+⚠️ **Two stops, not one, and the plan recommends both:** `manager.stop` is steps 1
 to 6. A **silence** without step 5 is what a panic key wants mid-performance
 (engines warm, the next press is instant). The menu's stop all is the full
 one, because step 5 is what ends the relay stream (section 0).
 
 ### 2.2 How it is proved
 
-`os.check` is a verb that reads, never writes, and answers one row per claim:
+`manager.check` is a verb that reads, never writes, and answers one row per claim:
 
 | claim | read from |
 | --- | --- |
@@ -304,7 +306,7 @@ Keys are `^` K1, `v` K2, `#` K3, `*` K4 (MEASURED 2026-10-15, READ
 
 **The board, in one record:** `{ patch, edited, playing, links, by, at }`,
 kept by `os.mjs`, written to `now.json` on every change, sent to the room as
-`os.state` on every change and on `os.ask`, and drawn on the screen's header.
+`manager.state` on every change and on `manager.ask`, and drawn on the screen's header.
 
 Everything that changes it goes through the one record, in arrival order:
 
@@ -313,7 +315,7 @@ Everything that changes it goes through the one record, in arrival order:
 | the Pi's keys | a GPIO edge, `panel.mjs:89-111` | broadcast only |
 | the remote page's keys | `panel.press { k, down }` in `studio-1` | does not exist |
 | a Pico button | `bay.event` from `pico-a629d5:button:value-out` (READ, `node.c:88-100`, sent to the whole room) | heard by pages only; the board has no handler for `bay.event` (READ, grep) |
-| a page | `os.load`, `os.stop`, and the old verbs | the old verbs only |
+| a page | `manager.load`, `manager.stop`, and the old verbs | the old verbs only |
 
 - **Last writer wins, and every write is announced with who made it**, as the
   insert already does (READ, `fxAsked`, `board.mjs:164-167`). No locks on
@@ -336,9 +338,9 @@ Everything that changes it goes through the one record, in arrival order:
 ### 4.2 What a page does when it opens
 
 1. Nothing on load, as every concept page (the skill's rule: join on a press).
-2. On the press, join `studio-1` and send `os.ask`. Draw from the answer.
+2. On the press, join `studio-1` and send `manager.ask`. Draw from the answer.
    **Never assume from its own last action.**
-3. Follow `os.state`. When `by` is somebody else, say so in the log, as the
+3. Follow `manager.state`. When `by` is somebody else, say so in the log, as the
    insert's `fxBy` lets a page say it today.
 
 ### 4.3 What happens when a tab closes
@@ -439,7 +441,7 @@ hold of `*` is a real hold.
 on the page, top to bottom: the mirrored screen with its four keys beside it
 (the `ol-media` block `pi-seq.mjs:220-225` already lays out), the patch list
 as a table with the playing one marked and a load per row, a stop all button,
-then the patchbay of the current patch drawn from `os.state`'s link lines
+then the patchbay of the current patch drawn from `manager.state`'s link lines
 (`parseLink`, `createPatchbay`). Join on a press, never on load.
 
 ### 5.5 And the existing `/devices/` pages
@@ -448,8 +450,8 @@ then the patchbay of the current patch drawn from `os.state`'s link lines
 concepts skill's rule is one idea per page; the owner also asked that UI is not
 removed without asking. What changes in each, in one step (section 7, step 5):
 
-- on connect, `os.ask` and draw from it;
-- Play is `os.load <its patch>` and Stop is `os.stop`, so the page and the Pi's
+- on connect, `manager.ask` and draw from it;
+- Play is `manager.load <its patch>` and Stop is `manager.stop`, so the page and the Pi's
   menu cannot disagree about what is playing;
 - the drum pages stop acting on `panel.key` (READ, `pi-seq.mjs:46-60`), because
   the board does it now; they show the edit instead, from `seq.state`;
@@ -518,11 +520,11 @@ LAN.
 
 | # | step | what it proves | how to check |
 | --- | --- | --- | --- |
-| 1 | **`os.stop` and `os.check`, and `*` held 1 s on the Pi's keys runs `os.stop`.** Section 2's order, the check's rows. No menu, no patches | everything a page can start, the board can end, with no page; and the check sees it | stand-in: start the sequencer, hold a keyboard note, `jack.link` drums to pwm, then `os.stop`; every row green. Sabotage each stop step in turn, the matching row red. On the Pi: start `/devices/drums/`, close the tab, hold `*`; `ask.mjs os.check` all green and `jack_lsp -c` on `pwm:playback_1` empty |
+| 1 | **`manager.stop` and `manager.check`, and `*` held 1 s on the Pi's keys runs `manager.stop`.** Section 2's order, the check's rows. No menu, no patches | everything a page can start, the board can end, with no page; and the check sees it | stand-in: start the sequencer, hold a keyboard note, `jack.link` drums to pwm, then `manager.stop`; every row green. Sabotage each stop step in turn, the matching row red. On the Pi: start `/devices/drums/`, close the tab, hold `*`; `ask.mjs manager.check` all green and `jack_lsp -c` on `pwm:playback_1` empty |
 | 2 | **The board runs without the relay**: `graphFacts` at start; `ws.onclose` no longer stops sound; the backoff capped at 5 s before the first open; the stats probe on a fast 1006 | a patch can be brought up while the relay refuses | board started with `--relay ws://127.0.0.1:9` (nothing listens): `seq.start` through a local call wires its link; the log shows the probe's status line |
-| 3 | **Patches as files and `os.load` / `os.ask` / `os.state`**, the five built-ins of 1.4, the drum voices loaded by the board, the diff between patches, `now.json` | one verb switches the whole board, and the switch leaves nothing of the old patch | stand-in: `os.load drums`, `os.load synth`, `os.check` shows only synth's two links and no sequencer. On the Pi: the same, heard at the PWM socket; `jack.links` lists only the new links |
+| 3 | **Patches as files and `manager.load` / `manager.ask` / `manager.state`**, the five built-ins of 1.4, the drum voices loaded by the board, the diff between patches, `now.json` | one verb switches the whole board, and the switch leaves nothing of the old patch | stand-in: `manager.load drums`, `manager.load synth`, `manager.check` shows only synth's two links and no sequencer. On the Pi: the same, heard at the PWM socket; `jack.links` lists only the new links |
 | 4 | **The menu and the keys in the board**, the `menu` mode in `panel-screen.mjs`, section 3's key table; in the SAME change, `pi-seq.mjs` stops acting on `panel.key` | the Pi is usable with no page; no key acts twice | the simulated screen on `/devices/text/` draws the menu; on the Pi with the relay URL pointed at nothing, choose `drums`, play, edit a step, hold `*`. With two drum tabs open, one `#` toggles a step once |
-| 5 | **The mirror and `/devices/control/`**: `onFrame` in `panel.mjs`, `studio-1-screen` with the lease, `panel.press`, the camera guard; the `/devices/` pages read `os.state` and play by `os.load` | the page shows the Pi's own bytes, its keys act as the Pi's keys, and the page owns nothing | the page's frame equal byte for byte to the panel's (an assert against the stand-in, which already draws frames, READ `lessons/harness.md:4196`); close the tab, `studio-1-screen`'s socket closes within 15 s (`/room/studio-1-screen/stats`) |
+| 5 | **The mirror and `/devices/control/`**: `onFrame` in `panel.mjs`, `studio-1-screen` with the lease, `panel.press`, the camera guard; the `/devices/` pages read `manager.state` and play by `manager.load` | the page shows the Pi's own bytes, its keys act as the Pi's keys, and the page owns nothing | the page's frame equal byte for byte to the panel's (an assert against the stand-in, which already draws frames, READ `lessons/harness.md:4196`); close the tab, `studio-1-screen`'s socket closes within 15 s (`/room/studio-1-screen/stats`) |
 | 6 | **The audio stream behind a listener lease** (`audio.listen`), every page that plays the board's sound renewing it | an engine running with nobody listening sends nothing to the relay | `sentFrames` in `board.alive` stops rising 15 s after the last listener; a page that listens hears it again within one renewal |
 | 7 | **Boot and the Pico**: power boot to the menu, service restart resumes, `BOARD_BOOT_PATCH`, the Pico's button linked to stop all; save a patch from the menu into the state directory | the board comes back by itself into a known state | `sudo systemctl restart` while `drums` plays: drums again within seconds; a reboot: the menu with `drums` selected; BOOTSEL stops all |
 
@@ -542,12 +544,12 @@ step 4, whenever the parallel experiment is ready. Nothing above waits for it.
   sending CC 123 alone.
 - **The silence floor of the engines' own capture.** The Fast Track Pro input
   reads about -80 dBFS (MEASURED 2026-10-11); `posboard`'s capture with the
-  engines idle has no recorded floor, and `os.check`'s silence row needs one.
+  engines idle has no recorded floor, and `manager.check`'s silence row needs one.
 - **Whether `StateDirectory` works with this unit as written** (user
   `positron`, `NoNewPrivileges`). READ in systemd's documentation, not tried.
 - **The chord `^` and `v` for the menu, and the 1 s hold for stop all**, are
   untried with a thumb.
-- **What `os.check` cannot see:** notes the Circuit plays from its own pads or
+- **What `manager.check` cannot see:** notes the Circuit plays from its own pads or
   sequencer never pass the board. The check says so; it does not read green
   for them.
 - **The 90 s refusal's cause.** Section 6.3 adds a measurement and shortens the
