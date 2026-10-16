@@ -138,21 +138,19 @@
 
   /** Info and switch boxes: a knob's column that shows a value (gauge, lamp, count) or holds a switch. */
   section('INFO AND SWITCH BOXES',
-    'Boxes that sit in a knob row and show a value rather than set it, and a box holding a switch, each as tall as a knob.',
-    `createInfoBox({ label: 'temp', face: 'gauge', min: 15, max: 45, unit: '°C' })   // .set(v)
-createInfoBox({ label: 'button', face: 'lamp' })      // .set(true | false)
-createInfoBox({ label: 'presses', face: 'count' })    // .set(n)
-createSwitchBox({ label: 'light', word: 'LED', onChange })
+    'A number over its name, a readout cell in a knob row, and a box holding a sliding switch.',
+    `createInfoBox({ label: 'temp', unit: '°C' })   // .set(v), blank until the first
+createSwitchBox({ label: 'light', onChange })    // a switch, role switch
+createSwitch({ label, onChange })                // the switch alone
 createKnobGrid([{ name, knob: box }, ...], { row: true })`,
     (box) => {
-      const g = createInfoBox({ label: 'temp', face: 'gauge', min: 15, max: 45, unit: '°C' });
-      const l = createInfoBox({ label: 'button', face: 'lamp', format: (v) => (v ? 'down' : 'up') });
-      const c = createInfoBox({ label: 'presses', face: 'count' });
+      const t = createInfoBox({ label: 'temp', unit: '°C' });
+      const b = createInfoBox({ label: 'button' });
       const k = createKnob({ label: 'knob', min: 0, max: 127, value: 64 });
-      const row = createKnobGrid([{ name: 'temp', knob: g }, { name: 'button', knob: l }, { name: 'presses', knob: c }, { name: 'knob', knob: k }], { row: true });
-      const sw = createSwitchBox({ label: 'light', word: 'LED', onChange: (on) => l.set(on) });
+      const row = createKnobGrid([{ name: 'temp', knob: t }, { name: 'button', knob: b }, { name: 'knob', knob: k }], { row: true });
+      const sw = createSwitchBox({ label: 'light', onChange: (on) => b.set(on ? 'down' : 'up') });
       const row2 = createKnobGrid([{ name: 'light', knob: sw }], { row: true });
-      g.set(27.4); c.set(3); l.set(false);
+      t.set(27.4); b.set('up');
       box.append(row.el, row2.el);
     });
 

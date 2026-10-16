@@ -44,18 +44,18 @@
   const asked = new URLSearchParams(location.search).get('room');
   const ROOM = asked && ROOM_RE.test(asked) ? asked : 'studio-1';
   const SITE = randomSite('web');
-  const KEY_IN = `${SITE}:lamp:value-in`, NUM_IN = `${SITE}:meter:value-in`, LIGHT_OUT = `${SITE}:switch:value-out`;
+  const KEY_IN = `${SITE}:info-button:value-in`, NUM_IN = `${SITE}:info-temp:value-in`, LIGHT_OUT = `${SITE}:switch-light:value-out`;
   const SELF = {
     v: 1, site: SITE, place: 'browser', kind: 'browser', label: 'browser',
     nodes: [
-      { id: `${SITE}:lamp`, kind: 'screen', label: 'button lamp', place: 'browser' },
-      { id: `${SITE}:meter`, kind: 'screen', label: 'thermometer', place: 'browser' },
-      { id: `${SITE}:switch`, kind: 'person', label: 'light switch', place: 'browser' },
+      { id: `${SITE}:info-button`, kind: 'screen', label: 'button', place: 'browser' },
+      { id: `${SITE}:info-temp`, kind: 'screen', label: 'temp', place: 'browser' },
+      { id: `${SITE}:switch-light`, kind: 'person', label: 'light', place: 'browser' },
     ],
     ports: [
-      { id: KEY_IN, label: 'lamp', dir: 'in', medium: 'value', shape: { of: 'key' } },
-      { id: NUM_IN, label: 'meter', dir: 'in', medium: 'value', shape: { of: 'number' } },
-      { id: LIGHT_OUT, label: 'switch', dir: 'out', medium: 'value', emits: ['light'], shape: { of: 'light' } },
+      { id: KEY_IN, label: 'button', dir: 'in', medium: 'value', shape: { of: 'key' } },
+      { id: NUM_IN, label: 'temp', dir: 'in', medium: 'value', shape: { of: 'number' } },
+      { id: LIGHT_OUT, label: 'light', dir: 'out', medium: 'value', emits: ['light'], shape: { of: 'light' } },
     ],
   };
 
@@ -81,9 +81,8 @@
   function onKey(e, l) {
     if (e?.of !== 'key') return;
     pb?.pulse(l.from, l.to);
-    lamp.set(!!e.down);
+    btn.set(e.down ? 'down' : 'up');
     if (e.down) presses++;
-    count.set(presses);
     heard++;
   }
   function onTemp(e, l) {
@@ -120,18 +119,17 @@
   function play() {
     if (node.joined() || node.joining()) {
       node.leave(); found = null; transport.setIcon('play', 'play', 'play');
-      lamp.set(false); d.log(`left ${ROOM}`); pb?.refresh(); return;
+      d.log(`left ${ROOM}`); pb?.refresh(); return;
     }
     transport.setIcon('play', 'stop', 'stop');
     node.join();
   }
   const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: play }] });
   // What the Pico shows, in knob boxes, one row; its switch in a box of its own, the next row.
-  const gauge = createInfoBox({ label: 'temp', face: 'gauge', min: 15, max: 45, unit: '°C' });
-  const lamp = createInfoBox({ label: 'button', face: 'lamp', format: (v) => (v ? 'down' : 'up') });
-  const count = createInfoBox({ label: 'presses', face: 'count' });
-  const shows = createKnobGrid([{ name: 'temp', knob: gauge }, { name: 'button', knob: lamp }, { name: 'presses', knob: count }], { row: true });
-  const light = createSwitchBox({ label: 'light', word: 'LED', onChange: (on) => { if (!setLight(on)) light.set(false, true); } });
+  const gauge = createInfoBox({ label: 'temp', unit: '°C' });
+  const btn = createInfoBox({ label: 'button' });
+  const shows = createKnobGrid([{ name: 'temp', knob: gauge }, { name: 'button', knob: btn }], { row: true });
+  const light = createSwitchBox({ label: 'light', onChange: (on) => { if (!setLight(on)) light.set(false, true); } });
   const switches = createKnobGrid([{ name: 'light', knob: light }], { row: true });
   pb = createPatchbay(heldPicture(bay, SITE), { room: ROOM, detail: (n) => [{ text: n.label || '', sans: true }] });
   d.stack.add(transport.el, shows.el, switches.el, pb.el);
@@ -155,9 +153,9 @@
     b.send(`${P}:temp:value-out`, { of: 'number', cls: 'number', v: 23.4, unit: 'C' });
     b.send(`${P}:button:value-out`, { of: 'key', cls: 'key', k: 0, down: true });
     b.send(`${P}:button:value-out`, { of: 'key', cls: 'key', k: 0, down: false });
-    d.assert('a temperature and a press arrive along the links and show in their boxes', lastTemp === 23.4 && presses === 1 && gauge.value() === 23.4 && count.value() === 1, `temp ${lastTemp}, presses ${presses}`);
-    const tops = [...shows.el.querySelectorAll('.pos-knob-lab'), ...switches.el.querySelectorAll('.pos-knob-lab')].map((x) => Math.round(x.getBoundingClientRect().bottom - x.closest('.pos-kgrid-cell').getBoundingClientRect().top));
-    d.assert('every box\'s name line sits at one height, so the boxes match a knob\'s', new Set(tops).size === 1, tops.join(' '));
+    d.assert('a temperature and a press arrive along the links and show in their boxes', lastTemp === 23.4 && presses === 1 && gauge.value() === 23.4 && btn.value() === 'up', `temp ${lastTemp}, presses ${presses}`);
+    const sw = light.switch.el;
+    d.assert('the light is a switch, announced as one', sw.getAttribute('role') === 'switch' && sw.getAttribute('aria-checked') === 'false');
     d.assert('NEGATIVE CONTROL: the light sends nothing before Join', setLight(true) === false);
   }
   d.ready();

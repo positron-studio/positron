@@ -3390,16 +3390,25 @@ button.pos-linkbtn:active { background: none; }
 /* why: lessons/css-shell.md#pos-kgrid-hidden-pos-kgrid-cell-hidden */
 .pos-kgrid[hidden], .pos-kgrid-cell[hidden] { display: none; }
 
-/* Info and switch boxes (shell/info-box.mjs): a knob's column whose face shows rather than turns. The face
-   is an svg with the dial's own viewBox, so it is the dial's height and the value and name lines line up. */
-.pos-info .pos-info-face { cursor: default; }
-.pos-info-lamp { fill: none; stroke: var(--dim2); stroke-width: 4; transition: fill .08s linear, stroke .08s linear; }
-.pos-info[data-lit] .pos-info-lamp { fill: var(--hi); stroke: var(--hi); }
-.pos-info-count { fill: var(--fg); font: 600 34px var(--mono); text-anchor: middle; dominant-baseline: central; font-variant-numeric: tabular-nums; }
-/* The switch sits on an empty dial-shaped svg, so its box is a knob box's height. */
-.pos-info-switch { position: relative; display: grid; place-items: center; width: var(--knob-w); }
-.pos-info-switch > * { grid-area: 1 / 1; }
-.pos-info-switch .pos-info-sizer { visibility: hidden; }
+/* Info and switch boxes (shell/info-box.mjs): a readout cell's number over its name, centred in a knob
+   row's box; the grid's cell paints the box. */
+.pos-info { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--ctl-gap);
+  width: var(--knob-w); min-height: 100%; text-align: center; }
+.pos-info .pos-v { max-width: 100%; }
+/* No lone unit: an empty box shows nothing, as a pending readout cell does. */
+.pos-info[data-empty] .pos-u { display: none; }
+/* A sliding switch: the track is the control's edge, the thumb slides. Off is the ground, on the accent. */
+.pos-switch {
+  position: relative; width: 44px; height: 24px; padding: 0; flex: none;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--card2); cursor: pointer;
+  -webkit-touch-callout: none; touch-action: manipulation; transition: background .1s linear, border-color .1s linear;
+}
+.pos-switch-thumb {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--dim); transition: transform .12s ease, background .1s linear;
+}
+.pos-switch[aria-checked="true"] { background: var(--hi); border-color: var(--hi); }
+.pos-switch[aria-checked="true"] .pos-switch-thumb { transform: translateX(20px); background: var(--bg); }
 
 /* A parameter's knob can wear `--param-hue`, set on the knob or above it.
    Unset, `--param-ink` is invalid and falls back to `--hi`. Above the
