@@ -30,7 +30,7 @@
   const d = mount({ name: 'HDMI screen on Pi', what: '', index: '/', indexLabel: 'positron',
     // Readouts on top, the log at the foot (positron-concepts): what the board shows and what it costs it.
     joined: false,
-    readout: { 'on screen': '', cpu: '%' } });
+    readout: { 'on screen': '', fps: '', dropped: '', cpu: '%' } });
   conceptNav('devices/hdmi');
 
   const q = new URLSearchParams(location.search);
@@ -87,8 +87,11 @@
     if (showing) pick.set(SOURCES.indexOf(showing), true);
     d.set('on screen', showing || 'nothing');
     d.set('cpu', showing && Number.isFinite(st.cpu) ? st.cpu : '');
+    // hdmi-scan's last second, measured on the Pi; ffmpeg says nothing, so blank
+    d.set('fps', showing && st.measured ? st.measured.fps : '');
+    d.set('dropped', showing && st.measured ? st.measured.dropped : '');
     clearInterval(poll); poll = null;
-    // While a show runs, its CPU every 3 s; nothing is asked while the screen is off.
+    // While a show runs, its fps and CPU every 3 s; nothing is asked while the screen is off.
     if (showing && MAY_SEND) poll = setInterval(async () => { const s = await board.ask({ type: 'hdmi.status' }, 'hdmi.state', 3000); if (s) take(s); }, 3000);
   }
 

@@ -207,8 +207,11 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
     const s = { source, proc, pid: proc.pid ?? null, since: now(), w: c.w, h: c.h, fps: c.fps, at: c.at ?? { x: 0, y: 0 }, by: c.by,
       cmd: c.cmd.split('/').pop(), stopping: false, exited: false, onExit: null, tail: [] };
     show = s;
-    // hdmi-scan says its connector, mode and GL_RENDERER at start, and frames, fps and CPU at exit.
-    const keep = (d) => { for (const l of String(d).split('\n')) if (l.trim()) { s.tail.push(l.trim()); if (s.tail.length > 6) s.tail.shift(); } };
+    // hdmi-scan says its connector, mode and GL_RENDERER at start, `fps N dropped N` every second, and the totals at exit.
+    const keep = (d) => { for (const l of String(d).split('\n')) if (l.trim()) {
+      const m = /^fps ([\d.]+) dropped (\d+)$/.exec(l.trim());
+      if (m) { s.measured = { fps: Number(m[1]), dropped: Number(m[2]), at: now() }; continue; }
+      s.tail.push(l.trim()); if (s.tail.length > 6) s.tail.shift(); } };
     proc.stdout?.on('data', keep);
     proc.stderr?.on('data', keep);
     const ended = (what) => {
@@ -233,7 +236,7 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
     return { screen: connected(), fb, showing: show?.source ?? null, pid: show?.pid ?? null,
       since: show?.since ?? null, drawnBy: show ? show.cmd : null, scan: scan(),
       picture: show ? { w: show.w, h: show.h, fps: show.fps, at: show.at, scaled: show.by === 'gpu' } : null,
-      said: show ? show.tail.slice(-3) : [], cpu, last, clears, sources: [...SOURCES] };
+      said: show ? show.tail.slice(-3) : [], cpu, measured: show?.measured ?? null, last, clears, sources: [...SOURCES] };
   }
 
   return {

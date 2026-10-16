@@ -256,5 +256,19 @@ console.log('\n== the board\'s stop takes the picture down ==');
   await h2.stop();
 }
 
+console.log('\n== the measured frame rate, once a second from hdmi-scan ==');
+{
+  const m = fakeMachine();
+  const h = make(m);
+  await h.start('pattern');
+  ok('NEGATIVE CONTROL: nothing is measured before hdmi-scan says so', h.status().measured === null);
+  m.spawned[0].p.stderr.emit('data', 'GL_RENDERER V3D 7.1\nfps 59.8 dropped 0\nfps 58.9 dropped 2\n');
+  const st = h.status();
+  ok('the last second\'s fps and drops are in the status', st.measured?.fps === 58.9 && st.measured?.dropped === 2, JSON.stringify(st.measured));
+  ok('the fps lines stay out of what it said', st.said.every((l) => !/^fps /.test(l)) && st.said.includes('GL_RENDERER V3D 7.1'), JSON.stringify(st.said));
+  await h.stop();
+  ok('a stopped show measures nothing', h.status().measured === null);
+}
+
 console.log(`\n${pass}/${pass + fail} ${fail ? 'RED' : 'green'}`);
 process.exit(fail ? 1 : 0);

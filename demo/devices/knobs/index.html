@@ -36,7 +36,7 @@
   conceptNav('devices/knobs');
 
   // The Pi screens' knobs size, twelve columns, gap 3, values 0 to 99: the eight on the left, the empty volume
-  // column, then the filter; the last two stay empty.
+  // column and two more, the filter at the right edge.
   // The Circuit's VOLUME knob is not drawn: whether it sends MIDI at all is not measured. To add it once it
   // is, give column 8 `{ id: 'vol', name: 'VO', ch, cc }` in each view below.
   const COLS = 12, VOL = 8;
@@ -45,8 +45,8 @@
   const drum = (n, what, letter) => ({ id: `d${n}${letter}`, name: `${n}${letter}`, ch: '10',
     cc: onChannel('10').find((p) => p.name === `drum ${n} ${what}`).cc, how: 'Reference' });
   const VIEWS = [
-    { key: 'synth 1', cols: [...macros(1), null, FILTER, null, null] },
-    { key: 'synth 2', cols: [...macros(2), null, FILTER, null, null] },
+    { key: 'synth 1', cols: [...macros(1), null, null, null, FILTER] },
+    { key: 'synth 2', cols: [...macros(2), null, null, null, FILTER] },
     { key: 'drums', cols: [...[1, 2, 3, 4].flatMap((n) => [drum(n, 'level', 'L'), drum(n, 'pitch', 'P')]), null, null, null, null] },
   ];
   // each knob's own slow drift, a phase and a period from its place, 0 to 127

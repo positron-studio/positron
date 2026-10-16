@@ -200,6 +200,16 @@ static void cam_close(void){
 static double cpu_s(void){ struct rusage r; getrusage(RUSAGE_SELF, &r);
   return r.ru_utime.tv_sec + r.ru_utime.tv_usec / 1e6 + r.ru_stime.tv_sec + r.ru_stime.tv_usec / 1e6; }
 
+// once a second, the last second's frames: `fps 59.8 dropped 0`, read by rig/board/hdmi.mjs
+static void tick(long frames, long dropped){
+  static double t1 = 0; static long f1 = 0, d1 = 0;
+  double t = now_s();
+  if (!t1) { t1 = t; f1 = frames; d1 = dropped; return; }
+  if (t - t1 < 1) return;
+  fprintf(stderr, "fps %.1f dropped %ld\n", (frames - f1) / (t - t1), dropped - d1);
+  t1 = t; f1 = frames; d1 = dropped;
+}
+
 int main(int argc, char **argv){
   if (argc < 3) { fprintf(stderr, "usage: %s bars|camera SECONDS [/dev/videoN]\n", argv[0]); return 2; }
   int camera = !strcmp(argv[1], "camera");
@@ -216,7 +226,7 @@ int main(int argc, char **argv){
     while (!stop && now_s() - t0 < secs) {
       glUniform1f(ut, (float)(now_s() - t0));
       glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-      present(); frames++;
+      present(); frames++; tick(frames, dropped);
     }
   } else {
     cam_open(argc > 3 ? argv[3] : "/dev/video0", 1280, 720, 30);
@@ -257,7 +267,7 @@ int main(int argc, char **argv){
       }
       glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
       up += now_s() - m;
-      present(); frames++;
+      present(); frames++; tick(frames, dropped);
     }
     tjDestroy(tj); cam_close();
   }
