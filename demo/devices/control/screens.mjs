@@ -3,6 +3,7 @@
 // half versions draw on a 128x32 surface. Nothing names a screen on the screen itself.
 
 import { createSurface, blit, text, drawDrums, drawScope, wave, W } from '../split/split-oled.mjs';
+import { drawSliders } from './sliders.mjs';
 import { createRings } from '/shell/rings.mjs';
 import { createScanField, LOOKS, DEFAULT_LOOK, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
 import { ditherFrame, levels } from '/shell/dither-oled.mjs';
@@ -65,35 +66,13 @@ export function createScreens(ui) {
     const m = (Math.sin(t / 2200) + 1) / 2, a = wave('sine', sf.w, { phase: t / 400 }), b = wave('saw', sf.w, { phase: t / 400 });
     drawScope(sf, { samples: a.map((v, i) => v * (1 - m) + b[i] * m) });
   };
-  // knobs: vertical sliders, a 1 px track with the corner pixels off and a fill rising to the value, a two letter
-  // name over each and its value under it.
+  // knobs: vertical sliders (sliders.mjs, the 'track' look), a two letter name over each and its value under it.
   const NAMES = ['CU', 'RE', 'AT', 'DE', 'SU', 'RL', 'LF', 'DR', 'VO', 'PN', 'FM', 'RT', 'DP', 'MX', 'TM', 'SW'];
-  const sliders = (sf, t, n, named, look = 'track', { gap: g = null, digits = 3 } = {}) => {
-    const gap = g ?? (n > 8 ? 2 : 4), cw = Math.floor((sf.w - gap * (n - 1)) / n), x0 = Math.floor((sf.w - (cw * n + gap * (n - 1))) / 2);
-    const top = named ? 7 : 1, bottom = named ? sf.h - 7 : sf.h - 1, h = bottom - top;
-    for (let i = 0; i < n; i++) {
-      const x = x0 + i * (cw + gap), v = 0.5 + 0.45 * Math.sin(t / (900 + i * 170) + i);
-      if (look === 'track') {
-        sf.fill(x + 1, top, cw - 2, 1); sf.fill(x + 1, bottom - 1, cw - 2, 1); sf.fill(x, top + 1, 1, h - 2); sf.fill(x + cw - 1, top + 1, 1, h - 2);
-        const fh = Math.round((h - 4) * v);
-        sf.fill(x + 2, bottom - 2 - fh, cw - 4, fh);
-      } else if (look === 'fill') {
-        const fh = Math.max(1, Math.round(h * v));
-        sf.fill(x, bottom - fh, cw, fh);
-      } else {
-        // the outline is the value: a box from the floor up to it, corner pixels off, nothing inside
-        const bh = Math.max(3, Math.round(h * v)), y = bottom - bh;
-        sf.fill(x + 1, y, cw - 2, 1); sf.fill(x, bottom - 1, cw, 1); sf.fill(x, y + 1, 1, bh - 1); sf.fill(x + cw - 1, y + 1, 1, bh - 1);
-      }
-      if (named) {
-        const c = (str) => x + Math.floor((cw - (str.length * 4 - 1)) / 2);
-        text(sf, c(NAMES[i]), 0, NAMES[i]);
-        // three digits for 0 to 127, two for 0 to 99 when the column is too narrow for three
-        const val = String(Math.round(v * (digits === 3 ? 127 : 99)));
-        text(sf, c(val), sf.h - 5, val);
-      }
-    }
-  };
+  const sliders = (sf, t, n, named, look = 'track', { gap = null, digits = 3 } = {}) => drawSliders(sf, Array.from({ length: n }, (_, i) => {
+    const v = 0.5 + 0.45 * Math.sin(t / (900 + i * 170) + i);
+    // three digits for 0 to 127, two for 0 to 99 when the column is too narrow for three
+    return { v, name: NAMES[i], value: String(Math.round(v * (digits === 3 ? 127 : 99))) };
+  }), { named, look, gap });
   // twelve with a name and a value 0 to 99: the most that read; at fourteen the values run together
   const knobs = (sf, t) => sliders(sf, t, 12, true, 'track', { gap: 3, digits: 2 });
   // the patch: three columns, the players, the sounds, the output; MIDI wires dashed, audio solid, a bead on
