@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Pi HDMI screen">
+<meta property="og:description" content="The Pi&apos;s camera or a test pattern full screen on its HDMI, drawn by the GPU.">
+<meta property="og:url" content="https://positron.studio/devices/hdmi/">
+<meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>HDMI screen on Pi</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<link rel="stylesheet" href="/shell/concept.css">
+<style>
+  .hd-sec { display: flex; flex-direction: column; gap: 12px; }
+</style>
+<script type="module">
+  // The Pi's HDMI0 screen as `pi-1:hdmi0`: play asks the board for `hdmi.show { source }` and stop for
+  // `hdmi.stop` (rig/board/hdmi.mjs). The board holds the show, so it outlives this tab; the picture
+  // draws the link it reports. Nothing opens until play.
+  // why: lessons/page-devices.md#hdmi
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { mount } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { createBay, printLink } from '/shell/bay.mjs';
+  import { createBoard } from '/shell/board.mjs';
+  import { BOARD_SITE, boardGraph, addBoardNode } from '/shell/graph-registry.mjs';
+  import { relayOverride } from '/shell/wire.mjs';
+
+  const d = mount({ name: 'HDMI screen on Pi', what: '', index: '/', indexLabel: 'positron',
+    // Readouts on top, the log at the foot (positron-concepts): what the board shows and what it costs it.
+    joined: false,
+    readout: { 'on screen': '', cpu: '%' } });
+  conceptNav('devices/hdmi');
+
+  const q = new URLSearchParams(location.search);
+  const ROOM = q.get('room') || 'studio-1';
+  // A check never drives the Pi; only a relay on this machine with board=1 may.
+  const MAY_SEND = !SELFCHECK || (q.get('board') === '1' && !!relayOverride(location.search));
+  const P = BOARD_SITE;
+  const SCREEN_IN = `${P}:hdmi0:video-in`;
+  const SOURCE_OUT = { camera: `${P}:camera:video-out`, pattern: `${P}:pattern:video-out` };
+
+  // ── the bay: the camera, the test pattern and the screen as the board announces them ──
+  const G = boardGraph({ room: ROOM, gpu: false, camera: true, screens: [{ name: 'hdmi0', label: 'HDMI screen' }] });
+  const bay = createBay();
+  for (const n of ['camera', 'pattern', 'hdmi0']) addBoardNode(bay, G, n);
+
+  let pb = null, showing = null;
+  const screenLink = () => bay.links().find((l) => l.to === SCREEN_IN) || null;
+  /** Draw what the board says is on the screen: one link into hdmi0, or none. */
+  function draw(source) {
+    const L = screenLink();
+    if (L && L.from === SOURCE_OUT[source]) return L;
+    if (L) bay.unlink(L.id);
+    if (source) {
+      const r = bay.link(SOURCE_OUT[source], SCREEN_IN, [], { via: 'fbdev' });
+      if (!r.ok) d.log(`${SOURCE_OUT[source]} -> ${SCREEN_IN} refused: ${r.why}`, 'warn');
+    }
+    pb?.refresh();
+    return screenLink();
+  }
+
+  // ── the board ──
+  let board = null, opened = null, said = null, poll = null;
+  function connect() {
+    if (board) return opened;
+    let open;
+    opened = new Promise((r) => { open = r; });
+    board = createBoard({ room: ROOM, of: 'Raspberry Pi', showName: false, log: (line, kind) => d.log(line, kind),
+      onOpen: () => open(true) });
+    d.log(`reaching ${ROOM}`);
+    return opened;
+  }
+  async function ask(msg) {
+    connect();
+    const ok = await Promise.race([opened, new Promise((r) => setTimeout(() => r(false), 6000))]);
+    if (!ok) { d.log('the Pi did not answer', 'warn'); return null; }
+    return board.ask(msg, 'hdmi.state', 6000);
+  }
+  /** The board's answer: the picture, the play button and the readout follow it. */
+  function take(st) {
+    said = st;
+    showing = st.showing || null;
+    draw(showing);
+    transport.setIcon('play', showing ? 'stop' : 'play', showing ? 'stop' : 'play');
+    if (showing) pick.set(SOURCES.indexOf(showing), true);
+    d.set('on screen', showing || 'nothing');
+    d.set('cpu', showing && Number.isFinite(st.cpu) ? st.cpu : '');
+    clearInterval(poll); poll = null;
+    // While a show runs, its CPU every 3 s; nothing is asked while the screen is off.
+    if (showing && MAY_SEND) poll = setInterval(async () => { const s = await board.ask({ type: 'hdmi.status' }, 'hdmi.state', 3000); if (s) take(s); }, 3000);
+  }
+
+  const SOURCES = ['camera', 'pattern'];
+  let choice = 'camera', pending = null;
+  async function show(source) {
+    if (!MAY_SEND) { take({ ok: true, showing: source, cpu: null }); d.log('this run may not drive the Pi, add board=1 and a relay on this machine', 'dim'); return null; }
+    const st = await ask({ type: 'hdmi.show', source });
+    if (!st) return null;
+    take(st);
+    if (!st.ok) d.log(`the Pi refused: ${st.why || 'no reason given'}`, 'warn');
+    else d.log(`the Pi's HDMI screen shows the ${st.showing}${st.drawnBy === 'hdmi-scan' ? ', full screen, scaled by the GPU' : ', drawn by ffmpeg'}`, 'ok');
+    return st;
+  }
+  async function stop() {
+    if (!MAY_SEND) { take({ ok: true, showing: null }); return null; }
+    const st = await ask({ type: 'hdmi.stop' });
+    if (!st) return null;
+    take(st);
+    d.log(st.stopped ? `the ${st.stopped} is off the Pi's screen${st.cleared ? ', cleared to black' : ''}` : 'the Pi\'s screen showed nothing', 'ok');
+    return st;
+  }
+  async function play() {
+    if (showing) return stop();
+    // Joining late: the board may already show something, and then play is stop.
+    if (MAY_SEND && !board) {
+      const st = await ask({ type: 'hdmi.status' });
+      if (!st) return null;
+      if (st.showing) { take(st); d.log(`the Pi already shows the ${st.showing}`, 'ok'); return st; }
+    }
+    return show(choice);
+  }
+
+  const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => { pending = play(); } }] });
+  const pick = createChoice({ label: 'show', options: SOURCES.map((s) => [s, s]), at: 0,
+    title: (v) => (v === 'camera' ? 'the USB camera on the Pi, full screen' : 'a moving test pattern'),
+    onPick: (v) => { choice = v; if (showing && showing !== v) pending = show(v); } });
+
+  pb = createPatchbay(bay, { room: ROOM, flowing: (l) => l.to === SCREEN_IN && !!showing });
+  const sec = document.createElement('section');
+  sec.className = 'hd-sec';
+  sec.append(transport.el, pick.el);
+  d.stack.add(sec, pb.el);
+  d.set('on screen', '');
+
+  window.__demo.bay = bay;
+  window.__demo.probe = () => ({ board: !!board, showing, said, link: screenLink() ? printLink(screenLink()) : null });
+
+  if (SELFCHECK) {
+    await new Promise((r) => setTimeout(r, 300));
+    d.assert('a visit reaches nothing until a press', !board);
+    d.assert('NEGATIVE CONTROL: nothing is drawn into the screen before a press', !screenLink());
+    d.assert('the bay holds the camera, the pattern and the screen as the board announces them',
+      ['camera', 'pattern', 'hdmi0'].every((n) => bay.node(`${P}:${n}`)) && bay.port(SCREEN_IN)?.transports?.join() === 'fbdev');
+    const plain = bay.link(SOURCE_OUT.camera, SCREEN_IN);
+    d.assert('NEGATIVE CONTROL: a link that does not ask for fbdev is refused in words', !plain.ok && /only travels by/.test(plain.why), plain.why);
+    if (!MAY_SEND) {
+      transport.el.querySelector('button').click(); await pending;
+      d.assert('play draws pi-1:camera:video-out -> pi-1:hdmi0:video-in and still reaches nothing',
+        screenLink()?.from === SOURCE_OUT.camera && screenLink()?.session?.transport === 'fbdev' && !board, screenLink() ? printLink(screenLink()) : 'no link');
+      pick.buttons[1].click(); await pending;
+      d.assert('pattern while showing redraws one link, from the pattern', bay.links().length === 1 && screenLink()?.from === SOURCE_OUT.pattern);
+      transport.el.querySelector('button').click(); await pending;
+      d.assert('stop takes the link away and the play icon back', !screenLink() && !showing && !board);
+      pick.buttons[0].click();
+      d.assert('NEGATIVE CONTROL: a choice while stopped draws nothing', !screenLink());
+    }
+  }
+  d.ready();
+</script>

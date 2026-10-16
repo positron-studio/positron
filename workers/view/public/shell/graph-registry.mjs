@@ -111,9 +111,10 @@ export function jackRows(from, to) {
  * @param {object} [o.patches]  patch names by instrument (`{ sampler: [...], plaits: [...] }`), put on its midi-in for a `patch` transform; passed in for the same reason
  * @param {object} [o.drums]    drum maps by node (`{ circuit: DRUM_MAPS.circuit }`, demo/shell/drum-maps.mjs), put on its midi-in as `drums` for a `drummap` transform
  * @param {boolean} [o.sequencer]  announce `pi-1:sequencer`, the board's own step sequencer (rig/board/sequencer.mjs)
+ * @param {Array}  [o.screens]  `[{ name, label }]`, a connected HDMI screen (rig/board/hdmi.mjs), with the board's test pattern
  * why: lessons/kit-graph-registry.md#boardgraph
  */
-export function boardGraph({ room, site = BOARD_SITE, net = null, instruments = {}, inputs = [], outputs = [], alsa = [], frameMs = 20, gpu = true, camera = false, label = 'Raspberry Pi', jack = false, plaitsParams = null, patches = {}, drums = {}, sequencer = false }) {
+export function boardGraph({ room, site = BOARD_SITE, net = null, instruments = {}, inputs = [], outputs = [], alsa = [], frameMs = 20, gpu = true, camera = false, label = 'Raspberry Pi', jack = false, plaitsParams = null, patches = {}, drums = {}, sequencer = false, screens = [] }) {
   const place = room;
   // Port names are `<medium>-<dir>` (plans/plan-site-names.md §4c), so the id
   // says what a port carries and which way. `graphProblem` holds a board to it.
@@ -198,7 +199,17 @@ export function boardGraph({ room, site = BOARD_SITE, net = null, instruments = 
   if (camera) {
     node('camera', 'device', 'camera');
     port('camera', 'video-out', { label: 'camera', dir: 'out', medium: 'video', shape: { codec: 'h264' }, address: `${room}-cam`,
-      transports: [...BOARD_TRANSPORTS.video, 'datachannel'] });
+      transports: [...BOARD_TRANSPORTS.video, 'datachannel', ...(screens.length ? ['fbdev'] : [])] });
+  }
+  // A screen on the board's HDMI, while one is connected: a link to its video-in is ffmpeg drawing
+  // into /dev/fb0 on the board (`hdmi.show`), so it travels by `fbdev` and never leaves the board.
+  for (const s of screens) {
+    node(s.name, 'device', s.label || s.name);
+    port(s.name, 'video-in', { label: s.label || s.name, dir: 'in', medium: 'video', address: room, transports: ['fbdev'] });
+  }
+  if (screens.length) {
+    node('pattern', 'engine', 'test pattern');
+    port('pattern', 'video-out', { label: 'test pattern', dir: 'out', medium: 'video', address: room, transports: ['fbdev'] });
   }
   // A hardware input is an instrument on the desk: its sound comes in through
   // the board's audio interface, and its MIDI goes out through the gate.
