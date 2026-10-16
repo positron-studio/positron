@@ -381,8 +381,8 @@ function stopFromKeys() {
   panel?.bar(null);
   if (!stopper) { log('stop: * held, but the board is still starting'); return; }
   log(`stop: * held ${HOLD_MS} ms on the Pi's keys, stop all (silence)`);
-  board.stop({ level: 'silence', asked: 'keys' }).then((r) => {
-    const check = board.check({ level: 'silence' });
+  stopper.stop({ level: 'silence', asked: 'keys' }).then((r) => {
+    const check = stopper.check({ level: 'silence' });
     panel?.text(`stopped\n${checkLines(check)}`);
     log(`stop: check after the keys' stop ${check.ok ? 'all green' : `red: ${check.rows.filter((x) => x.ok === false).map((x) => `${x.key} (${x.said})`).join(', ')}`}`);
     send({ type: 'board.stopped', ...r, check, via: 'keys' });
@@ -1264,12 +1264,12 @@ async function handle(msg, replyVia = null) {
     // why: lessons/rig-board-stop.md#verbs
     case 'board.stop': {
       if (!stopper) return reply('board.stopped', { ok: false, why: 'the board is still starting' });
-      const r = await board.stop({ level: msg.level ?? 'full', asked: msg.from ?? null });
-      return reply('board.stopped', { ...r, check: r.steps ? board.check({ level: r.level }) : null });
+      const r = await stopper.stop({ level: msg.level ?? 'full', asked: msg.from ?? null });
+      return reply('board.stopped', { ...r, check: r.steps ? stopper.check({ level: r.level }) : null });
     }
     case 'board.check':
       if (!stopper) return reply('board.checked', { ok: false, why: 'the board is still starting' });
-      return reply('board.checked', board.check({ level: msg.level === 'silence' ? 'silence' : 'full' }));
+      return reply('board.checked', stopper.check({ level: msg.level === 'silence' ? 'silence' : 'full' }));
     case 'outputs.status': return reply('outputs.status', { ok: true, pwm: HAS_PWM, clients: outs.status(), level: outs.level().db ?? null });
     case 'pwm.level': return reply('pwm.level', outs.level(msg.db));
     case 'jack.links': {

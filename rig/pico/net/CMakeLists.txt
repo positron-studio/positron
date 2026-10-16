@@ -3,6 +3,7 @@
 #
 #   -DRELAY_TLS=0      plain ws:// instead of wss://
 #   -DRELAY_ROOM=name  another room (the default is studio-1)
+#   -DPICO_SITE=name   the site's name, as the Pi is pi-1 (the default is pico-<flash id>)
 cmake_minimum_required(VERSION 3.13)
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 project(positron_net C CXX ASM)
@@ -33,6 +34,9 @@ target_compile_definitions(net PRIVATE
 )
 if (DEFINED RELAY_TLS)
   target_compile_definitions(net PRIVATE RELAY_TLS=${RELAY_TLS})
+endif()
+if (DEFINED PICO_SITE)
+  target_compile_definitions(net PRIVATE PICO_SITE="${PICO_SITE}")
 endif()
 if (DEFINED RELAY_ROOM)
   target_compile_definitions(net PRIVATE RELAY_ROOM="${RELAY_ROOM}")

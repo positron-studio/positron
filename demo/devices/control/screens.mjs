@@ -14,6 +14,8 @@ export const SCREENS = [
   { key: 'scope', what: 'the waveform of what is playing', by: 'new, not on the Pi yet' },
   { key: 'knobs', what: 'eight sliders, a two letter name over each and its value under it', by: 'new, not on the Pi yet' },
   { key: 'knobs16', what: 'sixteen sliders, the fills only', by: 'new, not on the Pi yet' },
+  { key: 'knobs fill', what: 'eight sliders as fills alone, no outline', by: 'new, not on the Pi yet' },
+  { key: 'knobs line', what: 'eight sliders as an outline that rises to the value, no fill', by: 'new, not on the Pi yet' },
 ];
 
 const PATTERN = ['1000100010001000', '0000100000001000', '1010101010101010', '0000000000000010',
@@ -59,14 +61,23 @@ export function createScreens(ui) {
   // knobs: vertical sliders, a 1 px track with the corner pixels off and a fill rising to the value. With `named`
   // a two letter name sits over each and its value, 0 to 127, under it; sixteen is the fills alone.
   const NAMES = ['CU', 'RE', 'AT', 'DE', 'SU', 'RL', 'LF', 'DR'];
-  const sliders = (sf, t, n, named) => {
+  const sliders = (sf, t, n, named, look = 'track') => {
     const gap = n > 8 ? 2 : 4, cw = Math.floor((sf.w - gap * (n - 1)) / n), x0 = Math.floor((sf.w - (cw * n + gap * (n - 1))) / 2);
     const top = named ? 7 : 1, bottom = named ? sf.h - 7 : sf.h - 1, h = bottom - top;
     for (let i = 0; i < n; i++) {
       const x = x0 + i * (cw + gap), v = 0.5 + 0.45 * Math.sin(t / (900 + i * 170) + i);
-      sf.fill(x + 1, top, cw - 2, 1); sf.fill(x + 1, bottom - 1, cw - 2, 1); sf.fill(x, top + 1, 1, h - 2); sf.fill(x + cw - 1, top + 1, 1, h - 2);
-      const fh = Math.round((h - 4) * v);
-      sf.fill(x + 2, bottom - 2 - fh, cw - 4, fh);
+      if (look === 'track') {
+        sf.fill(x + 1, top, cw - 2, 1); sf.fill(x + 1, bottom - 1, cw - 2, 1); sf.fill(x, top + 1, 1, h - 2); sf.fill(x + cw - 1, top + 1, 1, h - 2);
+        const fh = Math.round((h - 4) * v);
+        sf.fill(x + 2, bottom - 2 - fh, cw - 4, fh);
+      } else if (look === 'fill') {
+        const fh = Math.max(1, Math.round(h * v));
+        sf.fill(x, bottom - fh, cw, fh);
+      } else {
+        // the outline is the value: a box from the floor up to it, corner pixels off, nothing inside
+        const bh = Math.max(3, Math.round(h * v)), y = bottom - bh;
+        sf.fill(x + 1, y, cw - 2, 1); sf.fill(x, bottom - 1, cw, 1); sf.fill(x, y + 1, 1, bh - 1); sf.fill(x + cw - 1, y + 1, 1, bh - 1);
+      }
       if (named) {
         const c = (str) => x + Math.floor((cw - (str.length * 4 - 1)) / 2);
         text(sf, c(NAMES[i]), 0, NAMES[i]);
@@ -77,6 +88,8 @@ export function createScreens(ui) {
   };
   const knobs = (sf, t) => sliders(sf, t, 8, true);
   const knobs16 = (sf, t) => sliders(sf, t, 16, false);
+  const knobsFill = (sf, t) => sliders(sf, t, 8, true, 'fill');
+  const knobsLine = (sf, t) => sliders(sf, t, 8, true, 'line');
   // the patch: three columns, the players, the sounds, the output; MIDI wires dashed, audio solid, a bead on
   // each. One drawing for both heights: rows spread over the surface's height, boxes a third of it.
   const patch = (sf, t) => {
@@ -113,6 +126,8 @@ export function createScreens(ui) {
     scope: (t) => surfaceFrame(scope, t),
     knobs: (t) => surfaceFrame(knobs, t),
     knobs16: (t) => surfaceFrame(knobs16, t),
+    'knobs fill': (t) => surfaceFrame(knobsFill, t),
+    'knobs line': (t) => surfaceFrame(knobsLine, t),
   };
   // half: 128x32 surfaces, the same content made to fit
   const half = {
@@ -124,6 +139,8 @@ export function createScreens(ui) {
     scope: (s, t) => scope(s, t),
     knobs: (s, t) => knobs(s, t),
     knobs16: (s, t) => knobs16(s, t),
+    'knobs fill': (s, t) => knobsFill(s, t),
+    'knobs line': (s, t) => knobsLine(s, t),
   };
   return {
     /** One screen, `full` (the whole 128x64) or `half` (128x32, at `top` or bottom). */

@@ -22,6 +22,8 @@ the message `demo/shell/bay-node.mjs` sends and receives, so a page holding a
 link out of either port delivers it like one of its own. They are sent whether
 or not anybody holds a link, because the board does not know about links.
 
+**Site name.** `-DPICO_SITE=pico-1` names the site as the Pi is `pi-1`; without it the site is `pico-` and the last three bytes of the flash id. The Pico on the desk runs as `pico-1` in `studio-1` since 2026-10-16. **Flashing needs no button**: with this firmware's USB serial, opening its port at 1200 baud reboots it into BOOTSEL (on the M1: `stty -f /dev/cu.usbmodem1101 1200`), then copy the UF2 onto the RP2350 drive.
+
 **First run on a real Pico 2 W, 2026-10-16**, nothing wired to it, flashed from
 the M1 (this laptop will not mount the `RP2350` drive). It joined the home
 Wi-Fi, made the TLS connection and joined `pico-test-ab59ad` as site

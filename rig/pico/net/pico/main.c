@@ -239,7 +239,12 @@ int main(void) {
   pico_unique_board_id_t id;
   pico_get_unique_board_id(&id);
   // The last three bytes of the flash's unique id, as plan-pico §3.3 asks.
+#ifdef PICO_SITE
+  // A chosen name, as the Pi is pi-1; the flash id is the fallback that needs nobody to choose.
+  snprintf(site, sizeof site, "%s", PICO_SITE);
+#else
   snprintf(site, sizeof site, "pico-%02x%02x%02x", id.id[5], id.id[6], id.id[7]);
+#endif
 
   if (cyw43_arch_init()) { say("cyw43 init failed"); return 1; }
   cyw43_arch_enable_sta_mode();
