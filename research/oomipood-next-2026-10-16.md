@@ -20,9 +20,7 @@ that is not on the desk. Every gap has a free answer:
   jack (`pi-1:pwm`, READ). Headphones are on the desk. No cable is needed to
   hear the Pi.
 - The OLED moving on the breadboard: tape or Blu Tack from a drawer.
-- Cooling: one record, `throttled=0x0` while rendering 720p alongside the
-  instruments (READ `rig/vis/README.md:51`). No temperature or throttling
-  problem is recorded anywhere else in `rig/`, `HANDOFF.md` or `BACKLOG.md`.
+- Cooling: already owned. The owner has a Pi cooler (said 2026-10-16).
 
 The only parts worth buying soon are already on the parts page, and two of its
 groups can be dropped (section 4).
@@ -89,26 +87,12 @@ READ).
 
 No nylon standoffs came up in the tape search; not pursued, tape is enough.
 
-### Cooling
+### Already owned, so not listed
 
-| need | part | price | stock | link | MUST/NICE | why |
-| --- | --- | --- | --- | --- | --- | --- |
-| Pi 4 under SuperCollider, JACK, Plaits, camera | Raspberry Pi 4B heatsink set, 3 pieces (OKY9103) | EUR 5.50 | 110 Peterburi tee, 7 Jarve, 4 Tartu, 1 Rakvere | [link](https://www.oomipood.ee/product/oky9103_raspberry_pi_4b_radikad_heatsink_3tk) | NICE, only if the Pi says so | the one reading on record is `throttled=0x0` |
-
-Free check first, on the Pi: `vcgencmd measure_temp; vcgencmd get_throttled`
-during a heavy patch. Anything but `0x0` (bit 2 is "throttled now", bit 18 is
-"has throttled") is the reason to buy. No fan case was found (READ). How the
-heatsinks attach is not on the page; thermal tape is INFERRED.
-
-### Pico 2 W headers
-
-How to tell: turn it over. Two rows of 20 pins in black plastic strips sticking
-out means headers (a Pico 2 WH). Only the scalloped half holes along the edges
-means a bare Pico 2 W. If bare, nothing can be wired to it without soldering.
-A Pico 2 WH (headers soldered) is a TME order at EUR 13.28, not in any store
-(READ, [link](https://www.oomipood.ee/kataloog/tme/toode?sku=U0MxNjM0)).
-NOT NOW: nothing open needs a wire on the Pico today (the theremin is
-deferred, see section 4).
+- **Pi cooler.** The owner has one (said 2026-10-16). The only reading on
+  record is `throttled=0x0` (READ `rig/vis/README.md:51`) anyway.
+- **Pico 2 headers.** The owner's Pico 2 has its pins soldered and pushes into
+  the breadboard (said 2026-10-16). No Pico 2 WH is needed.
 
 ### Later: DIN MIDI and light (plans/plan-pico.md section 11)
 
@@ -122,7 +106,7 @@ Not listed.
 
 - A 3.5 mm to 2 x 6.3 mm cable as a MUST: USB playback to the Fast Track Pro
   makes it unnecessary.
-- A fan case: no throttling recorded, and none found at Oomipood.
+- Cooling: the owner has a Pi cooler.
 - Standoffs or a right angle header: tape does the same for nothing, and a
   header is a solder job.
 - Every sensor that ships as bare holes: NOT NOW under *"I can not solder atm"*.
@@ -147,12 +131,9 @@ EUR 6 adapter only with a screen to plug in.
 
 ## 5. Not settled
 
-- Whether the Pico 2 W on the desk has headers (look underneath).
 - Whether the push on knob grips the encoder's D shaft or slips (the page says
   6 mm and push on; D or round grip is not clear).
 - What the far end of the Gravity cable is.
 - Whether the Fast Track Pro's inputs are combo sockets (not in the repo).
-- Whether the Pi has ever throttled under the full instrument load
-  (`vcgencmd get_throttled` has never been recorded for it).
 - Whether `pi-1:ftpro` playback is audible: the BACKLOG says nothing has been
   played out of it yet.
