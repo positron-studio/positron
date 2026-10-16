@@ -1,10 +1,19 @@
 {
   // positron-cast: Väin's archive played live into an Icecast mount, and our own test receiver.
+  // The audio source is a container on the Caster class (durable_object policy, size in code: CAST_INSTANCE).
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "positron-cast",
   "main": "worker.mjs",
   "compatibility_date": "2026-09-01",
   "routes": [{ "pattern": "cast.positron.studio", "custom_domain": true }],
+  "containers": [
+    {
+      "class_name": "Caster",
+      "scheduling_policy": "durable_object",
+      // build context is this directory, so the image copies the one mp3.mjs
+      "images": { "cast": { "dockerfile": "./container/Dockerfile", "build_context": "." } }
+    }
+  ],
   "durable_objects": { "bindings": [{ "name": "CASTER", "class_name": "Caster" }, { "name": "RX", "class_name": "Rx" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Caster", "Rx"] }],
   "workers_dev": true,

@@ -25,8 +25,8 @@
   .vc-audio { width: 100%; }
 </style>
 <script type="module">
-  // Väin's archive played live into an Icecast mount by a Durable Object (workers/cast), so the broadcast
-  // runs with no machine of ours and no tab open. This page picks, starts, skips and stops it, and
+  // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast),
+  // so the broadcast runs with no machine of ours and no tab open. This page picks, starts, skips and stops it, and
   // listens to our own test receiver. Control needs ?key= once; it is kept in this browser.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
