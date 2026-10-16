@@ -1478,7 +1478,9 @@ const screenCam = (DRY || ONCE) ? null : createScreenCamera({
 const hdmi = createHdmi({ spawn, findCamera: () => findCamera(), log: (l) => log(l),
   cameraBusy: () => (camera?.running() ? 'the camera is streaming its picture to /remote/circuit/, so the screen waits'
     : screenCam?.running() ? 'the camera is on the Pi\'s OLED (/devices/camera/), so the screen waits' : ''),
-  oledFrame: () => panel?.lastFrame?.() ?? null });
+  oledFrame: () => panel?.lastFrame?.() ?? null,
+  // the OLED's show puts the dithered camera on the OLED (screen-camera.mjs), held by the board itself
+  oledCamera: (on) => !!screenCam?.hold?.(on) });
 mirrorFrame = (fb) => hdmi.frame(fb);
 
 // Announce `pi-1:camera` only with a key and a camera found, asked once (findCamera spawns

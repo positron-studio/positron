@@ -109,7 +109,7 @@ export function cpuShare(statText, uptimeText, hz = 100) {
  * @param {() => object} [o.findCamera]  camera.mjs `findCamera`
  */
 export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFileSync('ps', ['-eo', 'pid,args', '--no-headers'], { encoding: 'utf8' }),
-  findCamera = () => ({ ok: false, reason: 'no camera finder given' }), cameraBusy = () => '', oledFrame = () => null,
+  findCamera = () => ({ ok: false, reason: 'no camera finder given' }), cameraBusy = () => '', oledFrame = () => null, oledCamera = () => false,
   log = () => {}, now = () => Date.now(), setTimer = setTimeout, scanPaths = SCAN_PATHS,
   paths = { fb: FB, card: CARD, connector: CONNECTOR, size: FB_SIZE, bits: FB_BITS } } = {}) {
   let show = null;            // { source, proc, pid, since, w, h, fps, stopping, exited }
@@ -181,6 +181,7 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
       const finish = () => {
         if (finished) return; finished = true;
         if (show === s) show = null;
+        if (s.source === 'oled') oledCamera(false);
         last = { source: s.source, why, at: now(), said: s.tail.slice(-2) };
         const cleared = clear();
         log(`hdmi: the ${s.source} is off the screen, ${why}${cleared ? ', cleared to black' : ''}`);
@@ -198,6 +199,8 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
 
   async function start(source) {
     if (show?.source === source && SOURCES.includes(source)) return { ok: true, ...status() };
+    // the OLED's show holds the camera for the OLED, so it lets go before the camera is asked for
+    if (show?.source === 'oled' && source !== 'oled') await stop(`replaced by the ${source}`);
     const cam = source === 'camera' && connected() ? findCamera() : null;
     const why = refusal(source, cam);
     if (why) return { ok: false, why };
@@ -224,12 +227,13 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
       if (s.stopping) return;
       const tail = s.tail.filter((l) => !/dts|Past duration/i.test(l)).slice(-1)[0];
       if (show === s) show = null;
+      if (source === 'oled') oledCamera(false);
       last = { source, why: `${c.cmd} ${what}${tail ? `: ${tail.slice(0, 160)}` : ''}`, at: now() };
       clear();
       log(`hdmi: the ${source} stopped on its own, ${last.why}`);
     };
     proc.stdin?.on?.('error', () => {});
-    if (c.input) feed(oledFrame());
+    if (c.input) { feed(oledFrame()); s.oledCamera = !!oledCamera(true); }
     proc.on('exit', (code, sig) => ended(`exited (${sig ?? code})`));
     proc.on('error', (e) => ended(`could not run, ${e.code || e.message}`));
     log(`hdmi: the ${source} on HDMI0 by ${s.cmd}, ${c.by === 'gpu' ? 'full screen, scaled by the GPU' : `${c.w}x${c.h} at ${c.fps} fps${c.at ? ` at ${c.at.x},${c.at.y}` : ''}`} on a ${fb.w}x${fb.h} screen`);
@@ -249,7 +253,7 @@ export function createHdmi({ spawn = nodeSpawn, fs = nodeFs, ps = () => execFile
     return { screen: connected(), fb, showing: show?.source ?? null, pid: show?.pid ?? null,
       since: show?.since ?? null, drawnBy: show ? show.cmd : null, scan: scan(),
       picture: show ? { w: show.w, h: show.h, fps: show.fps, at: show.at, scaled: show.by === 'gpu' } : null,
-      said: show ? show.tail.slice(-3) : [], cpu, measured: show?.measured ?? null, last, clears, sources: [...SOURCES] };
+      said: show ? show.tail.slice(-3) : [], cpu, measured: show?.measured ?? null, oledCamera: show?.source === 'oled' ? !!show.oledCamera : null, last, clears, sources: [...SOURCES] };
   }
 
   return {

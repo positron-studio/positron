@@ -275,7 +275,8 @@ console.log('\n== the OLED mirrored: its frames into hdmi-scan ==');
 {
   const m = fakeMachine({ scan: true });
   const first = new Uint8Array(1024).fill(0x0f);
-  const h = make(m, { oledFrame: () => first });
+  const holds = [];
+  const h = make(m, { oledFrame: () => first, oledCamera: (on) => { holds.push(on); return true; } });
   const r = await h.start('oled');
   const sp = m.spawned[0];
   ok('oled starts hdmi-scan oled with a pipe on its stdin', r.ok && sp?.cmd === SCAN_AT && sp.args[0] === 'oled' && !!sp.p.stdin, JSON.stringify(sp?.args));
@@ -284,8 +285,10 @@ console.log('\n== the OLED mirrored: its frames into hdmi-scan ==');
   ok('NEGATIVE CONTROL: a frame that is not 1024 bytes is not written', !h.frame(new Uint8Array(10)) && sp.p.written.length === 2);
   sp.p.stdin.writableNeedDrain = true;
   ok('a full pipe drops the frame rather than queueing it', !h.frame(new Uint8Array(1024)) && sp.p.written.length === 2);
+  ok('the OLED show holds the dithered camera on the OLED', holds.join() === 'true' && h.status().oledCamera === true, holds.join());
   await h.stop();
   ok('NEGATIVE CONTROL: after the stop nothing is written', !h.frame(new Uint8Array(1024)));
+  ok('the stop lets the camera go', holds.join() === 'true,false', holds.join());
   const m2 = fakeMachine();
   const r2 = await make(m2).start('oled');
   ok('without hdmi-scan the OLED is refused in words, nothing spawned', !r2.ok && /needs hdmi-scan/.test(r2.why) && !m2.spawned.length, r2.why);
@@ -294,6 +297,17 @@ console.log('\n== the OLED mirrored: its frames into hdmi-scan ==');
   await h3.start('pattern');
   ok('NEGATIVE CONTROL: the pattern has no stdin and takes no OLED frames', !m3.spawned[0].p.stdin && !h3.frame(new Uint8Array(1024)));
   await h3.stop();
+}
+
+console.log('\n== from the OLED to the camera ==');
+{
+  const m = fakeMachine({ scan: true });
+  let held = false;
+  const h = make(m, { oledCamera: (on) => { held = on; return on; }, cameraBusy: () => (held ? 'the camera is on the Pi\'s OLED' : '') });
+  await h.start('oled');
+  const r = await h.start('camera');
+  ok('the camera after the OLED is not refused for the OLED\'s own hold: that show lets go first', r.ok && !held && h.showing() === 'camera', r.why || '');
+  await h.stop();
 }
 
 console.log(`\n${pass}/${pass + fail} ${fail ? 'RED' : 'green'}`);

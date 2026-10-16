@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <link rel="stylesheet" href="/shell/concept.css">
 <style>
-  .hd-sec { display: flex; flex-direction: column; gap: 12px; }
+  .hd-sec { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 </style>
 <script type="module">
   // The Pi's HDMI0 screen as `pi-1:hdmi0`: play asks the board for `hdmi.show { source }` and stop for
@@ -28,9 +28,8 @@
   import { relayOverride } from '/shell/wire.mjs';
 
   const d = mount({ name: 'HDMI screen on Pi', what: '', index: '/', indexLabel: 'positron',
-    // Readouts on top, the log at the foot (positron-concepts): what the board shows and what it costs it.
-    joined: false,
-    readout: { 'on screen': '', fps: '', dropped: '', cpu: '%' } });
+    // the screen's last second and what it costs the board, glued to the log
+    readout: { fps: '', cpu: '%' } });
   conceptNav('devices/hdmi');
 
   const q = new URLSearchParams(location.search);
@@ -39,23 +38,27 @@
   const MAY_SEND = !SELFCHECK || (q.get('board') === '1' && !!relayOverride(location.search));
   const P = BOARD_SITE;
   const SCREEN_IN = `${P}:hdmi0:video-in`;
-  const SOURCE_OUT = { camera: `${P}:camera:video-out`, pattern: `${P}:pattern:video-out`, oled: `${P}:oled:video-out` };
+  const CAM_OUT = `${P}:camera:video-out`, OLED_IN = `${P}:oled:video-in`, OLED_OUT = `${P}:oled:video-out`;
+  // camera: the camera on HDMI; oled: the camera dithered on the OLED, the OLED mirrored on HDMI
+  const CHAINS = { camera: [[CAM_OUT, SCREEN_IN]], oled: [[CAM_OUT, OLED_IN], [OLED_OUT, SCREEN_IN]] };
 
-  // ── the bay: the camera, the test pattern, the OLED and the screen as the board announces them ──
+  // ── the bay: the camera, the OLED and the screen as the board announces them ──
   const G = boardGraph({ room: ROOM, gpu: false, camera: true, screens: [{ name: 'hdmi0', label: 'HDMI screen' }] });
   const bay = createBay();
-  for (const n of ['camera', 'pattern', 'oled', 'hdmi0']) addBoardNode(bay, G, n);
+  for (const n of ['camera', 'oled', 'hdmi0']) addBoardNode(bay, G, n);
 
   let pb = null, showing = null;
   const screenLink = () => bay.links().find((l) => l.to === SCREEN_IN) || null;
-  /** Draw what the board says is on the screen: one link into hdmi0, or none. */
+  const chainOf = () => bay.links().filter((l) => l.to === SCREEN_IN || l.to === OLED_IN);
+  /** Draw what the board says is on the screen: the source's chain of links, or none. */
   function draw(source) {
-    const L = screenLink();
-    if (L && L.from === SOURCE_OUT[source]) return L;
-    if (L) bay.unlink(L.id);
-    if (source) {
-      const r = bay.link(SOURCE_OUT[source], SCREEN_IN, [], { via: 'fbdev' });
-      if (!r.ok) d.log(`${SOURCE_OUT[source]} -> ${SCREEN_IN} refused: ${r.why}`, 'warn');
+    const want = CHAINS[source] || [];
+    const have = chainOf();
+    if (have.length === want.length && want.every(([f, t]) => have.some((l) => l.from === f && l.to === t))) return screenLink();
+    for (const l of have) bay.unlink(l.id);
+    for (const [from, to] of want) {
+      const r = bay.link(from, to, [], { via: 'fbdev' });
+      if (!r.ok) d.log(`${from} -> ${to} refused: ${r.why}`, 'warn');
     }
     pb?.refresh();
     return screenLink();
@@ -85,17 +88,15 @@
     draw(showing);
     transport.setIcon('play', showing ? 'stop' : 'play', showing ? 'stop' : 'play');
     if (showing) pick.set(SOURCES.indexOf(showing), true);
-    d.set('on screen', showing || 'nothing');
     d.set('cpu', showing && Number.isFinite(st.cpu) ? st.cpu : '');
     // hdmi-scan's last second, measured on the Pi; ffmpeg says nothing, so blank
     d.set('fps', showing && st.measured ? st.measured.fps : '');
-    d.set('dropped', showing && st.measured ? st.measured.dropped : '');
     clearInterval(poll); poll = null;
     // While a show runs, its fps and CPU every 3 s; nothing is asked while the screen is off.
     if (showing && MAY_SEND) poll = setInterval(async () => { const s = await board.ask({ type: 'hdmi.status' }, 'hdmi.state', 3000); if (s) take(s); }, 3000);
   }
 
-  const SOURCES = ['camera', 'pattern', 'oled'];
+  const SOURCES = ['camera', 'oled'];
   let choice = 'camera', pending = null;
   async function show(source) {
     if (!MAY_SEND) { take({ ok: true, showing: source, cpu: null }); d.log('this run may not drive the Pi, add board=1 and a relay on this machine', 'dim'); return null; }
@@ -127,15 +128,14 @@
 
   const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => { pending = play(); } }] });
   const pick = createChoice({ label: 'show', options: SOURCES.map((s) => [s, s]), at: 0,
-    title: (v) => (v === 'camera' ? 'the USB camera on the Pi, full screen' : v === 'oled' ? 'the Pi\'s OLED, mirrored at 15x with square pixels' : 'a moving test pattern'),
+    title: (v) => (v === 'camera' ? 'the USB camera on the Pi, full screen' : 'the camera dithered on the Pi\'s OLED, and the OLED on HDMI at 15x'),
     onPick: (v) => { choice = v; if (showing && showing !== v) pending = show(v); } });
 
-  pb = createPatchbay(bay, { room: ROOM, flowing: (l) => l.to === SCREEN_IN && !!showing });
+  pb = createPatchbay(bay, { room: ROOM, flowing: (l) => (l.to === SCREEN_IN || l.to === OLED_IN) && !!showing });
   const sec = document.createElement('section');
   sec.className = 'hd-sec';
   sec.append(transport.el, pick.el);
   d.stack.add(sec, pb.el);
-  d.set('on screen', '');
 
   window.__demo.bay = bay;
   window.__demo.probe = () => ({ board: !!board, showing, said, link: screenLink() ? printLink(screenLink()) : null });
@@ -144,22 +144,22 @@
     await new Promise((r) => setTimeout(r, 300));
     d.assert('a visit reaches nothing until a press', !board);
     d.assert('NEGATIVE CONTROL: nothing is drawn into the screen before a press', !screenLink());
-    d.assert('the bay holds the camera, the pattern, the OLED and the screen as the board announces them',
-      ['camera', 'pattern', 'oled', 'hdmi0'].every((n) => bay.node(`${P}:${n}`)) && bay.port(SCREEN_IN)?.transports?.join() === 'fbdev');
-    const plain = bay.link(SOURCE_OUT.camera, SCREEN_IN);
+    d.assert('the bay holds the camera, the OLED and the screen as the board announces them',
+      ['camera', 'oled', 'hdmi0'].every((n) => bay.node(`${P}:${n}`)) && bay.port(SCREEN_IN)?.transports?.join() === 'fbdev');
+    const plain = bay.link(CAM_OUT, SCREEN_IN);
     d.assert('NEGATIVE CONTROL: a link that does not ask for fbdev is refused in words', !plain.ok && /only travels by/.test(plain.why), plain.why);
+    d.assert('camera is the default', choice === 'camera' && pick.buttons.length === 2);
     if (!MAY_SEND) {
       transport.el.querySelector('button').click(); await pending;
       d.assert('play draws pi-1:camera:video-out -> pi-1:hdmi0:video-in and still reaches nothing',
-        screenLink()?.from === SOURCE_OUT.camera && screenLink()?.session?.transport === 'fbdev' && !board, screenLink() ? printLink(screenLink()) : 'no link');
+        screenLink()?.from === CAM_OUT && screenLink()?.session?.transport === 'fbdev' && chainOf().length === 1 && !board, screenLink() ? printLink(screenLink()) : 'no link');
       pick.buttons[1].click(); await pending;
-      d.assert('pattern while showing redraws one link, from the pattern', bay.links().length === 1 && screenLink()?.from === SOURCE_OUT.pattern);
-      pick.buttons[2].click(); await pending;
-      d.assert('oled while showing redraws one link, from the OLED', bay.links().length === 1 && screenLink()?.from === SOURCE_OUT.oled);
+      d.assert('oled while showing draws the camera into the OLED and the OLED into the screen',
+        chainOf().length === 2 && bay.links().some((l) => l.from === CAM_OUT && l.to === OLED_IN) && screenLink()?.from === OLED_OUT);
       transport.el.querySelector('button').click(); await pending;
-      d.assert('stop takes the link away and the play icon back', !screenLink() && !showing && !board);
+      d.assert('stop takes the links away and the play icon back', !chainOf().length && !showing && !board);
       pick.buttons[0].click();
-      d.assert('NEGATIVE CONTROL: a choice while stopped draws nothing', !screenLink());
+      d.assert('NEGATIVE CONTROL: a choice while stopped draws nothing', !chainOf().length);
     }
   }
   d.ready();

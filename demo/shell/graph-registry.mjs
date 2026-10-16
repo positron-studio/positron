@@ -210,8 +210,9 @@ export function boardGraph({ room, site = BOARD_SITE, net = null, instruments = 
   if (screens.length) {
     node('pattern', 'engine', 'test pattern');
     port('pattern', 'video-out', { label: 'test pattern', dir: 'out', medium: 'video', address: room, transports: ['fbdev'] });
-    // the OLED's own frames, mirrored: hdmi-scan oled, fed by rig/board/panel.mjs
+    // the OLED: the camera dithered into it (screen-camera.mjs), its own frames mirrored out by hdmi-scan oled
     node('oled', 'device', 'OLED');
+    port('oled', 'video-in', { label: 'OLED', dir: 'in', medium: 'video', address: room, transports: ['fbdev'] });
     port('oled', 'video-out', { label: 'OLED', dir: 'out', medium: 'video', shape: { w: 128, h: 64, bits: 1 }, address: room, transports: ['fbdev'] });
   }
   // A hardware input is an instrument on the desk: its sound comes in through

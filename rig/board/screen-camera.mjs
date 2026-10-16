@@ -49,6 +49,8 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
   if (!key) return { enabled: false, running: () => false, status: () => ({ enabled: false }), stop() {} };
   const FROM = `board-screen-${randomBytes(3).toString('hex')}`;
   const viewers = new Map();     // from -> last renewal
+  // A holder on the board itself (the HDMI screen mirroring the OLED): no lease, the picture stays on the board.
+  let local = false;
   let ws = null, authed = false, closed = false, backoff = 1000;
   let proc = null, stopping = false, frames = 0, sent = 0, startedAt = 0, source = '';
   const recent = [];             // frame times in the last two seconds, for the measured rate
@@ -120,7 +122,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
     if (!m || typeof m.from !== 'string' || m.from === FROM || m.type !== 'screen.camera') return;
     if (m.on === false) {
       viewers.delete(m.from);
-      if (!viewers.size) end('the last viewer stopped');
+      if (!viewers.size && !local) end('the last viewer stopped');
       return;
     }
     const isNew = !viewers.has(m.from);
@@ -132,7 +134,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
   const prune = setInterval(() => {
     const cut = now() - leaseMs;
     for (const [k, t] of viewers) if (t < cut) viewers.delete(k);
-    if (proc && !viewers.size) end(`nobody renewed for ${Math.round(leaseMs / 1000)} s`);
+    if (proc && !viewers.size && !local) end(`nobody renewed for ${Math.round(leaseMs / 1000)} s`);
   }, 2000);
   prune.unref?.();
 
@@ -149,7 +151,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
     };
     ws.onclose = (e) => {
       authed = false; ws = null; viewers.clear();
-      end('the board lost the camera room');
+      if (!local) end('the board lost the camera room');
       if (closed) return;
       // 4003 is a refused key, which retrying every second would only repeat.
       setTimeout(connect, e?.code === 4003 ? 5 * 60_000 : backoff).unref?.();
@@ -164,6 +166,13 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
     running: () => !!proc,
     status: () => ({ enabled: true, joined: authed, running: !!proc, viewers: viewers.size, frames, sent, fps: fps(),
       upMs: proc ? now() - startedAt : 0, source }),
+    /** The board's own hold, `on` or off: the dithered camera on the OLED with no viewer renewing. */
+    hold(on) {
+      local = !!on;
+      if (local) begin();
+      else if (!viewers.size) end('the HDMI screen let it go');
+      return !!proc;
+    },
     stop() { closed = true; clearInterval(prune); end('the board is stopping'); try { ws?.close(); } catch { /* gone */ } },
   };
 }
