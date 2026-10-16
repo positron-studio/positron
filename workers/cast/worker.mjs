@@ -5,6 +5,7 @@
 //   PUT  /ingest/<mount>       our own test Icecast receiver: a source client's PUT, Basic auth `source:`
 //   GET  /ingest/<mount>       the same as a WebSocket: the PUT's header lines as one text message, then audio
 //   GET  /listen/<mount>       the receiver's mount, audio/mpeg, to any number of listeners
+//   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
 //   GET  /rx/<mount>           what the receiver saw: auth, the source's headers, bytes, listeners
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
 // session in storage, boots the container, relays commands and restarts it when it dies.
@@ -18,9 +19,14 @@ const FEED_HOSTS = new Set(['eccm.ee', 'uuu.ee', 'www.uuu.ee']);
 const CAST_INSTANCE = { vcpu: 0.25, memoryMib: 1024, diskMb: 2048 };
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 
-/** Where each target sends: our receiver, or one of Väin's mounts (radio1965 never records or notifies, their on-connect hook). */
+/**
+ * Where each target sends: our receiver, our preview Icecast, or one of Väin's mounts (radio1965 never
+ * records or notifies, their on-connect hook). `preview` is Icecast 2.4.4 in its own container, reached
+ * over the same TCP source code as theirs; `local` makes the container start it.
+ */
 function targets(env) {
-  const t = { test: { kind: 'ws', url: 'wss://cast.positron.studio/ingest/test', mount: 'test', label: 'our test receiver', pw: env.TEST_PW || '' } };
+  const t = { test: { kind: 'ws', url: 'wss://cast.positron.studio/ingest/test', mount: 'test', label: 'our test receiver', pw: env.TEST_PW || '' },
+    preview: { kind: 'icecast', host: '127.0.0.1', port: 8000, mount: 'preview', label: 'our preview Icecast', pw: env.TEST_PW || '', local: true } };
   for (const m of ['radio1965', 'user1', 'user2', 'user3', 'user4']) t[m] = { kind: 'icecast', host: 'live.uuu.ee', port: 8001, mount: m, label: `Väin ${m}`, pw: env.VAIN_SOURCE_PW || '' };
   return t;
 }
@@ -54,6 +60,7 @@ export default {
       if (route === 'control' && (!env.CAST_KEY || u.searchParams.get('key') !== env.CAST_KEY)) return json({ error: 'the control needs its key' }, 403);
       return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
     }
+    if (route === 'listen' && name === 'preview') return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
     if (route === 'ingest' || route === 'listen' || route === 'rx') return env.RX.get(env.RX.idFromName(name)).fetch(req);
     return json({ error: 'no such route' }, 404);
   },
@@ -105,6 +112,7 @@ export class Caster {
       seconds: s?.seconds ?? 0, skipped: s?.skipped ?? 0, rate: s?.rate ?? 0, kbps: s?.kbps ?? 0, lag: s?.lag ?? null, wall: s?.wall ?? null,
       container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
         rss: s?.rss ?? null, sinkDeaths: s?.sinkDeaths ?? 0, lastError: s?.lastError || null },
+      icecast: s?.icecast || null,
       progress: progress || null, deaths: deaths || [], lines };
   }
   async push() {
@@ -119,6 +127,7 @@ export class Caster {
     this.name = u.pathname.split('/')[2];
     if ((await this.st.get('name')) !== this.name) await this.st.put('name', this.name);
     if (u.pathname.startsWith('/status/')) return json(await this.status());
+    if (u.pathname.startsWith('/listen/')) return this.listen();
     if (req.headers.get('upgrade') !== 'websocket') return json({ error: 'a WebSocket' }, 426);
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
@@ -128,6 +137,21 @@ export class Caster {
     this.status().then((s) => server.send(JSON.stringify({ type: 'status', ...s }))).catch(() => { /* next push */ });
     if (!this.ticker) this.ticker = setInterval(() => { if (this.sockets.size) this.push(); }, 1000);
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * A listener on the preview Icecast, proxied from the container's :8000. Never starts a container:
+   * nothing on air is a 503 the page can read. why: lessons/workers-cast.md#preview-listen
+   */
+  async listen() {
+    const off = (why) => json({ error: why, onAir: false }, 503);
+    if (!targets(this.env)[this.name]?.local) return json({ error: 'no listening here' }, 404);
+    if (!this.c?.running) return off('preview is not on air: its container is not running');
+    let r;
+    try { r = await this.c.getTcpPort(8000).fetch('http://c/preview', { headers: { 'user-agent': 'positron-cast listen' } }); } catch (e) { return off(`the preview Icecast did not answer: ${e.message}`); }
+    if (r.status !== 200 || !r.body) { r.body?.cancel(); return off(`the preview Icecast answered ${r.status}: no source on /preview`); }
+    const ct = r.headers.get('content-type'); // forwarded, never invented
+    return new Response(r.body, { headers: { ...(ct ? { 'content-type': ct } : {}), 'cache-control': 'no-store', ...cors } });
   }
 
   async command(text) {
@@ -174,7 +198,11 @@ export class Caster {
       let started = false;
       for (let attempt = 1; ; attempt++) {
         const ta = Date.now();
-        if (!this.c.running) { started = true; this.c.start({ image: this.c.images.cast, instance: CAST_INSTANCE, enableInternet: true }); }
+        if (!this.c.running) {
+          started = true;
+          const t = targets(this.env)[this.name];
+          this.c.start({ image: this.c.images.cast, instance: CAST_INSTANCE, enableInternet: true, env: t?.local ? { ICECAST_PW: t.pw } : {} });
+        }
         this.watch();
         try { await this.c.setInactivityTimeout(IDLE_MS); } catch { /* set again on the next wake */ }
         let up = false;

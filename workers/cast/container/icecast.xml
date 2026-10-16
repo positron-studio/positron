@@ -1,0 +1,49 @@
+<!-- The preview Icecast inside the cast container. server.mjs fills the @@ fields at boot and runs it as
+     the `icecast` user, since Icecast refuses to run as root. No directory, no relays, logs under /tmp. -->
+<icecast>
+  <location>cloudflare container</location>
+  <admin>none</admin>
+  <hostname>cast.positron.studio</hostname>
+  <limits>
+    <clients>100</clients>
+    <sources>2</sources>
+    <queue-size>524288</queue-size>
+    <client-timeout>30</client-timeout>
+    <header-timeout>15</header-timeout>
+    <source-timeout>10</source-timeout>
+    <burst-on-connect>1</burst-on-connect>
+    <burst-size>65536</burst-size>
+  </limits>
+  <authentication>
+    <source-password>@@SOURCE@@</source-password>
+    <relay-password>@@RELAY@@</relay-password>
+    <admin-user>admin</admin-user>
+    <admin-password>@@ADMIN@@</admin-password>
+  </authentication>
+  <listen-socket>
+    <port>8000</port>
+  </listen-socket>
+  <mount type="normal">
+    <mount-name>/preview</mount-name>
+    <password>@@SOURCE@@</password>
+    <public>0</public>
+  </mount>
+  <fileserve>1</fileserve>
+  <paths>
+    <basedir>/usr/share/icecast</basedir>
+    <logdir>/tmp/icecast</logdir>
+    <webroot>/usr/share/icecast/web</webroot>
+    <adminroot>/usr/share/icecast/admin</adminroot>
+    <pidfile>/tmp/icecast/icecast.pid</pidfile>
+    <alias source="/" destination="/status.xsl"/>
+  </paths>
+  <logging>
+    <accesslog>access.log</accesslog>
+    <errorlog>error.log</errorlog>
+    <loglevel>2</loglevel>
+    <logsize>1000</logsize>
+  </logging>
+  <security>
+    <chroot>0</chroot>
+  </security>
+</icecast>

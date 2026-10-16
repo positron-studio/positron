@@ -3,8 +3,12 @@
 //   POST /play  { queue: [{id,title,url}], target, resume?: {index, at} }   POST /next   POST /stop
 //   GET  /status
 // target is { kind: 'icecast', host, port, mount, pw } or { kind: 'ws', url, mount, pw } (our test receiver).
+// With ICECAST_PW set it also runs Icecast 2.4.4 on :8000, mount /preview, for the `preview` target.
 import http from 'node:http';
 import net from 'node:net';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { createFramer } from './mp3.mjs';
 
 // Frames go out this far ahead of the clock, and a file is read no further ahead than READ_AHEAD.
@@ -23,6 +27,50 @@ function say(line) {
   if (lines.length > 40) lines.shift();
 }
 function fail(e) { lastError = { at: Date.now(), what: redact(e?.message || e) }; say(lastError.what); }
+
+// ── the preview Icecast: started at boot when the Caster passes ICECAST_PW, restarted when it exits ──
+// why: lessons/workers-cast.md#preview-icecast
+const ICE_PW = process.env.ICECAST_PW || '';
+const ice = { wanted: !!ICE_PW, pid: null, startedAt: null, starts: 0, exits: [], stats: null, statsAt: 0 };
+function iceStart() {
+  const rand = () => crypto.randomBytes(18).toString('base64url');
+  fs.mkdirSync('/tmp/icecast', { recursive: true });
+  const [, , u, g] = (fs.readFileSync('/etc/passwd', 'utf8').split('\n').find((l) => l.startsWith('icecast:')) || '').split(':');
+  fs.chownSync('/tmp/icecast', Number(u), Number(g));
+  const xml = fs.readFileSync(new URL('./icecast.xml', import.meta.url), 'utf8')
+    .replaceAll('@@SOURCE@@', ICE_PW).replaceAll('@@RELAY@@', rand()).replaceAll('@@ADMIN@@', rand());
+  fs.writeFileSync('/tmp/icecast/icecast.xml', xml, { mode: 0o600 });
+  fs.chownSync('/tmp/icecast/icecast.xml', Number(u), Number(g));
+  const p = spawn('icecast', ['-c', '/tmp/icecast/icecast.xml'], { uid: Number(u), gid: Number(g), stdio: ['ignore', 'pipe', 'pipe'] });
+  ice.pid = p.pid; ice.startedAt = Date.now(); ice.starts++;
+  const out = (b) => say(`icecast: ${String(b).trim().slice(0, 160)}`);
+  p.stdout.on('data', out); p.stderr.on('data', out);
+  p.on('exit', (code, sig) => {
+    ice.pid = null;
+    ice.exits.push({ at: new Date().toISOString().slice(0, 19) + 'Z', code, sig, ranS: Math.round((Date.now() - ice.startedAt) / 1000) });
+    if (ice.exits.length > 10) ice.exits.shift();
+    say(`icecast exited ${code ?? sig}; restarting in 1 s`);
+    setTimeout(iceStart, 1000);
+  });
+  say(`icecast started, pid ${p.pid}`);
+}
+/** Icecast's own status-json, at most every 2 s; null when it does not answer. */
+async function iceStats() {
+  if (!ice.wanted) return null;
+  if (Date.now() - ice.statsAt > 2000) {
+    ice.statsAt = Date.now();
+    try {
+      const r = await fetch('http://127.0.0.1:8000/status-json.xsl', { signal: AbortSignal.timeout(1000) });
+      const st = (await r.json()).icestats || {};
+      const srcs = [].concat(st.source || []);
+      ice.stats = { version: st.server_id || null, mounts: srcs.map((x) => ({ mount: new URL(x.listenurl).pathname, listeners: x.listeners,
+        peak: x.listener_peak, since: x.stream_start_iso8601 || x.stream_start || null, bitrate: x.bitrate ?? x['ice-bitrate'] ?? null })) };
+    } catch { ice.stats = null; }
+  }
+  return { running: !!ice.pid, pid: ice.pid, starts: ice.starts, upS: ice.pid ? Math.round((Date.now() - ice.startedAt) / 1000) : 0,
+    exits: ice.exits, answering: !!ice.stats, ...(ice.stats || {}) };
+}
+if (ICE_PW) iceStart();
 
 function sourceHead(t, title) {
   return [`PUT /${t.mount} HTTP/1.0`, `Authorization: Basic ${Buffer.from(`source:${t.pw}`).toString('base64')}`, 'Content-Type: audio/mpeg',
@@ -189,9 +237,10 @@ function stop(why) {
   s.stopped = true; s.sink?.close(); say(`off air, ${why}`); s = null;
 }
 
-function status() {
+async function status() {
   const now = Date.now();
   return {
+    icecast: await iceStats(),
     bootedAt, uptime: Math.round((now - bootedAt) / 1000), playing: !!s, onAir: !!s?.onAir,
     now: s?.item ? { id: s.item.id, title: s.item.title, at: Math.round(s.fileSeconds) } : null,
     index: s?.index ?? null, queue: s ? s.queue.map((x) => x.title) : [], to: s ? `${s.target.kind} /${s.target.mount}` : null,
@@ -207,13 +256,13 @@ function status() {
 const reply = (res, code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
 http.createServer(async (req, res) => {
   try {
-    if (req.method === 'GET' && req.url === '/status') return reply(res, 200, status());
+    if (req.method === 'GET' && req.url === '/status') return reply(res, 200, await status());
     if (req.method !== 'POST') return reply(res, 404, { error: 'no such route' });
     let raw = '';
     for await (const c of req) raw += c;
-    if (req.url === '/play') { start(JSON.parse(raw || '{}')); return reply(res, 200, status()); }
-    if (req.url === '/next') { if (s) s.skip = true; return reply(res, 200, status()); }
-    if (req.url === '/stop') { stop('asked to stop'); return reply(res, 200, status()); }
+    if (req.url === '/play') { start(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
+    if (req.url === '/next') { if (s) s.skip = true; return reply(res, 200, await status()); }
+    if (req.url === '/stop') { stop('asked to stop'); return reply(res, 200, await status()); }
     return reply(res, 404, { error: 'no such route' });
   } catch (e) { fail(e); return reply(res, 400, { error: redact(e.message) }); }
 }).listen(8080, () => say('listening on 8080'));

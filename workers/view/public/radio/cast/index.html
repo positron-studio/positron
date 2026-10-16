@@ -22,12 +22,14 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   .vc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .vc-audio { width: 100%; }
+  .vc-left { display: flex; align-items: flex-end; gap: 24px; }
+  .vc-left > * { flex: none; }
 </style>
 <script type="module">
   // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast),
-  // so the broadcast runs with no machine of ours and no tab open. This page picks, starts, skips and stops it, and
-  // listens to our own test receiver. Control needs ?key= once; it is kept in this browser.
+  // so the broadcast runs with no machine of ours and no tab open. This page picks, starts, skips and stops it,
+  // and listens: `preview` is our own Icecast in the cast container, radio1965 comes through the shout relay.
+  // Control needs ?key= once; it is kept in this browser.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
@@ -36,43 +38,61 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createChoice } from '/shell/choice.mjs';
   import { createTable } from '/shell/table.mjs';
+  import { createWaveShape } from '/shell/synth-view.mjs';
+  import { scopeWindow } from '/shell/rt-scope.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
   const BASE = q.get('cast') || 'https://cast.positron.studio';
+  const SHOUT = q.get('shout') || 'https://shout.positron.studio';
   const d = mount({ name: 'Väin cast', what: '', index: '/', indexLabel: 'positron',
-    readout: { 'on air': '', sent: 's' } });
+    readout: { 'on air': '', sent: 's', heard: 's', level: 'dB' } });
   conceptNav('radio/cast');
 
   let key = q.get('key') || '';
   try { if (key) localStorage.setItem('vain-cast-key', key); else key = localStorage.getItem('vain-cast-key') || ''; } catch { /* no storage */ }
 
-  // ── the patch: their archive, the caster in Cloudflare, the mount it plays into ──
+  // ── where each target can be heard from this page: our preview Icecast, or radio1965 through shout ──
+  // user1..4 are not in shout's list, so they are heard in the app only.
+  const LISTEN = { preview: `${BASE}/listen/preview`, radio1965: `${SHOUT}/radio1965` };
+  const listenUrl = (t) => LISTEN[t] || null;
+
+  // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's player ──
   // [label, value], as createChoice takes them
-  const TARGETS = [['radio1965', 'radio1965'], ['test receiver', 'test'], ['user1', 'user1'], ['user2', 'user2'], ['user3', 'user3'], ['user4', 'user4']];
+  const TARGETS = [['radio1965', 'radio1965'], ['preview', 'preview'], ['user1', 'user1'], ['user2', 'user2'], ['user3', 'user3'], ['user4', 'user4']];
   let target = 'radio1965';
   const bay = createBay();
   bay.addNode({ id: 'vain:archive', kind: 'external', label: 'Väin archive', place: 'eccm.ee' });
   bay.addNode({ id: 'cf-cast:caster', kind: 'endpoint', label: 'caster', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: 'cf-rx:test', kind: 'endpoint', label: 'test receiver', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: 'cf-icecast:preview', kind: 'endpoint', label: 'preview Icecast', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: 'vain:icecast', kind: 'external', label: 'Väin Icecast', place: 'live.uuu.ee' });
+  bay.addNode({ id: 'cf-shout:radio1965', kind: 'endpoint', label: 'shout relay', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: 'web:player', kind: 'engine', label: 'player' });
   bay.addPort({ id: 'vain:archive:audio-out', dir: 'out', medium: 'audio', label: 'mp3 files', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-out', dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
-  bay.addPort({ id: 'cf-rx:test:audio-in', dir: 'in', medium: 'audio', label: '/test', transports: ['icecast'] });
+  bay.addPort({ id: 'cf-icecast:preview:audio-in', dir: 'in', medium: 'audio', label: '/preview', transports: ['icecast'] });
+  bay.addPort({ id: 'cf-icecast:preview:audio-out', dir: 'out', medium: 'audio', label: '/listen/preview', transports: ['https'] });
   bay.addPort({ id: 'vain:icecast:audio-in', dir: 'in', medium: 'audio', label: 'radio1965, user1 to user4', transports: ['icecast'] });
-  const SINK = (t) => (t === 'test' ? 'cf-rx:test:audio-in' : 'vain:icecast:audio-in');
-  let onAir = false;
-  const pb = createPatchbay(bay, { flowing: () => onAir });
+  bay.addPort({ id: 'vain:icecast:audio-out', dir: 'out', medium: 'audio', label: 'radio1965', transports: ['https'] });
+  bay.addPort({ id: 'cf-shout:radio1965:audio-in', dir: 'in', medium: 'audio', label: 'one upstream', transports: ['https'] });
+  bay.addPort({ id: 'cf-shout:radio1965:audio-out', dir: 'out', medium: 'audio', label: '/radio1965', transports: ['https'] });
+  bay.addPort({ id: 'web:player:audio-in', dir: 'in', medium: 'audio', label: 'listen', transports: ['https'] });
+  const SINK = (t) => (t === 'preview' ? 'cf-icecast:preview:audio-in' : 'vain:icecast:audio-in');
+  // the links this page's player opens, per target; none for user1..4
+  const HEARD = { preview: [['cf-icecast:preview:audio-out', 'web:player:audio-in']],
+    radio1965: [['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in'], ['cf-shout:radio1965:audio-out', 'web:player:audio-in']] };
+  let onAir = false, player = null, levelTimer = 0;
+  const listening = () => !!player && !player.audio.paused;
+  const pb = createPatchbay(bay, { flowing: (l) => (l.to === 'web:player:audio-in' || l.from === 'vain:icecast:audio-out' ? listening() : onAir) });
   function wire() {
     for (const l of bay.links()) bay.unlink(l.id);
-    for (const [a, b] of [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)]]) {
-      const r = bay.link(a, b, [], { via: a.startsWith('vain:') ? 'https' : 'icecast', consent: true });
+    for (const [a, b] of [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)], ...(HEARD[target] || [])]) {
+      const r = bay.link(a, b, [], { via: a.startsWith('cf-cast:caster') ? 'icecast' : 'https', consent: true });
       if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
     }
     pb.refresh();
   }
-  wire();
 
   // ── the archive, from our worker, which asks their feed at most once a minute ──
   let items = [];
@@ -133,47 +153,108 @@
   async function refresh() { try { take(await (await fetch(`${BASE}/status/${target}`)).json()); } catch { /* next time */ } }
   setInterval(() => { if (!ws) refresh(); }, 2000);
 
-  const transport = createButtonGroup({ buttons: [
+  const transport = createButtonGroup({ label: 'cast', buttons: [
     { id: 'play', icon: 'play', label: 'play', onPress: () => (onAir ? send({ cmd: 'stop' }) : play(0)) },
     { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send({ cmd: 'next' }) },
   ] });
   const pick = createChoice({ label: 'to', options: TARGETS, at: 0,
-    title: (v) => (v === 'test' ? 'our own receiver, which you can listen to below' : `Väin's ${v} channel`),
+    title: (v) => (v === 'preview' ? 'our own Icecast in Cloudflare, heard on this page' : `Väin's ${v} channel`),
     // Each target is its own caster, so switching only changes which one this page drives.
-    onPick: (v) => { target = v; said = ''; try { ws?.close(); } catch { /* gone */ } ws = null; wire(); showListen(); refresh(); } });
-  const row = el('div', 'vc-row');
-  row.append(transport.el, pick.el);
+    onPick: (v) => { target = v; said = ''; try { ws?.close(); } catch { /* gone */ } ws = null; stopListening(); wire(); showListen(); refresh(); } });
 
-  // ── listening to the test receiver: what a Väin listener would hear ──
-  const audio = Object.assign(document.createElement('audio'), { controls: true, preload: 'none', className: 'vc-audio' });
-  audio.src = `${BASE}/listen/test`;
-  const listenBox = el('div', 'cc-stack');
-  const listenNote = el('p', 'pos-what', '');
-  listenBox.append(el('h3', 'pos-sec-h', 'listen'), audio, listenNote);
-  function showListen() {
-    const test = target === 'test';
-    audio.hidden = !test;
-    if (!test) audio.pause();
-    listenNote.textContent = test ? '' : `In the Väin app pick channel ${target}, or open http://live.uuu.ee:8001/${target}`;
+  // ── the player: one <audio> with no controls, through an analyser, driven by the kit's buttons ──
+  // Nothing is made or opened until a press, so a visit asks nobody's server for anything.
+  function makePlayer() {
+    const audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
+    const ctx = new AudioContext(), an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    ctx.createMediaElementSource(audio).connect(an);
+    an.connect(ctx.destination);
+    const buf = new Float32Array(an.fftSize);
+    audio.addEventListener('playing', () => { d.log(`listening to ${target}`); pb.refresh(); });
+    audio.addEventListener('error', () => {
+      d.log(target === 'preview' ? 'the preview did not play: is it on air?' : `${target} did not play: off air, or the relay refused`, 'warn');
+      stopListening();
+    });
+    return { audio, ctx, an, buf };
   }
-  showListen();
+  function readLevel() {
+    if (!player) return;
+    player.an.getFloatTimeDomainData(player.buf);
+    let sum = 0;
+    for (const v of player.buf) sum += v * v;
+    const rms = Math.sqrt(sum / player.buf.length);
+    d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
+    d.set('heard', Math.floor(player.audio.currentTime));
+    scope.set({ points: scopeWindow(player.buf), reason: '', name: target });
+  }
+  async function startListening() {
+    const url = listenUrl(target);
+    if (!url) return;
+    if (target === 'preview' && !onAir) { d.log('preview is not on air: press play under cast first', 'warn'); return; }
+    player ||= makePlayer();
+    await player.ctx.resume();
+    player.audio.src = url;
+    listen.setIcon('listen', 'stop', 'stop listening');
+    scope.el.hidden = false;
+    player.audio.play().catch(() => { /* the error event says why */ });
+    clearInterval(levelTimer);
+    levelTimer = setInterval(readLevel, 250);
+  }
+  function stopListening() {
+    clearInterval(levelTimer);
+    if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
+    listen.setIcon('listen', 'play', 'listen');
+    d.set('level', ''); d.set('heard', '');
+    scope.set({ points: null, reason: null, name: '' });
+    scope.el.hidden = true;
+    pb.refresh();
+  }
+  const listen = createButtonGroup({ label: 'listen', buttons: [
+    { id: 'listen', icon: 'play', label: 'listen', onPress: () => (listening() ? stopListening() : startListening()) },
+  ] });
+  const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
+  // the scope and the note take room only when they have something to show
+  scope.el.hidden = true;
+  const listenNote = el('p', 'pos-what', '');
+  const row = el('div', 'vc-row'), left = el('div', 'vc-left');
+  left.append(transport.el, listen.el);
+  row.append(left, pick.el);
+  function showListen() {
+    const url = listenUrl(target);
+    listen.enable('listen', !!url, url ? '' : 'heard in the Väin app only');
+    listenNote.hidden = !!url;
+    listenNote.textContent = url ? '' : `${target} is heard in the Väin app only.`;
+  }
 
-  d.stack.add(row, table.el, listenBox, pb.el);
+  wire();
+  showListen();
+  d.stack.add(row, listenNote, scope.el, table.el, pb.el);
   await loadFeed();
 
   window.__demo.bay = bay;
-  window.__demo.probe = () => ({ items: items.length, target, onAir, key: !!key, links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
+  window.__demo.listenUrl = listenUrl;
+  window.__demo.probe = () => ({ items: items.length, target, onAir, key: !!key, listening: listening(), heard: player ? +player.audio.currentTime.toFixed(2) : null,
+    src: player?.audio.getAttribute('src') || null, links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
 
   if (SELFCHECK) {
-    pick.buttons[1].click();
-    d.assert('the patch holds the archive into the caster and the caster into the test receiver',
-      bay.links().length === 2 && bay.links().some((l) => l.to === 'cf-rx:test:audio-in'));
+    const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
+    d.assert('radio1965 is picked first: the caster plays into their Icecast and the player hears it through shout',
+      target === 'radio1965' && linked('cf-cast:caster:audio-out', 'vain:icecast:audio-in')
+      && linked('vain:icecast:audio-out', 'cf-shout:radio1965:audio-in') && linked('cf-shout:radio1965:audio-out', 'web:player:audio-in'));
+    d.assert('radio1965 is heard through the shout relay, never from their server direct',
+      listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')));
     d.assert('NEGATIVE CONTROL: a link out of their archive without consent is refused',
       !bay.link('vain:archive:audio-out', 'cf-cast:caster:audio-in', [], { via: 'https' }).ok);
-    pick.buttons[2].click();
-    d.assert('picking user1 redraws the source link into their Icecast', bay.links().some((l) => l.to === 'vain:icecast:audio-in') && target === 'user1');
     pick.buttons[1].click();
-    d.assert('a visit opens no control socket and plays nothing', !ws && audio.paused);
+    d.assert('picking preview plays the caster into our own Icecast and the player hears /listen/preview',
+      target === 'preview' && linked('cf-cast:caster:audio-out', 'cf-icecast:preview:audio-in')
+      && linked('cf-icecast:preview:audio-out', 'web:player:audio-in') && listenUrl('preview') === `${BASE}/listen/preview`);
+    pick.buttons[2].click();
+    d.assert('user1 has no player on this page: its listen button is off and no link reaches the player',
+      target === 'user1' && !listen.enabled('listen') && !bay.links().some((l) => l.to === 'web:player:audio-in'));
+    pick.buttons[0].click();
+    d.assert('a visit opens no control socket, makes no player and plays nothing', !ws && !player && !listening());
   }
   d.ready();
 </script>

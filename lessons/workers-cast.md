@@ -44,3 +44,37 @@ time and 9.1 s the second (the first retry got no answer in 8 s), and its clock 
 the lag came back to about minus the 2 s lead with no burst. The container itself stayed up the whole
 time (uptime 1,595 s at the 30 minute mark). A listener on `/listen/test` loses its stream at each
 reset. That is a property of the stand-in receiver, not of the source: a real Icecast is a process.
+
+### preview-icecast
+
+`container/Dockerfile`, `container/server.mjs` (`iceStart`), `container/icecast.xml`: the `preview` target is a
+real Icecast inside its own cast container, so a sound can be checked in the cloud before it goes to Väin.
+Asked 2026-10-16: *"i need to work on sounds and etc and not ready to prevew them on uuu icecast. do i need a
+reliable way to continious test before real streaming"*, then *"do 2"*. It replaces the `test` Rx on the page,
+which restarted twice by itself (rx-resets above).
+
+- The base is `node:22-alpine3.21` because its `apk add icecast` is **Icecast 2.4.4**, the version Väin runs
+  (`/status-json.xsl` reports `server_id: Icecast 2.4.4`). Alpine 3.24 (`node:22-alpine`) ships 2.5.0. MEASURED
+  2026-10-16 with `docker run ... icecast -v` on 3.24, 3.21 and 3.20.
+- Icecast refuses to run as root, so node (root in the image) spawns it with the `icecast` user's uid and gid,
+  read from `/etc/passwd`. The config is written to `/tmp/icecast` at boot with the source password from
+  `ICECAST_PW` (the Caster passes `TEST_PW` through `start({ env })` only for a `local` target) and random
+  relay and admin passwords nobody is told. If it exits, it is started again 1 s later and the exit is dated in
+  `/status`.
+- `<hidden>1</hidden>` on the mount also hid it from `status-json.xsl`, so `/status` read `mounts: []` while a
+  source was on air. MEASURED locally; the mount is `public 0` and not hidden.
+- The source is the same `icecastSink` that went on air on their radio1965, pointed at 127.0.0.1:8000.
+- MEASURED 2026-10-16 after an image push: container up in 6,073 ms, on air at lag -1.8 s, Icecast reporting
+  `/preview` since 20:08:46Z. The image grew from 165 to 171 MB.
+
+### preview-listen
+
+`Caster.listen()`: `GET /listen/preview` is answered by the `preview` Caster, which fetches
+`getTcpPort(8000).fetch('http://c/preview')` and hands the body back. A container that is not running is a
+503 JSON and is never started for a listener.
+
+The worry was rx-websocket above: the edge held a streamed REQUEST body until it ended. A streamed RESPONSE
+body from the container is not held. MEASURED 2026-10-16 with two listeners at once for 20 s each: first byte
+at 395 and 397 ms, 72,800 and 75,600 bytes in the first second (Icecast's 65,536 byte burst), then 12,600 to
+19,600 bytes every second after it (128 kbit/s is 16,000), 378,000 bytes each; mp3 44.1 kHz 128 kbit/s,
+23.6 s of audio, mean -18.6 dB against -91.0 dB for a silence control. Icecast counted `listeners: 2`.
