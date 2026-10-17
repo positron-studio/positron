@@ -1,3 +1,39 @@
+# Handoff, 2026-10-18, session 82: the Väin cast grows a preview Icecast, the tuner mix, the grain ring, a cap and LOCAL
+
+## Where it is right now
+
+- **Site: BUILD `e45c6b02-132413-4dbc`**, confirmed on the edge. **Cast worker `54ba688a`.** Last commit `0692f160`. GitHub: not pushed. Counted: 63 demo rows, 62 built; 133 plans.
+- **Nothing is casting.** preview, radio1965 and user1..4 read `playing:false` and `container.running:false` (checked by the session after the last agent). `test` and the `Rx` class are gone (v2 `deleted_classes`).
+- **The owner starts casts.** Owner: *"Stop defaul casting let me do it"*, *"You were wasting my money with ghost stations"* (a `test` station left casting unseen by an agent check). Memory `no-ghost-stations`: every agent stops what it started, the session reads all six `/status` before handing over.
+- **The M1 (`ssh mbp`)** still has Qt 6.12.0 and the two Väin builds from session 81.
+
+## The cast page, https://positron.studio/radio/cast/ (`?key=<CAST_KEY>` once)
+
+- **STATIONS list** (preview, radio1965, user1..4, all equal), badge `positron` / `Väin` (their own stream, from `GET /live`: a `livestream` event in their events API, 15 s shared cache, only while a page asks) / `off`, and a `stops` time.
+- **The open station:** start/stop, next, listen (preview via `/listen/preview`, radio1965 via `shout.positron.studio/radio1965`, user1..4 "in the Väin app"), STOPS HH:MM and EXTEND 1 h / 4 h / 12 h while on air.
+- **SOUND per station:** mode copy | mix | grains, dial clock | hand, tune/dwell/blend, in grains a patch picker (the page's 10 PATCHES) and wet/density/size/pitch. **LOCAL** plays that sound in the browser, free, nothing on air; every move is also stored on the station, so START reproduces it.
+- **PROGRAM per station** (stored while off, `queue` after the current file while on air, PLAY NOW cuts, CLEAR on air falls back to the whole archive) and the **ARCHIVE** with prelisten and + .
+
+## The worker and container (`workers/cast/`, `lessons/workers-cast.md` has every story)
+
+- One `Caster` DO + container per station, Debian image (node 22, ffmpeg 5.1.9, scsynth 3.13.0, jackd2, jack-stdio, icecast2 2.4.4), 0.5 vCPU / 1.5 GiB. Commands: play, queue, program, next, stop, extend, mode, set, patch. Every start stops itself at `until` (2 h, extend 15 min to 12 h).
+- **preview** has its own Icecast 2.4.4 inside its container; the source reaches it over the same TCP code as Väin's.
+- **Stage 1 (mix)**: `createTunerGraph` ported sample by sample (`mixer-test.mjs` 34/34). On air 16 min: lag about -2 s, 0 underruns, CPU median 5 %.
+- **Stage 2 (grains)**: jackd dummy -> jack-stdin -> scsynth `gring` (compiled by sclang-lite in node) -> jack-stdout -> LAME. On air 16.6 min: lag -1.0 s, 0 xruns, CPU 17 %; a `tone 600` patch moved the centroid 1415 -> 379 Hz.
+- **LOCAL** (`demo/radio/cast/local.mjs`): createTunerGraph, the container's drift clock line for line, createRingEngine on wasm scsynth; files through `GET /file/<id>` (allowlist = the feed, cached a year at the edge, Range from cache). A tune move is heard in 6 to 15 ms.
+- **First real cast** on their radio1965 was session 81 (19:51:48 to 19:52:50 UTC 10-16).
+- **After a cast deploy a running Caster keeps old code for about 4 minutes** (`#caster-keeps-code`).
+
+## Not verified, or open
+
+- CLEAR on air falling back to the whole archive: deployed (`9ff4b430`), never seen working (the retests hit the old code).
+- radio1965 heard through shout on the page: never played (checks blocked it on purpose). Prelisten of real files: not heard by an agent.
+- The `Väin` badge from a real event: only from stubs (nobody streamed).
+- Grains: the Cloud patch clips a little (81 samples in 88 s locally), no limiter; Cloudflare memory not readable; no 4 h run of mix or grains.
+- A restarted mix starts from the top of the queue rather than resuming.
+- The audience X/Y pad (plan section 7) is not built. Publishing it as a Väin `webcontent` event is not done.
+- To ask Tarmo still: who answers while he is in Italy; whether the app keeps playing with a web page open. Raise privately: source passwords in their public repo, `/events/publish` takes no credential, RTMP takes any key, the shelved "Positron Radio Demo" points at a 404.
+
 # Handoff, 2026-10-16, session 81: the Väin cast runs in a Container and went on air on their radio1965
 
 ## Where it is right now
