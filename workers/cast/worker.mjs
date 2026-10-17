@@ -1,6 +1,7 @@
 // positron-cast: Väin's archive played live into an Icecast mount from Cloudflare, no machine of ours.
 //   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
+//                              program (the station's stored list, kept while off air, START plays it);
 //                              mode (copy | mix) and set (tune, drift, dwell, blend, noise) for the mix
 //   GET  /status/<target>      the same status, read only
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
@@ -137,10 +138,11 @@ export class Caster {
   }
 
   async status() {
-    const [want, progress, deaths, boot, mx] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'mix'].map((k) => this.st.get(k)));
+    const [want, progress, deaths, boot, mx, prog] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'mix', 'program'].map((k) => this.st.get(k)));
     const t = targets(this.env)[this.name], s = await this.cstatus();
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
+      program: (prog || []).map(({ id, title }) => ({ id, title })),
       queue: want ? want.queue.map((x) => x.title) : [], ids: want ? want.queue.map((x) => x.id) : [], next: s?.next || null, index: s?.index ?? null, since: want?.startedAt ?? null,
       onAirSeconds: s?.onAir ? Math.round(s.seconds) : 0, files: s?.files ?? 0, frames: s?.frames ?? 0, bytes: s?.bytes ?? 0,
       seconds: s?.seconds ?? 0, skipped: s?.skipped ?? 0, rate: s?.rate ?? 0, kbps: s?.kbps ?? 0, lag: s?.lag ?? null, wall: s?.wall ?? null,
@@ -200,26 +202,22 @@ export class Caster {
     if (m.cmd === 'next') { if (this.c?.running) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
     if (m.cmd === 'kill') { if (this.c?.running) { this.killing = true; this.say('killing the container on purpose'); await this.c.destroy().catch(() => {}); } return; }
+    if (m.cmd === 'program') return this.program(m.ids);
     if (m.cmd === 'play' || m.cmd === 'queue') {
       const t = targets(this.env)[this.name];
+      const want = await this.st.get('want'), on = !!(want && this.c?.running);
+      // queue on air: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
+      if (m.cmd === 'queue') return this.program(m.ids);
       if (!t.pw) throw new Error(`no source password for ${t.label}: waiting on Väin's OK`);
-      const items = await feed(this.ctx), byId = new Map(items.map((x) => [String(x.id), x]));
-      const queue = (m.ids || []).map((id) => byId.get(String(id))).filter(Boolean).map(({ id, title, url }) => ({ id, title, url }));
-      if (!queue.length) throw new Error('none of those is in their archive feed');
-      const want = await this.st.get('want');
+      const queue = m.ids ? await this.resolve(m.ids) : ((await this.st.get('program')) || []);
+      if (!queue.length) throw new Error(m.ids ? 'none of those is in their archive feed' : 'the program is empty');
+      await this.st.put('program', queue);
       // Their own stream on this channel: their Icecast would answer 403 to a second source anyway.
-      if (!t.local && !(want && this.c?.running)) {
+      if (!t.local && !on) {
         const l = (await live(this.ctx)).channels[this.name];
         if (l?.vain) throw new Error(`Väin is streaming here: ${l.title}`);
       }
-      // queue: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
-      if (m.cmd === 'queue') {
-        if (!want || !this.c?.running) throw new Error('not on air: start the cast first');
-        await this.cpost('/queue', { queue });
-        await this.st.put('want', { ...want, queue });
-        this.say(`queue set, ${queue.length} files after this one`); this.push(); return;
-      }
-      if (want && this.c?.running) {
+      if (on) {
         await this.st.put('want', { ...want, queue });
         await this.cpost('/play', { queue, target: t, ...(await this.mixBody()) });
         this.say(`queue replaced, ${queue.length} files`); return;
@@ -230,6 +228,30 @@ export class Caster {
       await this.bring('asked to play');
       this.push();
     }
+  }
+
+  /** Feed ids to `{ id, title, url }`, in the order given, dropping any no longer in their feed. */
+  async resolve(ids) {
+    const byId = new Map((await feed(this.ctx)).map((x) => [String(x.id), x]));
+    return (Array.isArray(ids) ? ids : []).map((id) => byId.get(String(id))).filter(Boolean).map(({ id, title, url }) => ({ id, title, url }));
+  }
+
+  /**
+   * The station's own program, kept in storage whether or not it is on air; START plays it. On air the
+   * same edit goes to the container as a queue, rotated so the file after the current one plays next.
+   * why: lessons/workers-cast.md#program
+   */
+  async program(ids) {
+    const prog = await this.resolve(ids);
+    if (ids?.length && !prog.length) throw new Error('none of those is in their archive feed');
+    await this.st.put('program', prog);
+    const want = await this.st.get('want');
+    if (!want || !this.c?.running || !prog.length) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
+    const cur = (await this.cstatus())?.now?.id, i = prog.findIndex((x) => String(x.id) === String(cur));
+    const queue = i < 0 ? prog : [...prog.slice(i + 1), ...prog.slice(0, i + 1)];
+    await this.cpost('/queue', { queue });
+    await this.st.put('want', { ...want, queue });
+    this.say(`program ${prog.length} files, after this one`); this.push();
   }
 
   /** What the container is told about the mix on every /play: the stored mode and every control. */

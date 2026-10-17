@@ -8,27 +8,36 @@
 <title>Väin cast</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
-  /* six equal station cards, as many to a row as fit, one column on a phone */
-  .vc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--rows-gap); align-items: start; }
+  /* the station list and the open station side by side; the detail wraps under the list when there is no room */
+  .vc-main { display: flex; flex-wrap: wrap; gap: var(--pos-gap) var(--rows-gap); align-items: flex-start; }
+  .vc-main > .vc-stations { flex: 1 1 250px; min-width: 0; }
+  .vc-main > .vc-detail { flex: 999 1 380px; min-width: 0; }
+  .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .vc-detail { display: flex; flex-direction: column; gap: 28px; }
   .vc-mix > .sld-group { width: 100%; }
-  .vc-cards > .pos-rows { width: auto; }
-  .vc-sec { display: flex; flex-direction: column; gap: 12px; }
   .vc-k { color: var(--dim); text-transform: uppercase; font: 12px var(--mono); }
   .vc-v { font: 13px var(--mono); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vc-dim { color: var(--dim); font: 12px var(--sans); }
   .vc-name { font: 600 14px var(--mono); }
-  .vc-note { color: var(--warn); font: 12px var(--mono); min-height: 1.5em; }
-  /* a file row: tick, name, day, then its two buttons; the name gives way first */
-  .vc-file { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .vc-note { color: var(--warn); font: 12px var(--mono); }
   .vc-ctl { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; }
-  .vc-file .vc-day { flex: none; color: var(--dim); font: 12px var(--mono); }
-  .vc-file .pos-check-t { min-width: 2ch; font-variant-numeric: tabular-nums; }
+  .vc-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+  .vc-head > .vc-ctl { flex-wrap: nowrap; gap: 12px; align-items: center; }
+  /* a head row keeps its buttons at their own size on a phone, as a video panel slot does */
+  .vc-head .pos-bgroup { width: auto; min-width: auto; }
+  .vc-head .pos-bgroup-row { min-width: auto; overflow-x: visible; }
+  /* a program or archive row: number or day, name, its buttons; the name gives way first */
+  .vc-file { display: grid; grid-template-columns: 3ch minmax(0, 1fr) auto auto; }
+  .vc-file .vc-n { color: var(--dim); font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+  .vc-file .vc-day { color: var(--dim); font: 12px var(--mono); }
+  .vc-arch { grid-template-columns: minmax(0, 1fr) auto auto; }
   .vc-file[data-on="1"] .vc-v { color: var(--hi); }
   .vc-list { width: 100%; }
+  .vc-stations .pos-tbl-c .pos-pres { vertical-align: middle; }
 </style>
 <script type="module">
   // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast).
-  // One card per station reads /status/<target> while it is on screen; a press opens that station's control socket.
+  // A list of the six stations and the open one beside it: its cast, its sound and its own program.
   // Control needs ?key= once; it is kept in this browser.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
@@ -38,10 +47,9 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
   import { createPresence } from '/shell/presence.mjs';
-  import { createCheck } from '/shell/check.mjs';
   import { createChoice } from '/shell/choice.mjs';
   import { createSlider, createSliderGroup } from '/shell/slider.mjs';
-  import { createPicker } from '/shell/picker.mjs';
+  import { createTable } from '/shell/table.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { scopeWindow } from '/shell/rt-scope.mjs';
   useMediumColours();
@@ -50,7 +58,7 @@
   const BASE = q.get('cast') || 'https://cast.positron.studio';
   const SHOUT = q.get('shout') || 'https://shout.positron.studio';
   const d = mount({ name: 'Väin cast',
-    what: 'Väin\'s archive goes on air from Cloudflare, playing the files you pick, and each file can be heard here first.',
+    what: 'Every station keeps its own program and sound, and Väin\'s archive goes on air from Cloudflare.',
     index: '/', indexLabel: 'positron',
     readout: { listening: '', heard: 's', level: 'dB', prelisten: '' } });
   conceptNav('radio/cast');
@@ -64,7 +72,7 @@
   const listenUrl = (t) => LISTEN[t] || null;
   // per channel, whether Väin's own stream is on it (GET /live, their livestream events)
   let live = {};
-  let target = 'preview'; // the station the program and the patchbay are about
+  let target = 'preview'; // the open station
 
   // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's players ──
   const bay = createBay();
@@ -126,56 +134,59 @@
   }
   async function send(t, m) { const s = await control(t); if (s) s.send(JSON.stringify(m)); return !!s; }
 
-  // ── the archive and the program: ticked files in tick order, or the whole archive when none is ticked ──
-  let items = [], prog = [];
-  const programIds = () => (prog.length ? prog.slice() : items.map((x) => x.id));
-  const from = (id) => { const ids = programIds(); const i = ids.indexOf(id); return i < 0 ? [id, ...ids] : [...ids.slice(i), ...ids.slice(0, i)]; };
-  const titleOf = (id) => items.find((x) => x.id === id)?.title || '';
+  // ── the archive, and each station's program as the caster keeps it ──
+  let items = [];
+  const progs = {}, progTouched = {};
+  const progOf = (t) => progs[t] || [];
+  const startIds = (t) => (progOf(t).length ? progOf(t).slice() : items.map((x) => x.id));
+  const titleOf = (id) => items.find((x) => String(x.id) === String(id))?.title || '';
   const mmss = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '');
-
-  const pick = (t) => { if (t === target) return; target = t; wire(); station.show(t, STATIONS.indexOf(t)); showProgram(); log(t); };
   const theirs = (t) => !!live[t]?.vain && !status[t]?.onAir;
-  const refuse = (t) => { cards[t].say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
-  const cast = (t) => {
-    pick(t);
-    if (status[t]?.playing) return send(t, { cmd: 'stop' });
-    if (theirs(t)) return refuse(t);
-    cards[t].say('');
-    return send(t, { cmd: 'play', ids: programIds() });
-  };
-
-  // ── a card per station: who hears it, on air or off, what plays and how far in, what is next ──
-  const cards = {};
-  function makeCard(t) {
-    const rows = createGlueRows({ grid: true, align: 'start', full: true });
-    // online is ours; online driven by 'page' (the kit's somebody-else look: green dot, grey word) is theirs
-    const badge = createPresence({ of: t, says: { online: 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
-      busyWords: { page: 'Väin' }, can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
-    const castBtns = createButtonGroup({ label: 'cast', buttons: [
-      { id: 'cast', icon: 'play', label: `start the cast on ${t}`, onPress: () => cast(t) },
-      { id: 'next', icon: 'skip-forward', label: `next file on ${t}`, onPress: () => { pick(t); return send(t, { cmd: 'next' }); } },
-    ] });
-    const listenBtn = listenUrl(t) ? createButtonGroup({ label: 'listen', buttons: [
-      { id: 'listen', icon: 'headphones', label: `listen to ${t}`, onPress: () => { pick(t); return listening() && listenTarget === t ? stopListening() : startListening(t); } },
-    ] }) : null;
-    const now = el('span', 'vc-v'), at = el('span', 'vc-v'), next = el('span', 'vc-v'), note = el('span', 'vc-note');
-    const k = (w) => el('span', 'vc-k', w);
-    rows.row([el('span', 'vc-name', t), badge.el]);
-    rows.row([k('now'), now]);
-    rows.row([k('at'), at]);
-    rows.row([k('next'), next]);
-    const ctl = el('span', 'vc-ctl');
-    ctl.append(castBtns.el, ...(listenBtn ? [listenBtn.el] : []));
-    rows.row([ctl]);
-    if (t === 'preview') mixControls(rows);
-    const noteRow = rows.row([note]);
-    noteRow.hidden = true;
-    const c = { t, el: rows.el, badge, castBtns, listenBtn, now, at, next, note, seen: false,
-      say: (w) => { note.textContent = w; noteRow.hidden = !w; } };
-    cards[t] = c;
-    return c;
+  // an edit applies after the current file while on air, and is kept for START while off
+  function editProgram(ids) {
+    const t = target;
+    progs[t] = ids; progTouched[t] = Date.now();
+    showProgram();
+    return send(t, status[t]?.onAir ? { cmd: 'queue', ids } : { cmd: 'program', ids });
   }
-  // ── the mix, on preview only: copy plays files whole, mix tunes an AM dial between two of them ──
+
+  // ── STATIONS: one row per channel, the open one marked ──
+  const badges = {};
+  const stTable = createTable({ columns: [
+    { key: 'name', label: 'station', width: 80, hi: true },
+    { key: 'who', label: 'on air', width: 88 },
+    { key: 'now', label: 'now', grow: true, clip: true },
+  ], onPick: (r) => pick(r.name) });
+  const presence = (t) => createPresence({ of: t, says: { online: 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
+    busyWords: { page: 'Väin' }, can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
+  stTable.set(STATIONS.map((t) => ({ name: t, who: '', now: '' })));
+  const stRows = [...stTable.scroller().querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')];
+  STATIONS.forEach((t, i) => { badges[t] = presence(t); stRows[i].children[1].append(badges[t].el); stRows[i].dataset.station = t; });
+  const markOpen = () => stTable.mark((r) => r.name === target);
+
+  // ── the open station: its cast, what plays, its sound, its program ──
+  const head = el('div', 'vc-head');
+  const dName = el('span', 'vc-name', target), dBadge = presence('the open station');
+  const nameBox = el('span', 'vc-ctl'); nameBox.append(dName, dBadge.el);
+  const castBtns = createButtonGroup({ buttons: [
+    { id: 'cast', icon: 'play', label: 'start the cast', onPress: () => cast(target) },
+    { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send(target, { cmd: 'next' }) },
+  ] });
+  const listenBtn = createButtonGroup({ buttons: [
+    { id: 'listen', icon: 'headphones', label: 'listen', onPress: () => (listening() && listenTarget === target ? stopListening() : startListening(target)) },
+  ] });
+  const inApp = el('span', 'vc-dim', 'in the Väin app');
+  const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, inApp);
+  head.append(nameBox, headCtl);
+  const now = el('span', 'vc-v'), at = el('span', 'vc-dim'), next = el('span', 'vc-v'), note = el('span', 'vc-note');
+  const k = (w) => el('span', 'vc-k', w);
+  const playing = createGlueRows({ grid: true, align: 'start', full: true });
+  playing.row([k('now'), (() => { const b = el('span', 'vc-ctl'); b.append(now, at); return b; })()]);
+  playing.row([k('next'), next]);
+  const noteRow = playing.row([note]); noteRow.hidden = true;
+  const say = (w) => { note.textContent = w; noteRow.hidden = !w; };
+
+  // SOUND, for every station: copy plays files whole, mix tunes an AM dial between two of them
   const mixUi = {}, touched = {};
   const lastSent = {}, pendingSet = {};
   function setMix(name, v) {
@@ -183,48 +194,112 @@
     pendingSet[name] = v;
     const wait = Math.max(0, 50 - (Date.now() - (lastSent.at || 0)));
     if (lastSent.timer) return;
+    const t = target;
     lastSent.timer = setTimeout(() => {
       lastSent.timer = 0; lastSent.at = Date.now();
-      for (const [n, x] of Object.entries(pendingSet)) { send('preview', { cmd: 'set', name: n, v: x }); delete pendingSet[n]; }
+      for (const [n, x] of Object.entries(pendingSet)) { send(t, { cmd: 'set', name: n, v: x }); delete pendingSet[n]; }
     }, wait);
   }
-  function mixControls(rows) {
-    mixUi.mode = createChoice({ label: 'mode', options: [['copy', 'copy'], ['mix', 'mix']], at: 0,
-      onPick: (v) => { touched.mode = Date.now(); send('preview', { cmd: 'mode', mode: v }); } });
-    mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
-    mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
-      onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
-    mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
-    mixUi.blend = createSlider({ label: 'blend', min: 2, max: 60, step: 1, value: 16, unit: 's', onInput: (v) => setMix('blend', v) });
-    const both = el('span', 'vc-ctl');
-    both.append(mixUi.mode.el, mixUi.drift.el);
-    rows.row([both]);
-    rows.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
-  }
+  mixUi.mode = createChoice({ label: 'mode', options: [['copy', 'copy'], ['mix', 'mix']], at: 0,
+    onPick: (v) => { touched.mode = Date.now(); send(target, { cmd: 'mode', mode: v }); } });
+  mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
+  mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
+    onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
+  mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
+  mixUi.blend = createSlider({ label: 'blend', min: 2, max: 60, step: 1, value: 16, unit: 's', onInput: (v) => setMix('blend', v) });
+  const sound = createGlueRows({ align: 'start', full: true });
+  const both = el('span', 'vc-ctl'); both.append(mixUi.mode.el, mixUi.drift.el);
+  sound.row([both]);
+  sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
   /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
   function paintMix(st) {
-    if (!mixUi.mode) return;
-    const w = st.wanted || {}, set = w.set || {}, x = st.mix, fresh = (k) => Date.now() - (touched[k] || 0) > 2000;
-    if (fresh('mode') && w.mode) mixUi.mode.set(w.mode === 'mix' ? 1 : 0, true);
+    const w = st.wanted || {}, set = w.set || {}, x = st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
+    if (fresh('mode')) mixUi.mode.set(w.mode === 'mix' ? 1 : 0, true);
     if (fresh('drift')) mixUi.drift.set((x?.drift ?? set.drift ?? 1) ? 0 : 1, true);
     if (fresh('tune')) mixUi.tune.set(x?.tune ?? set.tune ?? 0.46, true);
-    for (const k of ['dwell', 'blend']) if (fresh(k) && set[k] != null) mixUi[k].set(set[k], true);
+    for (const n of ['dwell', 'blend']) if (fresh(n)) mixUi[n].set(set[n] ?? (n === 'dwell' ? 40 : 16), true);
   }
-  function paint(t) {
-    const c = cards[t], st = status[t] || {};
-    if (!c || (!status[t] && !live[t])) return;
-    const them = theirs(t);
-    c.badge.set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
-    c.badge.busy(them ? 'page' : null);
+
+  // PROGRAM: the station's queue, in order, each with up and remove
+  const progBtns = createButtonGroup({ buttons: [
+    { id: 'now', label: 'play now', title: 'cut the current file and play the program from the top',
+      onPress: () => { if (theirs(target)) return refuse(target); say(''); return send(target, { cmd: 'play', ids: startIds(target) }); } },
+    { id: 'clear', label: 'clear', onPress: () => editProgram([]) },
+  ] });
+  const progHead = el('div', 'vc-head');
+  progHead.append(el('h3', 'pos-sec-h', 'program'), progBtns.el);
+  const progHost = el('div', 'vc-list'), progEmpty = el('span', 'vc-dim', 'empty: start plays the whole archive');
+  let progKey = '', progRows = [];
+  function showProgram() {
+    const ids = progOf(target), keyNow = `${target}|${ids.join()}`;
+    progEmpty.hidden = !!ids.length;
+    if (keyNow !== progKey) {
+      progKey = keyNow;
+      const list = createGlueRows({ align: 'start', full: true, cls: 'vc-list' });
+      progRows = ids.map((id, i) => {
+        const b = createButtonGroup({ buttons: [
+          { id: 'up', icon: 'chevron-up', label: `move ${titleOf(id)} up`, onPress: () => { const x = progOf(target).slice(); if (i > 0) { [x[i - 1], x[i]] = [x[i], x[i - 1]]; editProgram(x); } } },
+          { id: 'rm', icon: 'close', label: `take ${titleOf(id)} out`, onPress: () => editProgram(progOf(target).filter((_, j) => j !== i)) },
+        ] });
+        if (i === 0) b.button('up').disabled = true;
+        const name = el('span', 'vc-v', titleOf(id) || String(id)); name.title = name.textContent;
+        const r = list.row([el('span', 'vc-n', String(i + 1)), name, el('span', 'vc-day', ''), b.el], { cls: 'vc-file' });
+        return { id, r, b };
+      });
+      progHost.replaceChildren(...(ids.length ? [list.el] : []));
+    }
+    const cur = status[target]?.now?.id;
+    for (const p of progRows) p.r.dataset.on = String(p.id) === String(cur) ? '1' : '';
+    for (const [id, a] of archRows) a.r.dataset.on = String(id) === String(cur) ? '1' : '';
+  }
+
+  // ARCHIVE: the shared library; prelisten one file, + adds it to the open station's program
+  const archList = createGlueRows({ align: 'start', full: true, cls: 'vc-list' });
+  const archRows = new Map();
+  function archRow(x) {
+    const btns = createButtonGroup({ buttons: [
+      { id: 'pre', icon: 'headphones', label: `prelisten ${x.title}`, onPress: () => (preId === x.id ? stopPrelisten() : prelisten(x)) },
+      { id: 'add', icon: 'plus', label: `add ${x.title} to the program`, onPress: () => editProgram([...progOf(target), x.id]) },
+    ] });
+    const name = el('span', 'vc-v', x.title); name.title = x.title;
+    const r = archList.row([name, el('span', 'vc-day', (x.at || '').slice(5, 10)), btns.el], { cls: 'vc-file vc-arch' });
+    archRows.set(x.id, { r, btns });
+  }
+  const showPre = () => { for (const [id, a] of archRows) a.btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten'); };
+
+  const pick = (t) => { if (t === target) return; target = t; for (const n of Object.keys(touched)) touched[n] = 0; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
+  const refuse = (t) => { say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
+  const cast = (t) => {
+    if (status[t]?.playing) return send(t, { cmd: 'stop' });
+    if (theirs(t)) return refuse(t);
+    say('');
+    return send(t, { cmd: 'play', ids: startIds(t) });
+  };
+
+  function paintRow(t) {
+    const st = status[t] || {}, i = STATIONS.indexOf(t), them = theirs(t);
+    if (!status[t] && !live[t]) return;
+    badges[t].set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
+    badges[t].busy(them ? 'page' : null);
     const title = them ? (live[t].title || '') : st.now?.title || '';
-    c.now.textContent = title; c.now.title = title;
-    c.at.textContent = !them && st.now ? mmss(st.now.at) : '';
-    c.next.textContent = st.onAir ? (st.next?.title || '') : ''; c.next.title = c.next.textContent;
+    const cell = stRows[i].children[2]; cell.textContent = title; cell.title = title;
+  }
+  function paintDetail() {
+    const t = target, st = status[t] || {}, them = theirs(t);
+    dName.textContent = t;
+    dBadge.set(st.onAir || them ? 'online' : st.playing ? 'coming' : status[t] ? 'offline' : 'unknown');
+    dBadge.busy(them ? 'page' : null);
+    const title = them ? (live[t].title || '') : st.now?.title || '';
+    now.textContent = title; now.title = title;
+    at.textContent = !them && st.now ? mmss(st.now.at) : '';
+    next.textContent = st.onAir ? (st.next?.title || '') : ''; next.title = next.textContent;
+    castBtns.setIcon('cast', st.playing ? 'stop' : 'play', st.playing ? `stop the cast on ${t}` : `start the cast on ${t}`);
+    listenBtn.el.hidden = !listenUrl(t); inApp.hidden = !!listenUrl(t);
+    listenBtn.setIcon('listen', listening() && listenTarget === t ? 'stop' : 'headphones', listening() && listenTarget === t ? `stop listening to ${t}` : `listen to ${t}`);
     const refused = (st.lines || []).at(-1)?.includes('refused: ') ? st.lines.at(-1).split('refused: ')[1] : '';
-    if (t === 'preview') paintMix(st);
-    if (refused) c.say(refused);
-    else if (!them && c.note.textContent === 'Väin is streaming here') c.say('');
-    c.castBtns.setIcon('cast', st.playing ? 'stop' : 'play', st.playing ? `stop the cast on ${t}` : `start the cast on ${t}`);
+    if (refused) say(refused);
+    else if (!them && note.textContent === 'Väin is streaming here') say('');
+    paintMix(st);
   }
   const said = {};
   function log(t) {
@@ -234,84 +309,35 @@
   function take(t, st) {
     if (st.target && st.target !== t) return;
     status[t] = st;
-    paint(t); log(t);
-    if (t === target) { showProgram(); pb.refresh(); }
+    if (Array.isArray(st.program) && Date.now() - (progTouched[t] || 0) > 3000) progs[t] = st.program.map((x) => x.id);
+    paintRow(t); log(t);
+    if (t === target) { paintDetail(); showProgram(); pb.refresh(); }
   }
 
-  // Read only, our worker, every 3 s, for the cards on screen whose socket is not already pushing.
-  const visible = new Set();
+  // Read only, our worker, every 3 s, for each station whose socket is not already pushing.
   async function poll() {
     if (document.hidden) return;
-    for (const t of visible) {
-      if (sockets[t]) continue;
+    await Promise.all(STATIONS.filter((t) => !sockets[t]).map(async (t) => {
       try { take(t, await (await fetch(`${BASE}/status/${t}`)).json()); } catch { /* next time */ }
-    }
+    }));
   }
-  const seenIO = new IntersectionObserver((es) => { for (const e of es) { const t = e.target.dataset.station; if (e.isIntersecting) visible.add(t); else visible.delete(t); } poll(); });
-
-  const main = el('div', 'vc-cards');
-  for (const t of STATIONS) { const c = makeCard(t); c.el.dataset.station = t; main.append(c.el); seenIO.observe(c.el); }
-  setInterval(poll, 3000);
+  if (!SELFCHECK) { poll(); setInterval(poll, 3000); }
   // Their streams, every 5 s while the page is visible; our worker asks them at most every 15 s.
-  function takeLive(j) { live = j.channels || {}; for (const t of STATIONS) paint(t); }
+  function takeLive(j) { live = j.channels || {}; for (const t of STATIONS) paintRow(t); paintDetail(); }
   async function pollLive() {
     if (document.hidden) return;
     try { const j = await (await fetch(`${BASE}/live`)).json(); if (!j.error) takeLive(j); } catch { /* next time */ }
   }
   if (!SELFCHECK) { pollLive(); setInterval(pollLive, 5000); }
 
-  // ── the program: tick files in the order they should play, prelisten any of them ──
-  const station = createPicker({ label: 'for', what: 'station',
-    prev: () => pick(STATIONS[(STATIONS.indexOf(target) + STATIONS.length - 1) % STATIONS.length]),
-    next: () => pick(STATIONS[(STATIONS.indexOf(target) + 1) % STATIONS.length]),
-    onPick: (i) => pick(STATIONS[i]) });
-  station.options(STATIONS, 0);
-  const progBtns = createButtonGroup({ label: 'program', buttons: [
-    { id: 'queue', label: 'queue', title: 'play these after the current file, which keeps playing', onPress: () => send(target, { cmd: 'queue', ids: programIds() }) },
-    { id: 'now', label: 'play now', title: 'cut the current file and play these from the top', onPress: () => send(target, { cmd: 'play', ids: programIds() }) },
-    { id: 'clear', label: 'clear', onPress: () => { prog = []; showProgram(); } },
-  ] });
-  const progNote = el('span', 'vc-dim', '');
-  const bar = createGlueRows({ align: 'start', full: true });
-  const barCtl = el('span', 'vc-ctl');
-  barCtl.append(station.el, progBtns.el);
-  bar.row([barCtl]);
-  bar.row([progNote]);
-  const list = createGlueRows({ align: 'start', full: true, cls: 'vc-list' });
-  const rows = new Map();
-  function fileRow(x) {
-    const box = createCheck({ label: '', title: 'in the program', onChange: (on) => {
-      prog = prog.filter((id) => id !== x.id);
-      if (on) prog.push(x.id);
-      showProgram();
-    } });
-    const btns = createButtonGroup({ buttons: [
-      { id: 'pre', icon: 'headphones', label: `prelisten ${x.title}`, onPress: () => (preId === x.id ? stopPrelisten() : prelisten(x)) },
-      { id: 'now', icon: 'play', label: `play ${x.title} now on the station`, onPress: () => send(target, { cmd: 'play', ids: from(x.id) }) },
-    ] });
-    const name = el('span', 'vc-v', x.title);
-    name.title = x.title;
-    const r = list.row([box.el, name, el('span', 'vc-day', (x.at || '').slice(5, 10)), btns.el], { cls: 'vc-file' });
-    rows.set(x.id, { r, box, btns });
-  }
-  function showProgram() {
-    for (const [id, { r, box, btns }] of rows) {
-      const i = prog.indexOf(id);
-      box.set(i >= 0, true);
-      box.el.querySelector('.pos-check-t').textContent = i >= 0 ? String(i + 1) : '';
-      r.dataset.on = status[target]?.now?.id === id ? '1' : '';
-      btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten');
-    }
-    progNote.textContent = prog.length ? `${prog.length} ticked, in tick order, for ${target}` : `nothing ticked: the whole archive, for ${target}`;
-  }
   async function loadFeed() {
     try {
       const j = await (await fetch(`${BASE}/feed`)).json();
       if (j.error) throw new Error(j.error);
       // their empty recording would end on its first frame, so it is left out
       items = j.items.filter((x) => !/\/v-in-\d/.test(x.url));
-      for (const x of items) fileRow(x);
-      showProgram();
+      for (const x of items) archRow(x);
+      progKey = ''; showProgram(); showPre();
       d.log(`${items.length} files in their archive`);
     } catch (e) { d.log(`the archive did not load: ${e.message}`, 'warn'); }
   }
@@ -322,19 +348,19 @@
     stopListening();
     pre ||= Object.assign(document.createElement('audio'), { preload: 'none' });
     pre.onerror = () => { d.log(`${x.title} did not play`, 'warn'); stopPrelisten(); };
-    pre.onplaying = () => { showProgram(); pb.refresh(); };
+    pre.onplaying = () => { showPre(); pb.refresh(); };
     pre.src = x.url; preId = x.id;
     d.set('prelisten', x.title);
     prePlay(pre)?.catch?.(() => { /* the error event says why */ });
     clearInterval(levelTimer);
     levelTimer = setInterval(() => d.set('heard', pre ? Math.floor(pre.currentTime) : ''), 500);
-    showProgram();
+    showPre();
   }
   function stopPrelisten() {
     if (pre) { pre.pause(); pre.removeAttribute('src'); pre.load(); }
     preId = null; clearInterval(levelTimer);
     d.set('prelisten', ''); d.set('heard', '');
-    showProgram(); pb.refresh();
+    showPre(); pb.refresh();
   }
 
   // ── LISTEN: one <audio> through an analyser, made on the first press ──
@@ -367,51 +393,66 @@
     player.ctx.resume().catch(() => { /* sound may be late, the stream is not */ });
     listenTarget = t;
     player.audio.src = url;
-    cards[t].listenBtn.setIcon('listen', 'stop', `stop listening to ${t}`);
     d.set('listening', t);
     scope.el.hidden = false;
     player.audio.play().catch(() => { /* the error event says why */ });
     clearInterval(levelTimer);
     levelTimer = setInterval(readLevel, 250);
+    paintDetail();
   }
   function stopListening() {
     if (!listenTarget) return;
     clearInterval(levelTimer);
     if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
-    cards[listenTarget]?.listenBtn?.setIcon('listen', 'headphones', `listen to ${listenTarget}`);
     listenTarget = null;
     d.set('listening', ''); d.set('level', ''); d.set('heard', '');
     scope.set({ points: null, reason: null, name: '' });
     scope.el.hidden = true;
-    pb.refresh();
+    paintDetail(); pb.refresh();
   }
   const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
   scope.el.hidden = true;
 
-  const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); s.append(el('h3', 'pos-sec-h', h), ...parts); return s; };
-  wire();
-  d.stack.add(sec('stations', main), scope.el, sec('program', bar.el, list.el), pb.el);
+  const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
+  const stations = sec('stations', stTable.el); stations.classList.add('vc-stations');
+  const detail = el('div', 'vc-detail');
+  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('', progHead, progEmpty, progHost));
+  const main = el('div', 'vc-main'); main.append(stations, detail);
+  wire(); markOpen(); paintDetail();
+  d.stack.add(main, scope.el, sec('archive', archList.el), pb.el);
   await loadFeed();
 
   window.__demo.bay = bay;
   window.__demo.listenUrl = listenUrl;
-  window.__demo.probe = () => ({ items: items.length, target, prog: prog.slice(), key: !!key, sockets: Object.keys(sockets), listening: listening(),
+  window.__demo.probe = () => ({ items: items.length, target, progs: { ...progs }, key: !!key, sockets: Object.keys(sockets), listening: listening(),
     heard: player ? +player.audio.currentTime.toFixed(2) : null, src: player?.audio.getAttribute('src') || null,
     pre: pre?.getAttribute('src') || null, preAt: pre ? +pre.currentTime.toFixed(2) : null,
-    status: Object.fromEntries(Object.entries(status).map(([t, s]) => [t, { onAir: s.onAir, now: s.now, next: s.next }])),
+    status: Object.fromEntries(Object.entries(status).map(([t, s]) => [t, { onAir: s.onAir, now: s.now, next: s.next, program: s.program }])),
     links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
 
   if (SELFCHECK) {
+    const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
-    const order = [...main.children].map((c) => c.dataset.station);
-    const w = (t) => cards[t].el.getBoundingClientRect();
-    d.assert('six equal cards in one grid, preview first and the default station',
-      order.join() === STATIONS.join() && target === 'preview' && STATIONS.every((t) => Math.abs(w(t).width - w('preview').width) < 1), order.join());
+    const rowOf = (t) => stRows[STATIONS.indexOf(t)];
+    d.assert('six stations in one list, preview first, open and marked by default',
+      stRows.map((r) => r.dataset.station).join() === STATIONS.join() && target === 'preview' && dName.textContent === 'preview'
+      && rowOf('preview').classList.contains('on') && stRows.filter((r) => r.classList.contains('on')).length === 1, stRows.map((r) => r.dataset.station).join());
     d.assert('a visit opens no control socket, no player and no prelisten, and asks no audio URL',
-      !Object.keys(sockets).length && !player && !pre && !audioReqs().length, audioReqs().join(' '));
-    d.assert('radio1965 is heard through shout, never from their server; user1 has no player on this page',
-      listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1') && !cards.user1.listenBtn);
+      !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !audioReqs().length, audioReqs().join(' '));
+    // selecting: a press on a row opens it, and every station has the same sound controls
+    const seen = [];
+    for (const t of STATIONS) {
+      rowOf(t).click();
+      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length, detail.querySelectorAll('.sld-lane').length, rowOf(t).classList.contains('on')]);
+    }
+    d.assert('selecting a station opens it on the right, and each one has mode, dial, tune, dwell and blend',
+      seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 3 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
+    rowOf('user1').click();
+    d.assert('radio1965 is heard through shout, never from their server; user1 has no player and says where it is heard',
+      listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1')
+      && listenBtn.el.hidden && !inApp.hidden && inApp.textContent === 'in the Väin app');
+    rowOf('preview').click();
     d.assert('preview\'s chain: the caster plays into our own Icecast and the player hears /listen/preview',
       linked('cf-cast:caster:audio-out', 'cf-icecast:preview:audio-in') && linked('cf-icecast:preview:audio-out', 'web:player:audio-in'));
     d.assert('NEGATIVE CONTROL: a link out of their archive without consent is refused',
@@ -422,62 +463,81 @@
     openSocket = (t) => { const s = { readyState: 1, send: (m) => sent.push([t, JSON.parse(m)]), close() {} }; setTimeout(() => s.onopen?.(), 0); return s; };
     key ||= 'check';
     if (items.length >= 3) {
-      rows.get(items[2].id).box.input.click(); rows.get(items[0].id).box.input.click();
-      await progBtns.button('queue').click();
-      await new Promise((r) => setTimeout(r, 50));
+      rowOf('user3').click();
+      take('user3', { target: 'user3', onAir: false, playing: false, program: [], lines: [] });
+      archRows.get(items[2].id).btns.button('add').click(); await tick();
+      archRows.get(items[0].id).btns.button('add').click(); await tick();
+      const am = sent.at(-1);
+      d.assert('+ adds to the open station\'s program, and off air it is sent as program, in order',
+        am?.[0] === 'user3' && am[1].cmd === 'program' && am[1].ids.join() === [items[2].id, items[0].id].join()
+        && progRows.length === 2 && progRows[0].id === items[2].id && !progOf('preview').length, JSON.stringify(am));
+      progRows[1].b.button('up').click(); await tick();
+      const um = sent.at(-1);
+      progRows[0].b.button('rm').click(); await tick();
+      const rm = sent.at(-1);
+      d.assert('up moves a file earlier and the cross takes it out, each sent as the whole list',
+        um?.[1].ids.join() === [items[0].id, items[2].id].join() && rm?.[1].cmd === 'program' && rm[1].ids.join() === String(items[2].id),
+        JSON.stringify([um, rm]));
+      take('user3', { target: 'user3', onAir: true, playing: true, now: { id: items[2].id, title: items[2].title, at: 12 }, program: [{ id: items[2].id }], lines: [] });
+      archRows.get(items[1].id).btns.button('add').click(); await tick();
       const qm = sent.at(-1);
-      d.assert('ticking two files and pressing queue sends queue with those two, in tick order',
-        qm?.[0] === 'preview' && qm[1].cmd === 'queue' && qm[1].ids.join() === [items[2].id, items[0].id].join(), JSON.stringify(qm));
-      rows.get(items[0].id).btns.button('now').click();
-      await new Promise((r) => setTimeout(r, 50));
+      d.assert('on air the same + is sent as queue, so it plays after the current file',
+        qm?.[0] === 'user3' && qm[1].cmd === 'queue' && qm[1].ids.join() === [items[2].id, items[1].id].join()
+        && progRows.find((p) => p.id === items[2].id)?.r.dataset.on === '1', JSON.stringify(qm));
+      progBtns.button('now').click(); await tick();
       const pm = sent.at(-1);
-      d.assert('play now on a file sends play, starting from that file',
-        pm?.[1].cmd === 'play' && pm[1].ids[0] === items[0].id && pm[1].ids.length === 2, JSON.stringify(pm));
+      d.assert('play now sends play with the program from the top',
+        pm?.[0] === 'user3' && pm[1].cmd === 'play' && pm[1].ids.join() === [items[2].id, items[1].id].join(), JSON.stringify(pm));
+      // the mix controls go to the open station, at most 20 a second
+      sent.length = 0;
+      mixUi.mode.buttons[1].click();
+      for (const v of [0.47, 0.48, 0.49, 0.5, 0.51]) mixUi.tune.set(v);
+      await tick(400);
+      const mixSent = sent.filter(([, m]) => m.cmd === 'mode' || m.cmd === 'set');
+      d.assert('sound on user3: mode mix is sent to user3, five quick tune moves arrive as one set with the last value, and the dial is held',
+        mixSent.every(([t]) => t === 'user3') && mixSent[0]?.[1].cmd === 'mode' && mixSent[0][1].mode === 'mix'
+        && mixSent.filter(([, m]) => m.name === 'tune').length === 1 && Math.abs((mixSent.find(([, m]) => m.name === 'tune')?.[1].v ?? 0) - 0.51) < 1e-9
+        && mixUi.drift.get() === 1, JSON.stringify(mixSent));
       // prelisten, with play() held back, so the check asks their host for nothing
       prePlay = () => null;
-      rows.get(items[1].id).btns.button('pre').click();
+      archRows.get(items[1].id).btns.button('pre').click();
       const set = pre?.getAttribute('src') === items[1].url && !pre.crossOrigin && preId === items[1].id;
-      rows.get(items[1].id).btns.button('pre').click();
+      archRows.get(items[1].id).btns.button('pre').click();
       d.assert('a prelisten press sets that file on its own <audio> with no crossOrigin, and a second press takes it off',
         set && !pre.getAttribute('src') && preId === null);
       prePlay = (a) => a.play();
-      progBtns.button('clear').click();
+      delete status.user3; delete progs.user3; delete progTouched.user3;
     }
-    // the mix controls send what the caster takes, at most 20 a second
-    mixUi.mode.buttons[1].click();
-    for (const v of [0.47, 0.48, 0.49, 0.5, 0.51]) mixUi.tune.set(v);
-    await new Promise((r) => setTimeout(r, 400));
-    const mixSent = sent.filter(([t, m]) => t === 'preview' && (m.cmd === 'mode' || m.cmd === 'set')).map(([, m]) => m);
-    d.assert('mix on preview: mode mix is sent, five quick tune moves arrive as one set with the last value, and the dial is held',
-      mixSent[0]?.cmd === 'mode' && mixSent[0].mode === 'mix' && mixSent.filter((m) => m.name === 'tune').length === 1
-      && Math.abs((mixSent.find((m) => m.name === 'tune')?.v ?? 0) - 0.51) < 1e-9 && mixUi.drift.get() === 1 && !cards.radio1965.el.querySelector('.pos-choice'),
-      JSON.stringify(mixSent));
-    mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true); touched.mode = touched.tune = touched.drift = 0;
-    for (const t of Object.keys(sockets)) delete sockets[t];
-    openSocket = realOpen; key = realKey;
+    for (const n of Object.keys(touched)) touched[n] = 0;
+    rowOf('preview').click();
     // the three states, from a stubbed /live and a stubbed status
-    const keep = { live, st: { ...status } };
     take('preview', { target: 'preview', onAir: true, playing: true, now: { id: 'x', title: 'a file', at: 61 }, lines: [] });
     takeLive({ channels: { radio1965: { vain: true, title: 'Evening on radio1965' }, user1: { vain: false } } });
-    await new Promise((r) => setTimeout(r, 300));
-    const word = (t) => cards[t].badge.el.querySelector('.pos-pres-w').textContent;
-    const state = (t) => [cards[t].badge.el.dataset.state, cards[t].badge.el.dataset.busy || ''].join(' ');
+    take('user1', { target: 'user1', onAir: false, playing: false, lines: [] });
+    await tick(300);
+    const word = (t) => badges[t].el.querySelector('.pos-pres-w').textContent;
+    const state = (t) => [badges[t].el.dataset.state, badges[t].el.dataset.busy || ''].join(' ');
     d.assert('three states in words: positron on preview, Väin on radio1965 with their title, off on user1',
       word('preview') === 'positron' && word('radio1965') === 'Väin' && word('user1') === 'off'
-      && state('preview') === 'online ' && state('radio1965') === 'online page' && cards.radio1965.now.textContent === 'Evening on radio1965',
+      && state('preview') === 'online ' && state('radio1965') === 'online page' && rowOf('radio1965').children[2].textContent === 'Evening on radio1965',
       ['preview', 'radio1965', 'user1'].map((t) => `${t} ${word(t)} (${state(t)})`).join(', '));
+    rowOf('radio1965').click();
     const before = sent.length;
-    cards.radio1965.castBtns.button('cast').click();
-    await new Promise((r) => setTimeout(r, 50));
+    castBtns.button('cast').click(); await tick();
     d.assert('a cast on a channel Väin is streaming on sends nothing and says why',
-      sent.length === before && cards.radio1965.note.textContent === 'Väin is streaming here', cards.radio1965.note.textContent);
+      sent.length === before && note.textContent === 'Väin is streaming here', note.textContent);
+    rowOf('user2').click();
     take('user2', { target: 'user2', onAir: false, playing: false, lines: ['09:00:00 refused: Väin is streaming here: Live on user2'] });
-    d.assert('a refusal from the caster shows on its card', cards.user2.note.textContent === 'Väin is streaming here: Live on user2', cards.user2.note.textContent);
-    live = keep.live; for (const t of STATIONS) { if (keep.st[t]) status[t] = keep.st[t]; else delete status[t]; cards[t].say(''); }
-    cards.preview.badge.set('unknown'); cards.radio1965.badge.busy(null); cards.radio1965.badge.set('unknown'); cards.user1.badge.set('unknown'); cards.user2.badge.set('unknown');
-    cards.preview.now.textContent = cards.radio1965.now.textContent = cards.preview.at.textContent = '';
+    d.assert('a refusal from the caster shows on the open station', note.textContent === 'Väin is streaming here: Live on user2', note.textContent);
+    // put it all back
+    for (const t of Object.keys(sockets)) delete sockets[t];
+    openSocket = realOpen; key = realKey;
+    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); badges[t].set('unknown'); stRows[STATIONS.indexOf(t)].children[2].textContent = ''; }
+    mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true);
+    rowOf('preview').click(); say(''); paintDetail(); dBadge.set('unknown');
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !audioReqs().length, audioReqs().join(' '));
+    poll(); setInterval(poll, 3000);
   }
   d.ready();
 </script>

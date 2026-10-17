@@ -84,8 +84,9 @@ at 395 and 397 ms, 72,800 and 75,600 bytes in the first second (Icecast's 65,536
 `Caster.command()` `queue`, `container/server.mjs` `queue()`: replaces what plays after the current file without
 cutting it (plan-vain-cast-processing §2). The container sets `s.queue` to the new list and `s.index` to -1, so the
 file on air keeps playing and the next one is `queue[0]`; `/status` carries `next` and `ids`. `play` still cuts.
-A queue on a caster that is off air is refused (`not on air: start the cast first`), because a queue is a claim
-about what follows something. Progress saved while `index` is -1 resumes at the top of the new queue.
+Until 2026-10-17 a queue on a caster that was off air was refused (`not on air: start the cast first`). Since the
+stored program (below) a queue is the program command: off air it is kept for START, on air it goes to the container.
+Progress saved while `index` is -1 resumes at the top of the new queue.
 
 MEASURED 2026-10-17 on `preview`: with *Driving along* at 18 s, `queue` [Kalle, Oriental analog] changed `next`
 from *Evening rituals* to *Kalle* within one status tick while the current file kept counting 18, 19, ... 26 s;
@@ -95,6 +96,29 @@ A deploy did not reach the running `preview`: the Caster object and its containe
 about four minutes after `wrangler deploy` (a container rollout reaches each object in turn; `user3`, idle, had
 the new code at once). A container started by the old object kept the old image too, so `preview` was stopped and
 started twice to carry the new `/queue` route. A new container takes the image of the object that starts it.
+
+### program
+
+`Caster.program()`, `status().program`: each station keeps its own program in DO storage (`program`, a list of
+`{ id, title, url }` resolved from the feed), whether or not it is on air. Asked 2026-10-17: *"Why tuner controls are
+only on preview? Can not program be related to each station? How to make ui more logical"*, then "Ok" to a station
+list with the open station's cast, sound and program beside it. Before it a program existed only as the running
+session's queue, so a station that was off had none and the page kept one shared list with a FOR picker.
+
+- `{ cmd: 'program', ids }` stores it (an empty list clears it). Off air nothing else happens: no container, no
+  `live()` read, nothing sent to their Icecast. `play` with no `ids` plays the stored program; `play` with `ids`
+  stores them as the program and cuts to the top.
+- On air the same edit goes to the container as `/queue`, ROTATED to start after the file now playing when that file
+  is in the program, so the next file is the one after it in the list and the current file comes round last. A
+  program that does not hold the current file is queued as it is.
+- `queue` is the same command, so a page can send `queue` on air and `program` off air, as /radio/cast/ does.
+- mode and set were already kept per Caster while off (`mix` in storage), used on the next start.
+
+MEASURED 2026-10-17 on cast version 4f51dc8b: `program` [Kalle 2, Oriental analog] on radio1965 while off read back
+from `/status/radio1965` with `running: false` and the line `program 2 files, plays on start`, then cleared. On
+`preview`, a program of three stored while off, then `play` with no ids: on air in mix mode 8 s later with *Kalle 2*
+now and *Oriental analog* next. A `queue` [Kalle 2, Driving along, Oriental analog] on air changed `next` to
+*Driving along* within 2 s while *Kalle 2* stayed `now` and on air through six reads over 8 s.
 
 ## `workers/cast/container/mixer.mjs`, `decode.mjs`, `encode.mjs`, `mixcast.mjs`: mix mode
 
