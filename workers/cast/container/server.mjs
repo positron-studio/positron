@@ -4,6 +4,8 @@
 //   POST /queue { queue }   what plays after the current file, which keeps playing
 //   POST /play  { ..., mode: 'mix', set }   the mix instead: two slots on an AM dial (mixcast.mjs)
 //   POST /set   { name, v }   a mix control: tune, drift, dwell, blend, noise
+//   POST /play  { ..., mode: 'grains', set, patch }   the mix through the grain ring (grains.mjs)
+//   POST /patch { name?, set? }   a grain ring patch by name and/or values, clamped
 //   GET  /status
 // target is { kind: 'icecast', host, port, mount, pw } or { kind: 'ws', url, mount, pw } (our test receiver).
 // With ICECAST_PW set it also runs Icecast 2.4.4 on :8000, mount /preview, for the `preview` target.
@@ -14,6 +16,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createFramer } from '../mp3.mjs';
 import { startMix, usage } from './mixcast.mjs';
+import { startGrains } from './grains.mjs';
 
 // Frames go out this far ahead of the clock, and a file is read no further ahead than READ_AHEAD.
 const LEAD_S = 2, READ_AHEAD_S = 20, TICK_MS = 200;
@@ -224,22 +227,28 @@ async function run(sess) {
   }
 }
 
-// The mix session, when mode is 'mix'; copy (`s`) is the fallback and is untouched by it.
-let mx = null, mxTarget = null;
+// The mix session, when mode is 'mix' or 'grains'; copy (`s`) is the fallback and is untouched by it.
+let mx = null, mxTarget = null, mxMode = null;
 function start(body) {
   const { queue, target } = body;
   if (!Array.isArray(queue) || !queue.length) throw new Error('an empty queue');
   if (!target?.pw || !target.mount) throw new Error('a target with a mount and a password');
   secrets = [target.pw, Buffer.from(`source:${target.pw}`).toString('base64')];
-  if (body.mode === 'mix') {
-    if (s) stop('switching to mix');
-    if (mx) { mx.queue(queue); for (const [k, v] of Object.entries(body.set || {})) mx.set(k, v); mx.next(); say(`mix queue replaced, ${queue.length} files`); return; }
-    mxTarget = target;
-    mx = startMix({ queue, target, set: body.set || {} }, { openSink, say, fail });
-    say(`mix started, ${queue.length} files`);
+  if (body.mode === 'mix' || body.mode === 'grains') {
+    if (s) stop(`switching to ${body.mode}`);
+    if (mx && mxMode !== body.mode) { mx.stop(); mx = null; say(`${mxMode} stopped, switching to ${body.mode}`); }
+    if (mx) {
+      mx.queue(queue); for (const [k, v] of Object.entries(body.set || {})) mx.set(k, v);
+      if (mxMode === 'grains' && body.patch) mx.patch(body.patch);
+      mx.next(); say(`${mxMode} queue replaced, ${queue.length} files`); return;
+    }
+    mxTarget = target; mxMode = body.mode;
+    mx = body.mode === 'grains' ? startGrains({ queue, target, set: body.set || {}, patch: body.patch || undefined }, { openSink, say, fail })
+      : startMix({ queue, target, set: body.set || {} }, { openSink, say, fail });
+    say(`${body.mode} started, ${queue.length} files`);
     return;
   }
-  if (mx) { mx.stop(); mx = null; say('mix stopped, switching to copy'); }
+  if (mx) { mx.stop(); mx = null; say(`${mxMode} stopped, switching to copy`); }
   if (s) { s.queue = queue; s.index = -1; s.skip = true; say(`queue replaced, ${queue.length} files`); return; }
   s = { queue, target, resume: body.resume || null, index: -1, item: null, sink: null, onAir: false, stopped: false, skip: false,
     startedAt: Date.now(), t0: Date.now(), sent: 0, fileSeconds: 0, downSeconds: 0, files: 0, frames: 0, bytes: 0,
@@ -267,7 +276,7 @@ async function status() {
   const now = Date.now();
   if (mx) {
     const x = mx.status(), on = x.slots.reduce((a, b) => (b.clear > a.clear ? b : a));
-    return { icecast: await iceStats(), mode: 'mix', bootedAt, uptime: Math.round((now - bootedAt) / 1000), playing: true, onAir: x.onAir,
+    return { icecast: await iceStats(), mode: mxMode, bootedAt, uptime: Math.round((now - bootedAt) / 1000), playing: true, onAir: x.onAir,
       now: on?.title ? { id: on.id, title: on.title, at: null } : null, index: null, next: x.next ? { id: null, title: x.next } : null,
       to: `${mxTarget.kind} /${mxTarget.mount}`, since: x.since, files: x.landings, frames: x.frames, bytes: x.bytes, seconds: x.seconds,
       wall: x.wall, lag: x.lag, lead: x.lead, down: x.down, sinkDeaths: x.sinkDeaths, sinkFails: x.sinkFails, skipped: 0, rate: 44100, kbps: 128,
@@ -303,6 +312,12 @@ http.createServer(async (req, res) => {
       const b = JSON.parse(raw || '{}');
       if (!mx) return reply(res, 409, { error: 'not mixing: the value is kept for the next mix' });
       for (const [k, v] of Object.entries(b.set || { [b.name]: b.v })) if (mx.set(k, v) === null) throw new Error(`no control ${k}`);
+      return reply(res, 200, await status());
+    }
+    if (req.url === '/patch') {
+      if (mxMode !== 'grains' || !mx) return reply(res, 409, { error: 'not in grains mode: the patch is kept for the next start' });
+      const r = mx.patch(JSON.parse(raw || '{}'));
+      if (r.refused.length) say(`patch refused ${r.refused.join(', ')}`);
       return reply(res, 200, await status());
     }
     if (req.url === '/stop') { stop('asked to stop'); return reply(res, 200, await status()); }

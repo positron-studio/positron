@@ -2,7 +2,8 @@
 //   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
 //                              program (the station's stored list, kept while off air, START plays it);
-//                              mode (copy | mix) and set (tune, drift, dwell, blend, noise) for the mix
+//                              mode (copy | mix | grains), set (tune, drift, dwell, blend, noise) for the mix,
+//                              patch ({name?, set?}: the grain ring, clamped, kept, at most 20 a second)
 //   GET  /status/<target>      the same status, read only
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   PUT  /ingest/<mount>       our own test Icecast receiver: a source client's PUT, Basic auth `source:`
@@ -16,13 +17,16 @@
 // HTTP/1.0, `ice-audio-info: send_notification=0;save_stream=0`, on air at a ` 200` status line.
 
 import { clampSet, DEFAULTS as MIX_DEFAULTS } from './container/mixer.mjs';
+import { clampPatch } from './container/grain-patch.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
 const FEED_TYPES = new Set(['audio', 'streamrecording']);
 const FEED_HOSTS = new Set(['eccm.ee', 'uuu.ee', 'www.uuu.ee']);
-// Smallest custom size; memory and vCPU are coupled at the platform's floor. Sweep every 30 s.
-const CAST_INSTANCE = { vcpu: 0.25, memoryMib: 1024, diskMb: 2048 };
-const SET_EVERY_MS = 50;   // mix controls reach the container at most 20 a second
+// Half a vCPU for every mode: grains measured 23 to 25 % of a core locally. Memory is the 3 GiB per
+// vCPU floor. Sweep every 30 s. why: lessons/workers-cast.md#grains-size
+const CAST_INSTANCE = { vcpu: 0.5, memoryMib: 1536, diskMb: 2048 };
+const SET_EVERY_MS = 50;
+const MODES = ['copy', 'mix', 'grains'];   // mix controls reach the container at most 20 a second
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 
 /**
@@ -149,9 +153,12 @@ export class Caster {
       container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
         rss: s?.rss ?? null, sinkDeaths: s?.sinkDeaths ?? 0, lastError: s?.lastError || null },
       icecast: s?.icecast || null,
-      mode: s?.mode || mx?.mode || 'copy', wanted: { mode: mx?.mode || 'copy', set: { ...MIX_DEFAULTS, ...(mx?.set || {}) } },
+      mode: s?.mode || mx?.mode || 'copy', wanted: { mode: mx?.mode || 'copy', set: { ...MIX_DEFAULTS, ...(mx?.set || {}) }, patch: mx?.patch || null },
       mix: s?.mix ? (({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots, next, meter, landings, underruns, encoderRestarts }) =>
         ({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots: slots.map((x) => ({ title: x.title, clear: x.clear })), next, meter, landings, underruns, encoderRestarts }))(s.mix) : null,
+      grains: s?.mix?.grains ? (({ patch, mix, values, out, chainStarts, chain: c }) => ({ patch, mix, values, out, chainStarts,
+        chain: c && { dead: c.dead, upS: c.upS, xruns: c.xruns, late: c.late, grains: c.grains, scsynth: c.scsynth,
+          procs: Object.fromEntries(Object.entries(c.procs || {}).map(([k, v]) => [k, v && { cpuPct: v.cpuPct, rssMiB: v.rssMiB }])) } }))(s.mix.grains) : null,
       usage: s?.usage || null,
       progress: progress || null, deaths: deaths || [], lines };
   }
@@ -199,6 +206,7 @@ export class Caster {
     if (m.cmd === 'stop') return this.stop('asked to stop');
     if (m.cmd === 'mode') return this.mode(m.mode);
     if (m.cmd === 'set') return this.set(m.name, m.v);
+    if (m.cmd === 'patch') return this.patch(m);
     if (m.cmd === 'next') { if (this.c?.running) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
     if (m.cmd === 'kill') { if (this.c?.running) { this.killing = true; this.say('killing the container on purpose'); await this.c.destroy().catch(() => {}); } return; }
@@ -257,12 +265,12 @@ export class Caster {
   /** What the container is told about the mix on every /play: the stored mode and every control. */
   async mixBody() {
     const mx = (await this.st.get('mix')) || {};
-    return { mode: mx.mode === 'mix' ? 'mix' : 'copy', set: mx.set || {} };
+    return { mode: MODES.includes(mx.mode) ? mx.mode : 'copy', set: mx.set || {}, ...(mx.patch ? { patch: mx.patch } : {}) };
   }
 
-  /** copy (the frame copier, the fallback) or mix; on air it restarts the source in the other mode. */
+  /** copy (the frame copier, the fallback), mix, or grains (the mix through the ring); on air it restarts the source in the other mode. */
   async mode(mode) {
-    if (mode !== 'copy' && mode !== 'mix') throw new Error('mode is copy or mix');
+    if (!MODES.includes(mode)) throw new Error(`mode is ${MODES.join(', ')}`);
     const mx = (await this.st.get('mix')) || {};
     await this.st.put('mix', { ...mx, mode });
     const want = await this.st.get('want');
@@ -282,11 +290,36 @@ export class Caster {
     const flush = async () => {
       this.setTimer = null;
       const set = this.pendingSet; this.pendingSet = null;
-      if (!set || !this.c?.running || ((await this.st.get('mix')) || {}).mode !== 'mix') return;
+      if (!set || !this.c?.running || !['mix', 'grains'].includes(((await this.st.get('mix')) || {}).mode)) return;
       this.lastSetAt = Date.now();
       try { await this.cpost('/set', { set }); } catch (e) { this.say(`set: ${e.message}`); }
     };
     this.setTimer = setTimeout(flush, Math.max(0, SET_EVERY_MS - (Date.now() - (this.lastSetAt || 0))));
+  }
+
+  /**
+   * A grain ring patch: a name (the page's PATCHES) resets the values to that patch, `set` moves controls on
+   * top. Clamped, kept for the next start, forwarded in grains mode at most every SET_EVERY_MS.
+   */
+  async patch({ name, set } = {}) {
+    const byName = name != null ? clampPatch({ name }) : null, vals = clampPatch({ set: set || {} });
+    if (byName?.refused.length) throw new Error(`no grain patch ${name}`);
+    if (!byName && !Object.keys(vals.values).length) throw new Error(`no grain control in ${JSON.stringify(set)}`);
+    const mx = (await this.st.get('mix')) || {}, prev = mx.patch || { name: null, set: {} };
+    const next = byName ? { name: byName.patch, set: vals.values } : { name: prev.name, set: { ...prev.set, ...vals.values } };
+    await this.st.put('mix', { ...mx, patch: next });
+    const p = this.pendingPatch || { set: {} };
+    this.pendingPatch = byName ? { name: byName.patch, set: vals.values } : { ...p, set: { ...p.set, ...vals.values } };
+    if (this.patchTimer) return;
+    const flush = async () => {
+      this.patchTimer = null;
+      const body = this.pendingPatch; this.pendingPatch = null;
+      if (!body || !this.c?.running || ((await this.st.get('mix')) || {}).mode !== 'grains') return;
+      this.lastPatchAt = Date.now();
+      try { await this.cpost('/patch', body); } catch (e) { this.say(`patch: ${e.message}`); }
+    };
+    this.patchTimer = setTimeout(flush, Math.max(0, SET_EVERY_MS - (Date.now() - (this.lastPatchAt || 0))));
+    if (byName) this.say(`grain patch ${byName.patch}`);
   }
 
   async stop(why) {

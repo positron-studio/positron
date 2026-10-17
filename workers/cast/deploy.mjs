@@ -12,6 +12,11 @@ const WRANGLER = join(HERE, '../../rig/containers-next/node_modules/.bin/wrangle
 // the image's build context is this directory, so the page's tuner maths is copied in, unchanged
 const TUNER = [join(HERE, '../../demo/shell/tuner-mix.mjs'), join(HERE, 'container/tuner-mix.mjs')];
 if (readFileSync(TUNER[0], 'utf8') !== readFileSync(TUNER[1], 'utf8')) { writeFileSync(TUNER[1], readFileSync(TUNER[0])); console.log('container/tuner-mix.mjs refreshed from demo/shell'); }
+// and the grain ring's program and compiler, as the page has them
+for (const f of ['granulator/grain-ring.mjs', 'shell/sclang-lite.mjs', 'shell/synthdef.mjs', 'shell/scsynth.mjs']) {
+  const [from, to] = [join(HERE, '../../demo', f), join(HERE, 'container/sc', f)];
+  if (!existsSync(to) || readFileSync(from, 'utf8') !== readFileSync(to, 'utf8')) { writeFileSync(to, readFileSync(from)); console.log(`container/sc/${f} refreshed from demo`); }
+}
 const env = { ...process.env };
 delete env.CF_API_TOKEN;
 delete env.CLOUDFLARE_API_TOKEN;

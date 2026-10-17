@@ -62,6 +62,8 @@
   import { createPresence } from '/shell/presence.mjs';
   import { createChoice } from '/shell/choice.mjs';
   import { createSlider, createSliderGroup } from '/shell/slider.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createTable } from '/shell/table.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { scopeWindow } from '/shell/rt-scope.mjs';
@@ -213,8 +215,9 @@
       for (const [n, x] of Object.entries(pendingSet)) { send(t, { cmd: 'set', name: n, v: x }); delete pendingSet[n]; }
     }, wait);
   }
-  mixUi.mode = createChoice({ label: 'mode', options: [['copy', 'copy'], ['mix', 'mix']], at: 0,
-    onPick: (v) => { touched.mode = Date.now(); send(target, { cmd: 'mode', mode: v }); } });
+  const MODES = ['copy', 'mix', 'grains'];
+  mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
+    onPick: (v) => { touched.mode = Date.now(); showGrains(v === 'grains'); send(target, { cmd: 'mode', mode: v }); } });
   mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
   mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
     onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
@@ -224,10 +227,45 @@
   const both = el('span', 'vc-ctl'); both.append(mixUi.mode.el, mixUi.drift.el);
   sound.row([both]);
   sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
+  // grains: the mix through /radio/scenery/'s grain ring, a patch of the page's ten and four of its controls
+  const NAMES = PATCHES.map((p) => p.name), GRAIN = ['mix', 'density', 'size', 'pitch'];
+  const grainLast = {}, grainPending = {};
+  function sendPatch(m) {
+    const t = target;
+    if (m.name) { grainPending.name = m.name; grainPending.set = {}; }
+    Object.assign(grainPending.set ||= {}, m.set || {});
+    if (grainLast.timer) return;
+    grainLast.timer = setTimeout(() => {
+      grainLast.timer = 0; grainLast.at = Date.now();
+      const body = { cmd: 'patch', ...(grainPending.name ? { name: grainPending.name } : {}), set: grainPending.set || {} };
+      delete grainPending.name; grainPending.set = {};
+      send(t, body);
+    }, Math.max(0, 50 - (Date.now() - (grainLast.at || 0))));
+  }
+  const showPatch = (i) => { mixUi.patch.show(NAMES[i], i); const v = valuesOf(PATCHES[i]);
+    for (const n of GRAIN) mixUi[`g${n}`].set(n === 'mix' ? 1 : v[n], true); };
+  const pickPatch = (i) => { touched.patch = Date.now(); showPatch(i); sendPatch({ name: NAMES[i] }); };
+  const patchAt = () => Math.max(0, NAMES.indexOf(mixUi.patch.select.value));
+  mixUi.patch = createPicker({ label: 'patch', what: 'patch', onPick: pickPatch,
+    prev: () => pickPatch((patchAt() + NAMES.length - 1) % NAMES.length), next: () => pickPatch((patchAt() + 1) % NAMES.length) });
+  mixUi.patch.options(NAMES, 0);
+  const grainSet = (n) => (v) => { touched[`g${n}`] = Date.now(); sendPatch({ set: { [n]: v } }); };
+  mixUi.gmix = createSlider({ label: 'wet', min: 0, max: 1, step: 0.01, value: 1, digits: 2, onInput: grainSet('mix') });
+  mixUi.gdensity = createSlider({ label: 'density', min: 0.5, max: 64, step: 0.5, value: 30, unit: '/s', onInput: grainSet('density') });
+  mixUi.gsize = createSlider({ label: 'size', min: 0.02, max: 2, step: 0.01, value: 0.15, digits: 2, unit: 's', onInput: grainSet('size') });
+  mixUi.gpitch = createSlider({ label: 'pitch', min: 0.25, max: 4, step: 0.01, value: 1, digits: 2, onInput: grainSet('pitch') });
+  const grainRow = sound.row([mixUi.patch.el], {});
+  const grainSliders = sound.row([createSliderGroup(GRAIN.map((n) => mixUi[`g${n}`])).el], { cls: 'vc-mix' });
+  const showGrains = (on) => { grainRow.hidden = !on; grainSliders.hidden = !on; };
+  showGrains(false);
   /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
   function paintMix(st) {
     const w = st.wanted || {}, set = w.set || {}, x = st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
-    if (fresh('mode')) mixUi.mode.set(w.mode === 'mix' ? 1 : 0, true);
+    if (fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
+    showGrains(MODES[mixUi.mode.get()] === 'grains');
+    const gp = w.patch || {}, gi = Math.max(0, NAMES.indexOf(gp.name ?? NAMES[0])), gv = { ...valuesOf(PATCHES[gi]), mix: 1, ...(gp.set || {}) };
+    if (fresh('patch')) mixUi.patch.show(NAMES[gi], gi);
+    for (const n of GRAIN) if (fresh(`g${n}`) && fresh('patch')) mixUi[`g${n}`].set(gv[n], true);
     if (fresh('drift')) mixUi.drift.set((x?.drift ?? set.drift ?? 1) ? 0 : 1, true);
     if (fresh('tune')) mixUi.tune.set(x?.tune ?? set.tune ?? 0.46, true);
     for (const n of ['dwell', 'blend']) if (fresh(n)) mixUi[n].set(set[n] ?? (n === 'dwell' ? 40 : 16), true);
@@ -459,8 +497,8 @@
       rowOf(t).click();
       seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length, detail.querySelectorAll('.sld-lane').length, rowOf(t).classList.contains('on')]);
     }
-    d.assert('selecting a station opens it on the right, and each one has mode, dial, tune, dwell and blend',
-      seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 3 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
+    d.assert('selecting a station opens it on the right, and each one has mode, dial, tune, dwell, blend and the grain controls',
+      seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 7 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
     rowOf('user1').click();
     d.assert('radio1965 is heard through shout, never from their server; user1 has no player and says where it is heard',
       listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1')
@@ -511,6 +549,19 @@
         mixSent.every(([t]) => t === 'user3') && mixSent[0]?.[1].cmd === 'mode' && mixSent[0][1].mode === 'mix'
         && mixSent.filter(([, m]) => m.name === 'tune').length === 1 && Math.abs((mixSent.find(([, m]) => m.name === 'tune')?.[1].v ?? 0) - 0.51) < 1e-9
         && mixUi.drift.get() === 1, JSON.stringify(mixSent));
+      // grains: the mode shows the patch row, a picked patch and quick slider moves go as one patch each
+      sent.length = 0;
+      mixUi.mode.buttons[2].click();
+      const shown = !grainRow.hidden && !grainSliders.hidden;
+      mixUi.patch.select.selectedIndex = 1; mixUi.patch.select.onchange();
+      await tick(200);
+      for (const v of [10, 20, 40]) mixUi.gdensity.set(v);
+      await tick(400);
+      const gs = sent.filter(([, m]) => m.cmd === 'patch');
+      d.assert('grains on user3: the patch row shows, a picked patch is sent by name, three density moves arrive as one patch with the last value',
+        shown && sent[0]?.[1].mode === 'grains' && gs[0]?.[1].name === NAMES[1] && gs.length === 2 && gs[1][1].set.density === 40 && gs.every(([t]) => t === 'user3'),
+        JSON.stringify(sent));
+      mixUi.mode.buttons[0].click(); showGrains(false);
       // prelisten, with play() held back, so the check asks their host for nothing
       prePlay = () => null;
       archRows.get(items[1].id).btns.button('pre').click();

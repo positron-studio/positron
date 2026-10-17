@@ -1,0 +1,15 @@
+# positron-cast with stage 2: Debian for scsynth and JACK, the grain ring after the tuner mix (grains.mjs).
+# Same layout as Dockerfile. Bookworm's icecast2 is 2.4.4, the version Väin runs; the links give server.mjs
+# the alpine names (icecast, /usr/share/icecast, user icecast). why: lessons/workers-cast.md#grains-image
+FROM node:22-bookworm-slim
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ffmpeg supercollider-server jackd2 jack-stdio icecast2 \
+ && rm -rf /var/lib/apt/lists/* \
+ && ffmpeg -hide_banner -encoders | grep -q libmp3lame && icecast2 -v | grep -q 'Icecast 2.4.4' \
+ && ln -s /usr/bin/icecast2 /usr/local/bin/icecast && ln -s /usr/share/icecast2 /usr/share/icecast \
+ && useradd --system --gid icecast --no-create-home --shell /usr/sbin/nologin icecast
+WORKDIR /app
+COPY mp3.mjs ./
+COPY container/ ./container/
+EXPOSE 8080 8000
+CMD ["node", "container/server.mjs"]

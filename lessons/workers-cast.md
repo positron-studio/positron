@@ -200,3 +200,63 @@ Their Icecast is never asked. Our own cast also publishes such an event, so on t
 (`Väin is streaming here: <title>`) before a container starts; their Icecast would answer 403 anyway. A stale event
 (an on-disconnect hook that failed) reads as their stream until they unpublish it; that is not detectable without
 asking their server.
+
+## `workers/cast/container/grains.mjs`, `grain-patch.mjs`, `Dockerfile.grains`: grains mode
+
+Stage 2 of plans/plan-vain-cast-processing.md, asked 2026-10-17 as *"Also do stage 2"*: the stage 1 mix through
+`/radio/scenery/`'s grain ring, in the cast container. `mode: 'grains'` beside copy and mix; copy stays the fallback.
+
+### grains
+
+The program is the page's, not a port: `container/sc/` holds byte for byte copies of `demo/granulator/grain-ring.mjs`,
+`demo/shell/sclang-lite.mjs`, `synthdef.mjs` and `scsynth.mjs` (the last only because grain-ring imports it; nothing in
+it runs at import). `deploy.mjs` refreshes them, `grains-test.mjs` goes red when they differ. `compile(PROGRAM)` runs in
+node with no DOM and no shim (4925 B, the same bytes the page sends to its wasm scsynth).
+
+The chain, every process a JACK client of one `jackd --no-realtime -d dummy -r 44100 -p 2048`:
+node (the stage 1 engine, s16le stereo) -> `jack-stdin` -> `SuperCollider:in_1,2` -> scsynth (`/b_alloc` 8 s mono,
+`/d_recv`, `/s_new gring` with `inbus 2`) -> `SuperCollider:out_1,2` -> `jack-stdout` -> node (meter) -> LAME as in
+stage 1. `ffmpeg -f jack` exists in Debian's ffmpeg but is an INPUT device only, so it cannot feed scsynth; Debian's
+`jack-stdio` package has both directions, and using `jack-stdout` for the tap keeps `encode.mjs` unchanged. JACK is the
+clock here, not `Date.now()`: node writes as fast as `jack-stdin`'s pipe drains (bounded at 3 s ahead of the wall),
+and the MP3 leaves as LAME makes it. A patch is `/n_set` on node 4000; a patch by name also sends the page's `land()`
+(`sync` 1 then 0). OSC replies are parsed with `d` (float64) as well, because `/status.reply`'s rates are doubles.
+
+MEASURED 2026-10-17 locally (OrbStack, arm64, `--cpus 1 --memory 3g`), two real archive files (*Driving along*,
+*Oriental analog*), dwell 25 blend 10, 90 s each, run twice at once: patch Cloud wet (`mix 1`) and dry (`mix 0`).
+- xruns by JACK period over 20 to 40 s: 512 frames 13, 1024 frames 5, **2048 frames 0** (and 0 over both 90 s runs).
+  A period is latency nobody hears on a broadcast, so 2048 (46 ms).
+- drift: lag (wall since the first MP3 frame minus MP3 seconds) -1.02 s at 10 s and -1.02 s at 90 s, 0.00 s over
+  80 s; the dry run -1.00 to -1.01. The -1 s is the pipes filling at start, then flat.
+- CPU over 80 s, per cent of one core: node 9.0, LAME 4.6, jack-stdout 4.3, jack-stdin 2.6, scsynth 1.7 (its own
+  `/status` said avg 2.9), jackd 0.1, the decoders 0.1; container (cgroup) 22.8. Dry 20.4. Memory: container 318 MiB
+  wet, 218 dry (jackd and scsynth each show about 128 MiB RSS, most of it the shared JACK segment, counted in each).
+- out.mp3 valid, 88.6 s, mean -23.0 dB, max 0.0 dB with 81 samples at full scale (Cloud's `amp 1.5`; the page's
+  output clips the same way); dry -18.8 / -3.2; a silence control -91.0.
+- grains on against off, same files, same windows inside the dwells: spectral flux 0.39 against 0.20 to 0.24, and the
+  50 ms envelope correlates with the dry one at 0.11, 0.45 and -0.10.
+- `/n_set tone 600` at 60 s (Cloud's tone is 9000), read back 600 by `/s_get`: centroid 1293 Hz before, 382 after;
+  the dry run over the same windows 1615 to 1581 (the files did not do it).
+- 41 grains a second reported by `SendReply` (Cloud's density is 40).
+
+### grains-image
+
+`Dockerfile.grains` is node 22 on Debian bookworm slim: ffmpeg 5.1.9 (libmp3lame), supercollider-server 3.13.0,
+jackd2 1.9.21, jack-stdio 1.4, icecast2 2.4.4 (the version Väin runs, as alpine 3.21's was). Three links give
+`server.mjs` the alpine names it reads (`icecast`, `/usr/share/icecast`, a user `icecast`), so the preview Icecast
+starts unchanged. It is the cast image for every mode since 2026-10-17: one image keeps a mode switch one POST to the
+running container with the preview Icecast and its listeners untouched, where a second image would mean a container
+restart on every switch between grains and the rest. MEASURED before switching, in the Debian image, through
+`server.mjs` into its own preview Icecast: copy, mix, grains, a patch, grains with a new patch, copy again, each heard
+on `:8000/preview`, and after the last switch no jackd or scsynth left running.
+
+### grains-size
+
+`CAST_INSTANCE` went from 0.25 vCPU / 1 GiB to 0.5 vCPU / 1.5 GiB (the 3 GiB per vCPU floor), for every mode, because
+the size is fixed at start and grains measured 23 to 25 per cent of a core with everything on.
+
+### caster-keeps-code
+
+A deploy did not reach the `preview` Caster for about four minutes after its container was stopped: `{cmd:'mode',
+mode:'grains'}` was answered by the previous code's `mode is copy or mix` every 15 s until the object was let go.
+A status poll every 15 s did not keep it from going in the end.

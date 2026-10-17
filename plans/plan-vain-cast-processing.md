@@ -381,7 +381,9 @@ three to five days after stage 2, plus their agreement on recording.
   is usable as a zero CPU fallback.
 - How does their Icecast treat a source that drops and returns within seconds,
   and do their listeners reconnect by themselves?
-- Stage 2 CPU of scsynth plus one grain ring on a container vCPU: unmeasured.
+- Stage 2 CPU of scsynth plus one grain ring on a container vCPU: unmeasured. ANSWERED 2026-10-17 (lessons/workers-cast.md#grains):
+  the whole container in grains mode is 23 per cent of a core locally and about 18 on Cloudflare, scsynth itself under 2;
+  the cast runs at 0.5 vCPU / 1.5 GiB for every mode.
 
 ## 7. The collective audience: an X/Y pad every listener can drag
 
