@@ -1,6 +1,7 @@
 // The cast's audio source, in a Cloudflare Container: archive mp3s paced to the wall clock into one
 // source connection. Control is plain HTTP on :8080 from the Caster Durable Object.
 //   POST /play  { queue: [{id,title,url}], target, resume?: {index, at} }   POST /next   POST /stop
+//   POST /queue { queue }   what plays after the current file, which keeps playing
 //   GET  /status
 // target is { kind: 'icecast', host, port, mount, pw } or { kind: 'ws', url, mount, pw } (our test receiver).
 // With ICECAST_PW set it also runs Icecast 2.4.4 on :8000, mount /preview, for the `preview` target.
@@ -163,7 +164,8 @@ async function run(sess) {
   await connect(sess, null);
   sess.t0 = Date.now();
   let resume = sess.resume;
-  sess.index = resume ? resume.index - 1 : -1;
+  // index -1 is a queue set while a file outside it plays: start the queue from its top
+  sess.index = resume && resume.index >= 0 ? resume.index - 1 : -1;
   while (!sess.stopped) {
     sess.index = (sess.index + 1) % sess.queue.length;
     sess.item = sess.queue[sess.index]; sess.skip = false; sess.fileSeconds = 0;
@@ -232,6 +234,14 @@ function start(body) {
   run(sess).catch((e) => fail(e)).finally(() => { if (s === sess) { s.sink?.close(); s = null; } });
 }
 
+/** Replaces what follows the current file without cutting it: the next file is queue[0]. */
+function queue(body) {
+  if (!s) throw new Error('nothing is playing: play starts a queue');
+  if (!Array.isArray(body.queue) || !body.queue.length) throw new Error('an empty queue');
+  s.queue = body.queue; s.index = -1;
+  say(`queue set, ${body.queue.length} files after this one`);
+}
+
 function stop(why) {
   if (!s) return;
   s.stopped = true; s.sink?.close(); say(`off air, ${why}`); s = null;
@@ -243,7 +253,8 @@ async function status() {
     icecast: await iceStats(),
     bootedAt, uptime: Math.round((now - bootedAt) / 1000), playing: !!s, onAir: !!s?.onAir,
     now: s?.item ? { id: s.item.id, title: s.item.title, at: Math.round(s.fileSeconds) } : null,
-    index: s?.index ?? null, queue: s ? s.queue.map((x) => x.title) : [], to: s ? `${s.target.kind} /${s.target.mount}` : null,
+    index: s?.index ?? null, queue: s ? s.queue.map((x) => x.title) : [], ids: s ? s.queue.map((x) => x.id) : [],
+    next: s ? (({ id, title }) => ({ id, title }))(s.queue[(s.index + 1) % s.queue.length]) : null, to: s ? `${s.target.kind} /${s.target.mount}` : null,
     since: s?.startedAt ?? null, files: s?.files ?? 0, frames: s?.frames ?? 0, bytes: s?.bytes ?? 0,
     seconds: s ? +s.sent.toFixed(2) : 0, wall: s ? +((now - s.startedAt) / 1000).toFixed(2) : 0,
     // on pace this reads about minus LEAD_S: frames go out that far ahead of the clock
@@ -261,6 +272,7 @@ http.createServer(async (req, res) => {
     let raw = '';
     for await (const c of req) raw += c;
     if (req.url === '/play') { start(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
+    if (req.url === '/queue') { queue(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
     if (req.url === '/next') { if (s) s.skip = true; return reply(res, 200, await status()); }
     if (req.url === '/stop') { stop('asked to stop'); return reply(res, 200, await status()); }
     return reply(res, 404, { error: 'no such route' });

@@ -1,6 +1,6 @@
 // positron-cast: Väin's archive played live into an Icecast mount from Cloudflare, no machine of ours.
 //   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s
-//   GET  /control/<target>     WebSocket, ?key=: play / next / stop, and the caster's status once a second
+//   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second
 //   GET  /status/<target>      the same status, read only
 //   PUT  /ingest/<mount>       our own test Icecast receiver: a source client's PUT, Basic auth `source:`
 //   GET  /ingest/<mount>       the same as a WebSocket: the PUT's header lines as one text message, then audio
@@ -107,7 +107,7 @@ export class Caster {
     const t = targets(this.env)[this.name], s = await this.cstatus();
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
-      queue: want ? want.queue.map((x) => x.title) : [], index: s?.index ?? null, since: want?.startedAt ?? null,
+      queue: want ? want.queue.map((x) => x.title) : [], ids: want ? want.queue.map((x) => x.id) : [], next: s?.next || null, index: s?.index ?? null, since: want?.startedAt ?? null,
       onAirSeconds: s?.onAir ? Math.round(s.seconds) : 0, files: s?.files ?? 0, frames: s?.frames ?? 0, bytes: s?.bytes ?? 0,
       seconds: s?.seconds ?? 0, skipped: s?.skipped ?? 0, rate: s?.rate ?? 0, kbps: s?.kbps ?? 0, lag: s?.lag ?? null, wall: s?.wall ?? null,
       container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
@@ -160,13 +160,20 @@ export class Caster {
     if (m.cmd === 'next') { if (this.c?.running) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
     if (m.cmd === 'kill') { if (this.c?.running) { this.killing = true; this.say('killing the container on purpose'); await this.c.destroy().catch(() => {}); } return; }
-    if (m.cmd === 'play') {
+    if (m.cmd === 'play' || m.cmd === 'queue') {
       const t = targets(this.env)[this.name];
       if (!t.pw) throw new Error(`no source password for ${t.label}: waiting on Väin's OK`);
       const items = await feed(this.ctx), byId = new Map(items.map((x) => [String(x.id), x]));
       const queue = (m.ids || []).map((id) => byId.get(String(id))).filter(Boolean).map(({ id, title, url }) => ({ id, title, url }));
       if (!queue.length) throw new Error('none of those is in their archive feed');
       const want = await this.st.get('want');
+      // queue: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
+      if (m.cmd === 'queue') {
+        if (!want || !this.c?.running) throw new Error('not on air: start the cast first');
+        await this.cpost('/queue', { queue });
+        await this.st.put('want', { ...want, queue });
+        this.say(`queue set, ${queue.length} files after this one`); this.push(); return;
+      }
       if (want && this.c?.running) {
         await this.st.put('want', { ...want, queue });
         await this.cpost('/play', { queue, target: t });

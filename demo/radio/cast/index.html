@@ -8,16 +8,28 @@
 <title>Väin cast</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
-  .vc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .vc-left { display: flex; align-items: flex-end; gap: 24px; }
-  .vc-left > * { flex: none; }
-  .vc-vain { display: flex; flex-direction: column; gap: 8px; }
-  .vc-vain[hidden] { display: none; }
+  /* the two station cards side by side on a desk, one above the other on a phone */
+  .vc-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--rows-gap); }
+  @media (max-width: 600px) { .vc-cards { grid-template-columns: minmax(0, 1fr); } }
+  .vc-cards > .pos-rows { width: auto; }
+  .vc-sec { display: flex; flex-direction: column; gap: 12px; }
+  .vc-k { color: var(--dim); text-transform: uppercase; font: 12px var(--mono); }
+  .vc-v { font: 13px var(--mono); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vc-dim { color: var(--dim); font: 12px var(--sans); }
+  .vc-name { font: 600 14px var(--mono); }
+  .vc-other > summary { cursor: pointer; font: 12px var(--mono); color: var(--dim); text-transform: uppercase; }
+  .vc-other[open] > summary { margin-bottom: 12px; }
+  /* a file row: tick, name, day, then its two buttons; the name gives way first */
+  .vc-file { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .vc-ctl { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; }
+  .vc-file .vc-day { flex: none; color: var(--dim); font: 12px var(--mono); }
+  .vc-file .pos-check-t { min-width: 2ch; font-variant-numeric: tabular-nums; }
+  .vc-file[data-on="1"] .vc-v { color: var(--hi); }
+  .vc-list { width: 100%; }
 </style>
 <script type="module">
-  // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast),
-  // so the broadcast runs with no machine of ours and no tab open. This page picks, starts, skips and stops it,
-  // and listens: `preview` is our own Icecast in the cast container, radio1965 comes through the shout relay.
+  // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast).
+  // One card per station reads /status/<target> while it is on screen; a press opens that station's control socket.
   // Control needs ?key= once; it is kept in this browser.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
@@ -25,8 +37,10 @@
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createChoice } from '/shell/choice.mjs';
-  import { createTable } from '/shell/table.mjs';
+  import { createGlueRows } from '/shell/glue.mjs';
+  import { createPresence } from '/shell/presence.mjs';
+  import { createCheck } from '/shell/check.mjs';
+  import { createPicker } from '/shell/picker.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { scopeWindow } from '/shell/rt-scope.mjs';
   useMediumColours();
@@ -34,22 +48,23 @@
   const q = new URLSearchParams(location.search);
   const BASE = q.get('cast') || 'https://cast.positron.studio';
   const SHOUT = q.get('shout') || 'https://shout.positron.studio';
-  const d = mount({ name: 'Väin cast', what: '', index: '/', indexLabel: 'positron',
-    readout: { 'on air': '', sent: 's', heard: 's', level: 'dB' } });
+  const d = mount({ name: 'Väin cast',
+    what: 'Väin\'s archive goes on air from Cloudflare, playing the files you pick, and each file can be heard here first.',
+    index: '/', indexLabel: 'positron',
+    readout: { listening: '', heard: 's', level: 'dB', prelisten: '' } });
   conceptNav('radio/cast');
 
   let key = q.get('key') || '';
   try { if (key) localStorage.setItem('vain-cast-key', key); else key = localStorage.getItem('vain-cast-key') || ''; } catch { /* no storage */ }
 
-  // ── where each target can be heard from this page: our preview Icecast, or radio1965 through shout ──
-  // user1..4 are not in shout's list, so they are heard in the app only.
+  // ── the stations; radio1965 is heard through shout (one upstream), user1..4 in the Väin app only ──
+  const STATIONS = ['preview', 'radio1965', 'user1', 'user2', 'user3', 'user4'];
   const LISTEN = { preview: `${BASE}/listen/preview`, radio1965: `${SHOUT}/radio1965` };
   const listenUrl = (t) => LISTEN[t] || null;
+  const HEARD_BY = { preview: 'only this page and its link', radio1965: 'everyone in the Väin app' };
+  let target = 'preview'; // the station the program and the patchbay are about
 
-  // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's player ──
-  // [label, value], as createChoice takes them
-  const VAIN = [['radio1965', 'radio1965'], ['user1', 'user1'], ['user2', 'user2'], ['user3', 'user3'], ['user4', 'user4']];
-  let target = 'preview', vainTarget = 'radio1965';
+  // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's players ──
   const bay = createBay();
   bay.addNode({ id: 'vain:archive', kind: 'external', label: 'Väin archive', place: 'eccm.ee' });
   bay.addNode({ id: 'cf-cast:caster', kind: 'endpoint', label: 'caster', place: 'cloudflare', net: 'cloudflare' });
@@ -57,6 +72,7 @@
   bay.addNode({ id: 'vain:icecast', kind: 'external', label: 'Väin Icecast', place: 'live.uuu.ee' });
   bay.addNode({ id: 'cf-shout:radio1965', kind: 'endpoint', label: 'shout relay', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: 'web:player', kind: 'engine', label: 'player' });
+  bay.addNode({ id: 'web:prelisten', kind: 'engine', label: 'prelisten' });
   bay.addPort({ id: 'vain:archive:audio-out', dir: 'out', medium: 'audio', label: 'mp3 files', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-out', dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
@@ -67,108 +83,219 @@
   bay.addPort({ id: 'cf-shout:radio1965:audio-in', dir: 'in', medium: 'audio', label: 'one upstream', transports: ['https'] });
   bay.addPort({ id: 'cf-shout:radio1965:audio-out', dir: 'out', medium: 'audio', label: '/radio1965', transports: ['https'] });
   bay.addPort({ id: 'web:player:audio-in', dir: 'in', medium: 'audio', label: 'listen', transports: ['https'] });
+  bay.addPort({ id: 'web:prelisten:audio-in', dir: 'in', medium: 'audio', label: 'one file', transports: ['https'] });
   const SINK = (t) => (t === 'preview' ? 'cf-icecast:preview:audio-in' : 'vain:icecast:audio-in');
-  // the links this page's player opens, per target; none for user1..4
   const HEARD = { preview: [['cf-icecast:preview:audio-out', 'web:player:audio-in']],
     radio1965: [['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in'], ['cf-shout:radio1965:audio-out', 'web:player:audio-in']] };
-  let onAir = false, player = null, levelTimer = 0;
+  const status = {}; // target -> its last status
+  let player = null, levelTimer = 0, listenTarget = null, pre = null, preId = null;
   const listening = () => !!player && !player.audio.paused;
-  const pb = createPatchbay(bay, { flowing: (l) => (l.to === 'web:player:audio-in' || l.from === 'vain:icecast:audio-out' ? listening() : onAir) });
+  const prelistening = () => !!pre && !pre.paused;
+  const pb = createPatchbay(bay, { flowing: (l) => {
+    if (l.to === 'web:prelisten:audio-in') return prelistening();
+    if (l.to === 'web:player:audio-in' || l.from === 'vain:icecast:audio-out') return listening() && listenTarget === target;
+    return !!status[target]?.onAir;
+  } });
   function wire() {
     for (const l of bay.links()) bay.unlink(l.id);
-    for (const [a, b] of [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)], ...(HEARD[target] || [])]) {
+    for (const [a, b] of [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)],
+      ...(HEARD[target] || []), ['vain:archive:audio-out', 'web:prelisten:audio-in']]) {
       const r = bay.link(a, b, [], { via: a.startsWith('cf-cast:caster') ? 'icecast' : 'https', consent: true });
       if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
     }
     pb.refresh();
   }
 
-  // ── the archive, from our worker, which asks their feed at most once a minute ──
-  let items = [];
-  const table = createTable({ columns: [
-    { key: 'mark', label: '', width: 24 },
-    { key: 'title', label: 'title', grow: true, clip: true, hover: 'title' },
-    { key: 'day', label: 'day', width: 96 },
-  ], minRows: 8, onPick: (r) => play(items.findIndex((x) => x.id === r.id)) });
-  let status = null;
-  const showTable = () => table.set(items.map((x) => ({ ...x, day: (x.at || '').slice(0, 10), mark: status?.now?.id === x.id ? '▶' : '' })));
+  // ── control: one socket per station, opened on a press; it pushes that station's status every second ──
+  const sockets = {}, opening = {};
+  let openSocket = (t) => new WebSocket(`${BASE.replace(/^http/, 'ws')}/control/${t}?key=${encodeURIComponent(key)}`);
+  function control(t) {
+    if (sockets[t]?.readyState === 1) return Promise.resolve(sockets[t]);
+    if (opening[t]) return opening[t];
+    if (!key) { d.log('control needs the key: open this page once with ?key=', 'warn'); return Promise.resolve(null); }
+    opening[t] = new Promise((res) => {
+      const s = openSocket(t);
+      s.onopen = () => { sockets[t] = s; opening[t] = null; res(s); };
+      s.onmessage = (e) => take(t, JSON.parse(e.data));
+      s.onclose = () => { if (sockets[t] === s) delete sockets[t]; opening[t] = null; res(null); };
+      s.onerror = () => d.log(`${t}: the caster refused the control socket`, 'warn');
+    });
+    return opening[t];
+  }
+  async function send(t, m) { const s = await control(t); if (s) s.send(JSON.stringify(m)); return !!s; }
+
+  // ── the archive and the program: ticked files in tick order, or the whole archive when none is ticked ──
+  let items = [], prog = [];
+  const programIds = () => (prog.length ? prog.slice() : items.map((x) => x.id));
+  const from = (id) => { const ids = programIds(); const i = ids.indexOf(id); return i < 0 ? [id, ...ids] : [...ids.slice(i), ...ids.slice(0, i)]; };
+  const titleOf = (id) => items.find((x) => x.id === id)?.title || '';
+  const mmss = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '');
+
+  const pick = (t) => { if (t === target) return; target = t; wire(); station.show(t, STATIONS.indexOf(t)); showProgram(); log(t); };
+  const cast = (t) => { pick(t); return status[t]?.playing ? send(t, { cmd: 'stop' }) : send(t, { cmd: 'play', ids: programIds() }); };
+
+  // ── a card per station: who hears it, on air or off, what plays and how far in, what is next ──
+  const cards = {};
+  function makeCard(t, compact = false) {
+    const rows = createGlueRows({ grid: !compact, align: 'start', full: true });
+    const badge = createPresence({ of: t, says: { online: 'on air', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
+      can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
+    const castBtns = createButtonGroup({ label: 'cast', buttons: [
+      { id: 'cast', icon: 'play', label: `start the cast on ${t}`, onPress: () => cast(t) },
+      { id: 'next', icon: 'skip-forward', label: `next file on ${t}`, onPress: () => { pick(t); return send(t, { cmd: 'next' }); } },
+    ] });
+    const listenBtn = listenUrl(t) ? createButtonGroup({ label: 'listen', buttons: [
+      { id: 'listen', icon: 'headphones', label: `listen to ${t}`, onPress: () => { pick(t); return listening() && listenTarget === t ? stopListening() : startListening(t); } },
+    ] }) : null;
+    const now = el('span', 'vc-v'), at = el('span', 'vc-v'), next = el('span', 'vc-v');
+    const k = (w) => el('span', 'vc-k', w);
+    if (compact) {
+      rows.row([el('span', 'vc-name', t), badge.el, castBtns.el, el('span', 'vc-dim', `listen in the Väin app, channel ${t}`)]);
+      rows.row([k('now'), now, at]);
+    } else {
+      rows.row([el('span', 'vc-name', t), badge.el]);
+      rows.row([k('heard by'), el('span', 'vc-v', HEARD_BY[t])]);
+      rows.row([k('now'), now]);
+      rows.row([k('at'), at]);
+      rows.row([k('next'), next]);
+      const ctl = el('span', 'vc-ctl');
+      ctl.append(castBtns.el, ...(listenBtn ? [listenBtn.el] : []));
+      rows.row([ctl]);
+    }
+    const c = { t, el: rows.el, badge, castBtns, listenBtn, now, at, next, seen: false };
+    cards[t] = c;
+    return c;
+  }
+  function paint(t) {
+    const c = cards[t], st = status[t];
+    if (!c || !st) return;
+    c.badge.set(st.onAir ? 'online' : st.playing ? 'coming' : 'offline');
+    c.now.textContent = st.now?.title || ''; c.now.title = st.now?.title || '';
+    c.at.textContent = st.now ? mmss(st.now.at) : '';
+    c.next.textContent = st.onAir ? (st.next?.title || '') : ''; c.next.title = c.next.textContent;
+    c.castBtns.setIcon('cast', st.playing ? 'stop' : 'play', st.playing ? `stop the cast on ${t}` : `start the cast on ${t}`);
+  }
+  const said = {};
+  function log(t) {
+    const last = (status[t]?.lines || []).at(-1) || '';
+    if (t === target && last && last !== said[t]) { said[t] = last; d.log(`${t}: ${last.slice(9)}`); }
+  }
+  function take(t, st) {
+    if (st.target && st.target !== t) return;
+    status[t] = st;
+    paint(t); log(t);
+    if (t === target) { showProgram(); pb.refresh(); }
+  }
+
+  // Read only, our worker, every 3 s, for the cards on screen whose socket is not already pushing.
+  const visible = new Set();
+  async function poll() {
+    if (document.hidden) return;
+    for (const t of visible) {
+      if (sockets[t]) continue;
+      try { take(t, await (await fetch(`${BASE}/status/${t}`)).json()); } catch { /* next time */ }
+    }
+  }
+  const seenIO = new IntersectionObserver((es) => { for (const e of es) { const t = e.target.dataset.station; if (e.isIntersecting) visible.add(t); else visible.delete(t); } poll(); });
+
+  const main = el('div', 'vc-cards');
+  for (const t of ['preview', 'radio1965']) { const c = makeCard(t); c.el.dataset.station = t; main.append(c.el); }
+  const other = el('details', 'vc-other');
+  other.append(el('summary', '', 'other Väin channels, user1 to user4'));
+  const otherSec = el('div', 'vc-sec');
+  for (const t of ['user1', 'user2', 'user3', 'user4']) { const c = makeCard(t, true); c.el.dataset.station = t; otherSec.append(c.el); }
+  other.append(otherSec);
+  other.addEventListener('toggle', () => { for (const t of ['user1', 'user2', 'user3', 'user4']) { if (other.open) seenIO.observe(cards[t].el); else { seenIO.unobserve(cards[t].el); visible.delete(t); } } });
+  for (const t of ['preview', 'radio1965']) seenIO.observe(cards[t].el);
+  setInterval(poll, 3000);
+
+  // ── the program: tick files in the order they should play, prelisten any of them ──
+  const station = createPicker({ label: 'for', what: 'station',
+    prev: () => pick(STATIONS[(STATIONS.indexOf(target) + STATIONS.length - 1) % STATIONS.length]),
+    next: () => pick(STATIONS[(STATIONS.indexOf(target) + 1) % STATIONS.length]),
+    onPick: (i) => pick(STATIONS[i]) });
+  station.options(STATIONS, 0);
+  const progBtns = createButtonGroup({ label: 'program', buttons: [
+    { id: 'queue', label: 'queue', title: 'play these after the current file, which keeps playing', onPress: () => send(target, { cmd: 'queue', ids: programIds() }) },
+    { id: 'now', label: 'play now', title: 'cut the current file and play these from the top', onPress: () => send(target, { cmd: 'play', ids: programIds() }) },
+    { id: 'clear', label: 'clear', onPress: () => { prog = []; showProgram(); } },
+  ] });
+  const progNote = el('span', 'vc-dim', '');
+  const bar = createGlueRows({ align: 'start', full: true });
+  const barCtl = el('span', 'vc-ctl');
+  barCtl.append(station.el, progBtns.el);
+  bar.row([barCtl]);
+  bar.row([progNote]);
+  const list = createGlueRows({ align: 'start', full: true, cls: 'vc-list' });
+  const rows = new Map();
+  function fileRow(x) {
+    const box = createCheck({ label: '', title: 'in the program', onChange: (on) => {
+      prog = prog.filter((id) => id !== x.id);
+      if (on) prog.push(x.id);
+      showProgram();
+    } });
+    const btns = createButtonGroup({ buttons: [
+      { id: 'pre', icon: 'headphones', label: `prelisten ${x.title}`, onPress: () => (preId === x.id ? stopPrelisten() : prelisten(x)) },
+      { id: 'now', icon: 'play', label: `play ${x.title} now on the station`, onPress: () => send(target, { cmd: 'play', ids: from(x.id) }) },
+    ] });
+    const name = el('span', 'vc-v', x.title);
+    name.title = x.title;
+    const r = list.row([box.el, name, el('span', 'vc-day', (x.at || '').slice(5, 10)), btns.el], { cls: 'vc-file' });
+    rows.set(x.id, { r, box, btns });
+  }
+  function showProgram() {
+    for (const [id, { r, box, btns }] of rows) {
+      const i = prog.indexOf(id);
+      box.set(i >= 0, true);
+      box.el.querySelector('.pos-check-t').textContent = i >= 0 ? String(i + 1) : '';
+      r.dataset.on = status[target]?.now?.id === id ? '1' : '';
+      btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten');
+    }
+    progNote.textContent = prog.length ? `${prog.length} ticked, in tick order, for ${target}` : `nothing ticked: the whole archive, for ${target}`;
+  }
   async function loadFeed() {
     try {
-      const r = await fetch(`${BASE}/feed`);
-      const j = await r.json();
+      const j = await (await fetch(`${BASE}/feed`)).json();
       if (j.error) throw new Error(j.error);
       // their empty recording would end on its first frame, so it is left out
       items = j.items.filter((x) => !/\/v-in-\d/.test(x.url));
-      showTable();
+      for (const x of items) fileRow(x);
+      showProgram();
       d.log(`${items.length} files in their archive`);
     } catch (e) { d.log(`the archive did not load: ${e.message}`, 'warn'); }
   }
 
-  // ── the control socket and the caster's status ──
-  let ws = null, opening = null;
-  function control() {
-    if (ws?.readyState === 1) return Promise.resolve(ws);
-    if (opening) return opening;
-    if (!key) { d.log('control needs the key: open this page once with ?key=', 'warn'); return Promise.resolve(null); }
-    opening = new Promise((res) => {
-      const s = new WebSocket(`${BASE.replace(/^http/, 'ws')}/control/${target}?key=${encodeURIComponent(key)}`);
-      s.onopen = () => { ws = s; opening = null; res(s); };
-      s.onmessage = (e) => take(JSON.parse(e.data));
-      s.onclose = () => { if (ws === s) ws = null; opening = null; res(null); };
-      s.onerror = () => d.log('the caster refused the control socket', 'warn');
-    });
-    return opening;
+  // ── prelisten: one file straight from their host, one at a time, no analyser (their host sends no CORS) ──
+  let prePlay = (a) => a.play();
+  function prelisten(x) {
+    stopListening();
+    pre ||= Object.assign(document.createElement('audio'), { preload: 'none' });
+    pre.onerror = () => { d.log(`${x.title} did not play`, 'warn'); stopPrelisten(); };
+    pre.onplaying = () => { showProgram(); pb.refresh(); };
+    pre.src = x.url; preId = x.id;
+    d.set('prelisten', x.title);
+    prePlay(pre)?.catch?.(() => { /* the error event says why */ });
+    clearInterval(levelTimer);
+    levelTimer = setInterval(() => d.set('heard', pre ? Math.floor(pre.currentTime) : ''), 500);
+    showProgram();
   }
-  let said = '';
-  function take(st) {
-    if (st.target && st.target !== target) return;
-    status = st;
-    onAir = !!st.onAir;
-    d.set('on air', onAir ? (st.now?.title || 'yes') : 'off');
-    d.set('sent', onAir ? Math.round(st.seconds) : '');
-    transport.setIcon('play', onAir ? 'stop' : 'play', onAir ? 'stop' : 'play');
-    const last = (st.lines || []).at(-1) || '';
-    if (last && last !== said) { said = last; d.log(last.slice(9)); }
-    showTable();
-    pb.refresh();
+  function stopPrelisten() {
+    if (pre) { pre.pause(); pre.removeAttribute('src'); pre.load(); }
+    preId = null; clearInterval(levelTimer);
+    d.set('prelisten', ''); d.set('heard', '');
+    showProgram(); pb.refresh();
   }
-  async function send(m) { const s = await control(); if (s) s.send(JSON.stringify(m)); return !!s; }
-  async function play(from = 0) {
-    if (!items.length) return;
-    const ids = [...items.slice(Math.max(0, from)), ...items.slice(0, Math.max(0, from))].map((x) => x.id);
-    await send({ cmd: 'play', ids });
-  }
-  // Read only: the status every 2 s while nobody holds the control socket.
-  async function refresh() { try { take(await (await fetch(`${BASE}/status/${target}`)).json()); } catch { /* next time */ } }
-  setInterval(() => { if (!ws) refresh(); }, 2000);
 
-  const transport = createButtonGroup({ label: 'cast', buttons: [
-    { id: 'play', icon: 'play', label: 'play', onPress: () => (onAir ? send({ cmd: 'stop' }) : play(0)) },
-    { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send({ cmd: 'next' }) },
-  ] });
-  // Each target is its own caster, so switching only changes which one this page drives.
-  function retarget(v) { target = v; said = ''; try { ws?.close(); } catch { /* gone */ } ws = null; stopListening(); wire(); showListen(); refresh(); }
-  const where = createChoice({ label: 'station', options: [['preview', 'preview'], ['Väin', 'vain']], at: 0,
-    title: (v) => (v === 'preview' ? 'our own Icecast in Cloudflare: only people with this page hear it' : 'Väin\'s Icecast at live.uuu.ee: their listeners hear it'),
-    onPick: (v) => { vainBlock.hidden = v !== 'vain'; retarget(v === 'vain' ? vainTarget : 'preview'); } });
-  const pick = createChoice({ label: 'channel', options: VAIN, at: 0, title: (v) => `Väin's ${v} channel`,
-    onPick: (v) => { vainTarget = v; retarget(v); } });
-
-  // ── the player: one <audio> with no controls, through an analyser, driven by the kit's buttons ──
-  // Nothing is made or opened until a press, so a visit asks nobody's server for anything.
+  // ── LISTEN: one <audio> through an analyser, made on the first press ──
   function makePlayer() {
     const audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
     const ctx = new AudioContext(), an = ctx.createAnalyser();
     an.fftSize = 2048;
     ctx.createMediaElementSource(audio).connect(an);
     an.connect(ctx.destination);
-    const buf = new Float32Array(an.fftSize);
-    audio.addEventListener('playing', () => { d.log(`listening to ${target}`); pb.refresh(); });
-    audio.addEventListener('error', () => {
-      d.log(target === 'preview' ? 'the preview did not play: is it on air?' : `${target} did not play: off air, or the relay refused`, 'warn');
-      stopListening();
-    });
-    return { audio, ctx, an, buf };
+    audio.addEventListener('playing', () => { d.log(`listening to ${listenTarget}`); pb.refresh(); });
+    audio.addEventListener('error', () => { d.log(`${listenTarget} did not play: is it on air?`, 'warn'); stopListening(); });
+    return { audio, ctx, an, buf: new Float32Array(an.fftSize) };
   }
   function readLevel() {
     if (!player) return;
@@ -178,78 +305,96 @@
     const rms = Math.sqrt(sum / player.buf.length);
     d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     d.set('heard', Math.floor(player.audio.currentTime));
-    scope.set({ points: scopeWindow(player.buf), reason: '', name: target });
+    scope.set({ points: scopeWindow(player.buf), reason: '', name: listenTarget });
   }
-  async function startListening() {
-    const url = listenUrl(target);
+  function startListening(t) {
+    const url = listenUrl(t);
     if (!url) return;
-    if (target === 'preview' && !onAir) { d.log('preview is not on air: press play under cast first', 'warn'); return; }
+    if (!status[t]?.onAir) { d.log(`${t} is not on air: start the cast first`, 'warn'); return; }
+    stopPrelisten(); stopListening();
     player ||= makePlayer();
-    await player.ctx.resume();
+    player.ctx.resume().catch(() => { /* sound may be late, the stream is not */ });
+    listenTarget = t;
     player.audio.src = url;
-    listen.setIcon('listen', 'stop', 'stop listening');
+    cards[t].listenBtn.setIcon('listen', 'stop', `stop listening to ${t}`);
+    d.set('listening', t);
     scope.el.hidden = false;
     player.audio.play().catch(() => { /* the error event says why */ });
     clearInterval(levelTimer);
     levelTimer = setInterval(readLevel, 250);
   }
   function stopListening() {
+    if (!listenTarget) return;
     clearInterval(levelTimer);
     if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
-    listen.setIcon('listen', 'play', 'listen');
-    d.set('level', ''); d.set('heard', '');
+    cards[listenTarget]?.listenBtn?.setIcon('listen', 'headphones', `listen to ${listenTarget}`);
+    listenTarget = null;
+    d.set('listening', ''); d.set('level', ''); d.set('heard', '');
     scope.set({ points: null, reason: null, name: '' });
     scope.el.hidden = true;
     pb.refresh();
   }
-  const listen = createButtonGroup({ label: 'listen', buttons: [
-    { id: 'listen', icon: 'play', label: 'listen', onPress: () => (listening() ? stopListening() : startListening()) },
-  ] });
   const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
-  // the scope and the note take room only when they have something to show
   scope.el.hidden = true;
-  const listenNote = el('p', 'pos-what', '');
-  const how = el('p', 'pos-what', 'CAST puts the archive on air on the station. LISTEN plays what is on air there.');
-  const vainBlock = el('div', 'vc-vain');
-  vainBlock.append(el('h3', 'pos-sec-h', 'Väin, live.uuu.ee'), el('p', 'pos-what', 'Real listeners in the Väin app hear this.'), pick.el);
-  vainBlock.hidden = true;
-  const row = el('div', 'vc-row'), left = el('div', 'vc-left');
-  left.append(transport.el, listen.el);
-  row.append(left);
-  function showListen() {
-    const url = listenUrl(target);
-    listen.enable('listen', !!url, url ? '' : 'heard in the Väin app only');
-    listenNote.hidden = !!url;
-    listenNote.textContent = url ? '' : `${target} is heard in the Väin app only.`;
-  }
 
+  const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); s.append(el('h3', 'pos-sec-h', h), ...parts); return s; };
   wire();
-  showListen();
-  d.stack.add(where.el, vainBlock, row, how, listenNote, scope.el, table.el, pb.el);
+  d.stack.add(sec('stations', main, other), scope.el, sec('program', bar.el, list.el), pb.el);
   await loadFeed();
 
   window.__demo.bay = bay;
   window.__demo.listenUrl = listenUrl;
-  window.__demo.probe = () => ({ items: items.length, target, onAir, key: !!key, listening: listening(), heard: player ? +player.audio.currentTime.toFixed(2) : null,
-    src: player?.audio.getAttribute('src') || null, links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
+  window.__demo.probe = () => ({ items: items.length, target, prog: prog.slice(), key: !!key, sockets: Object.keys(sockets), listening: listening(),
+    heard: player ? +player.audio.currentTime.toFixed(2) : null, src: player?.audio.getAttribute('src') || null,
+    pre: pre?.getAttribute('src') || null, preAt: pre ? +pre.currentTime.toFixed(2) : null,
+    status: Object.fromEntries(Object.entries(status).map(([t, s]) => [t, { onAir: s.onAir, now: s.now, next: s.next }])),
+    links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
 
   if (SELFCHECK) {
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
-    d.assert('preview is picked first: the caster plays into our own Icecast and the player hears /listen/preview',
-      target === 'preview' && vainBlock.hidden && linked('cf-cast:caster:audio-out', 'cf-icecast:preview:audio-in')
-      && linked('cf-icecast:preview:audio-out', 'web:player:audio-in') && listenUrl('preview') === `${BASE}/listen/preview`);
+    const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
+    const order = [...main.children].map((c) => c.dataset.station);
+    d.assert('the preview card is first and the default station; radio1965 is second; user1 to user4 sit folded below',
+      order.join() === 'preview,radio1965' && target === 'preview' && !other.open && Object.keys(cards).length === 6);
+    d.assert('a visit opens no control socket, no player and no prelisten, and asks no audio URL',
+      !Object.keys(sockets).length && !player && !pre && !audioReqs().length, audioReqs().join(' '));
+    d.assert('radio1965 is heard through shout, never from their server; user1 has no player on this page',
+      listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1') && !cards.user1.listenBtn);
+    d.assert('preview\'s chain: the caster plays into our own Icecast and the player hears /listen/preview',
+      linked('cf-cast:caster:audio-out', 'cf-icecast:preview:audio-in') && linked('cf-icecast:preview:audio-out', 'web:player:audio-in'));
     d.assert('NEGATIVE CONTROL: a link out of their archive without consent is refused',
       !bay.link('vain:archive:audio-out', 'cf-cast:caster:audio-in', [], { via: 'https' }).ok);
-    where.buttons[1].click();
-    d.assert('picking Väin shows its own block on radio1965, heard through shout and never from their server direct',
-      target === 'radio1965' && !vainBlock.hidden && linked('cf-cast:caster:audio-out', 'vain:icecast:audio-in')
-      && linked('cf-shout:radio1965:audio-out', 'web:player:audio-in') && listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')));
-    pick.buttons[1].click();
-    d.assert('user1 has no player on this page: its listen button is off and no link reaches the player',
-      target === 'user1' && !listen.enabled('listen') && !bay.links().some((l) => l.to === 'web:player:audio-in'));
-    pick.buttons[0].click();
-    where.buttons[0].click();
-    d.assert('a visit opens no control socket, makes no player and plays nothing', target === 'preview' && !ws && !player && !listening());
+    // the buttons, against a socket that records instead of connecting
+    const sent = [];
+    const realOpen = openSocket, realKey = key;
+    openSocket = (t) => { const s = { readyState: 1, send: (m) => sent.push([t, JSON.parse(m)]), close() {} }; setTimeout(() => s.onopen?.(), 0); return s; };
+    key ||= 'check';
+    if (items.length >= 3) {
+      rows.get(items[2].id).box.input.click(); rows.get(items[0].id).box.input.click();
+      await progBtns.button('queue').click();
+      await new Promise((r) => setTimeout(r, 50));
+      const qm = sent.at(-1);
+      d.assert('ticking two files and pressing queue sends queue with those two, in tick order',
+        qm?.[0] === 'preview' && qm[1].cmd === 'queue' && qm[1].ids.join() === [items[2].id, items[0].id].join(), JSON.stringify(qm));
+      rows.get(items[0].id).btns.button('now').click();
+      await new Promise((r) => setTimeout(r, 50));
+      const pm = sent.at(-1);
+      d.assert('play now on a file sends play, starting from that file',
+        pm?.[1].cmd === 'play' && pm[1].ids[0] === items[0].id && pm[1].ids.length === 2, JSON.stringify(pm));
+      // prelisten, with play() held back, so the check asks their host for nothing
+      prePlay = () => null;
+      rows.get(items[1].id).btns.button('pre').click();
+      const set = pre?.getAttribute('src') === items[1].url && !pre.crossOrigin && preId === items[1].id;
+      rows.get(items[1].id).btns.button('pre').click();
+      d.assert('a prelisten press sets that file on its own <audio> with no crossOrigin, and a second press takes it off',
+        set && !pre.getAttribute('src') && preId === null);
+      prePlay = (a) => a.play();
+      progBtns.button('clear').click();
+    }
+    for (const t of Object.keys(sockets)) delete sockets[t];
+    openSocket = realOpen; key = realKey;
+    d.assert('after the checks nothing is open: no socket, no player, no file playing',
+      !Object.keys(sockets).length && !player && !prelistening() && !audioReqs().length, audioReqs().join(' '));
   }
   d.ready();
 </script>

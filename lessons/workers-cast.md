@@ -78,3 +78,20 @@ body from the container is not held. MEASURED 2026-10-16 with two listeners at o
 at 395 and 397 ms, 72,800 and 75,600 bytes in the first second (Icecast's 65,536 byte burst), then 12,600 to
 19,600 bytes every second after it (128 kbit/s is 16,000), 378,000 bytes each; mp3 44.1 kHz 128 kbit/s,
 23.6 s of audio, mean -18.6 dB against -91.0 dB for a silence control. Icecast counted `listeners: 2`.
+
+### queue
+
+`Caster.command()` `queue`, `container/server.mjs` `queue()`: replaces what plays after the current file without
+cutting it (plan-vain-cast-processing §2). The container sets `s.queue` to the new list and `s.index` to -1, so the
+file on air keeps playing and the next one is `queue[0]`; `/status` carries `next` and `ids`. `play` still cuts.
+A queue on a caster that is off air is refused (`not on air: start the cast first`), because a queue is a claim
+about what follows something. Progress saved while `index` is -1 resumes at the top of the new queue.
+
+MEASURED 2026-10-17 on `preview`: with *Driving along* at 18 s, `queue` [Kalle, Oriental analog] changed `next`
+from *Evening rituals* to *Kalle* within one status tick while the current file kept counting 18, 19, ... 26 s;
+`next` then put *Kalle* on at 1 s with *Oriental analog* as next.
+
+A deploy did not reach the running `preview`: the Caster object and its container kept the previous code for
+about four minutes after `wrangler deploy` (a container rollout reaches each object in turn; `user3`, idle, had
+the new code at once). A container started by the old object kept the old image too, so `preview` was stopped and
+started twice to carry the new `/queue` route. A new container takes the image of the object that starts it.
