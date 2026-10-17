@@ -1,5 +1,5 @@
 {
-  // positron-cast: Väin's archive played live into an Icecast mount, and our own test receiver.
+  // positron-cast: Väin's archive played live into an Icecast mount, or into our own preview Icecast.
   // The audio source is a container on the Caster class (durable_object policy, size in code: CAST_INSTANCE).
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "positron-cast",
@@ -14,8 +14,9 @@
       "images": { "cast": { "dockerfile": "./container/Dockerfile.grains", "build_context": "." } }
     }
   ],
-  "durable_objects": { "bindings": [{ "name": "CASTER", "class_name": "Caster" }, { "name": "RX", "class_name": "Rx" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Caster", "Rx"] }],
+  "durable_objects": { "bindings": [{ "name": "CASTER", "class_name": "Caster" }] },
+  // v2: the `test` receiver (Rx) is gone with the `test` target; it kept nothing in storage
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Caster", "Rx"] }, { "tag": "v2", "deleted_classes": ["Rx"] }],
   "workers_dev": true,
   "observability": { "enabled": true }
 }

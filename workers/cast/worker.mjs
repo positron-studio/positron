@@ -1,16 +1,13 @@
 // positron-cast: Väin's archive played live into an Icecast mount from Cloudflare, no machine of ours.
 //   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
+//                              extend ({ms}: stop at now + ms, 15 min to 12 h); every start stops itself at `until`, 2 h on;
 //                              program (the station's stored list, kept while off air, START plays it);
 //                              mode (copy | mix | grains), set (tune, drift, dwell, blend, noise) for the mix,
 //                              patch ({name?, set?}: the grain ring, clamped, kept, at most 20 a second)
 //   GET  /status/<target>      the same status, read only
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
-//   PUT  /ingest/<mount>       our own test Icecast receiver: a source client's PUT, Basic auth `source:`
-//   GET  /ingest/<mount>       the same as a WebSocket: the PUT's header lines as one text message, then audio
-//   GET  /listen/<mount>       the receiver's mount, audio/mpeg, to any number of listeners
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
-//   GET  /rx/<mount>           what the receiver saw: auth, the source's headers, bytes, listeners
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
 // session in storage, boots the container, relays commands and restarts it when it dies.
 // The source speaks exactly what Väin's own app sends (radio1965 app/icecastbroadcaster.cpp): PUT over
@@ -28,15 +25,17 @@ const CAST_INSTANCE = { vcpu: 0.5, memoryMib: 1536, diskMb: 2048 };
 const SET_EVERY_MS = 50;
 const MODES = ['copy', 'mix', 'grains'];   // mix controls reach the container at most 20 a second
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
+// Every start stops itself at `until`, kept in the wanted session. why: lessons/workers-cast.md#cap
+const CAP_MS = 2 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 12 * 3600_000, PLAY_CAP_MIN = 60_000;
+const clampMs = (ms, lo) => (Number.isFinite(+ms) ? Math.min(CAP_MAX, Math.max(lo, Math.round(+ms))) : null);
 
 /**
- * Where each target sends: our receiver, our preview Icecast, or one of Väin's mounts (radio1965 never
- * records or notifies, their on-connect hook). `preview` is Icecast 2.4.4 in its own container, reached
- * over the same TCP source code as theirs; `local` makes the container start it.
+ * Where each target sends: our preview Icecast, or one of Väin's mounts (radio1965 never records or
+ * notifies, their on-connect hook). `preview` is Icecast 2.4.4 in its own container, reached over the
+ * same TCP source code as theirs; `local` makes the container start it.
  */
 function targets(env) {
-  const t = { test: { kind: 'ws', url: 'wss://cast.positron.studio/ingest/test', mount: 'test', label: 'our test receiver', pw: env.TEST_PW || '' },
-    preview: { kind: 'icecast', host: '127.0.0.1', port: 8000, mount: 'preview', label: 'our preview Icecast', pw: env.TEST_PW || '', local: true } };
+  const t = { preview: { kind: 'icecast', host: '127.0.0.1', port: 8000, mount: 'preview', label: 'our preview Icecast', pw: env.TEST_PW || '', local: true } };
   for (const m of ['radio1965', 'user1', 'user2', 'user3', 'user4']) t[m] = { kind: 'icecast', host: 'live.uuu.ee', port: 8001, mount: m, label: `Väin ${m}`, pw: env.VAIN_SOURCE_PW || '' };
   return t;
 }
@@ -100,7 +99,6 @@ export default {
       return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
     }
     if (route === 'listen' && name === 'preview') return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
-    if (route === 'ingest' || route === 'listen' || route === 'rx') return env.RX.get(env.RX.idFromName(name)).fetch(req);
     return json({ error: 'no such route' }, 404);
   },
 };
@@ -142,12 +140,13 @@ export class Caster {
   }
 
   async status() {
-    const [want, progress, deaths, boot, mx, prog] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'mix', 'program'].map((k) => this.st.get(k)));
+    const [want, progress, deaths, boot, mx, prog, stopped] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'mix', 'program', 'stopped'].map((k) => this.st.get(k)));
     const t = targets(this.env)[this.name], s = await this.cstatus();
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
       program: (prog || []).map(({ id, title }) => ({ id, title })),
       queue: want ? want.queue.map((x) => x.title) : [], ids: want ? want.queue.map((x) => x.id) : [], next: s?.next || null, index: s?.index ?? null, since: want?.startedAt ?? null,
+      until: want ? (want.until ?? want.startedAt + CAP_MS) : null, stopped: stopped || null,
       onAirSeconds: s?.onAir ? Math.round(s.seconds) : 0, files: s?.files ?? 0, frames: s?.frames ?? 0, bytes: s?.bytes ?? 0,
       seconds: s?.seconds ?? 0, skipped: s?.skipped ?? 0, rate: s?.rate ?? 0, kbps: s?.kbps ?? 0, lag: s?.lag ?? null, wall: s?.wall ?? null,
       container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
@@ -204,6 +203,7 @@ export class Caster {
   async command(text) {
     let m; try { m = JSON.parse(text); } catch { throw new Error('not JSON'); }
     if (m.cmd === 'stop') return this.stop('asked to stop');
+    if (m.cmd === 'extend') return this.extend(m.ms);
     if (m.cmd === 'mode') return this.mode(m.mode);
     if (m.cmd === 'set') return this.set(m.name, m.v);
     if (m.cmd === 'patch') return this.patch(m);
@@ -230,7 +230,10 @@ export class Caster {
         await this.cpost('/play', { queue, target: t, ...(await this.mixBody()) });
         this.say(`queue replaced, ${queue.length} files`); return;
       }
-      await this.st.put('want', { queue, target: this.name, startedAt: Date.now() });
+      // capMs below the default only through this keyed socket, at least a minute, for a check that must end itself
+      const cap = m.capMs != null ? clampMs(m.capMs, PLAY_CAP_MIN) : CAP_MS;
+      if (cap == null) throw new Error('capMs is a number of ms');
+      await this.st.put('want', { queue, target: this.name, startedAt: Date.now(), until: Date.now() + cap });
       await this.st.delete(['progress', 'deaths']);
       await this.st.setAlarm(Date.now() + ALARM_MS);
       await this.bring('asked to play');
@@ -324,7 +327,21 @@ export class Caster {
     if (byName) this.say(`grain patch ${byName.patch}`);
   }
 
+  /** Moves the stop to now + ms, 15 min to 12 h; only while wanted. */
+  async extend(ms) {
+    const want = await this.st.get('want');
+    if (!want) throw new Error('not on air: nothing to extend');
+    const add = clampMs(ms, EXTEND_MIN);
+    if (add == null) throw new Error('extend needs ms');
+    const until = Date.now() + add;
+    await this.st.put('want', { ...want, until });
+    await this.st.setAlarm(Math.min(Date.now() + ALARM_MS, until));
+    this.say(`stops at ${iso(until)}`);
+    this.push();
+  }
+
   async stop(why) {
+    await this.st.put('stopped', { at: iso(Date.now()), t: Date.now(), why });
     await this.st.delete(['want', 'progress']);
     await this.st.deleteAlarm();
     if (this.c?.running) { try { await this.cpost('/stop'); } catch { /* going anyway */ } await this.c.destroy().catch(() => {}); }
@@ -417,6 +434,9 @@ export class Caster {
       const want = await this.st.get('want');
       if (!want) { if (this.c?.running) await this.c.destroy().catch(() => {}); return; }
       this.name ||= want.target;
+      // the cap holds across a restarted object and container: until is in storage
+      if (Date.now() >= (want.until ?? want.startedAt + CAP_MS)) return await this.stop('stopped at the cap');
+      if (!targets(this.env)[want.target]) return await this.stop(`no station ${want.target}`);
       const boot = await this.st.get('boot');
       if (!this.c.running) {
         await this.died('found not running');
@@ -441,92 +461,9 @@ export class Caster {
       }
     } catch (e) { this.say(`sweep: ${e.message}`); }
     finally {
-      if (await this.st.get('want')) await this.st.setAlarm(Date.now() + ALARM_MS);
+      const w = await this.st.get('want');
+      if (w) await this.st.setAlarm(Math.max(Date.now() + 1000, Math.min(Date.now() + ALARM_MS, w.until ?? w.startedAt + CAP_MS)));
       this.push();
     }
-  }
-}
-
-/** Our own Icecast receiver: one source per mount, its bytes copied to every listener. */
-export class Rx {
-  constructor(ctx, env) {
-    this.ctx = ctx; this.env = env;
-    this.listeners = new Set();
-    this.source = null; this.last = null;
-    this.bytes = 0; this.refused = 0;
-  }
-  async fetch(req) {
-    const u = new URL(req.url), route = u.pathname.split('/')[1];
-    if (route === 'rx') return json({ source: this.source, last: this.last, listeners: this.listeners.size, bytes: this.bytes, refused: this.refused });
-    if (route === 'listen') {
-      const { readable, writable } = new TransformStream();
-      const w = writable.getWriter();
-      this.listeners.add(w);
-      return new Response(readable, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store', 'icy-name': 'positron cast test', ...cors } });
-    }
-    if (route === 'ingest' && req.headers.get('upgrade') === 'websocket') return this.ingestSocket();
-    if (route !== 'ingest' || req.method !== 'PUT') return json({ error: 'PUT /ingest/<mount>' }, 405);
-    const why = this.refuse(req.headers.get('authorization'));
-    if (why) return new Response(why[1], { status: why[0] });
-    this.begin(Object.fromEntries([...req.headers]), 'put');
-    const src = this.source, reader = req.body.getReader();
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        this.feed(value);
-      }
-    } finally { if (this.source === src) this.end(); }
-    return new Response('ok');
-  }
-
-  /** `[status, words]` when this source may not have the mount. A silent WebSocket source gives way after 5 s. */
-  refuse(auth) {
-    if (!this.env.TEST_PW || auth !== `Basic ${btoa(`source:${this.env.TEST_PW}`)}`) { this.refused++; return [401, 'wrong source password']; }
-    if (this.source && !(this.sourceWs && Date.now() - this.source.lastAt > 5000)) return [403, 'this mount already has a source'];
-    if (this.source) { try { this.sourceWs.close(4009, 'replaced by a new source'); } catch { /* gone */ } this.end(); }
-    return null;
-  }
-  begin(headers, via) {
-    const h = Object.fromEntries(Object.entries(headers).filter(([k]) => k.startsWith('ice-') || k === 'content-type'));
-    // What Väin's on-connect hook would do with this source: notify and record unless each flag is 0.
-    const info = Object.fromEntries((h['ice-audio-info'] || '').split(';').map((p) => p.split('=')).filter((p) => p.length === 2));
-    this.source = { since: Date.now(), via, headers: h, wouldNotify: info.send_notification !== '0', wouldRecord: info.save_stream !== '0', bytes: 0, lastAt: Date.now() };
-  }
-  end() { this.last = { ...this.source, ended: Date.now() }; this.source = null; this.sourceWs = null; }
-  feed(value) {
-    this.bytes += value.length; this.source.bytes += value.length; this.source.lastAt = Date.now();
-    for (const w of this.listeners) {
-      if (w.desiredSize !== null && w.desiredSize < -512 * 1024) { this.listeners.delete(w); w.abort().catch(() => {}); continue; }
-      w.write(value).catch(() => this.listeners.delete(w));
-    }
-  }
-
-  /** The PUT as a WebSocket, because the edge holds a streamed request body until it ends. */
-  // why: lessons/workers-cast.md#rx-websocket
-  ingestSocket() {
-    const [client, ws] = Object.values(new WebSocketPair());
-    ws.accept();
-    let src = null, chain = Promise.resolve();
-    ws.addEventListener('message', (e) => {
-      // binary may arrive as a Blob; one promise chain keeps the frames in order across its await
-      if (src) {
-        if (typeof e.data === 'string') return;
-        chain = chain.then(async () => { const b = e.data instanceof ArrayBuffer ? e.data : await e.data.arrayBuffer(); if (this.source === src) this.feed(new Uint8Array(b)); }).catch(() => {});
-        return;
-      }
-      let head = [];
-      try { head = JSON.parse(e.data).head || []; } catch { /* refused below */ }
-      const h = Object.fromEntries(head.map((l) => [l.slice(0, l.indexOf(':')).trim().toLowerCase(), l.slice(l.indexOf(':') + 1).trim()]));
-      const why = this.refuse(h.authorization);
-      if (why) { ws.send(`HTTP/1.0 ${why[0]} ${why[1]}`); ws.close(4000 + why[0] % 1000, why[1]); return; }
-      this.begin(h, 'websocket');
-      src = this.source; this.sourceWs = ws;
-      ws.send('HTTP/1.0 200 OK');
-    });
-    const gone = () => { if (src && this.source === src) this.end(); };
-    ws.addEventListener('close', gone);
-    ws.addEventListener('error', gone);
-    return new Response(null, { status: 101, webSocket: client });
   }
 }

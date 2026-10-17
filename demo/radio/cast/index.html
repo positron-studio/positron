@@ -158,10 +158,11 @@
     { key: 'name', label: 'station', width: 80, hi: true },
     { key: 'who', label: 'on air', width: 88 },
     { key: 'now', label: 'now', grow: true, clip: true },
+    { key: 'stops', label: 'stops', width: 56 },
   ], onPick: (r) => pick(r.name) });
   const presence = (t) => createPresence({ of: t, says: { online: 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
     busyWords: { page: 'Väin' }, can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
-  stTable.set(STATIONS.map((t) => ({ name: t, who: '', now: '' })));
+  stTable.set(STATIONS.map((t) => ({ name: t, who: '', now: '', stops: '' })));
   const stRows = [...stTable.scroller().querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')];
   STATIONS.forEach((t, i) => { badges[t] = presence(t); stRows[i].children[1].append(badges[t].el); stRows[i].dataset.station = t; });
   const markOpen = () => stTable.mark((r) => r.name === target);
@@ -185,6 +186,13 @@
   const playing = createGlueRows({ grid: true, align: 'start', full: true });
   playing.row([k('now'), (() => { const b = el('span', 'vc-ctl'); b.append(now, at); return b; })()]);
   playing.row([k('next'), next]);
+  // every start stops itself at `until` (2 h on); EXTEND moves it to now + the choice
+  const hhmm = (t) => (Number.isFinite(t) ? new Date(t).toTimeString().slice(0, 5) : '');
+  const stopsAt = el('span', 'vc-v');
+  const EXTEND = [['1 h', 3600_000], ['4 h', 4 * 3600_000], ['12 h', 12 * 3600_000]];
+  const extendBtns = createButtonGroup({ label: 'extend', buttons: EXTEND.map(([w, ms]) => ({ id: w, label: w, title: `stop ${w} from now`, onPress: () => send(target, { cmd: 'extend', ms }) })) });
+  const stopsRow = playing.row([k('stops'), (() => { const b = el('span', 'vc-ctl'); b.append(stopsAt, extendBtns.el); return b; })()]);
+  stopsRow.hidden = true;
   const noteRow = playing.row([note]); noteRow.hidden = true;
   const say = (w) => { note.textContent = w; noteRow.hidden = !w; };
 
@@ -324,6 +332,7 @@
     badges[t].busy(them ? 'page' : null);
     const title = them ? (live[t].title || '') : st.now?.title || '';
     const cell = stRows[i].children[2]; cell.textContent = title; cell.title = title;
+    stRows[i].children[3].textContent = st.playing ? hhmm(st.until) : '';
   }
   function paintDetail() {
     const t = target, st = status[t] || {}, them = theirs(t);
@@ -334,6 +343,7 @@
     now.textContent = title; now.title = title;
     at.textContent = !them && st.now ? mmss(st.now.at) : '';
     next.textContent = st.onAir ? (st.next?.title || '') : ''; next.title = next.textContent;
+    stopsAt.textContent = st.playing ? hhmm(st.until) : ''; stopsRow.hidden = !st.playing;
     castBtns.setIcon('cast', st.playing ? 'stop' : 'play', st.playing ? `stop the cast on ${t}` : `start the cast on ${t}`);
     listenBtn.el.hidden = !listenUrl(t); inApp.hidden = !!listenUrl(t);
     listenBtn.setIcon('listen', listening() && listenTarget === t ? 'stop' : 'headphones', listening() && listenTarget === t ? `stop listening to ${t}` : `listen to ${t}`);
@@ -565,10 +575,20 @@
     for (const n of Object.keys(touched)) touched[n] = 0;
     rowOf('preview').click();
     // the three states, from a stubbed /live and a stubbed status
-    take('preview', { target: 'preview', onAir: true, playing: true, now: { id: 'x', title: 'a file', at: 61 }, lines: [] });
+    const UNTIL = new Date(2026, 9, 17, 21, 7).getTime();
+    take('preview', { target: 'preview', onAir: true, playing: true, until: UNTIL, now: { id: 'x', title: 'a file', at: 61 }, lines: [] });
+    d.assert('on air the open station shows when it stops, and its row shows it short',
+      !stopsRow.hidden && stopsAt.textContent === '21:07' && rowOf('preview').children[3].textContent === '21:07', `${stopsAt.textContent} ${rowOf('preview').children[3].textContent}`);
+    await tick(); const beforeX = sent.length;
+    extendBtns.button('4 h').click(); await tick();
+    const xm = sent.slice(beforeX);
+    d.assert('EXTEND 4 h sends extend to the open station with 4 hours in ms, and nothing else',
+      xm.length === 1 && xm[0][0] === 'preview' && xm[0][1].cmd === 'extend' && xm[0][1].ms === 4 * 3600_000, JSON.stringify(xm));
     takeLive({ channels: { radio1965: { vain: true, title: 'Evening on radio1965' }, user1: { vain: false } } });
     take('user1', { target: 'user1', onAir: false, playing: false, lines: [] });
     await tick(300);
+    d.assert('NEGATIVE CONTROL: off air there is no stop time and no EXTEND, in the row or the detail',
+      rowOf('user1').children[3].textContent === '' && (() => { rowOf('user1').click(); const off = stopsRow.hidden && !stopsAt.textContent; rowOf('preview').click(); return off; })());
     const word = (t) => badges[t].el.querySelector('.pos-pres-w').textContent;
     const state = (t) => [badges[t].el.dataset.state, badges[t].el.dataset.busy || ''].join(' ');
     d.assert('three states in words: positron on preview, Väin on radio1965 with their title, off on user1',
@@ -586,7 +606,7 @@
     // put it all back
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
-    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); badges[t].set('unknown'); stRows[STATIONS.indexOf(t)].children[2].textContent = ''; }
+    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); badges[t].set('unknown'); stRows[STATIONS.indexOf(t)].children[2].textContent = ''; stRows[STATIONS.indexOf(t)].children[3].textContent = ''; }
     mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true);
     rowOf('preview').click(); say(''); paintDetail(); dBadge.set('unknown');
     d.assert('after the checks nothing is open: no socket, no player, no file playing',

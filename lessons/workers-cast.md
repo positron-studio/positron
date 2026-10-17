@@ -4,7 +4,37 @@ Why `workers/cast` is shaped the way it is. Each `why:` pointer in the code name
 
 ## `workers/cast/worker.mjs`
 
+### cap
+
+`Caster.command()` `play`, `extend`, `alarm()`; `/radio/cast/` STOPS and EXTEND. Every start stores
+`until = now + 2 h` in the wanted session, and the alarm stops the station through `stop()` (the same path as
+`stop`, which destroys the container) once `Date.now() >= until`, dated in `stopped` as `stopped at the cap`.
+Asked 2026-10-17: *"Stop defaul casting let me do it"*, *"You were wasting my money with ghost stations"*: a
+`test` station nobody could see on the page had been casting for hours, and agents had left `preview` on air.
+Then "Yed" to a 2 h self-stop per station shown on the page with a way to extend, and to removing `test`.
+
+- `until` lives in storage, so a restarted object and a restarted container keep it: a death goes through
+  `died()` and `bring()`, which never touch `want.until`. A session from before the cap has none and is
+  measured from `startedAt + 2 h`. The alarm is set at `min(now + 30 s, until)`, never in the past.
+- `{cmd:'extend', ms}` sets `until = now + ms`, clamped to 15 min .. 12 h; off air it is refused.
+- `play` takes `capMs` (60 s .. 12 h) through the keyed socket only, so a check can start a station that ends
+  itself in a minute without a lower floor on `extend`.
+- An alarm that finds a wanted session for a target that no longer exists stops it, so removing a target
+  cannot leave a container restarting itself.
+
+MEASURED 2026-10-17 on `preview`, cast version 26460d1c: `play` with `capMs: 60000` at 13:05:26, `until`
+13:06:26, on air from the first read; `stopped at the cap` dated 13:06:26Z and the next read (13:06:27) had
+`playing: false` and `container.running: false`. A default start read `until` 120.0 min after `since`;
+`extend` 15 min moved it to 13:21:36, 4 h to 17:06:38, and 60 s was clamped to 15.0 min from now. A `kill`
+brought the source back in 2.7 s on a new boot with the same `until`.
+
+`test` and its receiver went the same day: `/status/test` and `/control/test` answer 404 `no target test`, and
+the Rx class was deleted with a `deleted_classes` migration (v2) because it kept nothing in storage. The
+container's `wsSink` for a `kind: 'ws'` target is still in `container/server.mjs`; nothing names it.
+
 ### rx-websocket
+
+Retired 2026-10-17 with the Rx class (see cap above); kept as the record.
 
 `Rx.ingestSocket()`: the test receiver takes its source over a WebSocket as well as a PUT.
 
