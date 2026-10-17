@@ -203,6 +203,8 @@
 
   // SOUND, for every station: copy plays files whole, mix tunes an AM dial between two of them
   const mixUi = {}, touched = {};
+  // A picked mode holds until the station reports it: a status built before the press can land seconds later.
+  let pendingMode = null;
   const lastSent = {}, pendingSet = {};
   function setMix(name, v) {
     touched[name] = Date.now();
@@ -217,7 +219,7 @@
   }
   const MODES = ['copy', 'mix', 'grains'];
   mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
-    onPick: (v) => { touched.mode = Date.now(); showGrains(v === 'grains'); send(target, { cmd: 'mode', mode: v }); } });
+    onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); send(target, { cmd: 'mode', mode: v }); } });
   mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
   mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
     onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
@@ -261,7 +263,8 @@
   /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
   function paintMix(st) {
     const w = st.wanted || {}, set = w.set || {}, x = st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
-    if (fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
+    if (pendingMode && (pendingMode.t !== target || w.mode === pendingMode.v || Date.now() - pendingMode.at > 20000)) pendingMode = null;
+    if (!pendingMode && fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
     showGrains(MODES[mixUi.mode.get()] === 'grains');
     const gp = w.patch || {}, gi = Math.max(0, NAMES.indexOf(gp.name ?? NAMES[0])), gv = { ...valuesOf(PATCHES[gi]), mix: 1, ...(gp.set || {}) };
     if (fresh('patch')) mixUi.patch.show(NAMES[gi], gi);

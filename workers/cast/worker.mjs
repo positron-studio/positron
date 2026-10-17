@@ -254,12 +254,14 @@ export class Caster {
     if (ids?.length && !prog.length) throw new Error('none of those is in their archive feed');
     await this.st.put('program', prog);
     const want = await this.st.get('want');
-    if (!want || !this.c?.running || !prog.length) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
-    const cur = (await this.cstatus())?.now?.id, i = prog.findIndex((x) => String(x.id) === String(cur));
-    const queue = i < 0 ? prog : [...prog.slice(i + 1), ...prog.slice(0, i + 1)];
+    if (!want || !this.c?.running) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
+    // An empty program is the whole archive, on air as on start.
+    const list = prog.length ? prog : (await feed(this.ctx)).map(({ id, title, url }) => ({ id, title, url }));
+    const cur = (await this.cstatus())?.now?.id, i = list.findIndex((x) => String(x.id) === String(cur));
+    const queue = i < 0 ? list : [...list.slice(i + 1), ...list.slice(0, i + 1)];
     await this.cpost('/queue', { queue });
     await this.st.put('want', { ...want, queue });
-    this.say(`program ${prog.length} files, after this one`); this.push();
+    this.say(prog.length ? `program ${prog.length} files, after this one` : 'program cleared, the whole archive after this one'); this.push();
   }
 
   /** What the container is told about the mix on every /play: the stored mode and every control. */
