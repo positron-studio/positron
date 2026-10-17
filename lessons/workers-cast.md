@@ -290,3 +290,74 @@ the size is fixed at start and grains measured 23 to 25 per cent of a core with 
 A deploy did not reach the `preview` Caster for about four minutes after its container was stopped: `{cmd:'mode',
 mode:'grains'}` was answered by the previous code's `mode is copy or mix` every 15 s until the object was let go.
 A status poll every 15 s did not keep it from going in the end.
+
+## `demo/radio/cast/local.mjs` and `GET /file/<id>`: LOCAL, a station's sound tried in the browser
+
+Asked 2026-10-17: *"How can I preview my grain and stuff if the station is off? ... Only I have an archive file."*,
+then yes to a local preview with the same tuner and grain ring on the archive files, driven by the same SOUND
+controls, free, nothing on air, and *"I wand rapid iterations on sound"*.
+
+### local
+
+`createLocal` is the container's mix mode rebuilt out of the page's own parts, not a third design: the tuner is
+`createTunerGraph` itself (the graph the container's `createTuner` was ported from and graded against), the drift
+clock is `mixer.mjs`'s `createEngine` clock line for line in the AudioContext's audio seconds (dwell, preroll
+`min(dwell / 2, 4)`, the 6 s prefetch, smoothstep over the blend, landing; the held dial; a file that ends in its
+dwell starts the blend), `noise` scales the mix's noise as the container does, and the grains are `createRingEngine`
+on wasm scsynth with the same PROGRAM and compiler the container hands its native scsynth. The context runs at
+44100 Hz, the container's rate, so the biquads and the ring's 8 s buffer are the same numbers. Its constants
+(SLOTS, DEFAULTS, LIMITS, PATCH_LIMITS, the two clamps) are copies, and `workers/cast/local-test.mjs` compares them
+with the container's on 27 inputs (sabotaged: a moved slot and a wider dwell take 3 red). Copy mode plays the slot
+on air straight to the output, file after file; the container's copy is the MP3 frame copier, so locally it is the
+decoded file, the same sound.
+
+Where the two are not the same sound, by construction:
+- grains: wasm scsynth in an AudioWorklet against native scsynth under JACK; same synthdef bytes, different random
+  streams (Dust, TRand), so no two runs are sample-equal either way;
+- the tuner: the browser has the WaveShaper's `oversample: '2x'` and per-sample filter automation, the container
+  neither (mixer.mjs, `### mixer`);
+- the files: the browser decodes them stereo and the graph's highpass downmixes 0.5 (L + R); the container decodes
+  to mono with ffmpeg first. The echo leg's delay runs stereo until that point, which is linear, so the same;
+- one patch edge: a patch by name keeps the previous wet (`mix`) in both, while the page's wet slider shows 1.
+
+Each file is an `<audio crossOrigin="anonymous">` through `createMediaElementSource`, so a long file streams
+rather than being decoded whole into memory (an hour at 44.1 kHz stereo float is 1.3 GB), and it needs CORS, which
+their host does not send: hence `/file/<id>`. Nothing is made until START; a press on LOCAL, LISTEN or a prelisten
+stops the other two, and choosing another station stops LOCAL.
+
+MEASURED 2026-10-17, headless Chrome, `scratchpad/loc/inpage.js`, files from a CORS stand-in, a worklet tap on the
+output computing 1000 Hz Goertzel energy and the mean square every render quantum (128 frames, 2.9 ms):
+- a `set tune` (0.46 to 0.54 and back, slot a silent, slot b a 1000 Hz tone, noise 0), six moves: the band leaves
+  its baseline 2 quanta (5.8 ms) after the call going up, 4 to 5 quanta (11.6 to 14.5 ms) going down; half the
+  change at 14.5 to 26.1 ms, which is the 0.04 s time constant both the page and the container use. Wall clock
+  from the call to the quantum that showed it: 6.4 to 16.2 ms. Output latency on top: base 5.4 ms, output 16 ms.
+- a grain `tone` move (300 and 20000 on a steady patch): the band steps within 0 to 1 quantum, by 20 dB.
+- grains up 573 to 631 ms after the first switch to grains (once per page); `mode` switches after that are gain
+  gates with a 5 ms constant.
+- the tuner's output against the page output, correlation over 2048 samples, ten reads: mix 1.0; grains (Cloud,
+  wet 1) -0.15 to 0.09; mix again 1.0 in nine of ten.
+- a patch switch (Cloud to Dub) in grains: 30 windows of 50 ms after it, -27.9 to -33.8 dB against -32.3 at worst
+  before: no gap.
+- the clock on the two archive files, dwell 5 blend 3: one landing in 12 s, phases dwell and blend, both files
+  advancing; level -13 dB.
+
+The first check measured nothing: `performance?.now?.()` inside the AudioWorklet throws, because `performance` is
+not declared in that scope at all and optional chaining does not cover an undeclared name, so the tap died on its
+first quantum and every onset read null. And the first latency numbers (8 to 14 quanta) were the threshold sitting
+in noise: a 128-sample Goertzel at 1000 Hz picks up a 440 Hz tone in the other slot and the tuning noise. With slot
+a silent and noise 0 the onset is the 2 quanta above.
+
+### file
+
+`GET https://cast.positron.studio/file/<id>`: one archive file with `access-control-allow-origin: *`, for LOCAL. The
+id is resolved through `feed()` (their audio on eccm.ee and uuu.ee, cached 60 s), so the route is an allowlist and
+never fetches a URL a caller names; an id not in the feed is a 404, and a feed URL with a port is refused, so it can
+never reach their Icecast on 8001. A hit is `caches.default`, which answers a `Range` itself (206 from the whole
+file it holds). A miss fetches the file once with `cf: { cacheEverything, cacheTtl: a year }` and tees it: one half
+into `caches.default` with `cache-control: public, max-age=31536000, immutable`, the other to the caller as a 200
+even to a Range, which a media element takes. Archive files do not change, so one upstream fetch per file per colo,
+about ever. `content-type` is forwarded, never invented.
+
+MEASURED 2026-10-17 on the deploy, *Driving along* (`evt_1791874248959`): first request 200, `x-cast-cache: miss`,
+1,630,223 bytes, `audio/mpeg`; second 200, `hit`, the same bytes (cmp); `range: bytes=1000-1999` 206,
+`content-range: bytes 1000-1999/1630223`, `hit`; an unknown id and `..%2Fx` 404.

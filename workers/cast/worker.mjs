@@ -6,6 +6,7 @@
 //                              mode (copy | mix | grains), set (tune, drift, dwell, blend, noise) for the mix,
 //                              patch ({name?, set?}: the grain ring, clamped, kept, at most 20 a second)
 //   GET  /status/<target>      the same status, read only
+//   GET  /file/<id>            one archive file by feed id, with CORS and Range, cached at the edge a year (the page's LOCAL)
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
@@ -86,12 +87,47 @@ async function feed(ctx) {
   return items;
 }
 
+/**
+ * One archive file with CORS, for the page's LOCAL play: the id resolves through the feed (an allowlist, never
+ * a URL), the file is asked of their host once per colo and kept a year. why: lessons/workers-cast.md#file
+ */
+const FILE_ID = /^[A-Za-z0-9_-]{1,64}$/, FILE_KEEP_S = 365 * 86400;
+const fileCors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'content-type, content-length, content-range, accept-ranges, x-cast-cache' };
+async function file(req, id, ctx) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return json({ error: 'GET a file' }, 405);
+  if (!FILE_ID.test(id || '')) return json({ error: 'no such file' }, 404);
+  const cache = caches.default, key = `https://cast.positron.studio/__file/${id}`, range = req.headers.get('range');
+  // the cache answers a Range itself, 206 from the whole file it holds
+  const hit = await cache.match(new Request(key, range ? { headers: { range } } : {}));
+  const send = (r, how) => {
+    const h = new Headers(r.headers);
+    for (const [k, v] of Object.entries(fileCors)) h.set(k, v);
+    h.set('x-cast-cache', how);
+    return new Response(req.method === 'HEAD' ? null : r.body, { status: r.status, headers: h });
+  };
+  if (hit) return send(hit, 'hit');
+  let item;
+  try { item = (await feed(ctx)).find((x) => String(x.id) === id); } catch (e) { return json({ error: e.message }, 502); }
+  if (!item) return json({ error: 'not in their archive feed' }, 404);
+  const u = new URL(item.url);
+  if (!/^https?:$/.test(u.protocol) || u.port) return json({ error: 'not a file on their web host' }, 404);
+  const up = await fetch(u, { headers: { 'user-agent': 'positron-cast/1 (+https://positron.studio)' }, cf: { cacheEverything: true, cacheTtl: FILE_KEEP_S } });
+  if (up.status !== 200 || !up.body) { up.body?.cancel(); return json({ error: `their host answered ${up.status}` }, 502); }
+  const h = new Headers({ 'cache-control': `public, max-age=${FILE_KEEP_S}, immutable`, 'accept-ranges': 'bytes' });
+  for (const k of ['content-type', 'content-length', 'last-modified', 'etag']) { const v = up.headers.get(k); if (v) h.set(k, v); } // forwarded, never invented
+  const [a, b] = up.body.tee();
+  ctx.waitUntil(cache.put(key, new Response(a, { headers: h })).catch(() => { /* the next request asks again */ }));
+  // a miss answers the whole file even to a Range: a media element takes a 200
+  return send(new Response(b, { headers: h }), 'miss');
+}
+
 export default {
   async fetch(req, env, ctx) {
     const u = new URL(req.url), [, route, name] = u.pathname.split('/');
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'GET, PUT', 'access-control-allow-headers': '*' } });
     if (route === 'feed') { try { return json({ items: await feed(ctx) }); } catch (e) { return json({ error: e.message }, 502); } }
     if (route === 'live') { try { return json(await live(ctx)); } catch (e) { return json({ error: e.message }, 502); } }
+    if (route === 'file') return file(req, name, ctx);
     if (!NAME.test(name || '')) return json({ error: 'no such route' }, 404);
     if (route === 'control' || route === 'status') {
       if (!targets(env)[name]) return json({ error: `no target ${name}` }, 404);

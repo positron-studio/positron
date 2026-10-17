@@ -67,13 +67,14 @@
   import { createTable } from '/shell/table.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { scopeWindow } from '/shell/rt-scope.mjs';
+  import { createLocal } from '/radio/cast/local.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
   const BASE = q.get('cast') || 'https://cast.positron.studio';
   const SHOUT = q.get('shout') || 'https://shout.positron.studio';
   const d = mount({ name: 'Väin cast',
-    what: 'Every station keeps its own program and sound, and Väin\'s archive goes on air from Cloudflare.',
+    what: 'Each station plays Väin\'s archive with its own program and sound, tried here first and put on air from Cloudflare.',
     index: '/', indexLabel: 'positron',
     readout: { listening: '', heard: 's', level: 'dB', prelisten: '' } });
   conceptNav('radio/cast');
@@ -98,6 +99,8 @@
   bay.addNode({ id: 'cf-shout:radio1965', kind: 'endpoint', label: 'shout relay', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: 'web:player', kind: 'engine', label: 'player' });
   bay.addNode({ id: 'web:prelisten', kind: 'engine', label: 'prelisten' });
+  bay.addNode({ id: 'cf-cast:files', kind: 'endpoint', label: 'file pass', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: 'web:local', kind: 'engine', label: 'local' });
   bay.addPort({ id: 'vain:archive:audio-out', dir: 'out', medium: 'audio', label: 'mp3 files', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:caster:audio-out', dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
@@ -109,22 +112,30 @@
   bay.addPort({ id: 'cf-shout:radio1965:audio-out', dir: 'out', medium: 'audio', label: '/radio1965', transports: ['https'] });
   bay.addPort({ id: 'web:player:audio-in', dir: 'in', medium: 'audio', label: 'listen', transports: ['https'] });
   bay.addPort({ id: 'web:prelisten:audio-in', dir: 'in', medium: 'audio', label: 'one file', transports: ['https'] });
+  bay.addPort({ id: 'cf-cast:files:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
+  bay.addPort({ id: 'cf-cast:files:audio-out', dir: 'out', medium: 'audio', label: '/file', transports: ['https'] });
+  bay.addPort({ id: 'web:local:audio-in', dir: 'in', medium: 'audio', label: 'tuner, grains', transports: ['https'] });
   const SINK = (t) => (t === 'preview' ? 'cf-icecast:preview:audio-in' : 'vain:icecast:audio-in');
   const HEARD = { preview: [['cf-icecast:preview:audio-out', 'web:player:audio-in']],
     radio1965: [['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in'], ['cf-shout:radio1965:audio-out', 'web:player:audio-in']] };
   const status = {}; // target -> its last status
   let player = null, levelTimer = 0, listenTarget = null, pre = null, preId = null;
+  // LOCAL: the open station's sound played in this browser off /file/<id>, free, nothing on air (local.mjs)
+  let local = null, localFor = null;
+  const localOn = () => !!local?.playing;
   const listening = () => !!player && !player.audio.paused;
   const prelistening = () => !!pre && !pre.paused;
   const pb = createPatchbay(bay, { flowing: (l) => {
     if (l.to === 'web:prelisten:audio-in') return prelistening();
+    if (l.to === 'web:local:audio-in' || l.to === 'cf-cast:files:audio-in') return localOn();
     if (l.to === 'web:player:audio-in' || l.from === 'vain:icecast:audio-out') return listening() && listenTarget === target;
     return !!status[target]?.onAir;
   } });
   function wire() {
     for (const l of bay.links()) bay.unlink(l.id);
     for (const [a, b] of [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)],
-      ...(HEARD[target] || []), ['vain:archive:audio-out', 'web:prelisten:audio-in']]) {
+      ...(HEARD[target] || []), ['vain:archive:audio-out', 'web:prelisten:audio-in'],
+      ['vain:archive:audio-out', 'cf-cast:files:audio-in'], ['cf-cast:files:audio-out', 'web:local:audio-in']]) {
       const r = bay.link(a, b, [], { via: a.startsWith('cf-cast:caster') ? 'icecast' : 'https', consent: true });
       if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
     }
@@ -162,6 +173,7 @@
     const t = target;
     progs[t] = ids; progTouched[t] = Date.now();
     showProgram();
+    if (localOn() && localFor === t) local.queue(localQueue());
     return send(t, status[t]?.onAir ? { cmd: 'queue', ids } : { cmd: 'program', ids });
   }
 
@@ -216,6 +228,7 @@
   const lastSent = {}, pendingSet = {};
   function setMix(name, v) {
     touched[name] = Date.now();
+    if (localOn()) local.set(name, v);
     pendingSet[name] = v;
     const wait = Math.max(0, 50 - (Date.now() - (lastSent.at || 0)));
     if (lastSent.timer) return;
@@ -227,13 +240,16 @@
   }
   const MODES = ['copy', 'mix', 'grains'];
   mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
-    onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); send(target, { cmd: 'mode', mode: v }); } });
+    onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); if (localOn()) local.mode(v); send(target, { cmd: 'mode', mode: v }); } });
   mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
   mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
     onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
   mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
   mixUi.blend = createSlider({ label: 'blend', min: 2, max: 60, step: 1, value: 16, unit: 's', onInput: (v) => setMix('blend', v) });
   const sound = createGlueRows({ align: 'start', full: true });
+  const localBtns = createButtonGroup({ buttons: [{ id: 'local', label: 'local', onPress: () => (localFor ? stopLocal() : startLocal()) }] });
+  const soundHead = el('div', 'vc-head');
+  soundHead.append(el('h3', 'pos-sec-h', 'sound'), localBtns.el);
   const both = el('span', 'vc-ctl'); both.append(mixUi.mode.el, mixUi.drift.el);
   sound.row([both]);
   sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
@@ -254,12 +270,12 @@
   }
   const showPatch = (i) => { mixUi.patch.show(NAMES[i], i); const v = valuesOf(PATCHES[i]);
     for (const n of GRAIN) mixUi[`g${n}`].set(n === 'mix' ? 1 : v[n], true); };
-  const pickPatch = (i) => { touched.patch = Date.now(); showPatch(i); sendPatch({ name: NAMES[i] }); };
+  const pickPatch = (i) => { touched.patch = Date.now(); showPatch(i); if (localOn()) local.patch({ name: NAMES[i] }); sendPatch({ name: NAMES[i] }); };
   const patchAt = () => Math.max(0, NAMES.indexOf(mixUi.patch.select.value));
   mixUi.patch = createPicker({ label: 'patch', what: 'patch', onPick: pickPatch,
     prev: () => pickPatch((patchAt() + NAMES.length - 1) % NAMES.length), next: () => pickPatch((patchAt() + 1) % NAMES.length) });
   mixUi.patch.options(NAMES, 0);
-  const grainSet = (n) => (v) => { touched[`g${n}`] = Date.now(); sendPatch({ set: { [n]: v } }); };
+  const grainSet = (n) => (v) => { touched[`g${n}`] = Date.now(); if (localOn()) local.patch({ set: { [n]: v } }); sendPatch({ set: { [n]: v } }); };
   mixUi.gmix = createSlider({ label: 'wet', min: 0, max: 1, step: 0.01, value: 1, digits: 2, onInput: grainSet('mix') });
   mixUi.gdensity = createSlider({ label: 'density', min: 0.5, max: 64, step: 0.5, value: 30, unit: '/s', onInput: grainSet('density') });
   mixUi.gsize = createSlider({ label: 'size', min: 0.02, max: 2, step: 0.01, value: 0.15, digits: 2, unit: 's', onInput: grainSet('size') });
@@ -329,7 +345,7 @@
   }
   const showPre = () => { for (const [id, a] of archRows) a.btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten'); };
 
-  const pick = (t) => { if (t === target) return; target = t; for (const n of Object.keys(touched)) touched[n] = 0; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
+  const pick = (t) => { if (t === target) return; stopLocal(); target = t; for (const n of Object.keys(touched)) touched[n] = 0; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
   const refuse = (t) => { say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
   const cast = (t) => {
     if (status[t]?.playing) return send(t, { cmd: 'stop' });
@@ -409,7 +425,7 @@
   // ── prelisten: one file straight from their host, one at a time, no analyser (their host sends no CORS) ──
   let prePlay = (a) => a.play();
   function prelisten(x) {
-    stopListening();
+    stopListening(); stopLocal();
     pre ||= Object.assign(document.createElement('audio'), { preload: 'none' });
     pre.onerror = () => { d.log(`${x.title} did not play`, 'warn'); stopPrelisten(); };
     pre.onplaying = () => { showPre(); pb.refresh(); };
@@ -452,7 +468,7 @@
     const url = listenUrl(t);
     if (!url) return;
     if (!status[t]?.onAir) { d.log(`${t} is not on air: start the cast first`, 'warn'); return; }
-    stopPrelisten(); stopListening();
+    stopPrelisten(); stopListening(); stopLocal();
     player ||= makePlayer();
     player.ctx.resume().catch(() => { /* sound may be late, the stream is not */ });
     listenTarget = t;
@@ -474,15 +490,61 @@
     scope.el.hidden = true;
     paintDetail(); pb.refresh();
   }
+  // ── LOCAL: the sound controls as they stand, on the open station's program, heard here at once ──
+  const localFile = (it) => `${BASE}/file/${encodeURIComponent(it.id)}`;
+  let makeLocal = () => createLocal({ fileUrl: localFile, log: (m, kind) => d.log(`local: ${m}`, kind) });
+  const localQueue = () => startIds(target).map((id) => ({ id, title: titleOf(id) }));
+  function localSound() {
+    const w = status[target]?.wanted || {};
+    return { mode: MODES[mixUi.mode.get()],
+      set: { ...(w.set || {}), drift: mixUi.drift.get() === 0 ? 1 : 0, tune: mixUi.tune.get(), dwell: mixUi.dwell.get(), blend: mixUi.blend.get() },
+      patch: { name: NAMES[patchAt()], set: { ...(w.patch?.set || {}), ...Object.fromEntries(GRAIN.map((n) => [n, mixUi[`g${n}`].get()])) } } };
+  }
+  async function startLocal() {
+    if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
+    stopListening(); stopPrelisten();
+    local ||= makeLocal();
+    localFor = target;
+    d.set('listening', `local ${target}`);
+    scope.el.hidden = false; paintLocal();
+    await local.start({ queue: localQueue(), ...localSound() });
+    if (!localOn()) return;
+    clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
+    pb.refresh();
+  }
+  function stopLocal() {
+    if (!localFor) return;
+    local?.stop(); localFor = null;
+    clearInterval(levelTimer);
+    d.set('listening', ''); d.set('level', ''); d.set('heard', '');
+    scope.set({ points: null, reason: null, name: '' }); scope.el.hidden = true;
+    paintLocal(); pb.refresh();
+  }
+  const localBuf = new Float32Array(2048);
+  function readLocal() {
+    if (!localOn() || !local.analyser) return;
+    local.analyser.getFloatTimeDomainData(localBuf);
+    let sum = 0;
+    for (const v of localBuf) sum += v * v;
+    const rms = Math.sqrt(sum / localBuf.length), st = local.status();
+    d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
+    d.set('heard', Math.floor(st.slots[st.from]?.at ?? 0));
+    scope.set({ points: scopeWindow(localBuf), reason: '', name: `local ${localFor}` });
+  }
+  function paintLocal() {
+    const b = localBtns.button('local');
+    b.textContent = localFor ? 'stop' : 'local';
+    b.title = localFor ? 'stop the local sound' : 'play this sound here: free, nothing goes on air';
+  }
   const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
   scope.el.hidden = true;
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
   const stations = sec('stations', stTable.el); stations.classList.add('vc-stations');
   const detail = el('div', 'vc-detail');
-  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('', progHead, progEmpty, progHost));
+  detail.append(sec('', head, playing.el), sec('', soundHead, sound.el), sec('', progHead, progEmpty, progHost));
   const main = el('div', 'vc-main'); main.append(stations, detail);
-  wire(); markOpen(); paintDetail();
+  wire(); markOpen(); paintDetail(); paintLocal();
   d.stack.add(main, scope.el, sec('archive', archList.el), pb.el);
   await loadFeed();
 
@@ -490,20 +552,20 @@
   window.__demo.listenUrl = listenUrl;
   window.__demo.probe = () => ({ items: items.length, target, progs: { ...progs }, key: !!key, sockets: Object.keys(sockets), listening: listening(),
     heard: player ? +player.audio.currentTime.toFixed(2) : null, src: player?.audio.getAttribute('src') || null,
-    pre: pre?.getAttribute('src') || null, preAt: pre ? +pre.currentTime.toFixed(2) : null,
+    pre: pre?.getAttribute('src') || null, local: local ? local.status?.() : null, preAt: pre ? +pre.currentTime.toFixed(2) : null,
     status: Object.fromEntries(Object.entries(status).map(([t, s]) => [t, { onAir: s.onAir, now: s.now, next: s.next, program: s.program }])),
     links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
 
   if (SELFCHECK) {
     const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
-    const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
+    const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|\/file\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
     const rowOf = (t) => stRows[STATIONS.indexOf(t)];
     d.assert('six stations in one list, preview first, open and marked by default',
       stRows.map((r) => r.dataset.station).join() === STATIONS.join() && target === 'preview' && dName.textContent === 'preview'
       && rowOf('preview').classList.contains('on') && stRows.filter((r) => r.classList.contains('on')).length === 1, stRows.map((r) => r.dataset.station).join());
-    d.assert('a visit opens no control socket, no player and no prelisten, and asks no audio URL',
-      !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !audioReqs().length, audioReqs().join(' '));
+    d.assert('a visit opens no control socket, no player, no prelisten and no local sound, and asks no audio URL or file',
+      !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !local && !audioReqs().length, audioReqs().join(' '));
     // selecting: a press on a row opens it, and every station has the same sound controls
     const seen = [];
     for (const t of STATIONS) {
@@ -583,6 +645,39 @@
       d.assert('a prelisten press sets that file on its own <audio> with no crossOrigin, and a second press takes it off',
         set && !pre.getAttribute('src') && preId === null);
       prePlay = (a) => a.play();
+      // LOCAL, against an engine that records instead of playing, so the check fetches no file
+      const calls = [], realMake = makeLocal;
+      makeLocal = () => { const f = { playing: false, analyser: null, status: () => ({ from: 0, slots: [{ at: 0 }] }),
+        start: async (o) => { f.playing = true; calls.push(['start', o]); }, stop: () => { f.playing = false; calls.push(['stop']); },
+        set: (n, v) => calls.push(['set', n, v]), mode: (v) => calls.push(['mode', v]), patch: (p) => calls.push(['patch', p]), queue: (qq) => calls.push(['queue', qq]) }; return f; };
+      sent.length = 0;
+      mixUi.mode.buttons[1].click(); await tick(100); sent.length = 0;
+      localBtns.button('local').click(); await tick();
+      const st0 = calls.find(([c]) => c === 'start')?.[1];
+      d.assert('LOCAL plays the open station\'s program here with its sound as it stands (the dial held at 0.51 above), each file from /file/<id>',
+        localOn() && localFor === 'user3' && st0?.queue.map((x) => x.id).join() === startIds('user3').join() && st0.mode === 'mix'
+        && st0.set.drift === 0 && Math.abs(st0.set.tune - 0.51) < 1e-9 && st0.patch.name === NAMES[patchAt()] && localFile(items[0]) === `${BASE}/file/${items[0].id}`
+        && localBtns.button('local').textContent === 'stop' && !scope.el.hidden, JSON.stringify(st0));
+      calls.length = 0;
+      mixUi.tune.set(0.5);
+      const heardAt = calls.find(([c, n]) => c === 'set' && n === 'tune')?.[2];
+      mixUi.gdensity.set(12);
+      mixUi.mode.buttons[2].click();
+      await tick(300);
+      d.assert('a control move reaches the local sound at once and is also sent to the station as its stored setting',
+        heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains')
+        && sent.some(([t, m]) => t === 'user3' && m.cmd === 'set' && m.name === 'tune' && m.v === 0.5)
+        && sent.some(([t, m]) => t === 'user3' && m.cmd === 'patch' && m.set?.density === 12)
+        && sent.some(([t, m]) => t === 'user3' && m.cmd === 'mode' && m.mode === 'grains'), JSON.stringify({ calls, sent }));
+      d.assert('NEGATIVE CONTROL: LOCAL never starts a station, so nothing sent is play, queue or extend',
+        sent.length > 0 && sent.every(([, m]) => !['play', 'queue', 'extend'].includes(m.cmd)), sent.map(([, m]) => m.cmd).join());
+      prePlay = () => null;
+      archRows.get(items[1].id).btns.button('pre').click();
+      d.assert('one sound at a time: a prelisten stops the local sound',
+        !localOn() && localFor === null && calls.at(-1)?.[0] === 'stop' && preId === items[1].id && localBtns.button('local').textContent === 'local');
+      stopPrelisten(); prePlay = (a) => a.play();
+      mixUi.mode.buttons[0].click(); showGrains(false);
+      makeLocal = realMake; local = null;
       delete status.user3; delete progs.user3; delete progTouched.user3;
     }
     for (const n of Object.keys(touched)) touched[n] = 0;
@@ -623,7 +718,7 @@
     mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true);
     rowOf('preview').click(); say(''); paintDetail(); dBadge.set('unknown');
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
-      !Object.keys(sockets).length && !player && !prelistening() && !audioReqs().length, audioReqs().join(' '));
+      !Object.keys(sockets).length && !player && !prelistening() && !localOn() && !audioReqs().length, audioReqs().join(' '));
     poll(); setInterval(poll, 3000);
   }
   d.ready();
