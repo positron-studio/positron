@@ -1,7 +1,9 @@
 // positron-cast: Väin's archive played live into an Icecast mount from Cloudflare, no machine of ours.
 //   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s
-//   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second
+//   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
+//                              mode (copy | mix) and set (tune, drift, dwell, blend, noise) for the mix
 //   GET  /status/<target>      the same status, read only
+//   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   PUT  /ingest/<mount>       our own test Icecast receiver: a source client's PUT, Basic auth `source:`
 //   GET  /ingest/<mount>       the same as a WebSocket: the PUT's header lines as one text message, then audio
 //   GET  /listen/<mount>       the receiver's mount, audio/mpeg, to any number of listeners
@@ -12,11 +14,14 @@
 // The source speaks exactly what Väin's own app sends (radio1965 app/icecastbroadcaster.cpp): PUT over
 // HTTP/1.0, `ice-audio-info: send_notification=0;save_stream=0`, on air at a ` 200` status line.
 
+import { clampSet, DEFAULTS as MIX_DEFAULTS } from './container/mixer.mjs';
+
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
 const FEED_TYPES = new Set(['audio', 'streamrecording']);
 const FEED_HOSTS = new Set(['eccm.ee', 'uuu.ee', 'www.uuu.ee']);
 // Smallest custom size; memory and vCPU are coupled at the platform's floor. Sweep every 30 s.
 const CAST_INSTANCE = { vcpu: 0.25, memoryMib: 1024, diskMb: 2048 };
+const SET_EVERY_MS = 50;   // mix controls reach the container at most 20 a second
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 
 /**
@@ -35,17 +40,45 @@ const cors = { 'access-control-allow-origin': '*', 'access-control-expose-header
 const json = (o, status = 200) => new Response(JSON.stringify(o, null, 1), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...cors } });
 const NAME = /^[a-z0-9]{1,16}$/;
 
+const CHANNELS = ['radio1965', 'user1', 'user2', 'user3', 'user4'];
+// Their events API, asked only when a page or a command needs it: one answer per colo per EVENTS_S,
+// and one request per isolate however many viewers ask at once. why: lessons/workers-cast.md#live
+const EVENTS_S = 15, FEED_S = 60;
+let eventsInFlight = null;
+async function events(ctx) {
+  const cache = caches.default, key = new Request('https://cast.positron.studio/__events');
+  const hit = await cache.match(key);
+  if (hit) return hit.json();
+  eventsInFlight ||= (async () => {
+    const r = await fetch(FEED, { headers: { 'user-agent': 'positron-cast/1 (+https://positron.studio)' } });
+    if (!r.ok) throw new Error(`their feed answered ${r.status}`);
+    const list = ((await r.json()).events || []).map(({ id, type, status, title, url, publish_at, author_name }) => ({ id, type, status, title, url, publish_at, author_name }));
+    const body = JSON.stringify({ at: Date.now(), list });
+    ctx?.waitUntil?.(cache.put(key, new Response(body, { headers: { 'cache-control': `max-age=${EVENTS_S}` } })));
+    return JSON.parse(body);
+  })().finally(() => { eventsInFlight = null; });
+  return eventsInFlight;
+}
+
+/** Per channel `{ vain, title, id, since }`: a new `livestream` event their on-connect hook published for it. */
+async function live(ctx) {
+  const ev = await events(ctx), out = {};
+  for (const ch of CHANNELS) {
+    const e = ev.list.find((x) => x.type === 'livestream' && x.status === 'new' && /\/([a-z0-9]+)$/.exec(x.url || '')?.[1] === ch);
+    out[ch] = e ? { vain: true, title: e.title, id: e.id, since: e.publish_at } : { vain: false };
+  }
+  return { at: ev.at, ageS: Math.round((Date.now() - ev.at) / 1000), everyS: EVENTS_S, channels: out };
+}
+
 /** Their archive as `{ id, title, url, type, at, author }`, only audio on their own hosts. */
 async function feed(ctx) {
   const cache = caches.default, key = new Request('https://cast.positron.studio/__feed');
   const hit = await cache.match(key);
   if (hit) return hit.json();
-  const r = await fetch(FEED, { headers: { 'user-agent': 'positron-cast/1 (+https://positron.studio)' } });
-  if (!r.ok) throw new Error(`their feed answered ${r.status}`);
-  const items = ((await r.json()).events || []).filter((e) => FEED_TYPES.has(e.type) && e.url && (() => {
+  const items = (await events(ctx)).list.filter((e) => FEED_TYPES.has(e.type) && e.url && (() => {
     try { return FEED_HOSTS.has(new URL(e.url).hostname); } catch { return false; } })())
     .map((e) => ({ id: e.id, title: e.title, url: e.url, type: e.type, at: e.publish_at, author: e.author_name || '' }));
-  ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify(items), { headers: { 'cache-control': 'max-age=60' } })));
+  ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify(items), { headers: { 'cache-control': `max-age=${FEED_S}` } })));
   return items;
 }
 
@@ -54,6 +87,7 @@ export default {
     const u = new URL(req.url), [, route, name] = u.pathname.split('/');
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'GET, PUT', 'access-control-allow-headers': '*' } });
     if (route === 'feed') { try { return json({ items: await feed(ctx) }); } catch (e) { return json({ error: e.message }, 502); } }
+    if (route === 'live') { try { return json(await live(ctx)); } catch (e) { return json({ error: e.message }, 502); } }
     if (!NAME.test(name || '')) return json({ error: 'no such route' }, 404);
     if (route === 'control' || route === 'status') {
       if (!targets(env)[name]) return json({ error: `no target ${name}` }, 404);
@@ -103,7 +137,7 @@ export class Caster {
   }
 
   async status() {
-    const [want, progress, deaths, boot] = await Promise.all(['want', 'progress', 'deaths', 'boot'].map((k) => this.st.get(k)));
+    const [want, progress, deaths, boot, mx] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'mix'].map((k) => this.st.get(k)));
     const t = targets(this.env)[this.name], s = await this.cstatus();
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
@@ -113,6 +147,10 @@ export class Caster {
       container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
         rss: s?.rss ?? null, sinkDeaths: s?.sinkDeaths ?? 0, lastError: s?.lastError || null },
       icecast: s?.icecast || null,
+      mode: s?.mode || mx?.mode || 'copy', wanted: { mode: mx?.mode || 'copy', set: { ...MIX_DEFAULTS, ...(mx?.set || {}) } },
+      mix: s?.mix ? (({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots, next, meter, landings, underruns, encoderRestarts }) =>
+        ({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots: slots.map((x) => ({ title: x.title, clear: x.clear })), next, meter, landings, underruns, encoderRestarts }))(s.mix) : null,
+      usage: s?.usage || null,
       progress: progress || null, deaths: deaths || [], lines };
   }
   async push() {
@@ -157,6 +195,8 @@ export class Caster {
   async command(text) {
     let m; try { m = JSON.parse(text); } catch { throw new Error('not JSON'); }
     if (m.cmd === 'stop') return this.stop('asked to stop');
+    if (m.cmd === 'mode') return this.mode(m.mode);
+    if (m.cmd === 'set') return this.set(m.name, m.v);
     if (m.cmd === 'next') { if (this.c?.running) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
     if (m.cmd === 'kill') { if (this.c?.running) { this.killing = true; this.say('killing the container on purpose'); await this.c.destroy().catch(() => {}); } return; }
@@ -167,6 +207,11 @@ export class Caster {
       const queue = (m.ids || []).map((id) => byId.get(String(id))).filter(Boolean).map(({ id, title, url }) => ({ id, title, url }));
       if (!queue.length) throw new Error('none of those is in their archive feed');
       const want = await this.st.get('want');
+      // Their own stream on this channel: their Icecast would answer 403 to a second source anyway.
+      if (!t.local && !(want && this.c?.running)) {
+        const l = (await live(this.ctx)).channels[this.name];
+        if (l?.vain) throw new Error(`Väin is streaming here: ${l.title}`);
+      }
       // queue: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
       if (m.cmd === 'queue') {
         if (!want || !this.c?.running) throw new Error('not on air: start the cast first');
@@ -176,7 +221,7 @@ export class Caster {
       }
       if (want && this.c?.running) {
         await this.st.put('want', { ...want, queue });
-        await this.cpost('/play', { queue, target: t });
+        await this.cpost('/play', { queue, target: t, ...(await this.mixBody()) });
         this.say(`queue replaced, ${queue.length} files`); return;
       }
       await this.st.put('want', { queue, target: this.name, startedAt: Date.now() });
@@ -185,6 +230,41 @@ export class Caster {
       await this.bring('asked to play');
       this.push();
     }
+  }
+
+  /** What the container is told about the mix on every /play: the stored mode and every control. */
+  async mixBody() {
+    const mx = (await this.st.get('mix')) || {};
+    return { mode: mx.mode === 'mix' ? 'mix' : 'copy', set: mx.set || {} };
+  }
+
+  /** copy (the frame copier, the fallback) or mix; on air it restarts the source in the other mode. */
+  async mode(mode) {
+    if (mode !== 'copy' && mode !== 'mix') throw new Error('mode is copy or mix');
+    const mx = (await this.st.get('mix')) || {};
+    await this.st.put('mix', { ...mx, mode });
+    const want = await this.st.get('want');
+    if (want && this.c?.running) await this.cpost('/play', { queue: want.queue, target: targets(this.env)[this.name], ...(await this.mixBody()) });
+    this.say(`mode ${mode}${want ? ', on air' : ', for the next play'}`);
+    this.push();
+  }
+
+  /** One mix control, clamped and kept; forwarded at most every SET_EVERY_MS. A hand on tune holds the dial. */
+  async set(name, v) {
+    const c = clampSet(name, v);
+    if (c === null) throw new Error(`no mix control ${name} = ${v}`);
+    const mx = (await this.st.get('mix')) || {}, add = name === 'tune' ? { tune: c, drift: 0 } : { [name]: c };
+    await this.st.put('mix', { ...mx, set: { ...(mx.set || {}), ...add } });
+    this.pendingSet = { ...(this.pendingSet || {}), ...add };
+    if (this.setTimer) return;
+    const flush = async () => {
+      this.setTimer = null;
+      const set = this.pendingSet; this.pendingSet = null;
+      if (!set || !this.c?.running || ((await this.st.get('mix')) || {}).mode !== 'mix') return;
+      this.lastSetAt = Date.now();
+      try { await this.cpost('/set', { set }); } catch (e) { this.say(`set: ${e.message}`); }
+    };
+    this.setTimer = setTimeout(flush, Math.max(0, SET_EVERY_MS - (Date.now() - (this.lastSetAt || 0))));
   }
 
   async stop(why) {
@@ -261,7 +341,7 @@ export class Caster {
     await this.up();
     const t = targets(this.env)[want.target], p = await this.st.get('progress');
     const resume = p?.index != null && p.now ? { index: p.index, at: p.now.at } : null;
-    await this.cpost('/play', { queue: want.queue, target: t, resume });
+    await this.cpost('/play', { queue: want.queue, target: t, resume, ...(await this.mixBody()) });
     this.say(`${why}: container playing${resume ? ` from file ${resume.index + 1} at ${resume.at} s` : ''}`);
     // the gap: from the death being dated to the source being on air again
     for (let i = 0; i < 40; i++) {

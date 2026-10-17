@@ -2,6 +2,8 @@
 // source connection. Control is plain HTTP on :8080 from the Caster Durable Object.
 //   POST /play  { queue: [{id,title,url}], target, resume?: {index, at} }   POST /next   POST /stop
 //   POST /queue { queue }   what plays after the current file, which keeps playing
+//   POST /play  { ..., mode: 'mix', set }   the mix instead: two slots on an AM dial (mixcast.mjs)
+//   POST /set   { name, v }   a mix control: tune, drift, dwell, blend, noise
 //   GET  /status
 // target is { kind: 'icecast', host, port, mount, pw } or { kind: 'ws', url, mount, pw } (our test receiver).
 // With ICECAST_PW set it also runs Icecast 2.4.4 on :8000, mount /preview, for the `preview` target.
@@ -10,7 +12,8 @@ import net from 'node:net';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { createFramer } from './mp3.mjs';
+import { createFramer } from '../mp3.mjs';
+import { startMix, usage } from './mixcast.mjs';
 
 // Frames go out this far ahead of the clock, and a file is read no further ahead than READ_AHEAD.
 const LEAD_S = 2, READ_AHEAD_S = 20, TICK_MS = 200;
@@ -221,11 +224,22 @@ async function run(sess) {
   }
 }
 
+// The mix session, when mode is 'mix'; copy (`s`) is the fallback and is untouched by it.
+let mx = null, mxTarget = null;
 function start(body) {
   const { queue, target } = body;
   if (!Array.isArray(queue) || !queue.length) throw new Error('an empty queue');
   if (!target?.pw || !target.mount) throw new Error('a target with a mount and a password');
   secrets = [target.pw, Buffer.from(`source:${target.pw}`).toString('base64')];
+  if (body.mode === 'mix') {
+    if (s) stop('switching to mix');
+    if (mx) { mx.queue(queue); for (const [k, v] of Object.entries(body.set || {})) mx.set(k, v); mx.next(); say(`mix queue replaced, ${queue.length} files`); return; }
+    mxTarget = target;
+    mx = startMix({ queue, target, set: body.set || {} }, { openSink, say, fail });
+    say(`mix started, ${queue.length} files`);
+    return;
+  }
+  if (mx) { mx.stop(); mx = null; say('mix stopped, switching to copy'); }
   if (s) { s.queue = queue; s.index = -1; s.skip = true; say(`queue replaced, ${queue.length} files`); return; }
   s = { queue, target, resume: body.resume || null, index: -1, item: null, sink: null, onAir: false, stopped: false, skip: false,
     startedAt: Date.now(), t0: Date.now(), sent: 0, fileSeconds: 0, downSeconds: 0, files: 0, frames: 0, bytes: 0,
@@ -236,6 +250,7 @@ function start(body) {
 
 /** Replaces what follows the current file without cutting it: the next file is queue[0]. */
 function queue(body) {
+  if (mx && Array.isArray(body.queue) && body.queue.length) { mx.queue(body.queue); say(`mix queue set, ${body.queue.length} files`); return; }
   if (!s) throw new Error('nothing is playing: play starts a queue');
   if (!Array.isArray(body.queue) || !body.queue.length) throw new Error('an empty queue');
   s.queue = body.queue; s.index = -1;
@@ -243,13 +258,23 @@ function queue(body) {
 }
 
 function stop(why) {
+  if (mx) { mx.stop(); mx = null; say(`mix off air, ${why}`); }
   if (!s) return;
   s.stopped = true; s.sink?.close(); say(`off air, ${why}`); s = null;
 }
 
 async function status() {
   const now = Date.now();
+  if (mx) {
+    const x = mx.status(), on = x.slots.reduce((a, b) => (b.clear > a.clear ? b : a));
+    return { icecast: await iceStats(), mode: 'mix', bootedAt, uptime: Math.round((now - bootedAt) / 1000), playing: true, onAir: x.onAir,
+      now: on?.title ? { id: on.id, title: on.title, at: null } : null, index: null, next: x.next ? { id: null, title: x.next } : null,
+      to: `${mxTarget.kind} /${mxTarget.mount}`, since: x.since, files: x.landings, frames: x.frames, bytes: x.bytes, seconds: x.seconds,
+      wall: x.wall, lag: x.lag, lead: x.lead, down: x.down, sinkDeaths: x.sinkDeaths, sinkFails: x.sinkFails, skipped: 0, rate: 44100, kbps: 128,
+      mix: x, usage: x.usage, rss: x.usage.nodeRssMiB, lines: lines.slice(-12), lastError };
+  }
   return {
+    mode: s ? 'copy' : null, usage: usage(),
     icecast: await iceStats(),
     bootedAt, uptime: Math.round((now - bootedAt) / 1000), playing: !!s, onAir: !!s?.onAir,
     now: s?.item ? { id: s.item.id, title: s.item.title, at: Math.round(s.fileSeconds) } : null,
@@ -273,7 +298,13 @@ http.createServer(async (req, res) => {
     for await (const c of req) raw += c;
     if (req.url === '/play') { start(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
     if (req.url === '/queue') { queue(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
-    if (req.url === '/next') { if (s) s.skip = true; return reply(res, 200, await status()); }
+    if (req.url === '/next') { if (mx) mx.next(); else if (s) s.skip = true; return reply(res, 200, await status()); }
+    if (req.url === '/set') {
+      const b = JSON.parse(raw || '{}');
+      if (!mx) return reply(res, 409, { error: 'not mixing: the value is kept for the next mix' });
+      for (const [k, v] of Object.entries(b.set || { [b.name]: b.v })) if (mx.set(k, v) === null) throw new Error(`no control ${k}`);
+      return reply(res, 200, await status());
+    }
     if (req.url === '/stop') { stop('asked to stop'); return reply(res, 200, await status()); }
     return reply(res, 404, { error: 'no such route' });
   } catch (e) { fail(e); return reply(res, 400, { error: redact(e.message) }); }

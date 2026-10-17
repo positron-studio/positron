@@ -95,3 +95,84 @@ A deploy did not reach the running `preview`: the Caster object and its containe
 about four minutes after `wrangler deploy` (a container rollout reaches each object in turn; `user3`, idle, had
 the new code at once). A container started by the old object kept the old image too, so `preview` was stopped and
 started twice to carry the new `/queue` route. A new container takes the image of the object that starts it.
+
+## `workers/cast/container/mixer.mjs`, `decode.mjs`, `encode.mjs`, `mixcast.mjs`: mix mode
+
+Stage 1 of plans/plan-vain-cast-processing.md, asked 2026-10-17 as *"Do also stage 1, verify"*: crossfades and
+tuning noise between archive files, in the cast container. `mode: 'copy'` (the frame copier) is untouched and
+stays the fallback; `mode: 'mix'` runs the engine below.
+
+### mixer
+
+The maths is `/radio/scenery/`'s, not a new design. `createMix` is imported from a byte for byte copy of
+`demo/shell/tuner-mix.mjs` (`deploy.mjs` refreshes it before every deploy, because the image's build context is
+`workers/cast`; `mixer-test.mjs` goes red if the two differ). `createTunerGraph` is a Web Audio graph and cannot
+run in node, so it is ported sample by sample, and the port is graded against the real function: the test runs
+`createTunerGraph` on a fake AudioContext that records every value handed to it (200 Hz highpass Q 0.7, 3500 Hz
+lowpass Q 0.7, each leg's lowpass at the default Q 1, the 900 Hz bandpass at Q 0.9, delays 0.09 and 0.13 s,
+feedback 0.35, output 0.8, the shaper curve point for point) and compares. The pink noise is `pinkNoise`'s loop,
+compared sample for sample on one seeded `Math.random`. The slots are the scenery page's, 0.46 and 0.54.
+
+What is not ported: the WaveShaper's `oversample: '2x'` (the curve is read with the same linear interpolation,
+without the upsampling), and the per-sample `bright` frequency (coefficients move every 128 samples, Web Audio's
+render quantum). The graph is mono after the highpass, as on the page (`channelCount: 1`, speakers downmix,
+0.5 (L + R)), so the mix is mono, written to both channels of the encoder.
+
+A dying echo tail is flushed to zero below 1e-20: the feedback loop decays forever otherwise, and the meter read
+-866 dB for the last of it.
+
+### biquad
+
+`biquad()` is the Web Audio spec's own coefficient table, which is the Audio EQ Cookbook with one twist that is
+easy to get wrong: a lowpass or highpass reads Q in DECIBELS (alpha = sin(w0) / (2 * 10^(Q/20))) and a bandpass
+reads it linear. So Q 0.7 on the master lowpass is a 0.7 dB peak, |H(3500)| = 1.084, not a 0.7 linear Q;
+the test asserts 1.0839 and, as a negative control, that it is not 0.7. Measured through both lowpasses in
+series: -1.5 dB at 4 kHz, -9.7 at 5k, -17.5 at 6k, -30.5 at 8k, -51.9 at 12k.
+
+### drift
+
+`createEngine` keeps the drift's clock in AUDIO seconds (frames rendered), not wall seconds, so a stall in the
+event loop never shortens a blend. The cycle is the page's: dwell on slot `from`, the next file opens into the
+other slot `min(dwell / 2, 4)` s before the dwell ends (and its decoder is started 6 s earlier still), the dial
+moves with smoothstep over the blend, and on landing the left slot closes. A file that runs out in its dwell
+starts the blend at once. With the dial held (`drift 0`, which any `set tune` implies) an empty slot or one whose
+file ended takes the next file, so both stations stay on the dial. Only about a minute of each file is heard per
+cycle, so a file is decoded straight from its URL by ffmpeg with stdout paused past 8 s of PCM, rather than
+downloaded whole: their host is asked for what is played.
+
+MEASURED 2026-10-17 locally, two real archive files (*Driving along*, 102 s, and *Oriental analog*, 74 s, mono
+128k, fetched once), dwell 20 blend 10, 90 s paced on the wall clock: landings at audio 30, 60 and 90 s; the
+leaving slot's part fell from -21 to -50 dB across each blend while the arriving one rose from -37 to -21; the
+noise meter sat at -41.5 to -42 dB on a slot and peaked at -27.3 to -28.1 halfway; in the output the 1.5 to
+3.5 kHz band (where the noise lives after the band) went from about -40 to -26 dB in each blend. out.mp3: valid
+mp3, 92.0 s (90 s plus the 2 s lead), mean -18.9 dB against -91.0 dB for a silence control, max -2.7 dB. The
+first second was empty until `engine.ready()` was added: the clock now starts when the first slot holds a second
+of sound (53 ms locally, 405 ms in the container from their host).
+
+### mix-pacing
+
+`mixcast.mjs` paces the ENGINE against `Date.now()` (`createClock`: blocks owed are wall time plus a 2 s lead,
+the copy caster's lead), and the encoder output is written to the source as it comes. ffmpeg's output rate is
+never the clock (plan Risk 3). A sink that drops moves the clock by the time it was down, so a reconnect never
+bursts. The encoder runs with `-flush_packets 1`, or ffmpeg's 32 KiB output buffer holds two seconds of MP3.
+
+MEASURED 2026-10-17, `node workers/cast/mixer-test.mjs --live 60`: 61.960 s made in 60.002 s, so made minus wall
+minus lead was -42 ms (the whole-block floor plus one 20 ms tick), ahead of the wall between 1.963 and 2.000 s
+throughout, first MP3 frame 37 ms after the start, node at 3.0 % of a core (the two decoders and LAME are
+separate processes). The 90 s real-file run: -43 ms, 3.6 %, 95 MiB RSS.
+
+## `workers/cast/worker.mjs`: their streams
+
+### live
+
+`GET /live` and the Caster's refusal: whether Väin's own stream is on a channel, from the `livestream` events their
+Icecast on-connect hook publishes (status `new`, url `http://live.uuu.ee:8001/<channel>`) and on-disconnect
+unpublishes. Asked 2026-10-17: *"All channels are equal ... some of them can be on air because of us, and others
+are just the Vain team is streaming it. So differentiate that somehow."*, then *"Maybe we should check more
+often."* One `events()` read serves both `/feed` (kept 60 s) and `/live` (15 s), cached in `caches.default` and
+collapsed per isolate by one in-flight promise, asked only when a page or a command asks, never by an alarm.
+Their Icecast is never asked. Our own cast also publishes such an event, so on the page our caster's `onAir` wins
+(`positron`) and an event otherwise means `Väin`. A play on a channel with their event is refused by the Caster
+(`Väin is streaming here: <title>`) before a container starts; their Icecast would answer 403 anyway. A stale event
+(an on-disconnect hook that failed) reads as their stream until they unpublish it; that is not detectable without
+asking their server.

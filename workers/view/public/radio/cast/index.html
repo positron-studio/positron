@@ -21,17 +21,16 @@
 <title>Väin cast</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
-  /* the two station cards side by side on a desk, one above the other on a phone */
-  .vc-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--rows-gap); }
-  @media (max-width: 600px) { .vc-cards { grid-template-columns: minmax(0, 1fr); } }
+  /* six equal station cards, as many to a row as fit, one column on a phone */
+  .vc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--rows-gap); align-items: start; }
+  .vc-mix > .sld-group { width: 100%; }
   .vc-cards > .pos-rows { width: auto; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; }
   .vc-k { color: var(--dim); text-transform: uppercase; font: 12px var(--mono); }
   .vc-v { font: 13px var(--mono); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vc-dim { color: var(--dim); font: 12px var(--sans); }
   .vc-name { font: 600 14px var(--mono); }
-  .vc-other > summary { cursor: pointer; font: 12px var(--mono); color: var(--dim); text-transform: uppercase; }
-  .vc-other[open] > summary { margin-bottom: 12px; }
+  .vc-note { color: var(--warn); font: 12px var(--mono); min-height: 1.5em; }
   /* a file row: tick, name, day, then its two buttons; the name gives way first */
   .vc-file { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
   .vc-ctl { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; }
@@ -53,6 +52,8 @@
   import { createGlueRows } from '/shell/glue.mjs';
   import { createPresence } from '/shell/presence.mjs';
   import { createCheck } from '/shell/check.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createSlider, createSliderGroup } from '/shell/slider.mjs';
   import { createPicker } from '/shell/picker.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { scopeWindow } from '/shell/rt-scope.mjs';
@@ -74,7 +75,8 @@
   const STATIONS = ['preview', 'radio1965', 'user1', 'user2', 'user3', 'user4'];
   const LISTEN = { preview: `${BASE}/listen/preview`, radio1965: `${SHOUT}/radio1965` };
   const listenUrl = (t) => LISTEN[t] || null;
-  const HEARD_BY = { preview: 'only this page and its link', radio1965: 'everyone in the Väin app' };
+  // per channel, whether Väin's own stream is on it (GET /live, their livestream events)
+  let live = {};
   let target = 'preview'; // the station the program and the patchbay are about
 
   // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's players ──
@@ -145,14 +147,23 @@
   const mmss = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '');
 
   const pick = (t) => { if (t === target) return; target = t; wire(); station.show(t, STATIONS.indexOf(t)); showProgram(); log(t); };
-  const cast = (t) => { pick(t); return status[t]?.playing ? send(t, { cmd: 'stop' }) : send(t, { cmd: 'play', ids: programIds() }); };
+  const theirs = (t) => !!live[t]?.vain && !status[t]?.onAir;
+  const refuse = (t) => { cards[t].say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
+  const cast = (t) => {
+    pick(t);
+    if (status[t]?.playing) return send(t, { cmd: 'stop' });
+    if (theirs(t)) return refuse(t);
+    cards[t].say('');
+    return send(t, { cmd: 'play', ids: programIds() });
+  };
 
   // ── a card per station: who hears it, on air or off, what plays and how far in, what is next ──
   const cards = {};
-  function makeCard(t, compact = false) {
-    const rows = createGlueRows({ grid: !compact, align: 'start', full: true });
-    const badge = createPresence({ of: t, says: { online: 'on air', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
-      can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
+  function makeCard(t) {
+    const rows = createGlueRows({ grid: true, align: 'start', full: true });
+    // online is ours; online driven by 'page' (the kit's somebody-else look: green dot, grey word) is theirs
+    const badge = createPresence({ of: t, says: { online: 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
+      busyWords: { page: 'Väin' }, can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
     const castBtns = createButtonGroup({ label: 'cast', buttons: [
       { id: 'cast', icon: 'play', label: `start the cast on ${t}`, onPress: () => cast(t) },
       { id: 'next', icon: 'skip-forward', label: `next file on ${t}`, onPress: () => { pick(t); return send(t, { cmd: 'next' }); } },
@@ -160,32 +171,72 @@
     const listenBtn = listenUrl(t) ? createButtonGroup({ label: 'listen', buttons: [
       { id: 'listen', icon: 'headphones', label: `listen to ${t}`, onPress: () => { pick(t); return listening() && listenTarget === t ? stopListening() : startListening(t); } },
     ] }) : null;
-    const now = el('span', 'vc-v'), at = el('span', 'vc-v'), next = el('span', 'vc-v');
+    const now = el('span', 'vc-v'), at = el('span', 'vc-v'), next = el('span', 'vc-v'), note = el('span', 'vc-note');
     const k = (w) => el('span', 'vc-k', w);
-    if (compact) {
-      rows.row([el('span', 'vc-name', t), badge.el, castBtns.el, el('span', 'vc-dim', `listen in the Väin app, channel ${t}`)]);
-      rows.row([k('now'), now, at]);
-    } else {
-      rows.row([el('span', 'vc-name', t), badge.el]);
-      rows.row([k('heard by'), el('span', 'vc-v', HEARD_BY[t])]);
-      rows.row([k('now'), now]);
-      rows.row([k('at'), at]);
-      rows.row([k('next'), next]);
-      const ctl = el('span', 'vc-ctl');
-      ctl.append(castBtns.el, ...(listenBtn ? [listenBtn.el] : []));
-      rows.row([ctl]);
-    }
-    const c = { t, el: rows.el, badge, castBtns, listenBtn, now, at, next, seen: false };
+    rows.row([el('span', 'vc-name', t), badge.el]);
+    rows.row([k('now'), now]);
+    rows.row([k('at'), at]);
+    rows.row([k('next'), next]);
+    const ctl = el('span', 'vc-ctl');
+    ctl.append(castBtns.el, ...(listenBtn ? [listenBtn.el] : []));
+    rows.row([ctl]);
+    if (t === 'preview') mixControls(rows);
+    const noteRow = rows.row([note]);
+    noteRow.hidden = true;
+    const c = { t, el: rows.el, badge, castBtns, listenBtn, now, at, next, note, seen: false,
+      say: (w) => { note.textContent = w; noteRow.hidden = !w; } };
     cards[t] = c;
     return c;
   }
+  // ── the mix, on preview only: copy plays files whole, mix tunes an AM dial between two of them ──
+  const mixUi = {}, touched = {};
+  const lastSent = {}, pendingSet = {};
+  function setMix(name, v) {
+    touched[name] = Date.now();
+    pendingSet[name] = v;
+    const wait = Math.max(0, 50 - (Date.now() - (lastSent.at || 0)));
+    if (lastSent.timer) return;
+    lastSent.timer = setTimeout(() => {
+      lastSent.timer = 0; lastSent.at = Date.now();
+      for (const [n, x] of Object.entries(pendingSet)) { send('preview', { cmd: 'set', name: n, v: x }); delete pendingSet[n]; }
+    }, wait);
+  }
+  function mixControls(rows) {
+    mixUi.mode = createChoice({ label: 'mode', options: [['copy', 'copy'], ['mix', 'mix']], at: 0,
+      onPick: (v) => { touched.mode = Date.now(); send('preview', { cmd: 'mode', mode: v }); } });
+    mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
+    mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
+      onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
+    mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
+    mixUi.blend = createSlider({ label: 'blend', min: 2, max: 60, step: 1, value: 16, unit: 's', onInput: (v) => setMix('blend', v) });
+    const both = el('span', 'vc-ctl');
+    both.append(mixUi.mode.el, mixUi.drift.el);
+    rows.row([both]);
+    rows.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
+  }
+  /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
+  function paintMix(st) {
+    if (!mixUi.mode) return;
+    const w = st.wanted || {}, set = w.set || {}, x = st.mix, fresh = (k) => Date.now() - (touched[k] || 0) > 2000;
+    if (fresh('mode') && w.mode) mixUi.mode.set(w.mode === 'mix' ? 1 : 0, true);
+    if (fresh('drift')) mixUi.drift.set((x?.drift ?? set.drift ?? 1) ? 0 : 1, true);
+    if (fresh('tune')) mixUi.tune.set(x?.tune ?? set.tune ?? 0.46, true);
+    for (const k of ['dwell', 'blend']) if (fresh(k) && set[k] != null) mixUi[k].set(set[k], true);
+  }
   function paint(t) {
-    const c = cards[t], st = status[t];
-    if (!c || !st) return;
-    c.badge.set(st.onAir ? 'online' : st.playing ? 'coming' : 'offline');
-    c.now.textContent = st.now?.title || ''; c.now.title = st.now?.title || '';
-    c.at.textContent = st.now ? mmss(st.now.at) : '';
+    const c = cards[t], st = status[t] || {};
+    if (!c || (!status[t] && !live[t])) return;
+    const them = theirs(t);
+    c.badge.set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
+    c.badge.busy(them ? 'page' : null);
+    const title = them ? (live[t].title || '') : st.now?.title || '';
+    c.now.textContent = title; c.now.title = title;
+    c.at.textContent = !them && st.now ? mmss(st.now.at) : '';
     c.next.textContent = st.onAir ? (st.next?.title || '') : ''; c.next.title = c.next.textContent;
+    const refused = (st.lines || []).at(-1)?.includes('refused: ') ? st.lines.at(-1).split('refused: ')[1] : '';
+    if (t === 'preview') paintMix(st);
+    if (refused) c.say(refused);
+    else if (!them && c.note.textContent === 'Väin is streaming here') c.say('');
     c.castBtns.setIcon('cast', st.playing ? 'stop' : 'play', st.playing ? `stop the cast on ${t}` : `start the cast on ${t}`);
   }
   const said = {};
@@ -212,15 +263,15 @@
   const seenIO = new IntersectionObserver((es) => { for (const e of es) { const t = e.target.dataset.station; if (e.isIntersecting) visible.add(t); else visible.delete(t); } poll(); });
 
   const main = el('div', 'vc-cards');
-  for (const t of ['preview', 'radio1965']) { const c = makeCard(t); c.el.dataset.station = t; main.append(c.el); }
-  const other = el('details', 'vc-other');
-  other.append(el('summary', '', 'other Väin channels, user1 to user4'));
-  const otherSec = el('div', 'vc-sec');
-  for (const t of ['user1', 'user2', 'user3', 'user4']) { const c = makeCard(t, true); c.el.dataset.station = t; otherSec.append(c.el); }
-  other.append(otherSec);
-  other.addEventListener('toggle', () => { for (const t of ['user1', 'user2', 'user3', 'user4']) { if (other.open) seenIO.observe(cards[t].el); else { seenIO.unobserve(cards[t].el); visible.delete(t); } } });
-  for (const t of ['preview', 'radio1965']) seenIO.observe(cards[t].el);
+  for (const t of STATIONS) { const c = makeCard(t); c.el.dataset.station = t; main.append(c.el); seenIO.observe(c.el); }
   setInterval(poll, 3000);
+  // Their streams, every 5 s while the page is visible; our worker asks them at most every 15 s.
+  function takeLive(j) { live = j.channels || {}; for (const t of STATIONS) paint(t); }
+  async function pollLive() {
+    if (document.hidden) return;
+    try { const j = await (await fetch(`${BASE}/live`)).json(); if (!j.error) takeLive(j); } catch { /* next time */ }
+  }
+  if (!SELFCHECK) { pollLive(); setInterval(pollLive, 5000); }
 
   // ── the program: tick files in the order they should play, prelisten any of them ──
   const station = createPicker({ label: 'for', what: 'station',
@@ -352,7 +403,7 @@
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); s.append(el('h3', 'pos-sec-h', h), ...parts); return s; };
   wire();
-  d.stack.add(sec('stations', main, other), scope.el, sec('program', bar.el, list.el), pb.el);
+  d.stack.add(sec('stations', main), scope.el, sec('program', bar.el, list.el), pb.el);
   await loadFeed();
 
   window.__demo.bay = bay;
@@ -367,8 +418,9 @@
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
     const order = [...main.children].map((c) => c.dataset.station);
-    d.assert('the preview card is first and the default station; radio1965 is second; user1 to user4 sit folded below',
-      order.join() === 'preview,radio1965' && target === 'preview' && !other.open && Object.keys(cards).length === 6);
+    const w = (t) => cards[t].el.getBoundingClientRect();
+    d.assert('six equal cards in one grid, preview first and the default station',
+      order.join() === STATIONS.join() && target === 'preview' && STATIONS.every((t) => Math.abs(w(t).width - w('preview').width) < 1), order.join());
     d.assert('a visit opens no control socket, no player and no prelisten, and asks no audio URL',
       !Object.keys(sockets).length && !player && !pre && !audioReqs().length, audioReqs().join(' '));
     d.assert('radio1965 is heard through shout, never from their server; user1 has no player on this page',
@@ -404,8 +456,39 @@
       prePlay = (a) => a.play();
       progBtns.button('clear').click();
     }
+    // the mix controls send what the caster takes, at most 20 a second
+    mixUi.mode.buttons[1].click();
+    for (const v of [0.47, 0.48, 0.49, 0.5, 0.51]) mixUi.tune.set(v);
+    await new Promise((r) => setTimeout(r, 400));
+    const mixSent = sent.filter(([t, m]) => t === 'preview' && (m.cmd === 'mode' || m.cmd === 'set')).map(([, m]) => m);
+    d.assert('mix on preview: mode mix is sent, five quick tune moves arrive as one set with the last value, and the dial is held',
+      mixSent[0]?.cmd === 'mode' && mixSent[0].mode === 'mix' && mixSent.filter((m) => m.name === 'tune').length === 1
+      && Math.abs((mixSent.find((m) => m.name === 'tune')?.v ?? 0) - 0.51) < 1e-9 && mixUi.drift.get() === 1 && !cards.radio1965.el.querySelector('.pos-choice'),
+      JSON.stringify(mixSent));
+    mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true); touched.mode = touched.tune = touched.drift = 0;
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
+    // the three states, from a stubbed /live and a stubbed status
+    const keep = { live, st: { ...status } };
+    take('preview', { target: 'preview', onAir: true, playing: true, now: { id: 'x', title: 'a file', at: 61 }, lines: [] });
+    takeLive({ channels: { radio1965: { vain: true, title: 'Evening on radio1965' }, user1: { vain: false } } });
+    await new Promise((r) => setTimeout(r, 300));
+    const word = (t) => cards[t].badge.el.querySelector('.pos-pres-w').textContent;
+    const state = (t) => [cards[t].badge.el.dataset.state, cards[t].badge.el.dataset.busy || ''].join(' ');
+    d.assert('three states in words: positron on preview, Väin on radio1965 with their title, off on user1',
+      word('preview') === 'positron' && word('radio1965') === 'Väin' && word('user1') === 'off'
+      && state('preview') === 'online ' && state('radio1965') === 'online page' && cards.radio1965.now.textContent === 'Evening on radio1965',
+      ['preview', 'radio1965', 'user1'].map((t) => `${t} ${word(t)} (${state(t)})`).join(', '));
+    const before = sent.length;
+    cards.radio1965.castBtns.button('cast').click();
+    await new Promise((r) => setTimeout(r, 50));
+    d.assert('a cast on a channel Väin is streaming on sends nothing and says why',
+      sent.length === before && cards.radio1965.note.textContent === 'Väin is streaming here', cards.radio1965.note.textContent);
+    take('user2', { target: 'user2', onAir: false, playing: false, lines: ['09:00:00 refused: Väin is streaming here: Live on user2'] });
+    d.assert('a refusal from the caster shows on its card', cards.user2.note.textContent === 'Väin is streaming here: Live on user2', cards.user2.note.textContent);
+    live = keep.live; for (const t of STATIONS) { if (keep.st[t]) status[t] = keep.st[t]; else delete status[t]; cards[t].say(''); }
+    cards.preview.badge.set('unknown'); cards.radio1965.badge.busy(null); cards.radio1965.badge.set('unknown'); cards.user1.badge.set('unknown'); cards.user2.badge.set('unknown');
+    cards.preview.now.textContent = cards.radio1965.now.textContent = cards.preview.at.textContent = '';
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !audioReqs().length, audioReqs().join(' '));
   }
