@@ -48,6 +48,7 @@
   /* a head row keeps its buttons at their own size on a phone, as a video panel slot does */
   .vc-head .pos-bgroup { width: auto; min-width: auto; }
   .vc-head .pos-bgroup-row { min-width: auto; overflow-x: visible; }
+  .vc-head > .pos-sec-h { margin: 0; }
   /* the group's own display beats the UA [hidden] */
   .vc-head .pos-bgroup[hidden] { display: none; }
   /* a program or archive row: number or day, name, its buttons; the name gives way first */
@@ -285,7 +286,7 @@
     { id: 'listen', icon: 'headphones', label: 'listen', onPress: () => (listening() && listenTarget === target ? stopListening() : startListening(target)) },
   ] });
   const inApp = el('span', 'vc-dim', 'in the Väin app');
-  const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, inApp);
+  const headCtl = el('span', 'vc-ctl'); headCtl.append(listenBtn.el, inApp);
   head.append(nameBox, headCtl);
   const note = el('span', 'vc-note');
   const k = (w) => el('span', 'vc-k', w);
@@ -761,7 +762,9 @@
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
   const stations = sec('stations', cardRow);
   const detail = el('div', 'vc-detail');
-  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('program', progEmpty, progHost));
+  // play and next sit on the program's heading: they play the program
+  const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), castBtns.el);
+  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();

@@ -1,6 +1,7 @@
 ## Open
 
-- **/radio/cast/: station cards at one fixed height, portrait** (2026-10-18). Asked: *"keep statioj cards fixed h, can be portraits"*. A card stops growing when a title wraps or a blend adds the second file; titles clamp to fit.
+- ~~**/radio/cast/: play and next move to the program header**~~ (2026-10-18, DONE). Asked: *"move to program header (glued to it)"* with a screenshot of the play / next pair. They sit on the PROGRAM heading row, right; the station head keeps its name, badge and listen.
+- ~~**/radio/cast/: station cards at one fixed height, portrait**~~ (2026-10-18, DONE: 150 x 196 px). Asked: *"keep statioj cards fixed h, can be portraits"*. A card stops growing when a title wraps or a blend adds the second file; titles clamp to fit.
 - **/radio/cast/: build plan-cast-reinterpret steps 1 to 7 and the room** (2026-10-18). Asked: *"do all"*. Local first; step 8 (parallel rings) left out on purpose, it doubles the on-air cost.
 - **/radio/cast/: a plan for what to do when the source is the weak part** (2026-10-18). Asked: *"in general: source material is not great not our effect. what can be done? more reintrpretation / rtyhmoc stuff? what fx could we use? more parallel granulators? harmonizers / sound clusters? plan"*. A plan in plans/, reported in full.
 - **/radio/cast/: ghosts visiting, more of the next and previous sound inside a scene** (2026-10-18). Asked: *"want to listen more blending in from next/prev sound, someimes like \"ghosts vistiing\". read feedback"*. Short visits of the other file inside a scene, not only at the blend; read the votes and comments first.
