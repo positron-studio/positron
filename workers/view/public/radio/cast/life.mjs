@@ -245,6 +245,8 @@ export const SECTIONS = {
 /** The tide: the piece's intensity over this many planned seconds, low to high and back. */
 export const TIDE_S = 3600;
 export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / TIDE_S + phase);
+/** The share of sections that carry a drone. */
+export const DRONE_SHARE = 0.4;
 /** The families that smooth a clicking file, and what its sharp scene types become. */
 export const SMOOTH = ['drone', 'choir', 'spectral'];
 export const SHARP_TYPES = { storm: 'deep', rhythm: 'choir', tapebuild: 'build', cloudbuild: 'build' };
@@ -473,10 +475,15 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (secs[i]) return secs[i];
     const r = rng(seed * 8191 + i * 131), tide = tideAt(i), before = i ? secs[i - 1]?.section : null;
     const names = Object.keys(SECTIONS).filter((n) => n !== before && (n !== 'weather' || tide > 0.5));
-    const name = weighted(names, (n) => Math.exp(-(((SECTIONS[n].level - tide) / 0.3) ** 2)) * secWeight(n), r);
+    // the tide leans the choice, never decides it, so a low tide is not an hour of drones
+    const name = weighted(names, (n) => Math.exp(-(((SECTIONS[n].level - tide) / 0.6) ** 2)) * secWeight(n), r);
     const list = [...SECTIONS[name].types], m = Math.floor(list.length / 2), u = r();
     if (u < 0.3 && list.length > 3) list.splice(m, 1); else if (u < 0.6 && list.length < 6) list.splice(m, 0, list[m]);
-    list.forEach((type, k) => { secs[i + k] = { section: name, type, pos: k, last: k === list.length - 1, tide }; });
+    // the drone is one of the tricks, not the bed: a section has one in DRONE_SHARE of cases, held across its
+    // scenes in one kind, register and level, and none the rest. Asked: "drones are fine but should be only trick"
+    const dr = rng(seed * 3301 + i * 7), drone = dr() < DRONE_SHARE
+      ? { drone: pickOne(['key', 'freeze', 'both'], dr), droneLevel: r2(0.4 + 0.25 * dr()), droneOct: dr() < 0.5 ? -1 : -2 } : { drone: 'none' };
+    list.forEach((type, k) => { secs[i + k] = { section: name, type, pos: k, last: k === list.length - 1, tide, drone }; });
     return secs[i];
   }
   function make2(i, ctx = {}) {
@@ -500,6 +507,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // inside its type's band by the tide, and the whole band a little lower at low tide
     d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
     d.layers = typeLayers(d.layers, Tt, rng(seed * 2741 + i * 59));
+    // the section's drone, or none; a storm and a rhythmic scene play without one
+    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone) };
     // a locked patch plays on the scene's tempo: so many grains a beat, its echo so many beats
     const f = patchInfo(d.patch);
     if (f?.sub) {
@@ -518,15 +527,15 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const none = { res: 'none', harm: 'none', ghost: 'none', bpm: 0 };
     switch (n) {
       // speech as an instrument from the start: sung through resonators over a full drone, never plain talk
-      case 'intro': return { ...L, ...none, drone: 'both', droneLevel: r2(0.45 + 0.15 * r()), res: pickOne(['fifths', 'major', 'minor7'], r), harm: r() < 0.5 ? 'octfifth' : 'none', room: r2(0.2 + 0.2 * r()) };
-      case 'build': return { ...L, drone: L.drone === 'none' ? 'key' : L.drone };
-      case 'deep': return { ...L, drone: 'both', droneLevel: r2(0.4 + 0.2 * r()), res: pickOne(['fifths', 'minor7'], r), harm: pickOne(['none', 'octfifth'], r), bpm: 0,
+      case 'intro': return { ...L, ...none, drone: r() < 0.5 ? 'key' : 'none', droneLevel: r2(0.35 + 0.15 * r()), res: pickOne(['fifths', 'major', 'minor7'], r), harm: r() < 0.5 ? 'triad' : 'none', room: r2(0.2 + 0.2 * r()) };
+      case 'build': return { ...L, drone: r() < 0.3 ? 'none' : L.drone === 'none' ? 'key' : L.drone };
+      case 'deep': return { ...L, drone: 'both', droneLevel: r2(0.4 + 0.2 * r()), res: pickOne(['fifths', 'minor7'], r), harm: pickOne(['none', 'triad'], r), bpm: 0,
         ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(25 + 20 * r()), room: r2(0.3 + 0.2 * r()) };
-      case 'storm': return { ...L, drone: pickOne(['none', 'freeze'], r), res: 'none', harm: pickOne(['cluster', 'none'], r), bpm: 0,
+      case 'storm': return { ...L, drone: r() < 0.7 ? 'none' : 'freeze', res: 'none', harm: pickOne(['cluster', 'none'], r), bpm: 0,
         ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(15 + 15 * r()), room: 0.3 };
-      case 'rhythm': return { ...L, drone: 'key', bpm: Math.round(70 + 40 * r()), pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(['res', 'grains'], r),
+      case 'rhythm': return { ...L, drone: r() < 0.6 ? 'none' : 'key', bpm: Math.round(70 + 40 * r()), pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(['res', 'grains'], r),
         res: L.res === 'none' ? pickOne(['fifths', 'minor7', 'major'], r) : L.res };
-      case 'choir': return { ...L, drone: 'key', harm: pickOne(['octfifth', 'triad'], r), res: pickOne(['major', 'minor7'], r), bpm: 0 };
+      case 'choir': return { ...L, drone: r() < 0.6 ? 'key' : 'none', harm: 'triad', res: pickOne(['major', 'minor7'], r), bpm: 0 };
       case 'breath': return { ...L, ...none, drone: L.drone === 'none' ? 'key' : L.drone, droneLevel: r2(0.45 + 0.15 * r()) };
       case 'coda': return { ...L, ...none, drone: pickOne(['freeze', 'both'], r), room: r2(0.4 + 0.1 * r()) };
       default: return L;

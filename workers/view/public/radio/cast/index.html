@@ -241,7 +241,8 @@
   function startIds(t) {
     if (!progOf(t).length && items.length) {
       // weighted by what the votes said about each file, so a file voted down comes up less, and at -6 not at all
-      const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+      // Väin's test recordings (Audio test, Clip test) are short or silent: never in a program
+      const fs = tasteOf(votes).file, pool = items.filter((x) => !/\btest\b/i.test(x.title || '')).map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
       progs[t] = (pool.every((x) => x.w === 1) ? shuffle(pool) : pool.map((x) => ({ ...x, k: Math.random() ** (1 / x.w) })).sort((a, b) => b.k - a.k))
         .map((x) => x.id).slice(0, PICK);
       progTouched[t] = Date.now();

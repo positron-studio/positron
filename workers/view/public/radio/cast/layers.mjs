@@ -145,7 +145,7 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
     apply(L, key) {
       now = L;
       if (!L) { for (const n of Object.keys(PROGRAMS)) set(n, { amp: 0 }); return; }
-      const dz = droneHz(key, L.droneOct ?? -1), ch = chordHz(key, L.res === 'none' ? 'fifths' : L.res, { octaves: 3, from: 1 }), rt = harmRatios(L.harm, L.harmSpread);
+      const dz = droneHz(key, L.droneOct ?? -1), ch = chordHz(key, L.res === 'none' ? 'fifths' : L.res, { octaves: 2, from: 1 }), rt = harmRatios(L.harm, L.harmSpread);
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
       set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.8 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
       set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 8 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
