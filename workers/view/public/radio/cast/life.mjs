@@ -62,14 +62,42 @@ export const CANDIDATES = 12, VARIATIONS = 4;
 export const LEAN = 10;
 /** Controls set aside the patch in each scene, so there is more than the patch to learn about. */
 export const TWEAKS = 2;
-const NAMES = PATCHES.map((p) => p.name), PARAMS = Object.keys(MOVABLE), KINDS = Object.keys(LENGTHS);
+/**
+ * The cast's own patches: a page patch as the base, values set on top (the engines take a base name and a
+ * set, so nothing new reaches the ring's program). Sentence cased, as every patch name is.
+ */
+export const CAST_PATCHES = [
+  { name: 'Fog', base: 'Cloud', set: { tone: 1400, dark: 900, echo: 0.7, time: 0.6, size: 0.8, density: 16, scatter: 0.8, pitch: 0.75 } },
+  { name: 'Cathedral', base: 'Frozen choir', set: { size: 1.6, density: 6, scatter: 0.3, pitch: 0.5, echo: 0.6, time: 0.9, dark: 3000, back: 2 } },
+  { name: 'Swarm', base: 'Sparks', set: { density: 60, size: 0.04, scatter: 1, jitter: 2, pitch: 1, detune: 0.05, pan: 1 } },
+  { name: 'Tide', base: 'Slow motion', set: { speed: 0.25, size: 1.2, density: 10, back: 3, dir: -1, echo: 0.4, time: 0.7 } },
+  { name: 'Stutter', base: 'Gate', set: { lock: 1, density: 8, size: 0.12, drop: 0.3, ramp: 2, echo: 0.3, time: 0.25 } },
+  { name: 'Glass', base: 'Shimmer', set: { pitch: 1.5, size: 0.2, density: 20, tone: 9000, echo: 0.4, time: 0.25, scatter: 0.3 } },
+].filter((p) => PATCHES.some((q) => q.name === p.base));
+const NAMES = [...PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)], PARAMS = Object.keys(MOVABLE), KINDS = Object.keys(LENGTHS);
+/** What an engine is handed for a patch name: a page patch's own name, or a cast patch's base and its values. */
+export function patchFor(name) {
+  const c = CAST_PATCHES.find((p) => p.name === name);
+  return c ? { name: c.base, set: { ...c.set } } : { name, set: {} };
+}
+/** A patch's control values, the cast's included. */
+export const patchValues = (name) => { const { name: base, set } = patchFor(name); return { ...valuesOf(PATCHES.find((p) => p.name === base) || PATCHES[0]), ...set }; };
+/** How often a scene is naked (no granulator, no layers, no noise), by what its file is: long talk, left to speak. */
+export const NAKED = { speech: 0.2, ambiguous: 0.2, unknown: 0.08, field: 0.05, music: 0.05 };
 const WIDTH = { short: 0.35, mid: 0.55, long: 0.8 };
 
 export const toT = (k, v) => { const [lo, hi, log] = MOVABLE[k]; const x = log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo); return Math.min(1, Math.max(0, x)); };
 export const fromT = (k, t) => { const [lo, hi, log] = MOVABLE[k]; return log ? lo * (hi / lo) ** t : lo + (hi - lo) * t; };
 const ease = (u) => u * u * (3 - 2 * u);
 /** The scene's granulator: rises over the first quarter, holds, lets go over the last; 0 at both ends. */
-export const envelope = (x) => (x <= 0 || x >= 1 ? 0 : x < 0.25 ? ease(x / 0.25) : x > 0.75 ? ease((1 - x) / 0.25) : 1);
+/**
+ * The scene's arc: dry for its first `dry` share (the original, recognisable), then a rise into the
+ * granulator over 0.18, a long deep hold, and the release only over the last 0.15. 0 at both ends.
+ */
+export const envelope = (x, dry = 0.2) => (x <= dry || x >= 1 ? 0 : x < dry + 0.18 ? ease((x - dry) / 0.18) : x > 0.85 ? ease((1 - x) / 0.15) : 1);
+/** The longer form: intensity rises and falls over ARC scenes, from 0.55 to 1. */
+export const ARC = 5;
+export const intensityAt = (i, jitter = 0) => Math.min(1, Math.max(0.5, 0.55 + 0.45 * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / ARC)) + jitter));
 /** The interlude's: one quick swell, 0 at both ends. */
 export const swell = (x) => (x <= 0 || x >= 1 ? 0 : Math.sin(Math.PI * x) ** 2);
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -118,6 +146,7 @@ export const FEATURES = [
   [1.5, (a, b) => kern(peakT(a), peakT(b), 0.25)],
   [0.4, (a, b) => (a.iParam === b.iParam ? 1 : 0)],
   [0.8, (a, b) => (a.iKind && a.iKind === b.iKind ? 1 : 0)],
+  [1, (a, b) => (a.naked && b.naked ? 1 : 0)],
   ...Object.keys(MOVABLE).map((k) => [0.3, (a, b) => (a.tweak?.[k] != null && b.tweak?.[k] != null ? kern(a.tweak[k], b.tweak[k], 0.2) : 0)]),
   ...['drone', 'res', 'harm', 'ghost'].map((k) => [0.8, (a, b) => (a.layers?.[k] && a.layers[k] === b.layers?.[k] ? 1 : 0)]),
   [0.6, (a, b) => (a.layers && b.layers && !a.layers.bpm === !b.layers.bpm ? (a.layers.bpm ? kern(a.layers.bpm / 120, b.layers.bpm / 120, 0.1) : 1) : 0)],
@@ -160,7 +189,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     const param = pickOne(PARAMS.filter((p) => !recent.includes(p)), r);
     const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(KINDS.filter((k) => !(same && k === prev.len)), r);
     const width = WIDTH[len];
-    const centre = toT(param, valuesOf(PATCHES[NAMES.indexOf(patch)])[param] ?? fromT(param, 0.5));
+    const centre = toT(param, patchValues(patch)[param] ?? fromT(param, 0.5));
     // the window sits near where the patch has the control, give or take
     return { patch, param, len, width, lo: r2(clamp(centre - width / 2 + (r() - 0.5) * 0.3, 0, 1 - width)) };
   }
@@ -231,7 +260,18 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     for (let k = 0; taste.liked.length && !prev?.from && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i); if (v) cands.push(v); }
     const ok = cands.map((d) => complete(Object.assign(d, { kind }), r, recent, prev)).filter((d) => !taste.disliked.includes(coreId(d)));
     // lean toward what was liked, never only toward it: the best is at most e^LEAN times the worst
-    return weighted(ok.length ? ok : cands, (d) => Math.exp(LEAN * learned(d)), r);
+    const d = weighted(ok.length ? ok : cands, (x) => Math.exp(LEAN * learned(x)), r);
+    // sometimes a long scene left to speak: its own draw, so every other choice stays as it was
+    // and within the same rules as any scene: not two in a row, not a third long scene, not a clean interlude twice
+    const allowed = !prev?.naked && prev?.iKind !== 'clean' && !(i >= 2 && prev.len === 'long' && scenes[i - 2].len === 'long');
+    if (allowed && rng(seed * 31337 + i * 7907)() < (NAKED[kind] ?? NAKED.music)) { const n = naked(d, rng(seed * 4241 + i)); if (!taste.disliked.includes(coreId(n))) return n; }
+    return d;
+  }
+  /** A naked scene: long, no granulator, no layers, no drone, a plain fade after it. */
+  function naked(d, r) {
+    return { ...d, naked: true, len: 'long', width: WIDTH.long, lo: r2(clamp(d.lo, 0, 1 - WIDTH.long)), dwell: Math.round(LENGTHS.long * (0.8 + 0.4 * r())), peak: 0, iKind: 'clean', iNoise: 0, iWet: 0,
+      blend: Math.round(IKINDS.clean.blend[0] + r() * (IKINDS.clean.blend[1] - IKINDS.clean.blend[0])), iFreeze: false, tweak: {},
+      layers: { ...d.layers, drone: 'none', droneLevel: 0, res: 'none', harm: 'none', ghost: 'none', bpm: 0, room: 0 } };
   }
   /** A def turned into the hand's two plans; pure in the def and the seed. */
   function build(d, i) {
@@ -242,7 +282,9 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     return { ...d, i, id: sceneId(d), move, iMove };
   }
   /** Scene i; `ctx.kind` (speech, field, music) is what its file is, taken when the scene is first made. */
-  const scene = (i, ctx) => { while (scenes.length <= i) scenes.push(build(make(scenes.length, scenes.length === i ? ctx : undefined), scenes.length)); return scenes[i]; };
+  // the arc's two numbers per scene, from their own draws so they move nothing else in the life
+  const arc = (d, i) => { const a = rng(seed * 977 + i * 31); d.dry ??= d.naked ? 1 : r2(0.12 + 0.18 * a()); d.intensity ??= d.naked ? 0 : r2(intensityAt(i, (a() - 0.5) * 0.15)); return d; };
+  const scene = (i, ctx) => { while (scenes.length <= i) scenes.push(build(arc(make(scenes.length, scenes.length === i ? ctx : undefined), scenes.length), scenes.length)); return scenes[i]; };
   /** The JSON a vote stores: everything that makes the scene, nothing derived. */
   const defOf = (s) => { const { i, id, move, iMove, ...d } = s; return d; };
   return {
@@ -250,7 +292,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     /** Scene i, `t` seconds after its file landed: what the granulator does and the hand holds. */
     inScene(i, t) {
       const s = scene(i), x = t / s.dwell;
-      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.peak * envelope(x),
+      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2),
         value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)) };
     },
     /** The interlude after scene i, `t` seconds into its blend. */

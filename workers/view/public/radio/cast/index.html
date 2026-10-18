@@ -16,6 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
 <link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-7bfe616e.png">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
 <title>Väin cast</title>
@@ -72,7 +73,10 @@
   /* one text, so the footer is one column: the grid's empty side slots pushed it in from the left */
   .pos-vp-foot:has(.vc-scene) { padding: 12px; display: block; }
   .pos-vp-foot:has(.vc-scene) .pos-vp-c { justify-content: flex-start; }
-  .vc-scene { font: 12.5px/1.45 var(--sans); color: var(--dim); white-space: normal; text-wrap: balance; text-align: left; }
+  /* one height whatever the scene says: three lines at the desk, seven on a phone, the longest clamped */
+  .vc-scene { font: 12.5px/1.45 var(--sans); color: var(--dim); white-space: normal; text-wrap: balance; text-align: left;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; height: calc(1.45em * 3); }
+  @media (max-width: 560px) { .vc-scene { -webkit-line-clamp: 7; height: calc(1.45em * 7); } }
   .vc-ctl > .pos-icobtn[hidden] { display: none; }
   /* the group's own display beats the UA [hidden] */
   .vc-head .pos-bgroup[hidden] { display: none; }
@@ -109,8 +113,8 @@
   import { createPresence } from '/shell/presence.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE } from '/radio/cast/life.mjs';
-  import { createLayerEngine, euclid, stepSeconds } from '/radio/cast/layers.mjs';
+  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor } from '/radio/cast/life.mjs';
+  import { createLayerEngine, euclid, stepSeconds, layerLevel } from '/radio/cast/layers.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -638,6 +642,18 @@
   function paintFooter() {
     const sc = sceneOf(target);
     sceneLine.textContent = sc ? `${target} ${describe(sc.si, sc.def, sc.file)}` : `${target}: nothing playing`;
+    nowPlaying();
+  }
+  // the lock screen's player: the site's square artwork (built for it), the station, and what plays
+  const artwork = document.querySelector('meta[name="ps-artwork"]')?.content;
+  function nowPlaying() {
+    const heard = scopeName;
+    if (!heard || !('mediaSession' in navigator)) return;
+    const sc = sceneOf(heard);
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: sc ? `${sc.file || heard}, ${sc.def.patch}` : heard, artist: `positron ${heard}`, album: 'Väin cast',
+        artwork: artwork ? [{ src: artwork, sizes: '512x512', type: 'image/png' }] : [] });
+    } catch { /* an older WebKit without MediaMetadata */ }
   }
   // ── the local station: its sound controls as they stand, on its program, heard here at once ──
   const localFile = (it) => `${BASE}/file/${encodeURIComponent(it.id)}`;
@@ -660,7 +676,7 @@
     const q = localQueue();
     life = createLife({ seed: lifeSeed(), votes });
     const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(q[0]?.id))?.kind });
-    await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE }, patch: { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } } });
+    await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE }, patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0) }) });
     if (!localOn()) return;
     startLife(true);
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
@@ -692,7 +708,7 @@
       commentFor = ''; comment.set('');
       const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
-      local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 } }); L.patch = s.patch;
+      local.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 })); L.patch = s.patch;
       layersFor(s);
       announce(LOCAL, L.si, life.defOf(s), L.file); scopeEvent('landing');
       paintScene();
@@ -701,7 +717,7 @@
     if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = t; local.set('noise', life.scene(L.si).iNoise); scopeEvent('interlude'); }
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
-    if (v.patch !== L.patch) { L.patch = v.patch; local.patch({ name: v.patch, set: { mix: 0 } }); }
+    if (v.patch !== L.patch) { L.patch = v.patch; local.patch(engPatch(v.patch, { mix: 0 })); }
     local.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
     lifeNow = v;
   }
@@ -733,13 +749,12 @@
   }
   // the layers rise after the file has started and fall away before it ends, so a new chord is set in
   // silence; their key is the file's own strongest note, heard in its first seconds
-  const ease = (u) => u * u * (3 - 2 * u), heard = { acc: new Float64Array(12), done: false };
-  const layerLevel = (x) => (x < 0.12 ? 0 : x < 0.3 ? ease((x - 0.12) / 0.18) : x > 0.8 ? ease(Math.max(0, (0.95 - x) / 0.15)) : 1);
+  const heard = { acc: new Float64Array(12), done: false };
   let chromaBuf = null;
   function layerTick(st, t) {
     if (!layerEng || !life) return;
     const s = life.scene(lifeState.si), since = t - lifeState.sceneAt;
-    layerEng.level(st.phase === 'blend' ? 0 : layerLevel(since / s.dwell));
+    layerEng.level(st.phase === 'blend' ? 0 : layerLevel(since / s.dwell, s.dry) * (0.6 + 0.4 * (s.intensity ?? 1)));
     if (heard.done || !local.tunerAnalyser) return;
     if (since >= 1 && since < 5) {
       const a = local.tunerAnalyser; chromaBuf ||= new Float32Array(a.frequencyBinCount); a.getFloatFrequencyData(chromaBuf);
@@ -761,7 +776,7 @@
   // a ghost: the next file in the queue, or the one before, from somewhere inside it, for a few seconds
   function ghostTick(t) {
     const Ly = layerEng?.layers;
-    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1)) < 0.5)) return;
+    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1), life?.scene(lifeState.si).dry) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
       const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
@@ -879,6 +894,8 @@
   }
   /** A scene's controls set aside its patch, as values. */
   const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, fromT(n, t)]));
+  /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
+  const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
   const KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
   /** A scene's layers in words, for the readout: its key, then each layer it carries. */
   function layersSay(s) {
@@ -1046,7 +1063,7 @@
       const seen0 = { shown: logged(new RegExp(`^local scene 1: .*${S0.patch}.*moving ${S0.param}`)) && !detail.contains(soundSec), moving: lMove.textContent };
       d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving, the scene announced in the log (its box hidden)',
         localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'grains' && st0.set.drift === 1
-        && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === S0.patch && localFile(items[0]) === `${BASE}/file/${items[0].id}`
+        && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === patchFor(S0.patch).name && localFile(items[0]) === `${BASE}/file/${items[0].id}`
         && castBtns.button('cast').textContent === 'stop here' && word(LOCAL) === 'here' && seen0.shown
         && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set) && seen0.moving.startsWith(`${S0.param} `),
         JSON.stringify({ st0: st0 && { mode: st0.mode, set: st0.set, patch: st0.patch?.name }, S0: [S0.patch, S0.param, S0.dwell], seen0, word: word(LOCAL) }));
@@ -1059,14 +1076,14 @@
         && cards[LOCAL].now2.textContent === 'file B' && !cards[LOCAL].now2.hidden && nowOf(LOCAL) === 'file A' && cards[LOCAL].at.textContent === '0:03' && lMove.textContent.endsWith('interlude'), JSON.stringify({ now: nowOf(LOCAL), now2: cards[LOCAL].now2.textContent, at: cards[LOCAL].at.textContent, m: lMove.textContent }));
       calls.length = 0; needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
       d.assert('the next landing is scene 1: its own dwell, blend and patch, the noise back down for the scene, and one file on the card again',
-        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, n, v]) => c === 'set' && n === 'noise' && v === DWELL_NOISE) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
+        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, n, v]) => c === 'set' && n === 'noise' && v === DWELL_NOISE) && has(([c, p]) => c === 'patch' && p.name === patchFor(S1.patch).name)
         && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && cards[LOCAL].now2.hidden
-        && Object.keys(S1.tweak).length === 2 && has(([c, p]) => c === 'patch' && p.name === S1.patch && Object.keys(S1.tweak).every((n) => n in p.set)) && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
+        && Object.keys(S1.tweak).length === 2 && has(([c, p]) => c === 'patch' && p.name === patchFor(S1.patch).name && Object.keys(S1.tweak).every((n) => n in p.set)) && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
       // stepping: next and previous ask for a scene and start the transition; the press sweeps until it lands
       calls.length = 0; sceneBtns.button('next').click(); await tick(100);
       const nextBusy = sceneBtns.button('next').dataset.busy === '1' && calls.some(([c]) => c === 'next');
       needle = { ...needle, landings: 2, from: 0 }; await tick(400);
-      const atTwo = lifeState.si === 2 && !sceneBtns.button('next').dataset.busy && has(([c, p]) => c === 'patch' && p.name === L42.scene(2).patch);
+      const atTwo = lifeState.si === 2 && !sceneBtns.button('next').dataset.busy && has(([c, p]) => c === 'patch' && p.name === patchFor(L42.scene(2).patch).name);
       calls.length = 0; sceneBtns.button('prev').click(); await tick(100);
       const prevBusy = sceneBtns.button('prev').dataset.busy === '1';
       needle = { ...needle, landings: 3, from: 1 }; await tick(400);
