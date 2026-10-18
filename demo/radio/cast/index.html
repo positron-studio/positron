@@ -100,7 +100,7 @@
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
   import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor, freezesAfterDry } from '/radio/cast/life.mjs';
-  import { createLayerEngine, euclid, stepSeconds, layerLevel } from '/radio/cast/layers.mjs';
+  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap } from '/radio/cast/layers.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -773,7 +773,7 @@
     if (!layerEng) return;
     layerEng.apply(s.layers, s.key); layerEng.level(0);
     heard.acc = new Float64Array(12); heard.done = false;
-    ghost.next = secs() + s.layers.ghostEvery * 0.5; ghost.until = 0; local.ghostStop(); layerEng.ghost(false);
+    ghost.next = secs() + ghostGap(s.layers, lifeState.item?.seconds) * 0.5; ghost.until = 0; local.ghostStop(); layerEng.ghost(false);
     pulse(s.layers);
   }
   // the layers rise after the file has started and fall away before it ends, so a new chord is set in
@@ -806,7 +806,7 @@
   function ghostTick(t) {
     const Ly = layerEng?.layers;
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1), life?.scene(lifeState.si).dry) < 0.5)) return;
-    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * Math.random()); }
+    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + ghostGap(Ly, lifeState.item?.seconds) * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
       const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
       if (!who) { ghost.next = t + 10; return; }

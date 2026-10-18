@@ -1,6 +1,6 @@
 // node demo/radio/cast/layers-test.mjs: the layers' numbers, no browser. Negative controls mark the checks a
 // plausible wrong version would pass by accident.
-import { chordHz, droneHz, harmRatios, euclid, stepSeconds, hz, CHORDS, VOICINGS } from './layers.mjs';
+import { chordHz, droneHz, harmRatios, euclid, stepSeconds, hz, CHORDS, VOICINGS, ghostGap } from './layers.mjs';
 
 let ok = 0, bad = 0;
 const check = (name, pass, detail = '') => { if (pass) ok++; else { bad++; console.log(`FAIL ${name}${detail ? `\n  ${detail}` : ''}`); } };
@@ -26,6 +26,8 @@ check('euclid k of n always has k hits, spread so no gap differs from another by
   return at.length === k && Math.max(...gaps) - Math.min(...gaps) <= 1;
 }));
 check('NEGATIVE CONTROL: the gap check catches all hits bunched at the start', (() => { const at = [0, 1, 2], n = 8, gaps = at.map((v, i) => ((at[(i + 1) % at.length] - v + n) % n) || n); return Math.max(...gaps) - Math.min(...gaps) > 1; })());
+check('the longer the file the more ghosts: a 20 min file is visited twice as often as a 5 min one, a 1 min clip less', ghostGap({ ghostEvery: 40 }, 1200) === 20 && ghostGap({ ghostEvery: 40 }, 300) === 40 && ghostGap({ ghostEvery: 40 }, 60) === 60);
+check('NEGATIVE CONTROL: a file of unknown length keeps the scene\'s own gap', ghostGap({ ghostEvery: 40 }) === 40 && ghostGap({ ghostEvery: 40 }, 'x') === 40);
 check('a step at 120 bpm: a beat 0.5 s, an eighth 0.25 s, a sixteenth 0.125 s', stepSeconds(120, 4) === 0.5 && stepSeconds(120, 8) === 0.25 && stepSeconds(120, 16) === 0.125);
 
 // ── --browser: each layer alone in the wasm scsynth, against a voice-like source at the levelled loudness ──

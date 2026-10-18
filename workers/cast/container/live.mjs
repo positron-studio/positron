@@ -7,7 +7,7 @@ import { levelOf, SR } from './mixer.mjs';
 import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry } from './sc/radio/cast/life.mjs';
 /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
 const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
-import { createLayerEngine, euclid, stepSeconds, layerLevel, pitchClass, KEY_FROM, KEY_HZ } from './sc/radio/cast/layers.mjs';
+import { createLayerEngine, euclid, stepSeconds, layerLevel, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
 import { createSoften } from './sc/radio/cast/soften.mjs';
 
 export const TICK_MS = 50, CHROMA_N = 8192, ONSET_N = 1024, RING_NODE = 4000;
@@ -115,7 +115,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   }
   function layersFor(s, t) {
     chroma.reset(); L.keyDone = false;
-    ghost.next = t + s.layers.ghostEvery * 0.5; ghost.until = 0; closeGhost();
+    ghost.next = t + ghostGap(s.layers, L.item?.seconds) * 0.5; ghost.until = 0; closeGhost();
     if (layers) { layers.apply(s.layers, s.key); layers.level(0); layers.ghost(false); }
     pulse(s.layers);
   }
@@ -136,7 +136,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     if (ghost.stopAt && !ghost.until && t >= ghost.stopAt) closeGhost();
     const Ly = layers?.layers;
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry) < 0.5)) return;
-    if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 2.5; ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * rand()); }
+    if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 2.5; ghost.next = t + ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
     else if (!ghost.until && t >= ghost.next) {
       const nx = e.nextItem, who = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
       if (!who) { ghost.next = t + 10; return; }

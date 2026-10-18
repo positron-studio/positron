@@ -60,7 +60,10 @@ export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12)
 
 export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
 /** A ghost arrives an octave down, a fourth down, as it is, or a fifth up. */
-export const GHOST_SHIFTS = [0.5, 0.75, 1, 1.5];
+// a visit is mostly slowed, an octave or a fourth down, now and then as it was or a fifth up
+export const GHOST_SHIFTS = [0.5, 0.75, 0.5, 0.75, 1, 1.5];
+/** Seconds between ghost visits: the scene's own gap, shorter on a long file (300 s is as drawn), 0.5 to 1.5 times. */
+export const ghostGap = (L, seconds) => (L?.ghostEvery ?? 40) * (Number(seconds) > 0 ? Math.min(1.5, Math.max(0.5, 300 / Number(seconds))) : 1);
 /** The drones stay up across scenes and glide to the next key; the other layers fade with each scene. */
 export const DRONES = ['ldrone', 'lfreeze'];
 const fs = (n, from = 0) => Array.from({ length: n }, (_, i) => `\\f${from + i}.kr(${110 * (i + 1)})`);
@@ -96,9 +99,9 @@ export const PROGRAMS = {
   lghost: `{ var amp = Lag.kr(\\amp.kr(0), 1.5);
   var x = Mix(In.ar(4, 2)) * 0.5;
   var sh = PitchShift.ar(x, 0.25, Lag.kr(\\shift.kr(1), 0.5), 0.01, 0.05);
-  var bp = BPF.ar(sh, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.5) * 1.5;
+  var bp = BPF.ar(sh, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.5) * 3;
   var cb = CombC.ar(sh * 0.3, 0.1, 1 / \\root.kr(110), 3);
-  var rs = Mix([${fs(GHOST_N).map((f) => `Ringz.ar(sh * 0.02, ${f}, 1.5)`).join(', ')}]);
+  var rs = Mix([${fs(GHOST_N).map((f) => `Ringz.ar(sh * 0.03, ${f}, 1.5)`).join(', ')}]);
   var s = (sh * 0.5) + (bp * \\wb.kr(1)) + (cb * \\wc.kr(0) * 0.5) + (rs * \\wr.kr(0) * 0.12);
   var w = FreeVerb.ar(LeakDC.ar(s), 0.55, 0.92, 0.4);
   Pan2.ar(Limiter.ar(w, 0.5, 0.01) * amp, LFNoise2.kr(0.15) * 0.9) }`,
@@ -156,7 +159,7 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
     },
     /** A ghost rising (`on`) or fading; its level is the scene's, its pitch picked per visit (GHOST_SHIFTS). */
     ghost(on, shift = GHOST_SHIFTS[Math.floor(Math.random() * GHOST_SHIFTS.length)]) {
-      set('lghost', on && now?.ghost !== 'none' ? { amp: now.ghostLevel * 3.2, shift } : { amp: 0 });
+      set('lghost', on && now?.ghost !== 'none' ? { amp: now.ghostLevel * 4.5, shift } : { amp: 0 });
     },
     /** One pulse hit on the resonators: opens them for `len` seconds. */
     hit(len = 0.3) { set('lres', { hit: 1, hitlen: len }); setTimeout(() => set('lres', { hit: 0 }), 20); },
