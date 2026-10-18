@@ -16,8 +16,8 @@ else await pure();
 
 async function pure() {
   // ── 1. the program is the page's, byte for byte ──
-  const pairs = [['sc/granulator/grain-ring.mjs', 'demo/granulator/grain-ring.mjs'], ['sc/shell/sclang-lite.mjs', 'demo/shell/sclang-lite.mjs'],
-    ['sc/shell/synthdef.mjs', 'demo/shell/synthdef.mjs'], ['sc/shell/scsynth.mjs', 'demo/shell/scsynth.mjs']];
+  const { SC_FILES } = await import('./sc-files.mjs');
+  const pairs = SC_FILES.map((f) => [`sc/${f}`, `demo/${f}`]);
   for (const [ours, page] of pairs) {
     let same = false;
     try { same = readFileSync(`${HERE}container/${ours}`, 'utf8') === readFileSync(`${HERE}../../${page}`, 'utf8'); } catch { /* absent */ }

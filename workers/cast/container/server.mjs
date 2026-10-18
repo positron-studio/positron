@@ -6,7 +6,10 @@
 //   POST /set   { name, v }   a mix control: tune, drift, dwell, blend, noise
 //   POST /play  { ..., mode: 'grains', set, patch }   the mix through the grain ring (grains.mjs)
 //   POST /patch { name?, set? }   a grain ring patch by name and/or values, clamped
+//   POST /play  { ..., mode: 'live', life: { seed, votes } }   the page's life and layers over grains (live.mjs)
+//   POST /step  { by: 1 | -1 }   live: the next or previous scene, its transition at once
 //   GET  /status
+// The worker sends only live since 2026-10-18; copy, mix and grains stay here for the tests.
 // target is { kind: 'icecast', host, port, mount, pw } or { kind: 'ws', url, mount, pw } (our test receiver).
 // With ICECAST_PW set it also runs Icecast 2.4.4 on :8000, mount /preview, for the `preview` target.
 import http from 'node:http';
@@ -17,6 +20,7 @@ import { spawn } from 'node:child_process';
 import { createFramer } from '../mp3.mjs';
 import { startMix, usage } from './mixcast.mjs';
 import { startGrains } from './grains.mjs';
+import { startLive } from './live.mjs';
 
 // Frames go out this far ahead of the clock, and a file is read no further ahead than READ_AHEAD.
 const LEAD_S = 2, READ_AHEAD_S = 20, TICK_MS = 200;
@@ -234,7 +238,7 @@ function start(body) {
   if (!Array.isArray(queue) || !queue.length) throw new Error('an empty queue');
   if (!target?.pw || !target.mount) throw new Error('a target with a mount and a password');
   secrets = [target.pw, Buffer.from(`source:${target.pw}`).toString('base64')];
-  if (body.mode === 'mix' || body.mode === 'grains') {
+  if (body.mode === 'mix' || body.mode === 'grains' || body.mode === 'live') {
     if (s) stop(`switching to ${body.mode}`);
     if (mx && mxMode !== body.mode) { mx.stop(); mx = null; say(`${mxMode} stopped, switching to ${body.mode}`); }
     if (mx) {
@@ -243,8 +247,9 @@ function start(body) {
       mx.next(); say(`${mxMode} queue replaced, ${queue.length} files`); return;
     }
     mxTarget = target; mxMode = body.mode;
-    mx = body.mode === 'grains' ? startGrains({ queue, target, set: body.set || {}, patch: body.patch || undefined }, { openSink, say, fail })
-      : startMix({ queue, target, set: body.set || {} }, { openSink, say, fail });
+    mx = body.mode === 'live' ? startLive({ queue, target, life: body.life || {}, set: body.set || {} }, { openSink, say, fail })
+      : body.mode === 'grains' ? startGrains({ queue, target, set: body.set || {}, patch: body.patch || undefined }, { openSink, say, fail })
+        : startMix({ queue, target, set: body.set || {} }, { openSink, say, fail });
     say(`${body.mode} started, ${queue.length} files`);
     return;
   }
@@ -312,6 +317,13 @@ http.createServer(async (req, res) => {
       const b = JSON.parse(raw || '{}');
       if (!mx) return reply(res, 409, { error: 'not mixing: the value is kept for the next mix' });
       for (const [k, v] of Object.entries(b.set || { [b.name]: b.v })) if (mx.set(k, v) === null) throw new Error(`no control ${k}`);
+      return reply(res, 200, await status());
+    }
+    if (req.url === '/step') {
+      if (mxMode !== 'live' || !mx) return reply(res, 409, { error: 'not live: a step is a scene of the life' });
+      const b = JSON.parse(raw || '{}');
+      if (b.by !== 1 && b.by !== -1) throw new Error('step by 1 or -1');
+      if (!mx.step(b.by)) return reply(res, 409, { error: 'a step is already on its way' });
       return reply(res, 200, await status());
     }
     if (req.url === '/patch') {

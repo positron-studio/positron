@@ -548,7 +548,7 @@
   const localQueue = () => {
     const ids = startIds(LOCAL), held = localOn() ? local.status().slots.map((x) => x.id) : [];
     const last = Math.max(-1, ...held.map((h) => ids.findIndex((x) => String(x) === String(h))));
-    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => ({ id, title: titleOf(id), gain: items.find((x) => String(x.id) === String(id))?.gain }));
+    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => { const it = items.find((x) => String(x.id) === String(id)); return { id, title: titleOf(id), gain: it?.gain, soften: !!it?.soften }; });
   };
   async function startLocal() {
     if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
@@ -720,7 +720,7 @@
   function tookScene(t, st) {
     const x = st.life;
     if (!x?.inst) return;
-    instDef.set(x.inst, { def: x.def, file: x.file ?? st.now?.title ?? '' });
+    instDef.set(x.inst, { def: x.def, file: x.file ?? st.now?.title ?? '', station: t });
     if (stepWant[t] != null && x.si === stepWant[t]) delete stepWant[t];
     if (lastInst[t] && lastInst[t] !== x.inst && t === target) {
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
@@ -756,7 +756,8 @@
     mine.set(inst, row);
     votes = votes.filter((x) => x.inst !== inst).concat(row.vote ? [{ inst, def, vote: row.vote, file }] : []);
     paintScene();
-    const r = await postVote({ inst, def, file, vote: row.vote, comment: row.comment });
+    const station = [...instDef.entries()].find(([k2]) => k2 === inst)?.[1]?.station;
+    const r = await postVote({ inst, def, file, vote: row.vote, comment: row.comment, ...(station ? { station } : {}) });
     if (r?.error) d.log(`the vote was not kept: ${r.error}`, 'warn');
     else if ('vote' in change) d.log(row.vote ? `${VOTES[row.vote]}: ${def.patch}, ${def.param}` : 'vote taken back');
   }

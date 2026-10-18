@@ -1,6 +1,6 @@
 // node workers/cast/local-test.mjs: the cast page's LOCAL engine (demo/radio/cast/local.mjs) holds the container's
 // numbers, so what is tried in the browser is what START puts on air. No browser, no network.
-// 6 of the asserts are NEGATIVE CONTROLS.
+// 8 of the asserts are NEGATIVE CONTROLS.
 import * as L from '../../demo/radio/cast/local.mjs';
 import * as M from './container/mixer.mjs';
 import { clampPatch, PATCH_LIMITS } from './container/grain-patch.mjs';
@@ -70,6 +70,34 @@ ok('LOCAL: an item with no gain plays at 1', lv0.value === 1);
 ok('both engines report the same gain on the slot', lv.st.slots[0].gain === -8.2 && cv.st.slots[0].gain === -8.2, `${lv.st.slots[0].gain} and ${cv.st.slots[0].gain}`);
 ok('the container: the slot\'s part is 8.2 dB under the same file with no gain', Math.abs(cv.slot - cv0.slot + 8.2) <= 0.1, `${cv0.slot} and ${cv.slot} dB`);
 ok('both clamp 30 dB to the cap', containerLevel(30).st.slots[0].gain === M.GAIN_DB[1] && (await localLevel(30)).st.slots[0].gain === M.GAIN_DB[1]);
+// soften: a marked file passes the worklet between its level and its tuner leg, a plain one is wired as before
+async function wiring(items, { worklet = true } = {}) {
+  const made = [], edges = [];
+  globalThis.AudioContext = function () {
+    fctx = fakeCtx();
+    // a disconnect that really cuts, so the wiring read below is what is connected now
+    for (const n of [fctx.destination]) n.disconnect = () => {};
+    const mk = fctx.createGain; fctx.createGain = () => { const n = mk(); n.disconnect = () => { for (let i = fctx.edges.length - 1; i >= 0; i--) if (fctx.edges[i][0] === n) fctx.edges.splice(i, 1); }; return n; };
+    if (worklet) fctx.audioWorklet = { addModule: async (u) => { made.push(String(u)); } };
+    return fctx;
+  };
+  globalThis.AudioWorkletNode = function (ctx, name, o) { const n = { kind: 'worklet', name, o, connect(t) { ctx.edges.push([n, t]); return t; }, disconnect() { for (let i = ctx.edges.length - 1; i >= 0; i--) if (ctx.edges[i][0] === n) ctx.edges.splice(i, 1); } }; ctx.made.push(n); return n; };
+  const loc = L.createLocal({ fileUrl: (it) => `/file/${it.id}` });
+  await loc.start({ queue: items, mode: 'mix' });
+  const out = (n) => fctx.edges.filter(([x]) => x === n).map(([, y]) => y);
+  const media = fctx.made.find((n) => n.kind === 'media'), bus = out(media)[0], level = out(bus).find((n) => n.kind === 'gain' && n.gain.value !== 0);
+  const after = out(level), st = loc.status(), toLeg = after[0]?.kind === 'worklet' ? out(after[0]).map((n) => n.kind) : null;
+  loc.stop(); delete globalThis.AudioWorkletNode;
+  return { after: after.map((n) => n.kind), worklet: after[0]?.kind === 'worklet' ? after[0] : null, toLeg, st, modules: made };
+}
+const soft = await wiring([{ id: 'k', title: 'Kalle', gain: -8.2, soften: true }]);
+ok('LOCAL: a soften file goes level -> the cast-soften worklet -> its tuner leg', soft.after.join() === 'worklet' && soft.worklet.name === 'cast-soften' && soft.toLeg?.join() === 'gain', `${soft.after} then ${soft.toLeg}`);
+ok('the worklet is mono in and out, downmixed as the container decodes (speakers, 0.5 (L + R))', soft.worklet?.o.channelCount === 1 && soft.worklet.o.channelCountMode === 'explicit' && soft.worklet.o.channelInterpretation === 'speakers' && soft.worklet.o.outputChannelCount.join() === '1');
+ok('the worklet module is the soften stage, loaded once', soft.modules.length === 1 && soft.st.slots[0].soften === true);
+const plain = await wiring([{ id: 'e', title: 'Evening', gain: -1.4 }]);
+ok('NEGATIVE CONTROL: a file without soften is wired level -> leg, no worklet anywhere', plain.after.join() === 'gain' && !fctx.made.some((n) => n.kind === 'worklet') && plain.st.slots[0].soften === false);
+const noWk = await wiring([{ id: 'k', title: 'Kalle', soften: true }], { worklet: false });
+ok('NEGATIVE CONTROL: with no AudioWorklet a soften file still plays, unsoftened, and says so', noWk.after.join() === 'gain' && noWk.st.slots[0].soften === false);
 // NEGATIVE CONTROLS: the comparison can fail
 ok('NEGATIVE CONTROL: a level with the sign turned would not compare equal', !Object.is(L.levelOf(8.2), M.levelOf(-8.2)));
 ok('NEGATIVE CONTROL: the meter sees a gain the engine ignores', Math.abs(cv0.slot - containerLevel(0).slot) <= 0.05 && Math.abs(containerLevel(-3).slot - cv0.slot + 3) <= 0.1);

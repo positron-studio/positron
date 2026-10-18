@@ -8,12 +8,12 @@ const MAX_S = 8, FRAME = 8, BYTES_PER_S = 44100 * FRAME;
 export const UPMIX = 'pan=stereo|FL=FL+FC|FR=FR+FC';
 const UA = 'positron-cast/1 (+https://positron.studio)';
 
-/** `{ read(n), ended, buffered, underrun, close(), error }`; `read` never blocks and zero-fills a gap. */
-export function openDecoder(item, { ffmpeg = process.env.FFMPEG || 'ffmpeg', log = () => {} } = {}) {
+/** `{ read(n), ended, buffered, underrun, close(), error }`; `read` never blocks and zero-fills a gap. `from` seeks, in seconds. */
+export function openDecoder(item, { ffmpeg = process.env.FFMPEG || 'ffmpeg', log = () => {}, from = 0 } = {}) {
   const url = item.url, http = /^https?:/.test(url);
   const args = ['-nostdin', '-hide_banner', '-loglevel', 'error',
     ...(http ? ['-user_agent', UA, '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5'] : []),
-    '-i', url, '-vn', '-af', UPMIX, '-f', 'f32le', '-ar', '44100', '-ac', '2', 'pipe:1'];
+    ...(from > 0 ? ['-ss', String(+from.toFixed(2))] : []), '-i', url, '-vn', '-af', UPMIX, '-f', 'f32le', '-ar', '44100', '-ac', '2', 'pipe:1'];
   const p = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   const chunks = [];
   let tail = Buffer.alloc(0), have = 0, head = 0, exited = false, closed = false, started = false, err = '';

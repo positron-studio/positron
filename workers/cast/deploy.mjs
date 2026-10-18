@@ -3,19 +3,20 @@
 // The container's `durable_object` policy needs wrangler 4.148 (rig/containers-next); npx here is 4.75.
 // why: lessons/workers-shout.md#deploy
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SC_FILES } from './sc-files.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WRANGLER = join(HERE, '../../rig/containers-next/node_modules/.bin/wrangler');
 // the image's build context is this directory, so the page's tuner maths is copied in, unchanged
 const TUNER = [join(HERE, '../../demo/shell/tuner-mix.mjs'), join(HERE, 'container/tuner-mix.mjs')];
 if (readFileSync(TUNER[0], 'utf8') !== readFileSync(TUNER[1], 'utf8')) { writeFileSync(TUNER[1], readFileSync(TUNER[0])); console.log('container/tuner-mix.mjs refreshed from demo/shell'); }
-// and the grain ring's program and compiler, as the page has them
-for (const f of ['granulator/grain-ring.mjs', 'shell/sclang-lite.mjs', 'shell/synthdef.mjs', 'shell/scsynth.mjs']) {
+// and the grain ring's program and compiler, the live planner, its layers and the soften stage, as the page has them
+for (const f of SC_FILES) {
   const [from, to] = [join(HERE, '../../demo', f), join(HERE, 'container/sc', f)];
-  if (!existsSync(to) || readFileSync(from, 'utf8') !== readFileSync(to, 'utf8')) { writeFileSync(to, readFileSync(from)); console.log(`container/sc/${f} refreshed from demo`); }
+  if (!existsSync(to) || readFileSync(from, 'utf8') !== readFileSync(to, 'utf8')) { mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, readFileSync(from)); console.log(`container/sc/${f} refreshed from demo`); }
 }
 const env = { ...process.env };
 delete env.CF_API_TOKEN;

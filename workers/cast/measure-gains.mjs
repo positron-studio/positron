@@ -64,7 +64,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const m = measure(path);
       if (m.why) { none[id] = { title: it.title, why: m.why }; delete rows[id]; console.log(`${id} ${it.title}: ${m.why}`); continue; }
       const f = features(samplesFor(path, m.seconds)), c = classify(f);
-      rows[id] = { title: it.title, lufs: m.lufs, tp: m.tp, lra: m.lra, seconds: m.seconds, gain: gainFor(m.lufs),
+      // soften is set by hand (lessons/workers-cast.md#soften) and kept across a measure
+      rows[id] = { ...(GAINS[id]?.soften ? { soften: true } : {}), title: it.title, lufs: m.lufs, tp: m.tp, lra: m.lra, seconds: m.seconds, gain: gainFor(m.lufs),
         kind: c.kind, kindConf: c.conf, kindLean: c.lean, kindBy: c.by, features: f };
       console.log(`${id} ${it.title}: ${m.lufs} LUFS, true peak ${m.tp} dBFS, gain ${rows[id].gain} dB, ${c.kind} ${c.conf} (${c.by})`);
       if (path.startsWith(tmp)) rmSync(path, { force: true });
@@ -72,12 +73,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   } finally { rmSync(tmp, { recursive: true, force: true }); }
   for (const [id, x] of Object.entries(UNMEASURED)) if (!rows[id] && !none[id] && !items.some((it) => String(it.id) === id)) none[id] = x;
   const out = `// Written by measure-gains.mjs, not by hand: each archive file's loudness as the tuner hears it, the gain that
-// brings it to TARGET (clamped to GAIN_DB) and its kind. A feed id with no row plays at 0 dB. why: lessons/workers-cast.md#level
+// brings it to TARGET (clamped to GAIN_DB) and its kind; \`soften\` is set by hand. A feed id with no row plays at 0 dB. why: lessons/workers-cast.md#level
 export const TARGET = ${TARGET};
 export const GAINS = ${JSON.stringify(rows, null, 1)};
 export const UNMEASURED = ${JSON.stringify(none, null, 1)};
-/** What /feed adds to an item: gain in dB (0 when never measured), kind and kindConf (null then). */
-export const levelFor = (id) => { const g = GAINS[String(id)]; return { gain: g?.gain ?? 0, kind: g?.kind ?? null, kindConf: g?.kindConf ?? null }; };
+/** What /feed adds to an item: gain in dB (0 when never measured), kind and kindConf (null then), soften, seconds. */
+export const levelFor = (id) => { const g = GAINS[String(id)]; return { gain: g?.gain ?? 0, kind: g?.kind ?? null, kindConf: g?.kindConf ?? null, soften: !!g?.soften, seconds: g?.seconds ?? null }; };
 `;
   writeFileSync(join(HERE, 'gains.mjs'), out);
   console.log(`gains.mjs: ${Object.keys(rows).length} measured, ${Object.keys(none).length} not`);

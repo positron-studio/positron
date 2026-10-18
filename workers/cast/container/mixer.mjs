@@ -2,6 +2,7 @@
 // saturation of /radio/tuner/'s graph, ported sample by sample. No I/O; sources are injected.
 // why: lessons/workers-cast.md#mixer
 import { createMix, DRIVE, SAT_K, handTurn, WHISTLE_SOFT } from './tuner-mix.mjs';
+import { createSoften } from './sc/radio/cast/soften.mjs';
 
 export const SR = 44100;
 export const BLOCK = 882;                      // 20 ms
@@ -177,6 +178,8 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     const sl = slots[j];
     try { sl.src?.close(); } catch { /* gone */ }
     sl.item = it; sl.src = src || (it ? open(it) : null); sl.level = levelOf(it?.gain);
+    // after the level, before the tuner, as the page's worklet is. why: lessons/workers-cast.md#soften
+    sl.soften = it?.soften ? createSoften(sr) : null;
     if (it) log(`slot ${'ab'[j]}: ${it.title}`);
   }
   function prefetch() { if (!pending) { const it = take(); if (it) pending = { item: it, src: open(it) }; } }
@@ -214,6 +217,14 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     get frames() { return frames; },
     get seconds() { return frames / sr; },
     get ctl() { return { ...ctl }; },
+    /** The tuner's last block, mono floats: what the ring hears, for a meter or a key. */
+    get mono() { return mono; },
+    /** The item the next file to arrive will be. */
+    get nextItem() { return pending?.item ?? peekNext(); },
+    /** Mix seconds when the clock's cycle began: the last landing, or the start, moved back by next(). */
+    get cycleFrom() { return cycleFrom; },
+    /** The item on air (the slot the needle left from), or null. */
+    get onItem() { return slots[from].item; },
     start() { if (!slots[from].item) { const it = take(); if (it) place(from, it); } cycleFrom = tSec(); },
     /** Resolves when the slot on air holds a second of sound, has ended, or `ms` passed: the clock starts after it. */
     async ready(ms = 8000) {
@@ -244,6 +255,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
         if (!sl.src) return null;
         const x = sl.src.read(BLOCK);
         if (sl.level !== 1) for (let i = 0; i < x.length; i++) x[i] *= sl.level;
+        if (sl.soften) sl.soften.process(x);
         return x;
       });
       for (const sl of slots) if (sl.src?.underrun) { underruns += sl.src.underrun; sl.src.underrun = 0; }
@@ -266,7 +278,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     status() {
       return { mode: 'mix', ...ctl, tune: +tune.toFixed(4), phase, k: +k.toFixed(3), from, landings, underruns,
         noiseLevel: +m.noise.toFixed(3), seconds: +(frames / sr).toFixed(2),
-        slots: slots.map((sl, j) => ({ id: sl.item?.id ?? null, title: sl.item?.title ?? null, gain: sl.item ? +(20 * Math.log10(sl.level)).toFixed(2) : 0, clear: +m.st[j].clear.toFixed(3),
+        slots: slots.map((sl, j) => ({ id: sl.item?.id ?? null, title: sl.item?.title ?? null, gain: sl.item ? +(20 * Math.log10(sl.level)).toFixed(2) : 0, soften: !!sl.soften, clear: +m.st[j].clear.toFixed(3),
           echo: +m.st[j].echo.toFixed(3), buffered: sl.src ? +(sl.src.buffered ?? 0).toFixed(1) : 0, ended: !!sl.src?.ended })),
         next: pending?.item?.title ?? peekNext()?.title ?? null, meter };
     },

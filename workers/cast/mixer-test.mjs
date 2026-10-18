@@ -1,6 +1,6 @@
 // node workers/cast/mixer-test.mjs [--live 60]: the cast's mix mode with no container and no network.
 // The port is graded against the page's own createTunerGraph, run on a fake AudioContext that records
-// every value it is given, so the two cannot drift apart. 14 of the asserts are NEGATIVE CONTROLS.
+// every value it is given, so the two cannot drift apart. 16 of the asserts are NEGATIVE CONTROLS.
 // --live S runs the mixer and the encoder against the wall clock for S seconds into a sink that counts.
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -216,6 +216,26 @@ else {
     let po = 0; for (let i = 0; i + 4 <= old.length; i += 4) po = Math.max(po, Math.abs((old.readInt16LE(i) + old.readInt16LE(i + 2)) / 65536));
     ok('NEGATIVE CONTROL: ffmpeg\'s own upmix, the old decode, gives that file 3 dB less', near(po, 1.2 / Math.SQRT2, 0.01), `peak ${po.toFixed(4)}`);
   } finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+
+// ── 7c. soften: a marked file through its input stage, any other untouched. why: lessons/workers-cast.md#soften ──
+{
+  // a 300 Hz bed with a 1.5 ms 4 kHz tick every 645 ms, Driving along's shape, dead on slot a with no noise
+  const bed = (ticks) => { const x = new Float32Array(44100 * 4); for (let i = 0; i < x.length; i++) x[i] = 0.1 * Math.sin(2 * Math.PI * 300 * i / 44100);
+    if (ticks) for (let t = 0.3; t < 3.9; t += 0.645) { const o = Math.round(t * 44100); for (let i = 0; i < 66; i++) x[o + i] += 0.3 * Math.sin(2 * Math.PI * 4000 * i / 44100) * Math.sin(Math.PI * i / 66); }
+    return x; };
+  const src = (x) => { let i = 0; return { underrun: 0, buffered: 8, get ended() { return i >= x.length; }, read(n) { const o = new Float32Array(n); for (let k = 0; k < n && i < x.length; k++, i++) o[k] = x[i]; return o; }, close() {} }; };
+  const run = (x, item) => { const e = M.createEngine({ open: () => src(x), queue: [item], set: { drift: 0, tune: M.SLOTS[0].at, noise: 0 }, rand: M.seeded(2) }); e.start();
+    const out = []; for (let b = 0; b < 190; b++) out.push(Buffer.from(e.block())); const st = e.status(); e.close(); return { pcm: Buffer.concat(out), st }; };
+  const band = (pcm) => { const h = M.createBiquad('highpass', 2000, 0), l = M.createBiquad('lowpass', 6000, 0); let s2 = 0; for (let i = 0; i < pcm.length; i += 4) { const v = l.step(h.step(pcm.readInt16LE(i) / 32767)); s2 += v * v; } return s2; };
+  const T = bed(true), B = bed(false);
+  const off = run(T, { id: 't', title: 't', gain: 0 }), on = run(T, { id: 't', title: 't', gain: 0, soften: true }), none = run(T, { id: 't', title: 't', gain: 0, soften: false });
+  const tick = (r, b) => 10 * Math.log10(Math.max(1e-20, band(r.pcm) - band(b.pcm)));
+  const offB = run(B, { id: 'b', title: 'b' }), onB = run(B, { id: 'b', title: 'b', soften: true });
+  ok('soften takes the ticks\' 2 to 6 kHz energy down by more than 10 dB through the real tuner', tick(off, offB) - tick(on, onB) > 10, `${(tick(off, offB) - tick(on, onB)).toFixed(1)} dB`);
+  ok('the slot says it is softened', on.st.slots[0].soften === true && off.st.slots[0].soften === false);
+  ok('NEGATIVE CONTROL: soften false and no soften are the same samples, every one', none.pcm.equals(off.pcm));
+  ok('NEGATIVE CONTROL: soften true changes them', !on.pcm.equals(off.pcm));
 }
 
 // ── 8. --live S: the mixer and encoder against the wall clock ──

@@ -1,35 +1,38 @@
 // positron-cast: Väin's archive played live into an Icecast mount from Cloudflare, no machine of ours.
 //   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s, each with
-//                              gain (dB to -23 LUFS), kind (speech | field | music | ambiguous) and kindConf from gains.mjs
+//                              gain (dB to -23 LUFS), kind (speech | field | music | ambiguous), kindConf, soften (the input
+//                              stage for clicks, soften.mjs) and seconds from gains.mjs
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
 //                              extend ({ms}: stop at now + ms, 15 min to 12 h); every start stops itself at `until`, 2 h on;
 //                              program (the station's stored list, kept while off air, START plays it);
-//                              mode (copy | mix | grains), set (tune, drift, dwell, blend, noise) for the mix,
-//                              patch ({name?, set?}: the grain ring, clamped, kept, at most 20 a second)
+//                              every station plays live (life.mjs and layers.mjs in the container); step ({by: 1 | -1}:
+//                              the next or previous scene); mode, set and patch are refused since 2026-10-18
 //   GET  /status/<target>      the same status, read only
 //   GET  /file/<id>            one archive file by feed id, with CORS and Range, cached at the edge a year (the page's LOCAL)
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
 //   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
-//   POST /votes?key=           {inst, def, vote: 1 bad | 2 meh | 3 good | 4 great | null, comment, file}: one row per scene played
-//                              (`inst`); no vote and no comment takes it back
+//   POST /votes?key=           {inst, def, vote: 1 bad | 2 meh | 3 good | 4 great | null, comment, file, station?}: one row per
+//                              scene played (`inst`, a station's from its status.life); no vote and no comment takes it back
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
 // session in storage, boots the container, relays commands and restarts it when it dies.
 // The source speaks exactly what Väin's own app sends (radio1965 app/icecastbroadcaster.cpp): PUT over
 // HTTP/1.0, `ice-audio-info: send_notification=0;save_stream=0`, on air at a ` 200` status line.
 
-import { clampSet, DEFAULTS as MIX_DEFAULTS } from './container/mixer.mjs';
-import { clampPatch } from './container/grain-patch.mjs';
 import { levelFor } from './gains.mjs';
+import { tasteOf, fileWeight } from './container/sc/radio/cast/life.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
 const FEED_TYPES = new Set(['audio', 'streamrecording']);
 const FEED_HOSTS = new Set(['eccm.ee', 'uuu.ee', 'www.uuu.ee']);
-// Half a vCPU for every mode: grains measured 23 to 25 % of a core locally. Memory is the 3 GiB per
-// vCPU floor. Sweep every 30 s. why: lessons/workers-cast.md#grains-size
+// Half a vCPU: live measured 27 to 31 % of a core locally at --cpus 0.5. Memory is the 3 GiB per vCPU floor.
+// Sweep every 30 s. why: lessons/workers-cast.md#grains-size, #live-container
 const CAST_INSTANCE = { vcpu: 0.5, memoryMib: 1536, diskMb: 2048 };
-const SET_EVERY_MS = 50;
-const MODES = ['copy', 'mix', 'grains'];   // mix controls reach the container at most 20 a second
+// Live only since 2026-10-18 (*"rm copy mix and grains, arvhice. keep live only"*); the container keeps the
+// others for its tests. why: lessons/workers-cast.md#live-container
+const MODES = ['live'], RETIRED_MODES = ['copy', 'mix', 'grains'];
+// An empty program starts as this many files, picked as the page picks them; at most VOTES_SENT votes reach the life.
+const PICK = 5, VOTES_SENT = 2000;
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 // Every start stops itself at `until`, kept in the wanted session. why: lessons/workers-cast.md#cap
 const CAP_MS = 2 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 12 * 3600_000, PLAY_CAP_MIN = 60_000;
@@ -148,6 +151,16 @@ export default {
   },
 };
 
+/**
+ * Feed ids for a program of `n`: each file weighted by fileWeight of its votes (keyed by title, as the page's
+ * tasteOf is), none at weight 0, a plain shuffle when no file has a vote. The page's startIds, here.
+ */
+export function pickFiles(items, votes, n, rand = Math.random) {
+  const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+  if (pool.every((x) => x.w === 1)) { for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; } return pool.map((x) => x.id).slice(0, n); }
+  return pool.map((x) => ({ ...x, k: rand() ** (1 / x.w) })).sort((a, b) => b.k - a.k).map((x) => x.id).slice(0, n);
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = (t) => new Date(t).toISOString().slice(0, 19) + 'Z';
 
@@ -179,7 +192,7 @@ export class Caster {
   }
   async cpost(path, body) {
     // every queue carries each file's gain from the table, a stored one too. why: lessons/workers-cast.md#level
-    if (Array.isArray(body?.queue)) body = { ...body, queue: body.queue.map((x) => ({ ...x, gain: levelFor(x.id).gain })) };
+    if (Array.isArray(body?.queue)) body = { ...body, queue: body.queue.map((x) => ({ ...x, ...levelFor(x.id) })) };
     const r = await this.c.getTcpPort(8080).fetch(`http://c${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `the container answered ${r.status}`);
@@ -187,7 +200,7 @@ export class Caster {
   }
 
   async status() {
-    const [want, progress, deaths, boot, mx, prog, stopped] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'mix', 'program', 'stopped'].map((k) => this.st.get(k)));
+    const [want, progress, deaths, boot, prog, stopped] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'program', 'stopped'].map((k) => this.st.get(k)));
     const t = targets(this.env)[this.name], s = await this.cstatus();
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
@@ -199,9 +212,9 @@ export class Caster {
       container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
         rss: s?.rss ?? null, sinkDeaths: s?.sinkDeaths ?? 0, lastError: s?.lastError || null },
       icecast: s?.icecast || null,
-      mode: s?.mode || mx?.mode || 'copy', wanted: { mode: mx?.mode || 'copy', set: { ...MIX_DEFAULTS, ...(mx?.set || {}) }, patch: mx?.patch || null },
-      mix: s?.mix ? (({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots, next, meter, landings, underruns, encoderRestarts }) =>
-        ({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots: slots.map((x) => ({ title: x.title, clear: x.clear })), next, meter, landings, underruns, encoderRestarts }))(s.mix) : null,
+      mode: s?.mode || 'live', wanted: { mode: 'live' }, life: s?.mix?.life ?? null,
+      mix: s?.mix ? (({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots, next, meter, landings, underruns, encoderRestarts, backlog }) =>
+        ({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots: slots.map((x) => ({ title: x.title, clear: x.clear, soften: x.soften })), next, meter, landings, underruns, encoderRestarts, backlog }))(s.mix) : null,
       grains: s?.mix?.grains ? (({ patch, mix, values, out, chainStarts, chain: c }) => ({ patch, mix, values, out, chainStarts,
         chain: c && { dead: c.dead, upS: c.upS, xruns: c.xruns, late: c.late, grains: c.grains, scsynth: c.scsynth,
           procs: Object.fromEntries(Object.entries(c.procs || {}).map(([k, v]) => [k, v && { cpuPct: v.cpuPct, rssMiB: v.rssMiB }])) } }))(s.mix.grains) : null,
@@ -252,8 +265,8 @@ export class Caster {
     if (m.cmd === 'stop') return this.stop('asked to stop');
     if (m.cmd === 'extend') return this.extend(m.ms);
     if (m.cmd === 'mode') return this.mode(m.mode);
-    if (m.cmd === 'set') return this.set(m.name, m.v);
-    if (m.cmd === 'patch') return this.patch(m);
+    if (m.cmd === 'set' || m.cmd === 'patch') throw new Error(`${m.cmd} is the life's on a live station: it moves the sound itself`);
+    if (m.cmd === 'step') return this.step(m.by);
     if (m.cmd === 'next') { if (this.c?.running) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
     if (m.cmd === 'kill') { if (this.c?.running) { this.killing = true; this.say('killing the container on purpose'); await this.c.destroy().catch(() => {}); } return; }
@@ -264,8 +277,11 @@ export class Caster {
       // queue on air: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
       if (m.cmd === 'queue') return this.program(m.ids);
       if (!t.pw) throw new Error(`no source password for ${t.label}: waiting on Väin's OK`);
-      const queue = m.ids ? await this.resolve(m.ids) : ((await this.st.get('program')) || []);
-      if (!queue.length) throw new Error(m.ids ? 'none of those is in their archive feed' : 'the program is empty');
+      let queue = m.ids?.length ? await this.resolve(m.ids) : ((await this.st.get('program')) || []);
+      if (m.ids?.length && !queue.length) throw new Error('none of those is in their archive feed');
+      // an empty program: PICK files weighted by what the votes said of each, as the page picks them
+      if (!queue.length) queue = await this.resolve(pickFiles((await feed(this.ctx)), await this.votes(), PICK));
+      if (!queue.length) throw new Error('the archive feed is empty');
       await this.st.put('program', queue);
       // Their own stream on this channel: their Icecast would answer 403 to a second source anyway.
       if (!t.local && !on) {
@@ -280,7 +296,8 @@ export class Caster {
       // capMs below the default only through this keyed socket, at least a minute, for a check that must end itself
       const cap = m.capMs != null ? clampMs(m.capMs, PLAY_CAP_MIN) : CAP_MS;
       if (cap == null) throw new Error('capMs is a number of ms');
-      await this.st.put('want', { queue, target: this.name, startedAt: Date.now(), until: Date.now() + cap });
+      // a new life on every start; a restart after a death keeps the start's seed
+      await this.st.put('want', { queue, target: this.name, startedAt: Date.now(), until: Date.now() + cap, seed: crypto.getRandomValues(new Uint32Array(1))[0] >>> 1 });
       await this.st.delete(['progress', 'deaths']);
       await this.st.setAlarm(Date.now() + ALARM_MS);
       await this.bring('asked to play');
@@ -305,8 +322,8 @@ export class Caster {
     await this.st.put('program', prog);
     const want = await this.st.get('want');
     if (!want || !this.c?.running) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
-    // An empty program is the whole archive, on air as on start.
-    const list = prog.length ? prog : (await feed(this.ctx)).map(({ id, title, url }) => ({ id, title, url }));
+    // An empty program is the whole archive less what the votes ruled out, on air
+    const list = prog.length ? prog : await this.resolve(pickFiles(await feed(this.ctx), await this.votes(), Infinity));
     const cur = (await this.cstatus())?.now?.id, i = list.findIndex((x) => String(x.id) === String(cur));
     const queue = i < 0 ? list : [...list.slice(i + 1), ...list.slice(0, i + 1)];
     await this.cpost('/queue', { queue });
@@ -314,64 +331,33 @@ export class Caster {
     this.say(prog.length ? `program ${prog.length} files, after this one` : 'program cleared, the whole archive after this one'); this.push();
   }
 
-  /** What the container is told about the mix on every /play: the stored mode and every control. */
+  /** What the container is told on every /play: live, with this start's seed and the owner's votes. */
   async mixBody() {
-    const mx = (await this.st.get('mix')) || {};
-    return { mode: MODES.includes(mx.mode) ? mx.mode : 'copy', set: mx.set || {}, ...(mx.patch ? { patch: mx.patch } : {}) };
-  }
-
-  /** copy (the frame copier, the fallback), mix, or grains (the mix through the ring); on air it restarts the source in the other mode. */
-  async mode(mode) {
-    if (!MODES.includes(mode)) throw new Error(`mode is ${MODES.join(', ')}`);
-    const mx = (await this.st.get('mix')) || {};
-    await this.st.put('mix', { ...mx, mode });
     const want = await this.st.get('want');
-    if (want && this.c?.running) await this.cpost('/play', { queue: want.queue, target: targets(this.env)[this.name], ...(await this.mixBody()) });
-    this.say(`mode ${mode}${want ? ', on air' : ', for the next play'}`);
-    this.push();
+    return { mode: 'live', life: { seed: want?.seed ?? 1, votes: await this.votes() } };
   }
 
-  /** One mix control, clamped and kept; forwarded at most every SET_EVERY_MS. A hand on tune holds the dial. */
-  async set(name, v) {
-    const c = clampSet(name, v);
-    if (c === null) throw new Error(`no mix control ${name} = ${v}`);
-    const mx = (await this.st.get('mix')) || {}, add = name === 'tune' ? { tune: c, drift: 0 } : { [name]: c };
-    await this.st.put('mix', { ...mx, set: { ...(mx.set || {}), ...add } });
-    this.pendingSet = { ...(this.pendingSet || {}), ...add };
-    if (this.setTimer) return;
-    const flush = async () => {
-      this.setTimer = null;
-      const set = this.pendingSet; this.pendingSet = null;
-      if (!set || !this.c?.running || !['mix', 'grains'].includes(((await this.st.get('mix')) || {}).mode)) return;
-      this.lastSetAt = Date.now();
-      try { await this.cpost('/set', { set }); } catch (e) { this.say(`set: ${e.message}`); }
-    };
-    this.setTimer = setTimeout(flush, Math.max(0, SET_EVERY_MS - (Date.now() - (this.lastSetAt || 0))));
+  /** The owner's votes as the life reads them, `{ def, vote, file }`, newest VOTES_SENT. */
+  async votes() {
+    try {
+      const r = await this.env.VOTES.get(this.env.VOTES.idFromName('owner')).fetch('https://cast/votes');
+      return ((await r.json()).votes || []).filter((v) => v.vote && v.def).slice(-VOTES_SENT).map(({ def, vote, file }) => ({ def, vote, file }));
+    } catch (e) { this.say(`votes: ${e.message}`); return []; }
   }
 
-  /**
-   * A grain ring patch: a name (the page's PATCHES) resets the values to that patch, `set` moves controls on
-   * top. Clamped, kept for the next start, forwarded in grains mode at most every SET_EVERY_MS.
-   */
-  async patch({ name, set } = {}) {
-    const byName = name != null ? clampPatch({ name }) : null, vals = clampPatch({ set: set || {} });
-    if (byName?.refused.length) throw new Error(`no grain patch ${name}`);
-    if (!byName && !Object.keys(vals.values).length) throw new Error(`no grain control in ${JSON.stringify(set)}`);
-    const mx = (await this.st.get('mix')) || {}, prev = mx.patch || { name: null, set: {} };
-    const next = byName ? { name: byName.patch, set: vals.values } : { name: prev.name, set: { ...prev.set, ...vals.values } };
-    await this.st.put('mix', { ...mx, patch: next });
-    const p = this.pendingPatch || { set: {} };
-    this.pendingPatch = byName ? { name: byName.patch, set: vals.values } : { ...p, set: { ...p.set, ...vals.values } };
-    if (this.patchTimer) return;
-    const flush = async () => {
-      this.patchTimer = null;
-      const body = this.pendingPatch; this.pendingPatch = null;
-      if (!body || !this.c?.running || ((await this.st.get('mix')) || {}).mode !== 'grains') return;
-      this.lastPatchAt = Date.now();
-      try { await this.cpost('/patch', body); } catch (e) { this.say(`patch: ${e.message}`); }
-    };
-    this.patchTimer = setTimeout(flush, Math.max(0, SET_EVERY_MS - (Date.now() - (this.lastPatchAt || 0))));
-    if (byName) this.say(`grain patch ${byName.patch}`);
+  /** Every station plays live; the retired modes are refused by name. */
+  async mode(mode) {
+    if (RETIRED_MODES.includes(mode)) throw new Error(`${mode} was retired on 2026-10-18: every station plays live`);
+    if (!MODES.includes(mode)) throw new Error('the mode is live');
+    this.say('mode live'); this.push();
+  }
+
+  /** The next (1) or previous (-1) scene of the life on air: its transition starts at once. */
+  async step(by) {
+    if (by !== 1 && by !== -1) throw new Error('step by 1 or -1');
+    if (!(await this.st.get('want')) || !this.c?.running) throw new Error('not on air: nothing to step');
+    await this.cpost('/step', { by });
+    this.say(`step ${by > 0 ? 'next' : 'previous'} scene`); this.push();
   }
 
   /** Moves the stop to now + ms, 15 min to 12 h; only while wanted. */
@@ -522,10 +508,11 @@ export class Votes {
     this.sql = state.storage.sql;
     this.sql.exec('CREATE TABLE IF NOT EXISTS vote(inst TEXT PRIMARY KEY, at INTEGER, sid TEXT, vote INTEGER, def TEXT, file TEXT)');
     try { this.sql.exec('ALTER TABLE vote ADD COLUMN comment TEXT'); } catch { /* already there */ }
+    try { this.sql.exec('ALTER TABLE vote ADD COLUMN station TEXT'); } catch { /* already there */ }
   }
   async fetch(req) {
     if (req.method === 'GET') {
-      const rows = this.sql.exec('SELECT inst, at, sid, vote, def, file, comment FROM vote ORDER BY at').toArray();
+      const rows = this.sql.exec('SELECT inst, at, sid, vote, def, file, comment, station FROM vote ORDER BY at').toArray();
       return json({ votes: rows.map((x) => ({ ...x, def: JSON.parse(x.def) })) });
     }
     let b = null;
@@ -536,7 +523,9 @@ export class Votes {
     if (vote === null && !comment) { this.sql.exec('DELETE FROM vote WHERE inst = ?', inst); return json({ ok: true, inst, vote }); }
     if (def.length > DEF_MAX || typeof b.def?.patch !== 'string' || typeof b.def?.param !== 'string') return json({ error: 'a def with a patch and a param, under 2000 bytes' }, 400);
     const sid = `${b.def.patch}|${b.def.param}|${b.def.len}|${b.def.lo}|${b.def.iParam}`.slice(0, 200);
-    this.sql.exec('INSERT OR REPLACE INTO vote(inst, at, sid, vote, def, file, comment) VALUES (?, ?, ?, ?, ?, ?, ?)', inst, Date.now(), sid, vote, def, String(b.file || '').slice(0, 200), comment);
+    // station: the cast station whose life played the scene (its status.life), none for the page's local one
+    const station = NAME.test(b.station || '') ? b.station : null;
+    this.sql.exec('INSERT OR REPLACE INTO vote(inst, at, sid, vote, def, file, comment, station) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', inst, Date.now(), sid, vote, def, String(b.file || '').slice(0, 200), comment, station);
     this.sql.exec('DELETE FROM vote WHERE inst IN (SELECT inst FROM vote ORDER BY at DESC LIMIT -1 OFFSET ?)', VOTE_CAP);
     return json({ ok: true, inst, vote, sid });
   }

@@ -353,6 +353,43 @@ not agree with "most of it is talking or field recordings": by these numbers 8 o
 after looking at these 13 files and at 20 s spectrograms of each, so they fit this archive and are not validated on any
 other; nobody listened.
 
+### soften
+
+`demo/radio/cast/soften.mjs`, copied to `container/sc/radio/cast/`, run by `mixer.mjs` on a slot whose item has `soften` and by
+`local.mjs` as the `cast-soften` AudioWorklet. Asked 2026-10-18, after the levelling: *"nothing to do with the noise on drviign
+and kalle?"*, with Driving along's 1.5 ms clicks at 2 to 6 kHz on a 645 ms beat (`### drive`) and Kalle and Kalle 2 hot limited
+masters. `gains.mjs` carries `soften: true` on those three ids by hand (`measure-gains.mjs` keeps it across a measure), `/feed`
+serves it, and every queue the Caster posts carries it.
+
+The stage sits after the file's level and before the tuner in both engines: a de-clicker, then a one-pole low-pass at 3 kHz.
+The de-clicker hears a 2 kHz highpass; when its fast envelope (instant attack, 0.5 ms release) passes 4 times its slow one
+(30 ms) plus 0.003, a duck closes for 2 ms past the last trigger (0.2 ms attack, 3 ms release) and the sound crossfades to its own
+1 kHz low-pass. The sound leaves 1 ms (44 samples) late so the duck is closed when the tick arrives. It is per sample with no
+block size in it, so the page's worklet (128 frame quanta) and the container (882 frame blocks) are the same function, and
+the page's file is mono in and out (`channelCount 1, speakers`, the 0.5 (L + R) the container's decoder makes).
+
+The first two designs did little and are why it crossfades: subtracting the 2 kHz highpass during a duck left most of a 4 kHz
+tick, because the highpass's phase at 4 kHz makes x minus HP(x) far from zero (7.6 dB on a synthetic tick); a 4th order 1 kHz
+highpass the same (short clicks 645 to 585 a minute on Driving along). The crossfade to a low-pass has no such cancellation.
+
+MEASURED 2026-10-18 through the real container engine (`createEngine`, slot a held, noise 0, the files' own gain), first 100 s
+of each, scratchpad `soften/final.mjs`. Short clicks: the 2 to 6 kHz band's 0.5 ms rms over 10 times its 200 ms median, back
+under 3 times within 3.5 ms. Transients: the band over 6 times its 200 ms median (the `### drive` burst rule).
+
+| file | short clicks / min | their energy dB | 2 to 6 kHz transients / min | transient energy dB | 2 to 6 kHz band dB | output rms dB |
+| --- | --- | --- | --- | --- | --- | --- |
+| Driving along | 604 to 64 | -51.2 to -73.1 | 1198 to 298 | -48.8 to -63.0 | -47.4 to -55.6 | -33.9 to -34.0 |
+| Kalle | 433 to 141 | -53.1 to -69.9 | 802 to 352 | -44.5 to -53.0 | -43.2 to -49.8 | -28.9 to -29.0 |
+| Kalle 2 | 400 to 68 | -52.8 to -72.6 | 1076 to 417 | -48.7 to -55.1 | -44.8 to -49.2 | -27.8 to -27.8 |
+| Evening rituals (not marked, what it would do) | 73 to 6 | -56.8 to -70.1 | 1071 to 611 | -41.8 to -48.8 | -39.4 to -44.8 | -28.5 to -28.7 |
+
+NEGATIVE CONTROL, same script: each of the four files without `soften`, through the engine before this change (`git show
+HEAD:workers/cast/container/mixer.mjs`) and the engine now, 0 of 8,820,000 samples differ; with `soften` 8.76 to 8.81 million
+differ. `mixer-test.mjs` holds it (soften false and absent are the same samples, a synthetic tick 26.9 dB down in 2 to 6 kHz),
+`local-test.mjs` the page's wiring (a plain file never meets a worklet), `live-test.mjs` the two functions (the worklet source
+run in a fake scope against the container's, every sample equal) and `live-test.mjs --browser` the real thing: Chrome's
+AudioWorklet in an OfflineAudioContext, 132,300 samples, 0 differ. NOT HEARD: nobody listened to the after.
+
 ## `workers/cast/worker.mjs`: their streams
 
 ### live
@@ -507,3 +544,56 @@ MEASURED 2026-10-17 on the deploy, *Driving along* (`evt_1791874248959`): first 
 #input-channels). `inputPairs` splits each feed with a ChannelSplitter, which is `discrete`: a mono feed
 would land on the left channel only and the ring, which reads `Mix(In.ar(2, 2)) * 0.5`, would drop 6 dB.
 So both feeds are set to 2 channels, `explicit`, `speakers`, and a mono file is upmixed before the split.
+
+## `workers/cast/container/live.mjs` and the worker's live only stations
+
+Asked 2026-10-18: *"do server version"*, then *"rm copy mix and grains, arvhice. keep live only"*. The page's live mode
+(`demo/radio/cast/index.html`: `lifeTick`, `layersFor`, `layerTick`, `ghostTick`, `pulse`, `onsetTick`, `step`) runs in
+the cast container, on air, and it is the only mode a station plays.
+
+### live-container
+
+What runs where. The container runs `life.mjs`, `layers.mjs`, `soften.mjs` and `hand.mjs` unchanged (`sc-files.mjs` lists
+them, `deploy.mjs` copies them under `container/sc/`, `live-test.mjs` and `grains-test.mjs` go red when a copy differs).
+`startLive` is `startGrains` with four scsynth inputs and a driver on a 50 ms timer, the page's driver line for line with
+two clocks swapped: a scene's time is the mix clock (`engine.seconds`, the landing read off the engine's `cycleFrom`, the
+blend's start `cycleFrom + dwell`), and the pulse stays on the wall's `setTimeout` as on the page. The six layer programs
+load into the same native scsynth as the ring through an adapter (`chain.ask` as `sendAndWait`), the layers at the head
+of the group, the room at the tail. The key is a chroma of the tuner's own last 8192 samples read once a tick from 1 to 5 s
+into a scene, built as the page's AnalyserNode is (Blackman, smoothing 0.8, |X| / N, 60 to 1000 Hz). Onsets are the page's
+rule on the tuner's last 1024 samples, struck `backlog` seconds later, when that sound reaches scsynth. The ghost is a
+second decoder (`openDecoder` with `-ss`, levelled and softened as a slot is) written on channels 3 and 4 of one four channel
+`jack-stdin`, so scsynth runs `-i 4` and the ghost sits on busses 4 and 5 while the ring keeps `inbus 2`.
+
+The worker: `MODES` is `['live']`; `mode` copy, mix or grains is refused by name, `set` and `patch` are refused (the life
+moves them), `{cmd: 'step', by}` posts `/step`. Each start stores a random `seed` in `want` (a restart after a death keeps
+it, so the same life starts again from scene 0) and hands the container the owner's votes (newest 2000 of the Votes DO).
+An empty program starts as five files picked by `pickFiles`, the page's `startIds` (fileWeight of each file's votes, never at
+-6). The container still answers copy, mix and grains for its tests; nothing in the worker sends them.
+
+The backlog: node writes the mix ahead of what scsynth has had by the pipes (a 64 KiB pipe, the stream's buffer, the
+`jack-stdin` ring), MEASURED 0.43 to 0.72 s. A ring patch is applied when it is sent, so the hand's moves reach the ring
+that much early. Nothing in a scene is shorter than a second, so this was left; the onsets, which are 120 ms apart, wait it out.
+
+MEASURED 2026-10-18, OrbStack arm64, the grains image with this tree mounted, `--cpus 0.5 --memory 1536m` (the Cloudflare
+instance), `live-test.mjs --live`:
+- the ring with only the ghost playing: -180 dB (digital silence); pointed at bus 4 (NEGATIVE CONTROL) -23.5 dB.
+- each layer alone against the browser test's voice source at -23.3 to -23.8 dB rms, in dB under it, over seven runs:
+  drone -11.8 to -12.9, freeze -10.8 to -13.3, resonators -11.7 to -12.2, harmonizer -8.9 to -9.9 (the one layer up to
+  1 dB louder than the browser's 10 to 13); ghosts bpf -13.1 to -18.0, comb -13.9 to -16.1, resonators -15.0 to -16.5.
+  The ghosts wander (LFNoise2 band and pan), so they are read over 6 s; the gate is 8.5 to 14 and 12 to 19 dB under.
+- the planner run apart, with the station's heard keys copied in, matches `status.life` on every read (425 to 428 reads):
+  def, control, value and wet to the bit. A step at 29.88 s with a 14 s blend landed the next scene at 43.88 s on the mix clock.
+- the MP3: 106.5 s, peak -6.5 dBFS, nothing at full scale.
+- JACK: at period 2048, 12 to 16 xruns in the first 3 s and more on CFS throttles, grains alone as much as live; at 4096,
+  0 in 75 s with no step, but 2 to 10 in a run with steps, each at a file arriving (33 s, 53 s: a decoder starting);
+  at 8192 (186 ms, `PERIOD` since this change) 0 in each of 2 full runs, and the stdio rings hold four periods. A period
+  is latency nobody hears on a broadcast. Not measured: whether an xrun is audible in the dummy driver's output.
+- CPU, per cent of one core over 100 s at period 8192: container 24.7 to 25.2 (node 10.8 to 11.0, scsynth 4.1, jack-stdout
+  3.2, jack-stdin 3.1, LAME 2.7, decoders 0.2), with the test reading status four times a second. At 4096: 28 to 31.
+- `server.mjs` in the image with its own preview Icecast as the target: `/play` live answers `mode: 'live'`, on air, a
+  listener got 128,800 bytes of `audio/mpeg` in 4 s, `/step` 200 then 409 (`a step is already on its way`), `by: 2` 400,
+  `/patch` 409, `/stop` leaves no jackd, scsynth or ffmpeg.
+
+Not tested here: Cloudflare's own scheduler (whether its half vCPU throttles as `--cpus 0.5` does), and their Icecast.
+NOT HEARD: nobody listened to the live run.

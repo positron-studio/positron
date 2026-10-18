@@ -13,7 +13,8 @@ import { openEncoder } from './encode.mjs';
 import { usage } from './mixcast.mjs';
 
 export { PATCHES, clampPatch, PATCH_LIMITS };
-export const SR = 44100, PERIOD = Number(process.env.GRAINS_PERIOD) || 2048, NODE = 4000, BUF = 0, DEF = 'gring', PORT = 57110;
+// 8192 frames (186 ms): at half a vCPU 2048 and 4096 xrun when a file arrives, 8192 did not. why: lessons/workers-cast.md#live-container
+export const SR = 44100, PERIOD = Number(process.env.GRAINS_PERIOD) || 8192, NODE = 4000, BUF = 0, DEF = 'gring', PORT = 57110;
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let lastClose = Promise.resolve();   // a new chain waits for the last one's processes to be gone
@@ -67,14 +68,15 @@ function procUsage(pid) {
  * The JACK chain with the ring running in scsynth. Resolves `{ feed, out, send, ask, status(), close(), dead }`
  * once the definition is loaded and the synth is going; `feed` takes s16le stereo, `out` gives it back.
  */
-export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, log = () => {}, onDeath = () => {} } = {}) {
+export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, inputs = 2, log = () => {}, onDeath = () => {} } = {}) {
   const env = { ...process.env, JACK_NO_AUDIO_RESERVATION: '1', JACK_NO_START_SERVER: '1' };
-  const procs = {}, counts = { xruns: 0, late: 0, grains: 0 }, tail = [];
-  const ch = { dead: null, startedAt: Date.now(), timing: {} };
+  const procs = {}, counts = { xruns: 0, late: 0, underruns: 0, grains: 0 }, tail = [];
+  const ch = { dead: null, startedAt: Date.now(), timing: {}, inputs };
   const note = (who, b) => {
     for (const line of String(b).split('\n').map((x) => x.trim()).filter(Boolean)) {
       if (/xrun/i.test(line)) counts.xruns++;
       if (/\blate\b/i.test(line)) counts.late++;
+      if (/underrun/i.test(line)) counts.underruns++;
       tail.push(`${who}: ${line.slice(0, 160)}`); if (tail.length > 30) tail.shift();
     }
   };
@@ -108,7 +110,8 @@ export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, log =
     procs.jackd.stdout.on('data', (b) => note('jackd', b));
     await new Promise((ok, no) => execFile('jack_wait', ['-w', '-t', '10'], { env }, (e, out) => (e || !/available/.test(out) ? no(new Error('jackd did not come up')) : ok())));
     ch.timing.jackMs = Date.now() - t0;
-    const sc = run('scsynth', 'scsynth', ['-u', String(PORT), '-i', '2', '-o', '2', '-R', '0', '-l', '1']);
+    // inputs 4 adds busses 4 and 5 (the live ghost) beside the ring's 2 and 3. why: lessons/workers-cast.md#live-container
+    const sc = run('scsynth', 'scsynth', ['-u', String(PORT), '-i', String(inputs), '-o', '2', '-R', '0', '-l', '1']);
     await waitFor(sc, /server ready/, 10000, 'scsynth');
     ch.timing.scsynthMs = Date.now() - t0;
 
@@ -141,8 +144,10 @@ export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, log =
     if (go?.address !== '/n_go') throw new Error('the ring did not start');
     ch.timing.synthMs = Date.now() - t0;
     // the feed and the tap connect themselves to scsynth's ports; -S is their ring in samples
-    const feed = run('jack-stdin', 'jack-stdin', ['-q', '-L', '-b', '16', '-S', '8192', 'SuperCollider:in_1', 'SuperCollider:in_2']);
-    const tap = run('jack-stdout', 'jack-stdout', ['-q', '-L', '-b', '16', '-S', '8192', 'SuperCollider:out_1', 'SuperCollider:out_2']);
+    // the stdio rings hold four periods, whatever the period
+    const ringS = String(Math.max(8192, PERIOD * 4));
+    const feed = run('jack-stdin', 'jack-stdin', ['-q', '-L', '-b', '16', '-S', ringS, ...Array.from({ length: inputs }, (_, i) => `SuperCollider:in_${i + 1}`)]);
+    const tap = run('jack-stdout', 'jack-stdout', ['-q', '-L', '-b', '16', '-S', ringS, 'SuperCollider:out_1', 'SuperCollider:out_2']);
     ch.timing.chainMs = Date.now() - t0;
     const statusTimer = setInterval(() => send('/status'), 1000);
     log(`grains: chain up in ${ch.timing.chainMs} ms, definition ${good.bytes.length} B taken at ${ch.timing.defMs} ms`);
@@ -157,7 +162,7 @@ export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, log =
         const p = Object.fromEntries(Object.entries(procs).map(([k, x]) => [k, x.pid ? { pid: x.pid, ...procUsage(x.pid) } : null]));
         p.node = { pid: process.pid, ...procUsage(process.pid) };
         return { dead: ch.dead, upS: Math.round((Date.now() - ch.startedAt) / 1000), timing: ch.timing, defBytes: ch.defBytes,
-          scsynth: lastStatus, xruns: counts.xruns, late: counts.late, grains: counts.grains, procs: p, lines: tail.slice(-8) };
+          scsynth: lastStatus, xruns: counts.xruns, late: counts.late, underruns: counts.underruns, grains: counts.grains, period: PERIOD, procs: p, lines: tail.slice(-8) };
       },
       close() {
         if (ch.closing) return lastClose;
@@ -178,18 +183,32 @@ export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, log =
   }
 }
 
+/** s16 stereo and a mono block (or none) as four interleaved s16 channels: the mix on 1 and 2, `x` on 3 and 4. */
+export function widen(pcm, x) {
+  const n = pcm.length >> 2, out = Buffer.alloc(n * 8);
+  for (let i = 0; i < n; i++) {
+    const v = x ? Math.max(-32768, Math.min(32767, Math.round(x[i] * 32767))) : 0;
+    out.writeInt16LE(pcm.readInt16LE(i * 4), i * 8); out.writeInt16LE(pcm.readInt16LE(i * 4 + 2), i * 8 + 2);
+    out.writeInt16LE(v, i * 8 + 4); out.writeInt16LE(v, i * 8 + 6);
+  }
+  return out;
+}
+
 /**
  * Mix mode with the ring after it: `{ queue, target, set, patch }` on air through `openSink(target, title)`.
  * Returns `{ status(), set(name, v), patch({name, set}), queue(q), next(), stop() }`, the shape of startMix plus patch.
+ * `inputs: 4` feeds `ghost(n)` (mono floats or null) to scsynth's busses 4 and 5; `onChain(chain)` runs on each
+ * chain that comes up, `onBlock(mono)` on each block of the tuner. live.mjs drives these.
  */
-export function startGrains({ queue, target, set = {}, patch = { name: PATCHES[0].name } }, { openSink, say = () => {}, fail = () => {}, onMp3 = null } = {}) {
+export function startGrains({ queue, target, set = {}, patch = { name: PATCHES[0].name } }, { openSink, say = () => {}, fail = () => {}, onMp3 = null,
+  inputs = 2, ghost = null, onChain = null, onBlock = null } = {}) {
   const m = { stopped: false, sink: null, onAir: false, startedAt: Date.now(), first: null, sent: 0, frames: 0, bytes: 0, down: 0,
     sinkDeaths: 0, sinkFails: 0, chainStarts: 0, ahead: 0, outRms: null, outPeak: null };
   const first = clampPatch(patch);
   const g = { patch: first.patch, values: { ...RING_DEFAULTS, ...first.values }, mix: first.values.mix ?? 1 };
   delete g.values.mix;
   const engine = createEngine({ open: (it) => openDecoder(it, { log: say }), queue, set, log: say });
-  let chain = null, enc = null, writing = Promise.resolve();
+  let chain = null, enc = null, writing = Promise.resolve(), anchor = null;
   const newEncoder = () => openEncoder({ log: say, onFrame: (f) => {
     if (m.first == null) m.first = Date.now();
     onMp3?.(f);
@@ -216,8 +235,10 @@ export function startGrains({ queue, target, set = {}, patch = { name: PATCHES[0
   };
   async function up() {
     m.chainStarts++;
-    chain = await startChain({ values: g.values, mix: g.mix, log: say });
+    chain = await startChain({ values: g.values, mix: g.mix, inputs, log: say });
     chain.out.on('data', tapOut);
+    // not awaited: the mix flows while what rides on the chain (live's layers) loads beside it
+    if (onChain) Promise.resolve().then(() => onChain(chain)).catch((e) => fail(e));
   }
   (async () => {
     engine.start();
@@ -240,12 +261,22 @@ export function startGrains({ queue, target, set = {}, patch = { name: PATCHES[0
       // never more than 3 s of mix ahead of the wall, whatever the pipes hold
       m.ahead = engine.seconds - (Date.now() - m.startedAt) / 1000;
       if (m.ahead > 3) { await sleep(50); continue; }
-      const feed = chain.feed;
-      if (!feed.write(engine.block())) await new Promise((r) => { const go = () => { clearTimeout(t); feed.off('drain', go); r(); }; const t = setTimeout(go, 500); feed.on('drain', go); });
+      const feed = chain.feed, pcm = engine.block();
+      onBlock?.(engine.mono);
+      anchor ??= Date.now();
+      if (!feed.write(inputs === 4 ? widen(pcm, ghost?.(pcm.length >> 2)) : pcm)) await new Promise((r) => { const go = () => { clearTimeout(t); feed.off('drain', go); r(); }; const t = setTimeout(go, 500); feed.on('drain', go); });
     }
   })().catch((e) => fail(e)).finally(() => { engine.close(); chain?.close(); enc?.kill(); m.sink?.close(); });
 
+  /** Mix seconds scsynth has had: the wall since the first write, never past what was written. */
+  function heard() {
+    if (anchor == null) return 0;
+    const h = (Date.now() - anchor) / 1000;
+    if (h > engine.seconds) { anchor = Date.now() - engine.seconds * 1000; return engine.seconds; }
+    return h;
+  }
   return {
+    engine, heard,
     set: (name, v) => engine.set(name, v),
     queue: (q) => engine.queue(q),
     next: () => engine.next(),
@@ -263,7 +294,7 @@ export function startGrains({ queue, target, set = {}, patch = { name: PATCHES[0
     status() {
       const e = engine.status(), now = Date.now(), wallOut = m.first ? (now - m.first) / 1000 : 0;
       return { ...e, mode: 'grains', onAir: m.onAir, since: m.startedAt, seconds: +engine.seconds.toFixed(2), mp3Seconds: +m.sent.toFixed(2),
-        wall: +((now - m.startedAt) / 1000).toFixed(2), lag: +(wallOut - (enc?.seconds ?? 0)).toFixed(2), ahead: +m.ahead.toFixed(2), down: +m.down.toFixed(1),
+        wall: +((now - m.startedAt) / 1000).toFixed(2), backlog: +(engine.seconds - heard()).toFixed(3), lag: +(wallOut - (enc?.seconds ?? 0)).toFixed(2), ahead: +m.ahead.toFixed(2), down: +m.down.toFixed(1),
         frames: m.frames, bytes: m.bytes, sinkDeaths: m.sinkDeaths, sinkFails: m.sinkFails, usage: usage(),
         grains: { patch: g.patch, mix: g.mix, values: g.values, out: { rms: m.outRms, peak: m.outPeak }, chainStarts: m.chainStarts, chain: chain?.status() ?? null } };
     },

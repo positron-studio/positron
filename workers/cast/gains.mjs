@@ -1,5 +1,5 @@
 // Written by measure-gains.mjs, not by hand: each archive file's loudness as the tuner hears it, the gain that
-// brings it to TARGET (clamped to GAIN_DB) and its kind. A feed id with no row plays at 0 dB. why: lessons/workers-cast.md#level
+// brings it to TARGET (clamped to GAIN_DB) and its kind; `soften` is set by hand. A feed id with no row plays at 0 dB. why: lessons/workers-cast.md#level
 export const TARGET = -23;
 export const GAINS = {
  "evt_1792082680406": {
@@ -45,6 +45,7 @@ export const GAINS = {
   }
  },
  "evt_1791874248959": {
+  "soften": true,
   "title": "Driving along on user2",
   "lufs": -21.7,
   "tp": -5.6,
@@ -129,6 +130,7 @@ export const GAINS = {
   }
  },
  "evt_1791488817996": {
+  "soften": true,
   "title": "Kalle 2 on user2",
   "lufs": -14.1,
   "tp": 1.2,
@@ -150,6 +152,7 @@ export const GAINS = {
   }
  },
  "evt_1791488203609": {
+  "soften": true,
   "title": "Kalle on user2",
   "lufs": -14.8,
   "tp": 1,
@@ -282,5 +285,5 @@ export const UNMEASURED = {
   "why": "an empty file from /file/"
  }
 };
-/** What /feed adds to an item: gain in dB (0 when never measured), kind and kindConf (null then). */
-export const levelFor = (id) => { const g = GAINS[String(id)]; return { gain: g?.gain ?? 0, kind: g?.kind ?? null, kindConf: g?.kindConf ?? null }; };
+/** What /feed adds to an item: gain in dB (0 when never measured), kind and kindConf (null then), soften, seconds. */
+export const levelFor = (id) => { const g = GAINS[String(id)]; return { gain: g?.gain ?? 0, kind: g?.kind ?? null, kindConf: g?.kindConf ?? null, soften: !!g?.soften, seconds: g?.seconds ?? null }; };
