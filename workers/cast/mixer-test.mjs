@@ -1,6 +1,6 @@
 // node workers/cast/mixer-test.mjs [--live 60]: the cast's mix mode with no container and no network.
 // The port is graded against the page's own createTunerGraph, run on a fake AudioContext that records
-// every value it is given, so the two cannot drift apart. 11 of the asserts are NEGATIVE CONTROLS.
+// every value it is given, so the two cannot drift apart. 13 of the asserts are NEGATIVE CONTROLS.
 // --live S runs the mixer and the encoder against the wall clock for S seconds into a sink that counts.
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -89,7 +89,15 @@ ok('after the blend B carries the sound and A has gone (its echo tail under -60 
 ok('noise rises between stations: the loudest blend second at least 9 dB over the floor on a slot', loud - at(2).noise >= 9, `floor ${at(2).noise} dB, blend ${loud} dB`);
 const half = createMix(M.SLOTS)(0.5).noise, on = createMix(M.SLOTS)(M.SLOTS[0].at).noise;
 ok('and the gain behind it is 0.04 on a slot and over 0.2 halfway', near(on, 0.04, 0.001) && half > 0.2, `${on.toFixed(3)} and ${half.toFixed(3)}`);
-ok('the cast carries no whistle: not one second of the 30 has any', M.WHISTLE === false && met.every((x) => x.whistle === null), `mid blend ${mid.whistle}`);
+const { WHISTLE_SOFT, WHISTLE_TUNER, handTurn } = await import('./container/tuner-mix.mjs');
+const softAt = createMix(M.SLOTS, WHISTLE_SOFT), dial = Array.from({ length: 1001 }, (_, i) => softAt(i / 1000));
+const blendW = Math.max(...met.filter((x) => x.at > 6 && x.at <= 10).map((x) => x.whistle ?? -99));
+ok('the cast\'s whistle is the soft one: never above 600 Hz, under half the tuner\'s level, and heard in a blend at -45 to -35 dB',
+  M.WHISTLE === true && dial.every((m) => m.pitch <= 600) && WHISTLE_SOFT.level <= WHISTLE_TUNER.level / 2 && blendW > -45 && blendW < -35, `blend ${blendW} dB`);
+ok('NEGATIVE CONTROL: the tuner\'s own whistle reaches 3.2 kHz, so the pitch check can fail', Math.max(...Array.from({ length: 1001 }, (_, i) => createMix(M.SLOTS)(i / 1000).pitch)) > 3000);
+const hk = Array.from({ length: 101 }, (_, i) => handTurn(i / 100)), top = Math.max(...hk), smooth = (k) => k * k * (3 - 2 * k);
+ok('the needle crosses a blend like a hand: 0 to 1, fastest early (past half by 40 %), past the station by under 7 %, then settles', hk[0] === 0 && hk[100] === 1 && hk[40] > 0.5 && top > 1.03 && top < 1.07, `at 40 % ${hk[40].toFixed(3)}, top ${top.toFixed(3)}`);
+ok('NEGATIVE CONTROL: an even glide neither leads nor overshoots', !(smooth(0.4) > 0.5) && Math.max(...Array.from({ length: 101 }, (_, i) => smooth(i / 100))) <= 1);
 const wt = M.createTuner({ rand: M.seeded(1) }), wo = new Float32Array(M.BLOCK * 50), half5 = { ...createMix(M.SLOTS)(0.5), noise: 0 };
 for (let i = 0; i < wo.length; i += M.BLOCK) wt.render([null, null], half5, wo.subarray(i, i + M.BLOCK));
 ok('NEGATIVE CONTROL: createTuner with its whistle on sounds it halfway, so the meter can see one', wt.taps.whistle > 0, `${(10 * Math.log10(wt.taps.whistle / wt.taps.n)).toFixed(1)} dB`);

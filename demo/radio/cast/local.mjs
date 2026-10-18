@@ -1,7 +1,7 @@
 // demo/radio/cast/local.mjs: a station's SOUND played in this browser, free and off air. The tuner is
 // /radio/scenery/'s graph (createTunerGraph), the drift clock is the cast container's, the grains are the
 // page's ring on wasm scsynth. Nothing is made until start(). why: lessons/workers-cast.md#local
-import { createMix, createTunerGraph, pinkNoise } from '../../shell/tuner-mix.mjs';
+import { createMix, createTunerGraph, pinkNoise, handTurn, WHISTLE_SOFT } from '../../shell/tuner-mix.mjs';
 import { createRingEngine, PATCHES, valuesOf, DEFAULTS as RING_DEFAULTS, RING_SECONDS } from '../../granulator/grain-ring.mjs';
 
 // The container's numbers (workers/cast/container/mixer.mjs, grain-patch.mjs); workers/cast/local-test.mjs goes red if they differ.
@@ -13,8 +13,8 @@ export const PATCH_LIMITS = { freeze: [0, 1], speed: [0, 4], back: [0, RING_SECO
   size: [0.02, 4], jitter: [0, 4], pitch: [0.25, 4], detune: [0, 0.1], pan: [0, 1], amp: [0, 3], tone: [200, 20000], echo: [0, 0.9],
   time: [0.01, 1.5], dark: [200, 20000], drop: [0, 1], ramp: [0.05, 4], dir: [-1, 1], lock: [0, 1], mix: [0, 1] };
 export const MODES = ['copy', 'mix', 'grains'];
-// The cast's blends carry no off-tune whistle; /radio/tuner/ and /radio/scenery/ keep theirs. why: lessons/workers-cast.md#whistle
-export const WHISTLE = false;
+// The cast's whistle is WHISTLE_SOFT, and the needle crosses a blend by handTurn. why: lessons/workers-cast.md#whistle
+export const WHISTLE = true;
 const PREFETCH_S = 6;
 
 /** One mix control clamped as the container clamps it, or null. */
@@ -38,7 +38,6 @@ export function clampPatch({ name, set = {} } = {}) {
   return { values: out, patch: base?.name ?? null, refused };
 }
 
-const ease = (x) => x * x * (3 - 2 * x);
 
 /**
  * `fileUrl(item)` is where a file is read from (it must send CORS). `start({ queue, mode, set, patch })` plays;
@@ -47,7 +46,7 @@ const ease = (x) => x * x * (3 - 2 * x);
 export function createLocal({ fileUrl, log = () => {} } = {}) {
   const ctl = { ...DEFAULTS };
   const g = { patch: PATCHES[0].name, values: { ...RING_DEFAULTS, ...valuesOf(PATCHES[0]) }, mix: 1 };
-  const mix = createMix(SLOTS);
+  const mix = createMix(SLOTS, WHISTLE_SOFT);
   let mode = 'mix', ctx = null, graph = null, master = null, analyser = null, gates = null, toGrains = null, noise = null;
   let engine = null, eng = null, booting = null, grains = 0;
   let items = [], nextIdx = 0, pending = null, playing = false, timer = 0;
@@ -113,7 +112,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     if (t >= ctl.dwell - preroll - PREFETCH_S && !slots[to].item) prefetch();
     if (t >= ctl.dwell - preroll && !slots[to].item) arrive(to);
     if (t < ctl.dwell) { phase = 'dwell'; k = 0; tune = SLOTS[from].at; return; }
-    if (t < ctl.dwell + ctl.blend) { phase = 'blend'; k = (t - ctl.dwell) / ctl.blend; tune = SLOTS[from].at + (SLOTS[to].at - SLOTS[from].at) * ease(k); return; }
+    if (t < ctl.dwell + ctl.blend) { phase = 'blend'; k = (t - ctl.dwell) / ctl.blend; tune = SLOTS[from].at + (SLOTS[to].at - SLOTS[from].at) * handTurn(k); return; }
     tune = SLOTS[to].at;
     place(from, null);
     from = to; cycleFrom = now(); phase = 'dwell'; k = 0; landings++;

@@ -1,7 +1,7 @@
 // The cast's mix mode, pure: two slots on an AM dial, the drift's clock, pink noise, the band and the
 // saturation of /radio/tuner/'s graph, ported sample by sample. No I/O; sources are injected.
 // why: lessons/workers-cast.md#mixer
-import { createMix, DRIVE, SAT_K } from './tuner-mix.mjs';
+import { createMix, DRIVE, SAT_K, handTurn, WHISTLE_SOFT } from './tuner-mix.mjs';
 
 export const SR = 44100;
 export const BLOCK = 882;                      // 20 ms
@@ -10,8 +10,8 @@ export const QUANTUM = 128;                    // filter coefficients move at We
 export const SLOTS = [{ at: 0.46, echo: 0.09 }, { at: 0.54, echo: 0.13 }];
 export const DEFAULTS = { tune: SLOTS[0].at, drift: 1, dwell: 40, blend: 16, noise: 1 };
 export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2, 120], noise: [0, 2] };
-// The cast's blends carry no off-tune whistle; createTuner keeps it for a test. why: lessons/workers-cast.md#whistle
-export const WHISTLE = false;
+// The cast's whistle is WHISTLE_SOFT, and the needle crosses a blend by handTurn. why: lessons/workers-cast.md#whistle
+export const WHISTLE = true;
 
 /** Clamps one control to LIMITS, or null when the name or value is not one. */
 export function clampSet(name, v) {
@@ -146,7 +146,6 @@ export function createTuner({ slots = SLOTS, sr = SR, rand = Math.random, drive 
   };
 }
 
-const ease = (x) => x * x * (3 - 2 * x);
 const rms = (ss, n) => (n ? Math.sqrt(ss / n) : 0);
 const db = (x) => (x > 0 ? +(20 * Math.log10(x)).toFixed(1) : null);
 
@@ -157,7 +156,7 @@ const db = (x) => (x > 0 ? +(20 * Math.log10(x)).toFixed(1) : null);
  */
 export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.random, log = () => {}, prefetchS = 6 } = {}) {
   const ctl = { ...DEFAULTS, ...set };
-  const mix = createMix(SLOTS), tuner = createTuner({ sr, rand });
+  const mix = createMix(SLOTS, WHISTLE_SOFT), tuner = createTuner({ sr, rand });
   const slots = SLOTS.map(() => ({ item: null, src: null }));
   let items = queue.slice(), nextIdx = 0, pending = null;
   let from = 0, cycleFrom = 0, frames = 0, phase = 'dwell', k = 0, tune = ctl.tune, m = mix(tune);
@@ -196,7 +195,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     if (t < ctl.dwell) { phase = 'dwell'; k = 0; tune = SLOTS[from].at; return; }
     if (t < ctl.dwell + ctl.blend) {
       phase = 'blend'; k = (t - ctl.dwell) / ctl.blend;
-      tune = SLOTS[from].at + (SLOTS[to].at - SLOTS[from].at) * ease(k); return;
+      tune = SLOTS[from].at + (SLOTS[to].at - SLOTS[from].at) * handTurn(k); return;
     }
     tune = SLOTS[to].at; land();
   }
