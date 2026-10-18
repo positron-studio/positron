@@ -276,6 +276,83 @@ the local engine applies the graph with it. MEASURED across one 16 s blend with 
 output is the whistle alone: -27.6 dBFS rms before, the tap at -30 dB through the middle 10 s; after, digital
 silence and no tap in any second.
 
+### level
+
+`gains.mjs`, `measure-gains.mjs`, `levelOf` in `mixer.mjs` and `demo/radio/cast/local.mjs`, the decoder's `UPMIX`. Plan step 1
+of plans/plan-cast-reinterpret.md section 2.1, after `### drive` found Kalle and Kalle 2 about 10 dB hotter than the rest:
+every file is brought to one loudness BEFORE the tuner, by a gain per feed id, the same number in the same place in both
+engines (the container scales the slot's decoded samples, the page puts a GainNode right after the media element source).
+Copy mode is not levelled in either: the container's copy is the MP3 frame copier, so the page's copy taps the slot before
+its level too.
+
+The target is -23 LUFS (EBU R128), measured as the tuner hears a file: a mono file at unity, a stereo one 0.5 (L + R), with
+ffmpeg's ebur128 on that mono signal. -23 is about the median of the archive measured this way (-23.9), so
+the hot files come down 8 to 9 dB and most quiet ones go up under 4 dB; a louder target (-18, Oriental analog) would
+have pushed the quiet files 5 dB into the knee that `### drive` just took the hot ones out of. The gain is clamped to
+-14 / +12 dB so a near silent file (the two 15 s clip tests at -44 and -38 LUFS) is not blown up past +12. A feed id with no
+row plays at 0 dB and has `UNMEASURED` to say why. `node workers/cast/measure-gains.mjs` measures every feed id with no row
+(each fetched once through `/file/<id>`, never their host) and writes `gains.mjs`; `--all` measures again, `--dir` reads
+`<id>.mp3` files already on disk. `/feed` serves `gain`, `kind` and `kindConf` per item, and every queue the Caster posts to
+the container carries `gain` from the table, a queue stored before the table too.
+
+MEASURED 2026-10-18, 13 of the 14 feed files (the 14th, *Väin on user1*, came back from `/file/` as 200 with 0 bytes):
+
+| file | LUFS | true peak dBFS | gain dB |
+| --- | --- | --- | --- |
+| Kalle 2 | -14.1 | +1.2 | -8.9 |
+| Kalle | -14.8 | +1.0 | -8.2 |
+| Oriental analog | -18.2 | -0.4 | -4.8 |
+| Evening rituals | -21.6 | +0.1 | -1.4 |
+| Driving along | -21.7 | -5.6 | -1.3 |
+| EMA kontsert Varssavis | -23.7 | -0.9 | +0.7 |
+| EMA salvestab Varssavis (13-16) | -23.9 | -1.6 | +0.9 |
+| EMA Varssavis | -24.2 | -3.2 | +1.2 |
+| Poorisvool | -24.6 | +0.2 | +1.6 |
+| Audio test | -26.8 | -2.6 | +3.8 |
+| EMA salvestab Varssavis (12-28) | -29.2 | -6.3 | +6.2 |
+| Clip test (19:44) | -37.8 | -15.3 | +12 (cap) |
+| Clip test (19:39) | -44.1 | -24.4 | +12 (cap) |
+
+Through the real `createTuner` (drive 0.5, k 1.2), dead on slot a, up to 300 s of each file, before and after: distorted
+moments a minute (a 2 ms window more than 10 per cent off the same chain run linear, once per 20 ms) Kalle 18 to 0, Kalle 2
+30 to 0, Driving along 0 to 0; THD against the linear chain Kalle -29.0 to -44.6 dB, Kalle 2 -30.3 to -47.3. The quiet files
+that go up: Audio test 0 to 1 a minute and THD -42.2 to -35.0 dB (+3.8 dB of gain); Poorisvool, EMA (12-28) and a clip test 0
+to 0, THD at -39 dB or lower. No file put a sample on the curve's flat top after (Kalle had 2, Kalle 2 had 1 before). Output
+rms before -19.2 to -50.1 dBFS, after -27.6 to -39.3 (the clip test -38.2): the hot files are now about 8 dB quieter on air.
+NOT HEARD: nobody listened to the before or the after.
+
+The decoder was not giving the tuner what the browser gives it, found while measuring: ffmpeg's `-ac 2` puts a mono file at
+-3 dB in each channel (MEASURED: Kalle -15.14 dB rms decoded that way against -12.13 dB as mono), where the browser's mono
+media element reaches the graph at unity, so every mono file (9 of the 13) was 3 dB quieter on air than in LOCAL. The decoder
+now upmixes with `pan=stereo|FL=FL+FC|FR=FR+FC` (a mono file to both channels at unity, stereo untouched; checked on the cast
+image's ffmpeg 5.1.9 as well as 9.0) and reads f32le, because a hot master at unity passes full scale and s16 would clip it.
+`mixer-test.mjs` holds both, with ffmpeg's own upmix as the negative control.
+
+### kind
+
+`kind.mjs`, run by `measure-gains.mjs` on every file it measures. Asked 2026-10-18: the owner says most of the archive is
+people talking or field recordings, not music; tag each file speech, field or music with a confidence, from measured
+features, and say ambiguous rather than force it. Features of the tuner's mono signal at 16 kHz (the whole file up to 10
+minutes, else twenty 30 s pieces spread over it): `tonal`, the share of active frames holding a spectral peak 300 Hz to 4 kHz
+on one bin for 200 ms (held notes, drones; speech glides off a bin); `gaps`, short silences (50 to 500 ms, 15 dB under the
+median) a minute; `flat`, the flatness of the pink-whitened spectrum (formants make it low); `depth`, `syll` and `beat` are
+kept in the row but decide nothing. Music is T = ramp(tonal, 0.08, 0.18), speech S = ramp(gaps, 25, 55) times
+(1 - ramp(flat, 0.06, 0.14)), and the split is music T, speech S (1 - T), field (1 - T)(1 - S); under 0.65 it reads ambiguous.
+
+`syll` (the 3 to 6 Hz envelope modulation) was tried first and does not separate anything here: macOS `say` speech read 1.23,
+pink noise 1.17, the archive 0.22 to 0.79. Spectral flatness on the raw spectrum gave pink noise 0.34 and every real field
+recording under 0.07, because a real room or car is all low end. The first classifier, built on those two plus a pitch
+detector's voiced share, called the EMA concert speech. Controls on the final one: `say` speech 1.0 speech, pink noise 1.0
+field, a tone melody 1.0 music; `say` speech with pink noise about 15 dB under it reads ambiguous (0.54 field), and about
+6 dB under it 1.0 field. So speech in a noisy field recording reads as field, and a voice over a held drone would read as music.
+
+MEASURED 2026-10-18: music Kalle, Kalle 2, Oriental analog, the four EMA files (tonal 0.19 to 0.64) and Audio test (0.75,
+tonal 0.155); field Driving along (gaps 2.4 a minute, tonal 0) and Poorisvool (gaps 15.6, flat 0.148); speech the two clip
+tests (gaps 65 and 57 a minute, conf 1.0 and 0.7); Evening rituals ambiguous (0.6 speech, gaps 61, flat 0.092). This does
+not agree with "most of it is talking or field recordings": by these numbers 8 of 13 files hold notes. The ramps were set
+after looking at these 13 files and at 20 s spectrograms of each, so they fit this archive and are not validated on any
+other; nobody listened.
+
 ## `workers/cast/worker.mjs`: their streams
 
 ### live

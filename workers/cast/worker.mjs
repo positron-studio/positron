@@ -1,5 +1,6 @@
 // positron-cast: Väin's archive played live into an Icecast mount from Cloudflare, no machine of ours.
-//   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s
+//   GET  /feed                 their public archive (audio and recordings on eccm.ee / uuu.ee), cached 60 s, each with
+//                              gain (dB to -23 LUFS), kind (speech | field | music | ambiguous) and kindConf from gains.mjs
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
 //                              extend ({ms}: stop at now + ms, 15 min to 12 h); every start stops itself at `until`, 2 h on;
 //                              program (the station's stored list, kept while off air, START plays it);
@@ -19,6 +20,7 @@
 
 import { clampSet, DEFAULTS as MIX_DEFAULTS } from './container/mixer.mjs';
 import { clampPatch } from './container/grain-patch.mjs';
+import { levelFor } from './gains.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
 const FEED_TYPES = new Set(['audio', 'streamrecording']);
@@ -78,14 +80,14 @@ async function live(ctx) {
   return { at: ev.at, ageS: Math.round((Date.now() - ev.at) / 1000), everyS: EVENTS_S, channels: out };
 }
 
-/** Their archive as `{ id, title, url, type, at, author }`, only audio on their own hosts. */
+/** Their archive as `{ id, title, url, type, at, author, gain, kind, kindConf }`, only audio on their own hosts. */
 async function feed(ctx) {
   const cache = caches.default, key = new Request('https://cast.positron.studio/__feed');
   const hit = await cache.match(key);
   if (hit) return hit.json();
   const items = (await events(ctx)).list.filter((e) => FEED_TYPES.has(e.type) && e.url && (() => {
     try { return FEED_HOSTS.has(new URL(e.url).hostname); } catch { return false; } })())
-    .map((e) => ({ id: e.id, title: e.title, url: e.url, type: e.type, at: e.publish_at, author: e.author_name || '' }));
+    .map((e) => ({ id: e.id, title: e.title, url: e.url, type: e.type, at: e.publish_at, author: e.author_name || '', ...levelFor(e.id) }));
   ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify(items), { headers: { 'cache-control': `max-age=${FEED_S}` } })));
   return items;
 }
@@ -176,6 +178,8 @@ export class Caster {
     } catch { return null; }
   }
   async cpost(path, body) {
+    // every queue carries each file's gain from the table, a stored one too. why: lessons/workers-cast.md#level
+    if (Array.isArray(body?.queue)) body = { ...body, queue: body.queue.map((x) => ({ ...x, gain: levelFor(x.id).gain })) };
     const r = await this.c.getTcpPort(8080).fetch(`http://c${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `the container answered ${r.status}`);

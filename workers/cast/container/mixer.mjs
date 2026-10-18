@@ -13,6 +13,15 @@ export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2,
 // The cast's whistle is WHISTLE_SOFT, and the needle crosses a blend by handTurn. why: lessons/workers-cast.md#whistle
 export const WHISTLE = true;
 
+// Each file is levelled to one loudness before the tuner: its feed item's `gain` in dB, clamped to GAIN_DB.
+// why: lessons/workers-cast.md#level
+export const GAIN_DB = [-14, 12];
+/** The linear factor for an item's `gain`; 1 when it has none. */
+export function levelOf(gain) {
+  const x = Number(gain);
+  return gain == null || !Number.isFinite(x) ? 1 : 10 ** (Math.min(GAIN_DB[1], Math.max(GAIN_DB[0], x)) / 20);
+}
+
 /** Clamps one control to LIMITS, or null when the name or value is not one. */
 export function clampSet(name, v) {
   const lim = LIMITS[name], x = Number(v);
@@ -157,7 +166,7 @@ const db = (x) => (x > 0 ? +(20 * Math.log10(x)).toFixed(1) : null);
 export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.random, log = () => {}, prefetchS = 6 } = {}) {
   const ctl = { ...DEFAULTS, ...set };
   const mix = createMix(SLOTS, WHISTLE_SOFT), tuner = createTuner({ sr, rand });
-  const slots = SLOTS.map(() => ({ item: null, src: null }));
+  const slots = SLOTS.map(() => ({ item: null, src: null, level: 1 }));
   let items = queue.slice(), nextIdx = 0, pending = null;
   let from = 0, cycleFrom = 0, frames = 0, phase = 'dwell', k = 0, tune = ctl.tune, m = mix(tune);
   let underruns = 0, landings = 0, meter = null;
@@ -167,7 +176,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
   function place(j, it, src) {
     const sl = slots[j];
     try { sl.src?.close(); } catch { /* gone */ }
-    sl.item = it; sl.src = src || (it ? open(it) : null);
+    sl.item = it; sl.src = src || (it ? open(it) : null); sl.level = levelOf(it?.gain);
     if (it) log(`slot ${'ab'[j]}: ${it.title}`);
   }
   function prefetch() { if (!pending) { const it = take(); if (it) pending = { item: it, src: open(it) }; } }
@@ -231,7 +240,12 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
       clock();
       m = mix(tune);
       m = { ...m, noise: m.noise * ctl.noise };
-      const inputs = slots.map((sl) => (sl.src ? sl.src.read(BLOCK) : null));
+      const inputs = slots.map((sl) => {
+        if (!sl.src) return null;
+        const x = sl.src.read(BLOCK);
+        if (sl.level !== 1) for (let i = 0; i < x.length; i++) x[i] *= sl.level;
+        return x;
+      });
       for (const sl of slots) if (sl.src?.underrun) { underruns += sl.src.underrun; sl.src.underrun = 0; }
       tuner.render(inputs, m, mono, { whistle: WHISTLE });
       for (let i = 0; i < BLOCK; i++) {
@@ -252,7 +266,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     status() {
       return { mode: 'mix', ...ctl, tune: +tune.toFixed(4), phase, k: +k.toFixed(3), from, landings, underruns,
         noiseLevel: +m.noise.toFixed(3), seconds: +(frames / sr).toFixed(2),
-        slots: slots.map((sl, j) => ({ id: sl.item?.id ?? null, title: sl.item?.title ?? null, clear: +m.st[j].clear.toFixed(3),
+        slots: slots.map((sl, j) => ({ id: sl.item?.id ?? null, title: sl.item?.title ?? null, gain: sl.item ? +(20 * Math.log10(sl.level)).toFixed(2) : 0, clear: +m.st[j].clear.toFixed(3),
           echo: +m.st[j].echo.toFixed(3), buffered: sl.src ? +(sl.src.buffered ?? 0).toFixed(1) : 0, ended: !!sl.src?.ended })),
         next: pending?.item?.title ?? peekNext()?.title ?? null, meter };
     },

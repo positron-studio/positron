@@ -77,7 +77,7 @@
   import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES, fromT } from '/radio/cast/life.mjs';
+  import { createLife, VOTES, fromT, tasteOf, fileWeight } from '/radio/cast/life.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -195,7 +195,11 @@
   let shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   function startIds(t) {
     if (!progOf(t).length && items.length) {
-      progs[t] = shuffle(items.map((x) => x.id)).slice(0, PICK); progTouched[t] = Date.now();
+      // weighted by what the votes said about each file, so a file voted down comes up less, and at -6 not at all
+      const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+      progs[t] = (pool.every((x) => x.w === 1) ? shuffle(pool) : pool.map((x) => ({ ...x, k: Math.random() ** (1 / x.w) })).sort((a, b) => b.k - a.k))
+        .map((x) => x.id).slice(0, PICK);
+      progTouched[t] = Date.now();
       if (t === target) showProgram();
     }
     return progOf(t).slice();
@@ -605,7 +609,7 @@
   const localQueue = () => {
     const ids = startIds(LOCAL), held = localOn() ? local.status().slots.map((x) => x.id) : [];
     const last = Math.max(-1, ...held.map((h) => ids.findIndex((x) => String(x) === String(h))));
-    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => ({ id, title: titleOf(id) }));
+    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => ({ id, title: titleOf(id), gain: items.find((x) => String(x.id) === String(id))?.gain }));
   };
   function localSound() {
     const w = status[LOCAL]?.wanted || {};
@@ -620,7 +624,7 @@
     localFor = LOCAL;
     d.set('listening', LOCAL);
     const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
-    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
+    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(sound.queue?.[0]?.id ?? localQueue()[0]?.id))?.kind }); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
     await local.start({ queue: localQueue(), ...sound });
     if (!localOn()) return;
     if (isLive) startLife(true);
@@ -646,10 +650,11 @@
       L.si = L.land === -1 ? 0 : L.want ?? L.si + 1; L.want = null;
       L.land = st.landings; L.sceneAt = t; L.inst = `${Date.now().toString(36)}-${L.si}`;
       L.file = st.slots[st.from]?.title || '';
+      const kind = items.find((x) => x.title === L.file)?.kind;
       instDef.set(L.inst, { def: life.defOf(life.scene(L.si)), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
-      const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
+      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s) } }); L.patch = s.patch;
       paintScene();

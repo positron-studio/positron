@@ -1,7 +1,7 @@
 // node demo/radio/cast/life-test.mjs: the living sound's planner, no browser. Most of these are
 // negative controls: a life that repeats, reuses a control, leaves the granulator on at a seam, or
 // ignores a vote fails.
-import { createLife, tasteOf, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, IKINDS, toT } from './life.mjs';
+import { createLife, tasteOf, fileWeight, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
 
 let ok = 0, bad = 0;
 const check = (name, pass, detail = '') => { if (pass) ok++; else { bad++; console.log(`FAIL ${name}${detail ? `\n  ${detail}` : ''}`); } };
@@ -63,7 +63,7 @@ const V = many(createLife({ seed: 1, votes }));
 rules('with votes', V);
 const isVar = (s) => s.from === liked.id;
 check('liked scenes come back as variations, one thing changed', V.filter(isVar).length >= 30
-  && V.filter(isVar).every((s) => s.patch === liked.patch && s.param === liked.param && (s.len !== liked.len || s.lo !== liked.lo || s.iParam !== liked.iParam)), `${V.filter(isVar).length} variations`);
+  && V.filter(isVar).every((s) => s.patch === liked.patch && s.param === liked.param && (s.len !== liked.len || s.lo !== liked.lo || s.iParam !== liked.iParam || s.iKind !== liked.iKind || JSON.stringify(s.layers) !== JSON.stringify(liked.layers))), `${V.filter(isVar).length} variations`);
 check('the liked patch plays more than without votes', share(V, (s) => s.patch === liked.patch) > share(S, (s) => s.patch === liked.patch) * 1.5,
   `${share(S, (s) => s.patch === liked.patch).toFixed(2)} to ${share(V, (s) => s.patch === liked.patch).toFixed(2)}`);
 check('the disliked scene does not come back as it was', !V.some((s) => coreId(s) === coreId(hated)));
@@ -100,6 +100,27 @@ const T2 = many(createLife({ seed: 5, votes: [...smears.map((x) => ({ def: life.
 check('votes learn the transition too: liked smears come up more, disliked radio hiss less',
   share(T2, (x) => x.iKind === 'smear') > share(Z, (x) => x.iKind === 'smear') + 0.05 && share(T2, (x) => x.iKind === 'radio') < share(Z, (x) => x.iKind === 'radio') - 0.05,
   `smear ${share(Z, (x) => x.iKind === 'smear').toFixed(2)} to ${share(T2, (x) => x.iKind === 'smear').toFixed(2)}, radio ${share(Z, (x) => x.iKind === 'radio').toFixed(2)} to ${share(T2, (x) => x.iKind === 'radio').toFixed(2)}`);
+// layers: every kind plays, about as often as meant, and the votes learn them too
+const L = (k) => (x) => x.layers[k];
+check('every layer kind plays, at about the odds for its kind of file (unknown counts as talk)',
+  ['drone', 'res', 'harm', 'ghost'].every((k) => LAYERS[k].every((v) => S.some((x) => x.layers[k] === v)))
+  && ['drone', 'res', 'harm', 'ghost'].every((k) => Math.abs(share(S, (x) => x.layers[k] !== 'none') - ODDS.speech[k]) < 0.12)
+  && Math.abs(share(S, (x) => x.layers.bpm > 0) - ODDS.speech.pulse) < 0.12, ['drone', 'res', 'harm', 'ghost'].map((k) => `${k} ${share(S, (x) => x.layers[k] !== 'none').toFixed(2)}`).join(', '));
+const byKind = (kind) => { const l = createLife({ seed: 3 }); return Array.from({ length: 400 }, (_, i) => l.scene(i, { kind })); };
+const SP = byKind('speech'), MU = byKind('music');
+check('talk gets more resonators and harmonizer than music, and only talk pulses on its own onsets',
+  share(SP, (x) => x.layers.res !== 'none') > share(MU, (x) => x.layers.res !== 'none') + 0.2 && SP.some((x) => x.layers.bpm && x.layers.pulseOn === 'onsets')
+  && !MU.some((x) => x.layers.pulseOn === 'onsets' && x.layers.bpm) && SP.every((x) => x.kind === 'speech'));
+check('each scene has a key, moving mostly by a fifth, a fourth or a step', S.every((x) => x.key.root >= 0 && x.key.root < 12)
+  && share(S.slice(1), (x, i) => [0, 7, 5, 2, 10].includes((x.key.root - S[i].key.root + 12) % 12)) > 0.7);
+const keyDrones = Z.filter((x) => x.layers.drone === 'key').slice(0, 8), noDrones = Z.filter((x) => x.layers.drone === 'none').slice(0, 8);
+const W = many(createLife({ seed: 5, votes: [...keyDrones.map((x) => ({ def: life.defOf(x), vote: 4 })), ...noDrones.map((x) => ({ def: life.defOf(x), vote: 1 }))] }), 600);
+check('votes learn the layers: liked key drones come up more, disliked silence under the scene less',
+  share(W.filter((x) => !x.from), L('drone') && ((x) => x.layers.drone === 'key')) > share(Z, (x) => x.layers.drone === 'key') + 0.08 && share(W, (x) => x.layers.drone === 'none') < share(Z, (x) => x.layers.drone === 'none') - 0.05,
+  `key ${share(Z, (x) => x.layers.drone === 'key').toFixed(2)} to ${share(W.filter((x) => !x.from), (x) => x.layers.drone === 'key').toFixed(2)}, none ${share(Z, (x) => x.layers.drone === 'none').toFixed(2)} to ${share(W, (x) => x.layers.drone === 'none').toFixed(2)}`);
+const ft = tasteOf([{ def: life.defOf(liked), vote: 1, file: 'Kalle' }, { def: life.defOf(hated), vote: 1, file: 'Kalle' }, { def: life.defOf(liked), vote: 1, file: 'Kalle' }, { def: life.defOf(liked), vote: 4, file: 'Dub hour' }]);
+check('votes count against the file they played on: three bads sink Kalle out of the picks, a great lifts another',
+  ft.file.Kalle === -6 && fileWeight(ft.file.Kalle) === 0 && fileWeight(ft.file['Dub hour']) > 1 && fileWeight(undefined) === 1 && fileWeight(-2) === 0.5);
 check('NEGATIVE CONTROL: with no votes nothing is a variation', S.every((s) => !s.from));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);

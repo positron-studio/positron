@@ -1,6 +1,6 @@
 // node workers/cast/mixer-test.mjs [--live 60]: the cast's mix mode with no container and no network.
 // The port is graded against the page's own createTunerGraph, run on a fake AudioContext that records
-// every value it is given, so the two cannot drift apart. 13 of the asserts are NEGATIVE CONTROLS.
+// every value it is given, so the two cannot drift apart. 14 of the asserts are NEGATIVE CONTROLS.
 // --live S runs the mixer and the encoder against the wall clock for S seconds into a sink that counts.
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -191,6 +191,31 @@ else {
   await enc.close();
   ok('3 s of mix encode to 3 s of whole MP3 frames at 44.1 kHz, no ID3 at the head', near(enc.seconds, 3, 0.1) && head?.[0] === 0xff,
     `${frames} frames, ${enc.seconds.toFixed(3)} s, ${(enc.bytes / 1024).toFixed(1)} KiB`);
+}
+
+// ── 7b. the decoder's level: what each engine's tuner gets from a file. why: lessons/workers-cast.md#level ──
+if (spawnSync(ff, ['-version']).status !== 0) console.log(`skip the decoder: no ${ff} here`);
+else {
+  const { openDecoder } = await import('./container/decode.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const tmp = mkdtempSync(join(tmpdir(), 'cast-dec-'));
+  try {
+    // 1 s of 1 kHz: mono at 1.2 (over full scale, as Kalle's master is), and stereo with the tone in the left only
+    const mk = (name, expr, ch) => { const f = join(tmp, name); spawnSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `aevalsrc=${expr}:s=44100:d=1:c=${ch}`, '-c:a', 'pcm_f32le', f]); return f; };
+    const mono = mk('mono.wav', '1.2*sin(2*PI*1000*t)', 'mono'), stereo = mk('stereo.wav', '0.5*sin(2*PI*1000*t)|0', 'stereo');
+    const peakOf = async (url) => {
+      const d = openDecoder({ url, title: url });
+      let pk = 0;
+      for (let i = 0; i < 300 && !d.ended; i++) { await new Promise((r) => setTimeout(r, 10)); const x = d.read(4410); for (const v of x) pk = Math.max(pk, Math.abs(v)); }
+      d.close(); return pk;
+    };
+    const pm = await peakOf(mono), ps = await peakOf(stereo);
+    ok('the decoder hands the tuner a mono file at unity, as the browser does, and over full scale unclipped', near(pm, 1.2, 0.01), `peak ${pm.toFixed(4)}`);
+    ok('and a stereo file as 0.5 (L + R)', near(ps, 0.25, 0.005), `peak ${ps.toFixed(4)}`);
+    const old = spawnSync(ff, ['-loglevel', 'error', '-i', mono, '-f', 's16le', '-ac', '2', 'pipe:1']).stdout;
+    let po = 0; for (let i = 0; i + 4 <= old.length; i += 4) po = Math.max(po, Math.abs((old.readInt16LE(i) + old.readInt16LE(i + 2)) / 65536));
+    ok('NEGATIVE CONTROL: ffmpeg\'s own upmix, the old decode, gives that file 3 dB less', near(po, 1.2 / Math.SQRT2, 0.01), `peak ${po.toFixed(4)}`);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
 }
 
 // ── 8. --live S: the mixer and encoder against the wall clock ──
