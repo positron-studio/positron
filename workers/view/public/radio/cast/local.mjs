@@ -5,12 +5,14 @@ import { createMix, createTunerGraph, pinkNoise, handTurn, WHISTLE_SOFT } from '
 import { createRingEngine, PATCHES, valuesOf, DEFAULTS as RING_DEFAULTS, RING_SECONDS } from '../../granulator/grain-ring.mjs';
 import { inputPairs } from '../../shell/scsynth.mjs';
 import { WORKLET as SOFTEN_WORKLET } from './soften.mjs';
+import { crossfade, dwellMix } from './crossfade.mjs';
 
 // The container's numbers (workers/cast/container/mixer.mjs, grain-patch.mjs); workers/cast/local-test.mjs goes red if they differ.
 export const SR = 44100;
 export const SLOTS = [{ at: 0.46, echo: 0.09 }, { at: 0.54, echo: 0.13 }];
-export const DEFAULTS = { tune: SLOTS[0].at, drift: 1, dwell: 40, blend: 16, noise: 1 };
-export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2, 120], noise: [0, 2] };
+export const DEFAULTS = { tune: SLOTS[0].at, drift: 1, dwell: 40, blend: 16, noise: 1, path: 0 };
+// path: how the next blend hands over (crossfade.mjs PATHS), 0 the dial's sweep
+export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2, 120], noise: [0, 2], path: [0, 3] };
 export const PATCH_LIMITS = { freeze: [0, 1], speed: [0, 4], back: [0, RING_SECONDS - 0.5], density: [0.5, 64], scatter: [0, 1],
   size: [0.02, 4], jitter: [0, 4], pitch: [0.25, 4], detune: [0, 0.1], pan: [0, 1], amp: [0, 3], tone: [200, 20000], echo: [0, 0.9],
   time: [0.01, 1.5], dark: [200, 20000], drop: [0, 1], ramp: [0.05, 4], dir: [-1, 1], lock: [0, 1], mix: [0, 1] };
@@ -32,7 +34,7 @@ export function clampSet(name, v) {
   const lim = LIMITS[name], x = Number(v);
   if (!lim || !Number.isFinite(x)) return null;
   const c = Math.min(lim[1], Math.max(lim[0], x));
-  return name === 'drift' ? (c >= 0.5 ? 1 : 0) : c;
+  return name === 'drift' ? (c >= 0.5 ? 1 : 0) : name === 'path' ? Math.round(c) : c;
 }
 
 /** A patch by name (filled from DEFAULTS) then `set` on top, each clamped, as grain-patch.mjs does. */
@@ -165,7 +167,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   function tick() {
     if (!playing) return;
     clock();
-    m = mix(tune);
+    m = ctl.path && phase === 'blend' ? crossfade(ctl.path, from, k) : ctl.path && phase === 'dwell' ? dwellMix(mix(tune), from) : mix(tune);
     graph.apply({ ...m, noise: m.noise * ctl.noise }, { whistle: WHISTLE });
   }
   function route() {

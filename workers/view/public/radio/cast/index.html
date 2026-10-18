@@ -113,7 +113,7 @@
   import { createPresence } from '/shell/presence.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor } from '/radio/cast/life.mjs';
+  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor, freezesAfterDry } from '/radio/cast/life.mjs';
   import { createLayerEngine, euclid, stepSeconds, layerLevel } from '/radio/cast/layers.mjs';
   useMediumColours();
 
@@ -743,15 +743,21 @@
       instDef.set(L.inst, { def: life.defOf(life.scene(L.si, { kind })), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
-      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE);
-      // the patch with the scene's own controls set aside it, dry, before the granulator rises
-      local.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 })); L.patch = s.patch;
+      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE); local.set('path', s.iPath ?? 0);
+      // the patch with the scene's own controls set aside it, dry, before the granulator rises; a frozen
+      // patch stays open until the dry share is over
+      local.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0, ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch;
       layersFor(s);
       announce(LOCAL, L.si, life.defOf(s), L.file); scopeEvent('landing');
       paintScene();
     }
     ghostTick(t); onsetTick(); layerTick(st, t);
-    if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = t; local.set('noise', life.scene(L.si).iNoise); scopeEvent('interlude'); }
+    if (st.phase === 'blend' && L.phase !== 'blend') {
+      const s = life.scene(L.si);
+      L.blendAt = t; local.set('noise', s.iNoise); scopeEvent('interlude');
+      // a pause lets the drones go too, so it is silence; the next landing sets them again
+      if (s.iKind === 'pause' && layerEng) layerEng.apply({ ...s.layers, drone: 'none' }, s.key);
+    }
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch(engPatch(v.patch, { mix: 0 })); }
@@ -885,7 +891,7 @@
   /** A scene in words: what plays, the patch and its set controls, what moves, the interlude, the key and the layers. */
   function describe(si, def, file) {
     const tw = Object.entries(tweaksOf(def)).map(([n, x]) => `${n} ${fmt(x)}`).join(', ');
-    return `scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then a ${def.iKind} interlude; ${layersSay(def)}`;
+    return `scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then ${IWORDS[def.iKind] ?? `a ${def.iKind} interlude`}; ${layersSay(def)}`;
   }
   /** One log line per scene. */
   function announce(t, si, def, file) { if (def) d.log(`${t} ${describe(si, def, file)}`); }
@@ -930,6 +936,7 @@
     try { const j = await (await fetch(`${BASE}/votes`)).json(); if (Array.isArray(j.votes)) votes = j.votes; } catch { /* none yet */ }
   }
   /** A scene's controls set aside its patch, as values. */
+  const IWORDS = { dissolve: 'a dissolve', filter: 'a filter hand-over', pause: 'a pause' };
   const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, fromT(n, t)]));
   /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
   const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
