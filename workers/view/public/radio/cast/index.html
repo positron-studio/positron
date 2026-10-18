@@ -38,6 +38,7 @@
   .vc-vote > .vc-ctl { gap: 8px; flex-wrap: nowrap; }
   .vc-vote .pos-bgroup { width: auto; min-width: auto; }
   .vc-vote .pos-bgroup-row { min-width: auto; overflow-x: visible; }
+  .vc-comment .pos-field { width: 100%; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .vc-detail { display: flex; flex-direction: column; gap: 28px; }
   .vc-mix > .sld-group { width: 100%; }
@@ -74,6 +75,8 @@
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createIconButton } from '/shell/icon-button.mjs';
+  import { createToggle } from '/shell/toggle.mjs';
+  import { createField } from '/shell/field.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
   import { createPresence } from '/shell/presence.mjs';
   import { createChoice } from '/shell/choice.mjs';
@@ -82,7 +85,7 @@
   import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife } from '/radio/cast/life.mjs';
+  import { createLife, VOTES } from '/radio/cast/life.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -375,13 +378,15 @@
     { id: 'prev', icon: 'skip-back', label: 'the previous scene', onPress: () => step(-1) },
     { id: 'next', icon: 'skip-forward', label: 'the next scene', onPress: () => step(1) },
   ] });
-  const voteDown = createIconButton({ icon: 'minus', label: 'not this one', pressed: false, onPress: () => vote(-1) });
-  const voteUp = createIconButton({ icon: 'plus', label: 'more like this', pressed: false, onPress: () => vote(1) });
+  // the vote on the scene playing: bad, ok, good (keys 1 to 3); the lit one again takes it back
+  const voteBtns = Object.fromEntries(Object.entries(VOTES).map(([n, w]) => [n, createToggle({ label: w, title: `key ${n}`, onChange: () => vote(Number(n)) })]));
   const lScene = el('span', 'vc-v'), sceneCtl = el('span', 'vc-ctl vc-vote'), votePair = el('span', 'vc-ctl');
-  votePair.append(voteDown.el, voteUp.el); sceneCtl.append(sceneBtns.el, votePair);
+  votePair.append(...Object.values(voteBtns).map((t) => t.el)); sceneCtl.append(sceneBtns.el, votePair);
   lifeRows.row([sceneCtl]);
   lifeRows.row([k('scene'), lScene]);
   lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]);
+  const comment = createField({ label: 'comment', rows: 3, placeholder: 'what works here, what does not', onInput: () => commentLater() });
+  lifeRows.row([comment.el], { cls: 'vc-comment' });
   const lifeRow = sound.row([lifeRows.el], {});
   const showLive = (on) => { lifeRow.hidden = !on || !lifeNow; mixRow.hidden = on; dial.el.hidden = on; if (on) showGrains(false); };
   showGrains(false);
@@ -647,6 +652,9 @@
       L.si = L.land === -1 ? 0 : L.want ?? L.si + 1; L.want = null;
       L.land = st.landings; L.sceneAt = t; L.inst = `${Date.now().toString(36)}-${L.si}`;
       L.file = st.slots[st.from]?.title || '';
+      instDef.set(L.inst, { def: life.defOf(life.scene(L.si)), file: L.file });
+      if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
+      commentFor = ''; comment.set('');
       const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend);
       paintScene();
     }
@@ -675,31 +683,48 @@
     lifeState.want = Math.max(0, lifeState.si + by);
     local.next(); paintScene();
   }
-  // a vote is on the scene as it played (`inst`): the same press again takes it back
+  // a vote is on the scene as it played (`inst`): the same press again takes it back. A comment rides
+  // on the same row, sent a second after the typing stops, to the scene it was started on.
   let votes = [];
-  const mine = new Map();
+  const mine = new Map(); // inst -> { vote, comment }
+  let commentFor = '', commentTimer = 0;
+  function commentLater() {
+    if (!lifeTimer || !lifeState.inst) return;
+    commentFor ||= lifeState.inst;
+    clearTimeout(commentTimer); commentTimer = setTimeout(() => keep(commentFor, { comment: comment.value() }), 1000);
+  }
   let postVote = (body) => fetch(`${BASE}/votes?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify(body) })
     .then((r) => r.json()).catch((e) => ({ error: e.message }));
-  async function vote(n) {
-    const L = lifeState;
-    if (!lifeTimer || !L.inst) return;
+  const instDef = new Map(); // inst -> { def, file }, so a late comment still names its scene
+  async function keep(inst, change) {
     if (!key) { d.log('a vote needs the key: open this page once with ?key=', 'warn'); return; }
-    const v = mine.get(L.inst) === n ? 0 : n, def = life.defOf(life.scene(L.si));
-    mine.set(L.inst, v);
-    votes = votes.filter((x) => x.inst !== L.inst).concat(v ? [{ inst: L.inst, def, vote: v, file: L.file }] : []);
+    const row = { vote: null, comment: '', ...mine.get(inst), ...change }, { def, file } = instDef.get(inst) || {};
+    if (!def) return;
+    mine.set(inst, row);
+    votes = votes.filter((x) => x.inst !== inst).concat(row.vote ? [{ inst, def, vote: row.vote, file }] : []);
     paintScene();
-    const r = await postVote({ inst: L.inst, def, vote: v, file: L.file });
+    const r = await postVote({ inst, def, file, vote: row.vote, comment: row.comment });
     if (r?.error) d.log(`the vote was not kept: ${r.error}`, 'warn');
-    else d.log(v ? `${v > 0 ? 'liked' : 'not liked'}: ${def.patch}, ${def.param}` : 'vote taken back');
+    else if ('vote' in change) d.log(row.vote ? `${VOTES[row.vote]}: ${def.patch}, ${def.param}` : 'vote taken back');
   }
+  function vote(n) {
+    const L = lifeState;
+    if (!lifeTimer || !L.inst) { paintScene(); return; }
+    keep(L.inst, { vote: mine.get(L.inst)?.vote === n ? null : n });
+  }
+  // keys 1 to 3 vote on live, unless a field has the keyboard
+  addEventListener('keydown', (e) => {
+    if (!VOTES[e.key] || e.metaKey || e.ctrlKey || e.altKey || !lifeTimer || target !== LOCAL || e.target.closest?.('input, textarea, select')) return;
+    e.preventDefault(); vote(Number(e.key));
+  });
   async function loadVotes() {
     try { const j = await (await fetch(`${BASE}/votes`)).json(); if (Array.isArray(j.votes)) votes = j.votes; } catch { /* none yet */ }
   }
   const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
   function paintScene() {
-    const L = lifeState, n = mine.get(L.inst) || 0, s = lifeTimer && life ? life.scene(L.si) : null;
+    const L = lifeState, n = mine.get(L.inst)?.vote || 0, s = lifeTimer && life ? life.scene(L.si) : null;
     lScene.textContent = s ? `${L.si + 1}${s.from ? ', a variation' : ''}` : '';
-    voteUp.pressed(n > 0); voteDown.pressed(n < 0);
+    for (const [k2, t] of Object.entries(voteBtns)) t.set(Number(k2) === n, true);
     for (const [b, by] of [['prev', -1], ['next', 1]]) {
       const btn = sceneBtns.button(b);
       if (L.want != null && L.want === Math.max(0, L.si + by)) btn.dataset.busy = '1'; else delete btn.dataset.busy;
@@ -919,17 +944,27 @@
       // votes, against a recorder instead of the store
       const posted = [], realPost = postVote;
       postVote = async (b) => { posted.push(b); return { ok: true }; };
-      voteUp.el.click(); await tick();
-      const up = posted.at(-1), upLit = voteUp.el.getAttribute('aria-pressed') === 'true' && voteDown.el.getAttribute('aria-pressed') === 'false';
-      voteUp.el.click(); await tick();
-      const back = posted.at(-1);
-      voteDown.el.click(); await tick();
-      const down = posted.at(-1);
-      d.assert('+ keeps a like on the scene as it plays, with the def that rebuilds it; + again takes it back; - keeps a dislike',
-        up?.vote === 1 && up.inst === lifeState.inst && JSON.stringify(up.def) === JSON.stringify(life.defOf(life.scene(1))) && up.file === 'file B' && upLit
-        && back?.vote === 0 && back.inst === up.inst && down?.vote === -1 && voteDown.el.getAttribute('aria-pressed') === 'true'
-        && votes.filter((x) => x.inst === up.inst).length === 1 && votes.at(-1).vote === -1, JSON.stringify({ up, back, down }));
-      d.assert('NEGATIVE CONTROL: the votes went to the recorder only, never to a station', sent.every(([, m]) => m.cmd !== 'vote') && posted.length === 3);
+      const lit = () => Object.entries(voteBtns).filter(([, t]) => t.get()).map(([n2]) => n2).join();
+      voteBtns[3].button.click(); await tick();
+      const good = posted.at(-1), goodLit = lit();
+      voteBtns[3].button.click(); await tick();
+      const back = posted.at(-1), backLit = lit();
+      voteBtns[1].button.click(); await tick();
+      const bad = posted.at(-1);
+      d.assert('good keeps a 3 on the scene as it plays, with the def that rebuilds it; good again takes it back; bad keeps a 1',
+        good?.vote === 3 && good.inst === lifeState.inst && JSON.stringify(good.def) === JSON.stringify(life.defOf(life.scene(1))) && good.file === 'file B' && goodLit === '3'
+        && back?.vote === null && back.inst === good.inst && backLit === '' && bad?.vote === 1 && lit() === '1'
+        && votes.filter((x) => x.inst === good.inst).length === 1 && votes.at(-1).vote === 1, JSON.stringify({ good, back, bad, goodLit, backLit }));
+      dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); await tick();
+      const two = posted.at(-1);
+      comment.input.value = 'the drift is lovely'; comment.input.dispatchEvent(new Event('input')); await tick();
+      comment.input.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true })); await tick(1200);
+      const said = posted.at(-1);
+      d.assert('the key 2 votes ok, and a comment is kept on the same scene a second after the typing stops',
+        two?.vote === 2 && lit() === '2' && said?.comment === 'the drift is lovely' && said.inst === good.inst && said.vote === 2, JSON.stringify({ two, said }));
+      d.assert('NEGATIVE CONTROL: a 3 typed into the comment is a letter, not a vote', said?.vote === 2 && posted.filter((b) => b.vote === 3).length === 1);
+      needle = { ...needle, landings: 4, from: 0 }; await tick(400);
+      d.assert('the next scene starts with no vote lit and an empty comment', lit() === '' && comment.value() === '' && lifeState.inst !== good.inst);
       postVote = realPost; votes = []; mine.clear();
       rowOf('user3').click(); await tick();
       const liveOff = mixUi.mode.buttons[3].hidden;

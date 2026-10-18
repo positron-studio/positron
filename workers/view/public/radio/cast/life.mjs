@@ -37,11 +37,14 @@ export const sceneId = (d) => `${d.patch}|${d.param}|${d.len}|${d.lo}|${d.iParam
 /** The scene without its interlude: what a dislike rules out. */
 export const coreId = (d) => `${d.patch}|${d.param}|${d.len}|${d.lo}`;
 
+/** A vote is 1 bad, 2 ok, 3 good; ok counts as neither. */
+export const VOTES = { 1: 'bad', 2: 'ok', 3: 'good' };
+const scoreOf = (v) => ({ 1: -1, 2: 0, 3: 1 })[Number(v)] ?? 0;
 /** What the votes say: a score per patch, per control, per patch and control, and the liked scenes. */
 export function tasteOf(votes = []) {
   const patch = {}, param = {}, pair = {}, byId = new Map();
   for (const v of votes) {
-    const d = v?.def, n = Math.sign(Number(v?.vote) || 0);
+    const d = v?.def, n = scoreOf(v?.vote);
     if (!d || !n || !NAMES.includes(d.patch) || !PARAMS.includes(d.param)) continue;
     patch[d.patch] = (patch[d.patch] || 0) + n;
     param[d.param] = (param[d.param] || 0) + n;
@@ -57,7 +60,7 @@ const weight = (score = 0) => 2 ** clamp(score, -3, 3);
 /**
  * @param {object} [o]
  * @param {number} [o.seed]   a different seed is a different life
- * @param {Array<{def: object, vote: number}>} [o.votes]  what was liked (+1) and not (-1)
+ * @param {Array<{def: object, vote: number}>} [o.votes]  1 bad, 2 ok, 3 good
  */
 export function createLife({ seed = 1, votes = [] } = {}) {
   const taste = tasteOf(votes), scenes = [];
