@@ -130,12 +130,13 @@ export function createRingEngine({ log = () => {} } = {}) {
     // The wet/dry is `\mix` in the program's last line, so the blend happens
     // in the engine and the dry source never leaves it.
     mixes: true,
-    async boot({ ctx: ac, input, grain, log }) {
+    // `inputChannels` 4 with an inputPairs merger adds a second stereo input on busses 4 and 5; the ring keeps 2 and 3
+    async boot({ ctx: ac, input, grain, log, inputChannels }) {
       ctx = ac;
       const t1 = performance.now();
       if (!good.ok) throw new Error('the program did not compile');
       eng = await bootScsynth({
-        audioContext: ctx, input, log,
+        audioContext: ctx, input, log, ...(inputChannels ? { inputChannels } : {}),
         // `SendReply.ar(trig, '/grain', [pos, size, write / frames, rate])` arrives with nodeID and
         // replyID in front. Both positions are fractions of the same 8 s, so how long ago the grain's
         // audio came in is their difference round the ring.
