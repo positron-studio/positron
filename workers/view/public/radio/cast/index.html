@@ -21,10 +21,17 @@
 <title>Väin cast</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
-  /* the station list and the open station side by side; the detail wraps under the list when there is no room */
-  .vc-main { display: flex; flex-wrap: wrap; gap: var(--pos-gap) var(--rows-gap); align-items: flex-start; }
-  .vc-main > .vc-stations { flex: 1 1 250px; min-width: 0; }
-  .vc-main > .vc-detail { flex: 999 1 380px; min-width: 0; }
+  /* the stations: one row of cards that scrolls sideways, the open one lit */
+  /* the 2 px pad keeps a focus ring inside the scroller, which clips */
+  .vc-cards { display: flex; gap: 10px; overflow-x: auto; min-width: 0; padding: 2px; margin: -2px; }
+  .vc-cards > .pos-card { flex: 0 0 150px; cursor: pointer; }
+  .vc-cards > .pos-card:hover { background: var(--card2); border-color: var(--line2); }
+  .vc-cards > .pos-card[aria-pressed="true"] { border-color: var(--hi); }
+  .vc-cards > .pos-card[aria-pressed="true"] .pos-card-t { color: var(--hi); }
+  .vc-cards .pos-card-f { align-items: center; justify-content: space-between; }
+  .pos-choice button[hidden] { display: none; }
+  .vc-now2 { color: var(--dim); }
+  .vc-ctl > .pos-icobtn[hidden] { display: none; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .vc-detail { display: flex; flex-direction: column; gap: 28px; }
   .vc-mix > .sld-group { width: 100%; }
@@ -48,7 +55,6 @@
   .vc-arch { grid-template-columns: minmax(0, 1fr) auto auto; }
   .vc-file[data-on="1"] .vc-v { color: var(--hi); }
   .vc-list { width: 100%; }
-  .vc-stations .pos-tbl-c .pos-pres { vertical-align: middle; }
 </style>
 <script type="module">
   // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast).
@@ -68,8 +74,9 @@
   import { createSlider, createSliderGroup } from '/shell/slider.mjs';
   import { createPicker } from '/shell/picker.mjs';
   import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
-  import { createTable } from '/shell/table.mjs';
+  import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
+  import { createLife } from '/radio/cast/life.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -167,9 +174,10 @@
     if (t === LOCAL) return keepLocal(m);
     const s = await control(t); if (s) s.send(JSON.stringify(m)); return !!s;
   }
+  const localWanted = () => (status[LOCAL] ||= { target: LOCAL, wanted: { mode: 'live', set: {}, patch: {} } }).wanted;
   // the local station has no caster: its stored sound and program live here, in the shape a status carries
   function keepLocal(m) {
-    const w = (status[LOCAL] ||= { target: LOCAL, wanted: { set: {}, patch: {} } }).wanted;
+    const w = localWanted();
     if (m.cmd === 'mode') w.mode = m.mode;
     else if (m.cmd === 'set') w.set[m.name] = m.v;
     else if (m.cmd === 'patch') { if (m.name) w.patch = { name: m.name, set: {} }; Object.assign(w.patch.set ||= {}, m.set || {}); }
@@ -196,18 +204,32 @@
 
   // ── STATIONS: one row per channel, the open one marked ──
   const badges = {};
-  const stTable = createTable({ columns: [
-    { key: 'name', label: 'station', width: 80, hi: true },
-    { key: 'who', label: 'on air', width: 88 },
-    { key: 'now', label: 'now', grow: true, clip: true },
-    { key: 'stops', label: 'stops', width: 56 },
-  ], onPick: (r) => pick(r.name) });
   const presence = (t) => createPresence({ of: t, says: { online: t === LOCAL ? 'here' : 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
     busyWords: { page: 'Väin' }, can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
-  stTable.set(STATIONS.map((t) => ({ name: t, who: '', now: '', stops: '' })));
-  const stRows = [...stTable.scroller().querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')];
-  STATIONS.forEach((t, i) => { badges[t] = presence(t); stRows[i].children[1].append(badges[t].el); stRows[i].dataset.station = t; });
-  const markOpen = () => stTable.mark((r) => r.name === target);
+  // STATIONS: a card each (name, what plays, the badge, when it stops); arrows move, Enter or Space opens
+  const cardRow = el('div', 'vc-cards'), cards = {};
+  for (const t of STATIONS) {
+    const c = createCard({ title: t, minH: 92 }), stops = el('span', 'vc-dim', '');
+    badges[t] = presence(t);
+    c.el.querySelector('.pos-card-f').append(badges[t].el, stops);
+    Object.assign(c.el.dataset, { station: t });
+    c.el.setAttribute('role', 'button');
+    c.el.addEventListener('click', () => pick(t));
+    c.el.addEventListener('keydown', (e) => {
+      const i = STATIONS.indexOf(t);
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(t); }
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const n = cards[STATIONS[(i + (e.key === 'ArrowRight' ? 1 : STATIONS.length - 1)) % STATIONS.length]].el;
+        for (const x of Object.values(cards)) x.el.tabIndex = x.el === n ? 0 : -1;
+        n.focus({ preventScroll: true }); n.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+    cardRow.append(c.el);
+    cards[t] = { el: c.el, card: c, stops };
+  }
+  const nowOf = (t) => cards[t].el.querySelector('.pos-card-d').textContent;
+  const markOpen = () => { for (const [t, x] of Object.entries(cards)) { x.el.setAttribute('aria-pressed', String(t === target)); x.el.tabIndex = t === target ? 0 : -1; } };
 
   // ── the open station: its cast, what plays, its sound, its program ──
   const head = el('div', 'vc-head');
@@ -227,7 +249,8 @@
   const now = el('span', 'vc-v'), at = el('span', 'vc-dim'), note = el('span', 'vc-note');
   const k = (w) => el('span', 'vc-k', w);
   const playing = createGlueRows({ grid: true, align: 'start', full: true });
-  playing.row([k('now'), (() => { const b = el('span', 'vc-ctl'); b.append(now, at); return b; })()]);
+  const now2 = el('span', 'vc-v vc-now2');
+  playing.row([k('now'), (() => { const c = el('span', 'vc-sec'); const b = el('span', 'vc-ctl'); b.append(now, at); c.append(b, now2); return c; })()]);
   // every start stops itself at `until` (2 h on); EXTEND moves it to now + the choice
   const hhmm = (t) => (Number.isFinite(t) ? new Date(t).toTimeString().slice(0, 5) : '');
   const stopsAt = el('span', 'vc-v');
@@ -255,9 +278,15 @@
       for (const [n, x] of Object.entries(pendingSet)) { send(t, { cmd: 'set', name: n, v: x }); delete pendingSet[n]; }
     }, wait);
   }
-  const MODES = ['copy', 'mix', 'grains'];
+  // live (local only for now): the dial walks the program and a life (life.mjs) plays the granulator
+  const MODES = ['copy', 'mix', 'grains', 'live'];
+  const engineMode = (m) => (m === 'live' ? 'grains' : m);
   mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
-    onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); if (localHere()) local.mode(v); send(target, { cmd: 'mode', mode: v }); } });
+    onPick: (v) => {
+      touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); showLive(v === 'live');
+      if (localHere()) { local.mode(engineMode(v)); if (v === 'live') startLife(); else stopLife(true); }
+      send(target, { cmd: 'mode', mode: v });
+    } });
   // the dial: lit, the clock turns it (drift 1); off, it stays where tune was put. get() is 0 for the clock.
   const dial = createIconButton({ icon: 'clock', label: 'the clock turns the dial', pressed: true, onPress: () => {
     const on = !dial.pressed(); mixUi.drift.set(on ? 0 : 1); setMix('drift', on ? 1 : 0);
@@ -271,7 +300,7 @@
   const sound = createGlueRows({ align: 'start', full: true });
   const both = el('span', 'vc-ctl'); both.append(mixUi.mode.el, mixUi.drift.el);
   sound.row([both]);
-  sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
+  const mixRow = sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
   // grains: the mix through /radio/scenery/'s grain ring, a patch of the page's ten and four of its controls
   const NAMES = PATCHES.map((p) => p.name), GRAIN = ['mix', 'density', 'size', 'pitch'];
   const grainLast = {}, grainPending = {};
@@ -302,13 +331,20 @@
   const grainRow = sound.row([mixUi.patch.el], {});
   const grainSliders = sound.row([createSliderGroup(GRAIN.map((n) => mixUi[`g${n}`])).el], { cls: 'vc-mix' });
   const showGrains = (on) => { grainRow.hidden = !on; grainSliders.hidden = !on; };
+  // live: what the life is doing, in place of the controls it is moving
+  const lifeRows = createGlueRows({ grid: true, align: 'start', full: true });
+  const lPatch = el('span', 'vc-v'), lMove = el('span', 'vc-v'), lWet = el('span', 'vc-v');
+  lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]);
+  const lifeRow = sound.row([lifeRows.el], {});
+  const showLive = (on) => { lifeRow.hidden = !on || !lifeNow; mixRow.hidden = on; dial.el.hidden = on; if (on) showGrains(false); };
   showGrains(false);
   /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
   function paintMix(st) {
     const w = st.wanted || {}, set = w.set || {}, x = target === LOCAL ? (localOn() ? local.status() : null) : st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
     if (pendingMode && (pendingMode.t !== target || w.mode === pendingMode.v || Date.now() - pendingMode.at > 20000)) pendingMode = null;
     if (!pendingMode && fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
-    showGrains(MODES[mixUi.mode.get()] === 'grains');
+    showGrains(MODES[mixUi.mode.get()] === 'grains'); showLive(MODES[mixUi.mode.get()] === 'live');
+    mixUi.mode.buttons[3].hidden = target !== LOCAL;
     const gp = w.patch || {}, gi = Math.max(0, NAMES.indexOf(gp.name ?? NAMES[0])), gv = { ...valuesOf(PATCHES[gi]), mix: 1, ...(gp.set || {}) };
     if (fresh('patch')) mixUi.patch.show(NAMES[gi], gi);
     for (const n of GRAIN) if (fresh(`g${n}`) && fresh('patch')) mixUi[`g${n}`].set(gv[n], true);
@@ -370,10 +406,9 @@
   // the local station's file now, from its engine
   const localNow = () => { if (!localOn()) return null; const st = local.status(), x = st.slots[st.from]; return x?.title ? { title: x.title, at: x.at } : null; };
   function paintRow(t) {
-    const i = STATIONS.indexOf(t);
     if (t === LOCAL) {
       badges[t].set(localOn() ? 'online' : 'offline');
-      const title = localNow()?.title || '', cell = stRows[i].children[2]; cell.textContent = title; cell.title = title;
+      cards[t].card.set({ desc: localNow()?.title || '' });
       return;
     }
     const st = status[t] || {}, them = theirs(t);
@@ -381,8 +416,8 @@
     badges[t].set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
     badges[t].busy(them ? 'page' : null);
     const title = them ? (live[t].title || '') : st.now?.title || '';
-    const cell = stRows[i].children[2]; cell.textContent = title; cell.title = title;
-    stRows[i].children[3].textContent = st.playing ? hhmm(st.until) : '';
+    cards[t].card.set({ desc: title });
+    cards[t].stops.textContent = st.playing ? `stops ${hhmm(st.until)}` : '';
   }
   function paintDetail() {
     const t = target, st = status[t] || {}, them = theirs(t), here = t === LOCAL;
@@ -394,6 +429,8 @@
     const cur = here ? localNow() : st.now;
     const title = them ? (live[t].title || '') : cur?.title || '';
     now.textContent = title; now.title = title;
+    const other = here && localOn() ? (() => { const x = local.status(); return x.phase === 'blend' ? x.slots[1 - x.from]?.title || '' : ''; })() : '';
+    now2.textContent = other; now2.title = other; now2.hidden = !other;
     at.textContent = !them && cur ? mmss(cur.at) : '';
     stopsAt.textContent = !here && st.playing ? hhmm(st.until) : ''; stopsRow.hidden = here || !st.playing;
     castBtns.setIcon('cast', on ? 'stop' : 'play', here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the cast on ${t}` : `start the cast on ${t}`);
@@ -515,7 +552,7 @@
   const localQueue = () => startIds(LOCAL).map((id) => ({ id, title: titleOf(id) }));
   function localSound() {
     const w = status[LOCAL]?.wanted || {};
-    return { mode: MODES[mixUi.mode.get()],
+    return { mode: engineMode(MODES[mixUi.mode.get()]),
       set: { ...(w.set || {}), drift: mixUi.drift.get() === 0 ? 1 : 0, tune: mixUi.tune.get(), dwell: mixUi.dwell.get(), blend: mixUi.blend.get() },
       patch: { name: NAMES[patchAt()], set: { ...(w.patch?.set || {}), ...Object.fromEntries(GRAIN.map((n) => [n, mixUi[`g${n}`].get()])) } } };
   }
@@ -525,22 +562,63 @@
     local ||= makeLocal();
     localFor = LOCAL;
     d.set('listening', LOCAL);
-    await local.start({ queue: localQueue(), ...localSound() });
+    const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
+    if (isLive) { life = createLife({ seed: lifeSeed() }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.interlude.blend }); sound.patch = { name: s0.patch, set: { mix: 0 } }; }
+    await local.start({ queue: localQueue(), ...sound });
     if (!localOn()) return;
+    if (isLive) startLife(true);
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
     paintRow(LOCAL); paintDetail(); pb.refresh();
   }
   function stopLocal() {
     if (!localFor) return;
-    local?.stop(); localFor = null;
+    stopLife(); local?.stop(); localFor = null;
     clearInterval(levelTimer);
     d.set('listening', ''); d.set('level', ''); d.set('heard', '');
     paintRow(LOCAL); paintDetail(); pb.refresh();
   }
+  // ── the life on local: scene i is the dial's i-th landing; its blend to the next file is the interlude ──
+  let life = null, lifeTimer = 0, lifeNow = null;
+  let lifeSeed = () => (Math.random() * 2 ** 31) | 0;
+  const lifeState = { land: -1, sceneAt: 0, blendAt: 0, phase: '', patch: '' };
+  const secs = () => performance.now() / 1000;
+  function lifeTick() {
+    if (!localOn() || !life) return;
+    const st = local.status(), L = lifeState, t = secs();
+    if (st.landings !== L.land) {
+      L.land = st.landings; L.sceneAt = t;
+      const s = life.scene(L.land); local.set('dwell', s.dwell); local.set('blend', s.interlude.blend);
+    }
+    if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = t;
+    L.phase = st.phase;
+    const v = st.phase === 'blend' ? life.inInterlude(L.land, t - L.blendAt) : life.inScene(L.land, t - L.sceneAt);
+    if (v.patch !== L.patch) { L.patch = v.patch; local.patch({ name: v.patch, set: { mix: 0 } }); }
+    local.patch({ set: { [v.param]: v.value, mix: v.wet } });
+    lifeNow = v;
+  }
+  /** `keep` keeps the life startLocal just made; a switch into live mid-play starts a new one. */
+  function startLife(keep = false) {
+    if (!localOn()) return;
+    if (!keep || !life) life = createLife({ seed: lifeSeed() });
+    Object.assign(lifeState, { land: -1, phase: '', patch: '' });
+    local.set('drift', 1);
+    clearInterval(lifeTimer); lifeTimer = setInterval(lifeTick, 50); lifeTick();
+  }
+  function stopLife(restore = false) {
+    clearInterval(lifeTimer); lifeTimer = 0; lifeNow = null;
+    if (restore && localOn()) { local.set('dwell', mixUi.dwell.get()); local.set('blend', mixUi.blend.get()); local.patch({ name: NAMES[patchAt()], set: { mix: mixUi.gmix.get() } }); }
+  }
+  const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
+  function paintLife() {
+    const v = lifeNow;
+    lPatch.textContent = v ? v.patch : '';
+    lMove.textContent = v ? `${v.param} ${fmt(v.value)}, ${v.kind === 'interlude' ? 'interlude' : `${v.len} scene`}` : '';
+    lWet.textContent = v ? `${Math.round(v.wet * 100)} %` : '';
+  }
   const localBuf = new Float32Array(2048);
   function readLocal() {
     if (!localOn()) return;
-    paintRow(LOCAL); if (target === LOCAL) { paintDetail(); showProgram(); }
+    paintRow(LOCAL); if (target === LOCAL) { paintDetail(); showProgram(); paintLife(); }
     if (!local.analyser) return;
     local.analyser.getFloatTimeDomainData(localBuf);
     let sum = 0;
@@ -551,12 +629,11 @@
   }
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
-  const stations = sec('stations', stTable.el); stations.classList.add('vc-stations');
+  const stations = sec('stations', cardRow);
   const detail = el('div', 'vc-detail');
   detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('program', progEmpty, progHost));
-  const main = el('div', 'vc-main'); main.append(stations, detail);
-  wire(); markOpen(); paintRow(LOCAL); paintDetail();
-  d.stack.add(main, sec('archive', archList.el), pb.el);
+  localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
+  d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
 
   window.__demo.bay = bay;
@@ -571,21 +648,29 @@
     const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|\/file\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
-    const rowOf = (t) => stRows[STATIONS.indexOf(t)];
+    const rowOf = (t) => cards[t].el, isOn = (t) => cards[t].el.getAttribute('aria-pressed') === 'true';
+    const order = () => [...cardRow.children].map((c) => c.dataset.station).join();
     const word = (t) => badges[t].el.querySelector('.pos-pres-w').textContent;
-    d.assert('seven stations in one list, local first, open and marked by default',
-      stRows.map((r) => r.dataset.station).join() === STATIONS.join() && STATIONS[0] === LOCAL && target === LOCAL && dName.textContent === LOCAL
-      && rowOf(LOCAL).classList.contains('on') && stRows.filter((r) => r.classList.contains('on')).length === 1, stRows.map((r) => r.dataset.station).join());
+    d.assert('seven stations as one row of cards, local first, open and marked by default',
+      order() === STATIONS.join() && STATIONS[0] === LOCAL && target === LOCAL && dName.textContent === LOCAL
+      && isOn(LOCAL) && STATIONS.filter(isOn).length === 1, order());
     d.assert('a visit opens no control socket, no player, no prelisten and no local sound, and asks no audio URL or file',
       !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !local && !audioReqs().length, audioReqs().join(' '));
     // selecting: a press on a row opens it, and every station has the same sound controls
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length + detail.querySelectorAll('.pos-icobtn[aria-pressed]').length, detail.querySelectorAll('.sld-lane').length, rowOf(t).classList.contains('on')]);
+      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length + detail.querySelectorAll('.pos-icobtn[aria-pressed]').length, detail.querySelectorAll('.sld-lane').length, isOn(t)]);
     }
     d.assert('selecting a station opens it on the right, and each one has mode, the clock, tune, dwell, blend and the grain controls',
       seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 7 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
+    rowOf(LOCAL).click();
+    const press = (t, k) => rowOf(t).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    press(LOCAL, 'ArrowRight');
+    const moved = document.activeElement === rowOf('preview') && target === LOCAL;
+    press('preview', 'Enter');
+    d.assert('an arrow moves to the next card without opening it, Enter opens it, and only the open card is a tab stop',
+      moved && target === 'preview' && isOn('preview') && STATIONS.filter((t) => rowOf(t).tabIndex === 0).join() === 'preview', JSON.stringify({ moved, target }));
     rowOf('user1').click();
     const gone = (e) => getComputedStyle(e).display === 'none';
     const user1 = gone(listenBtn.el) && !gone(inApp) && inApp.textContent === 'in the Väin app';
@@ -700,6 +785,36 @@
         Math.abs(mixUi.tune.get() - 0.47) < 0.0011 && dial.el.getAttribute('aria-pressed') === 'true' && !calls.some(([c, n]) => c === 'set' && n === 'tune'), JSON.stringify(calls));
       d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
         calls.length > 0 && !sent.length && !Object.keys(sockets).some((t) => t === LOCAL), sent.map(([t, m]) => `${t} ${m.cmd}`).join());
+      // live: the life takes the dial's clock, one patch and one control per scene, an interlude in each blend
+      const realSeed = lifeSeed; lifeSeed = () => 42;
+      const L42 = createLife({ seed: 42 }), S0 = L42.scene(0), S1 = L42.scene(1);
+      needle = { tune: 0.46, drift: 1, phase: 'dwell', landings: 0, from: 0, slots: [{ at: 3, title: 'file A' }, { at: 0, title: 'file B' }] };
+      calls.length = 0;
+      mixUi.mode.buttons[3].click(); await tick(400);
+      const has = (f) => calls.some(f);
+      const seen0 = { lifeShown: !lifeRow.hidden && mixRow.hidden && getComputedStyle(dial.el).display === 'none' && grainRow.hidden, moving: lMove.textContent };
+      d.assert('live on local: the engine runs grains on the clock, scene 0 sets its dwell, blend and patch, and moves its one control with the wet',
+        seen0.lifeShown && has(([c, v]) => c === 'mode' && v === 'grains') && has(([c, n, v]) => c === 'set' && n === 'drift' && v === 1)
+        && has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S0.dwell) && has(([c, n, v]) => c === 'set' && n === 'blend' && v === S0.interlude.blend)
+        && has(([c, p]) => c === 'patch' && p.name === S0.patch) && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set)
+        && seen0.moving.startsWith(`${S0.param} `) && status[LOCAL].wanted.mode === 'live', JSON.stringify({ seen0, S0: [S0.patch, S0.param, S0.dwell], calls: calls.slice(0, 8) }));
+      calls.length = 0; needle = { ...needle, phase: 'blend' }; await tick(400);
+      d.assert('in the blend the interlude moves another control, and NOW shows both files',
+        has(([c, p]) => c === 'patch' && p.set && S0.interlude.param in p.set) && !has(([c, p]) => c === 'patch' && p.name)
+        && now2.textContent === 'file B' && !now2.hidden && lMove.textContent.endsWith('interlude'), JSON.stringify({ now2: now2.textContent, m: lMove.textContent }));
+      calls.length = 0; needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
+      d.assert('the next landing is scene 1: its own dwell, blend and patch, and one file in NOW again',
+        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
+        && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && now2.hidden, JSON.stringify(calls.slice(0, 6)));
+      rowOf('user3').click(); await tick();
+      const liveOff = mixUi.mode.buttons[3].hidden;
+      rowOf(LOCAL).click(); await tick(100);
+      d.assert('live is offered on local only: on a station it is not a mode yet',
+        liveOff && !mixUi.mode.buttons[3].hidden && sent.every(([, m]) => m.mode !== 'live'), JSON.stringify({ liveOff }));
+      mixUi.mode.buttons[2].click(); await tick(100);
+      d.assert('leaving live hands the clock back to the sliders: dwell and blend as they stand',
+        lifeTimer === 0 && lifeRow.hidden && has(([c, n, v]) => c === 'set' && n === 'dwell' && v === mixUi.dwell.get()), JSON.stringify(calls.slice(-4)));
+      lifeSeed = realSeed;
       rowOf('user3').click(); calls.length = 0;
       mixUi.tune.set(0.47); await tick(200);
       d.assert('local keeps playing while another station is open, and that station\'s controls do not reach it',
@@ -719,7 +834,7 @@
     const UNTIL = new Date(2026, 9, 17, 21, 7).getTime();
     take('preview', { target: 'preview', onAir: true, playing: true, until: UNTIL, now: { id: 'x', title: 'a file', at: 61 }, lines: [] });
     d.assert('on air the open station shows when it stops, and its row shows it short',
-      !stopsRow.hidden && stopsAt.textContent === '21:07' && rowOf('preview').children[3].textContent === '21:07', `${stopsAt.textContent} ${rowOf('preview').children[3].textContent}`);
+      !stopsRow.hidden && stopsAt.textContent === '21:07' && cards.preview.stops.textContent === 'stops 21:07', `${stopsAt.textContent} ${cards.preview.stops.textContent}`);
     await tick(); const beforeX = sent.length;
     extendBtns.button('4 h').click(); await tick();
     const xm = sent.slice(beforeX);
@@ -729,11 +844,11 @@
     take('user1', { target: 'user1', onAir: false, playing: false, lines: [] });
     await tick(300);
     d.assert('NEGATIVE CONTROL: off air there is no stop time and no EXTEND, in the row or the detail',
-      rowOf('user1').children[3].textContent === '' && (() => { rowOf('user1').click(); const off = stopsRow.hidden && !stopsAt.textContent; rowOf('preview').click(); return off; })());
+      cards.user1.stops.textContent === '' && (() => { rowOf('user1').click(); const off = stopsRow.hidden && !stopsAt.textContent; rowOf('preview').click(); return off; })());
     const state = (t) => [badges[t].el.dataset.state, badges[t].el.dataset.busy || ''].join(' ');
     d.assert('three states in words: positron on preview, Väin on radio1965 with their title, off on user1',
       word('preview') === 'positron' && word('radio1965') === 'Väin' && word('user1') === 'off'
-      && state('preview') === 'online ' && state('radio1965') === 'online page' && rowOf('radio1965').children[2].textContent === 'Evening on radio1965',
+      && state('preview') === 'online ' && state('radio1965') === 'online page' && nowOf('radio1965') === 'Evening on radio1965',
       ['preview', 'radio1965', 'user1'].map((t) => `${t} ${word(t)} (${state(t)})`).join(', '));
     rowOf('radio1965').click();
     const before = sent.length;
@@ -746,7 +861,7 @@
     // put it all back
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
-    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); badges[t].set('unknown'); stRows[STATIONS.indexOf(t)].children[2].textContent = ''; stRows[STATIONS.indexOf(t)].children[3].textContent = ''; }
+    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); if (t !== LOCAL) badges[t].set('unknown'); cards[t].card.set({ desc: '' }); cards[t].stops.textContent = ''; }
     mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true);
     rowOf(LOCAL).click(); say(''); paintRow(LOCAL); paintDetail();
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
