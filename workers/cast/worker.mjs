@@ -162,8 +162,11 @@ export default {
  * Feed ids for a program of `n`: each file weighted by fileWeight of its votes (keyed by title, as the page's
  * tasteOf is), none at weight 0, a plain shuffle when no file has a vote. The page's startIds, here.
  */
+/** A title that is one of Väin's test recordings. */
+export const TEST_FILE = /\btest\b/i;
 export function pickFiles(items, votes, n, rand = Math.random) {
-  const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+  // Väin's test recordings (Audio test, Clip test) are short or silent: a hole on air, never in a program
+  const fs = tasteOf(votes).file, pool = items.filter((x) => !TEST_FILE.test(x.title || '')).map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
   if (pool.every((x) => x.w === 1)) { for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; } return pool.map((x) => x.id).slice(0, n); }
   return pool.map((x) => ({ ...x, k: rand() ** (1 / x.w) })).sort((a, b) => b.k - a.k).map((x) => x.id).slice(0, n);
 }
