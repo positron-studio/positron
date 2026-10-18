@@ -1,5 +1,6 @@
 ## Open
 
+- **A plan: the new SuperCollider blocks and sound detection in the rest of the demos** (2026-10-18). Asked: *"make a plan how to integrate this new work on sc / sound detection to rest or our demos"*. Twelve new UGens in sclang-lite (resonators, comb, reverb, pitch shift, limiter and the rest), the second scsynth input, per-file loudness and kind measurement, the key and tempo detectors, the life planner and votes: which concept pages and the Pi gain from which. A plan in plans/, reported in full.
 - ~~**/radio/cast/: play and next move to the program header**~~ (2026-10-18, DONE, then *"play stays on top"*: only next moved). Asked: *"move to program header (glued to it)"* with a screenshot of the play / next pair. They sit on the PROGRAM heading row, right; the station head keeps its name, badge and listen.
 - ~~**/radio/cast/: station cards at one fixed height, portrait**~~ (2026-10-18, DONE: 150 x 196 px). Asked: *"keep statioj cards fixed h, can be portraits"*. A card stops growing when a title wraps or a blend adds the second file; titles clamp to fit.
 - **/radio/cast/: build plan-cast-reinterpret steps 1 to 7 and the room** (2026-10-18). Asked: *"do all"*. Local first; step 8 (parallel rings) left out on purpose, it doubles the on-air cost.
