@@ -68,14 +68,16 @@ export const ghostGap = (L, seconds) => (L?.ghostEvery ?? 40) * (Number(seconds)
 export const DRONES = ['ldrone', 'lfreeze'];
 const fs = (n, from = 0) => Array.from({ length: n }, (_, i) => `\\f${from + i}.kr(${110 * (i + 1)})`);
 export const PROGRAMS = {
-  // three detuned saws on root, fifth and octave, breathing through a slow low-pass
+  // three saws on root, fifth and octave, never still: the low-pass sweeps slowly over three octaves, each
+  // saw's shape drifts, and the octave wanders up to a semitone either side, so the drone changes over a minute
   ldrone: `{ var amp = Lag.kr(\\amp.kr(0), 4);
-  var cut = \\cut.kr(500) * (1 + (LFNoise2.kr(0.05) * 0.5));
-  var s = (VarSaw.ar(Lag.kr(\\f0.kr(55), 6), 0, 0.3) + (VarSaw.ar(Lag.kr(\\f1.kr(82), 6), 0, 0.4) * 0.7) + (VarSaw.ar(Lag.kr(\\f2.kr(110), 6) * 1.003, 0, 0.5) * 0.5)) * 0.25;
-  Pan2.ar(RLPF.ar(s, cut, 0.6) * amp, LFNoise2.kr(0.03) * 0.3) }`,
-  // the file itself held and slowed: low-passed, an octave down, into a long room
+  var cut = \\cut.kr(500) * (1 + (LFNoise2.kr(0.02) * 0.85)) * (1 + (LFNoise2.kr(0.11) * 0.2));
+  var w = (LFNoise2.kr(0.04) * 0.35) + 0.5;
+  var s = (VarSaw.ar(Lag.kr(\\f0.kr(55), 6), 0, w * 0.6) + (VarSaw.ar(Lag.kr(\\f1.kr(82), 6) * (1 + (LFNoise2.kr(0.015) * 0.012)), 0, w) * 0.7) + (VarSaw.ar(Lag.kr(\\f2.kr(110), 6) * (1.003 + (LFNoise2.kr(0.02) * 0.06)), 0, 1 - w) * 0.5)) * 0.25;
+  Pan2.ar(RLPF.ar(s, cut, 0.35 + ((LFNoise2.kr(0.03) + 1) * 0.3)) * amp, LFNoise2.kr(0.03) * 0.3) }`,
+  // the file itself held and slowed: low-passed (the corner sweeping slowly), an octave down, into a long room
   lfreeze: `{ var amp = Lag.kr(\\amp.kr(0), 4);
-  var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 600);
+  var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 600 * (1 + (LFNoise2.kr(0.025) * 0.7)));
   var down = PitchShift.ar(low, 0.4, \\ratio.kr(0.5), 0.02, 0.2);
   Pan2.ar(LeakDC.ar(FreeVerb.ar(down, 1, 0.97, 0.6)) * amp, 0) }`,
   // a bank of resonators at the scene's chord; on a pulse only the hits open it
@@ -147,8 +149,8 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
       if (!L) { for (const n of Object.keys(PROGRAMS)) set(n, { amp: 0 }); return; }
       const dz = droneHz(key, L.droneOct ?? -1), ch = chordHz(key, L.res === 'none' ? 'fifths' : L.res, { octaves: 2, from: 1 }), rt = harmRatios(L.harm, L.harmSpread);
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
-      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.8 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
-      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 8 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
+      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.55 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
+      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
       set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
       set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
