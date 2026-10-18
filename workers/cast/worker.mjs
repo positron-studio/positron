@@ -9,6 +9,8 @@
 //   GET  /file/<id>            one archive file by feed id, with CORS and Range, cached at the edge a year (the page's LOCAL)
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
+//   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
+//   POST /votes?key=           {inst, def, vote: 1 | -1 | 0, file}: one vote per scene played (`inst`), 0 takes it back
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
 // session in storage, boots the container, relays commands and restarts it when it dies.
 // The source speaks exactly what Väin's own app sends (radio1965 app/icecastbroadcaster.cpp): PUT over
@@ -124,10 +126,14 @@ async function file(req, id, ctx) {
 export default {
   async fetch(req, env, ctx) {
     const u = new URL(req.url), [, route, name] = u.pathname.split('/');
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'GET, PUT', 'access-control-allow-headers': '*' } });
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'GET, PUT, POST', 'access-control-allow-headers': '*' } });
     if (route === 'feed') { try { return json({ items: await feed(ctx) }); } catch (e) { return json({ error: e.message }, 502); } }
     if (route === 'live') { try { return json(await live(ctx)); } catch (e) { return json({ error: e.message }, 502); } }
     if (route === 'file') return file(req, name, ctx);
+    if (route === 'votes') {
+      if (req.method === 'POST' && (!env.CAST_KEY || u.searchParams.get('key') !== env.CAST_KEY)) return json({ error: 'a vote needs the key' }, 403);
+      return env.VOTES.get(env.VOTES.idFromName('owner')).fetch(req);
+    }
     if (!NAME.test(name || '')) return json({ error: 'no such route' }, 404);
     if (route === 'control' || route === 'status') {
       if (!targets(env)[name]) return json({ error: `no target ${name}` }, 404);
@@ -501,5 +507,30 @@ export class Caster {
       if (w) await this.st.setAlarm(Math.max(Date.now() + 1000, Math.min(Date.now() + ALARM_MS, w.until ?? w.startedAt + CAP_MS)));
       this.push();
     }
+  }
+}
+
+/** The owner's votes on live scenes: one row per scene played, a def small enough to rebuild it. */
+const VOTE_CAP = 5000, DEF_MAX = 2000;
+export class Votes {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS vote(inst TEXT PRIMARY KEY, at INTEGER, sid TEXT, vote INTEGER, def TEXT, file TEXT)');
+  }
+  async fetch(req) {
+    if (req.method === 'GET') {
+      const rows = this.sql.exec('SELECT inst, at, sid, vote, def, file FROM vote ORDER BY at').toArray();
+      return json({ votes: rows.map((x) => ({ ...x, def: JSON.parse(x.def) })) });
+    }
+    let b = null;
+    try { b = await req.json(); } catch { return json({ error: 'not JSON' }, 400); }
+    const inst = String(b?.inst || '').slice(0, 64), vote = Number(b?.vote), def = JSON.stringify(b?.def ?? null);
+    if (!inst || ![1, -1, 0].includes(vote)) return json({ error: 'inst and a vote of 1, -1 or 0' }, 400);
+    if (vote === 0) { this.sql.exec('DELETE FROM vote WHERE inst = ?', inst); return json({ ok: true, inst, vote }); }
+    if (def.length > DEF_MAX || typeof b.def?.patch !== 'string' || typeof b.def?.param !== 'string') return json({ error: 'a def with a patch and a param, under 2000 bytes' }, 400);
+    const sid = `${b.def.patch}|${b.def.param}|${b.def.len}|${b.def.lo}|${b.def.iParam}`.slice(0, 200);
+    this.sql.exec('INSERT OR REPLACE INTO vote(inst, at, sid, vote, def, file) VALUES (?, ?, ?, ?, ?, ?)', inst, Date.now(), sid, vote, def, String(b.file || '').slice(0, 200));
+    this.sql.exec('DELETE FROM vote WHERE inst IN (SELECT inst FROM vote ORDER BY at DESC LIMIT -1 OFFSET ?)', VOTE_CAP);
+    return json({ ok: true, inst, vote, sid });
   }
 }

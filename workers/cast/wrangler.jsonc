@@ -14,9 +14,9 @@
       "images": { "cast": { "dockerfile": "./container/Dockerfile.grains", "build_context": "." } }
     }
   ],
-  "durable_objects": { "bindings": [{ "name": "CASTER", "class_name": "Caster" }] },
+  "durable_objects": { "bindings": [{ "name": "CASTER", "class_name": "Caster" }, { "name": "VOTES", "class_name": "Votes" }] },
   // v2: the `test` receiver (Rx) is gone with the `test` target; it kept nothing in storage
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Caster", "Rx"] }, { "tag": "v2", "deleted_classes": ["Rx"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Caster", "Rx"] }, { "tag": "v2", "deleted_classes": ["Rx"] }, { "tag": "v3", "new_sqlite_classes": ["Votes"] }],
   "workers_dev": true,
   "observability": { "enabled": true }
 }
