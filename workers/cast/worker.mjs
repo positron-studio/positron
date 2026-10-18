@@ -30,7 +30,7 @@ const FEED_TYPES = new Set(['audio', 'streamrecording']);
 const FEED_HOSTS = new Set(['eccm.ee', 'uuu.ee', 'www.uuu.ee']);
 // Half a vCPU: live measured 27 to 31 % of a core locally at --cpus 0.5. Memory is the 3 GiB per vCPU floor.
 // Sweep every 30 s. why: lessons/workers-cast.md#grains-size, #live-container
-const CAST_INSTANCE = { vcpu: 0.5, memoryMib: 1536, diskMb: 2048 };
+const CAST_INSTANCE = { vcpu: 1, memoryMib: 3072, diskMb: 2048 };
 // Live only since 2026-10-18 (*"rm copy mix and grains, arvhice. keep live only"*); the container keeps the
 // others for its tests. why: lessons/workers-cast.md#live-container
 const MODES = ['live'], RETIRED_MODES = ['copy', 'mix', 'grains'];
