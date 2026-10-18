@@ -8,6 +8,8 @@ import { PATCHES, valuesOf } from '../../granulator/grain-ring.mjs';
 
 /** How long the needle stays on a file, by kind, in seconds (the clock's dwell, at most 600). */
 export const LENGTHS = { short: 45, mid: 80, long: 150 };
+/** Grammar 2 adds a breath: a short light scene after a storm. */
+export const LENGTHS2 = { ...LENGTHS, breath: 30 };
 /** An interlude is the blend between two files, in seconds (the clock's blend, at most 120). */
 export const INTERLUDE = [3, 20];
 /** The tuning noise while a scene sits on its station, as the clock's `noise`; an interlude's own level comes only with its blend.
@@ -28,11 +30,19 @@ export const IKINDS = {
   dissolve: { noise: [0, 0], wet: [0.1, 0.25], blend: [8, 20], freeze: false, path: 1, odds: 1.2 },
   filter: { noise: [0, 0], wet: [0.2, 0.4], blend: [10, 20], freeze: false, path: 2, odds: 1, param: 'tone' },
   pause: { noise: [0, 0], wet: [0, 0], blend: [3, 6], freeze: false, path: 3, odds: 0.6, quiet: true },
+  // grammar 2 only (odds 0): each scene type names the ones it leaves by. why: plans/plan-cast-patches-scenes.md 3.3
+  echowash: { noise: [0, 0], wet: [0.6, 0.8], blend: [10, 18], freeze: false, path: 1, odds: 0 },
+  tapestop: { noise: [0, 0], wet: [1, 1], blend: [6, 10], freeze: false, path: 3, odds: 0 },
+  frozenbridge: { noise: [0, 0], wet: [0.9, 0.9], blend: [10, 18], freeze: false, path: 3, odds: 0 },
+  dronebridge: { noise: [0, 0], wet: [0, 0], blend: [10, 20], freeze: false, path: 3, odds: 0 },
+  chordbridge: { noise: [0, 0], wet: [0.2, 0.2], blend: [12, 20], freeze: false, path: 1, odds: 0 },
 };
 /** The controls a hand may move: range, and whether it reads on a log scale. */
 export const MOVABLE = {
   density: [2, 48, true], size: [0.03, 1.2, true], pitch: [0.5, 2, true], speed: [0.25, 2, true],
   tone: [800, 16000, true], scatter: [0, 1, false], echo: [0, 0.75, false], detune: [0, 0.03, false], pan: [0, 1, false],
+  // only the spectral family moves jitter, so grammar 1 never draws it
+  jitter: [0, 4, false],
 };
 /** A control is not moved again until this many others have been (scenes and interludes count). */
 export const FRESH = 4;
@@ -78,6 +88,52 @@ export const CAST_PATCHES = [
   { name: 'Stutter', base: 'Gate', set: { lock: 1, density: 8, size: 0.12, drop: 0.3, ramp: 2, echo: 0.3, time: 0.25 } },
   { name: 'Glass', base: 'Shimmer', set: { pitch: 1.5, size: 0.2, density: 20, tone: 9000, echo: 0.4, time: 0.25, scatter: 0.3 } },
 ].filter((p) => PATCHES.some((q) => q.name === p.base));
+// a new patch starts from no freeze, no drop, forward, unlocked, so its base's own never leaks in
+const full = (set) => ({ freeze: 0, drop: 0, ramp: 0.5, dir: 1, lock: 0, ...set });
+// `sub` grains a beat and `beats` of echo: a locked patch's density and time come from the scene's bpm.
+// `types` and `lens` narrow where a patch may play. Every amp is a first guess. why: plans/plan-cast-patches-scenes.md 2.3
+const MORE = [
+  ['drone', 'Sediment', 'Undertow', { size: 2.5, density: 6, pitch: 0.5, speed: 0.25, back: 3, scatter: 0.6, jitter: 1.5, detune: 0.004, pan: 0.7, tone: 900, echo: 0.55, time: 1.1, dark: 600, amp: 1.4 }],
+  ['drone', 'Low choir', 'Frozen choir', { freeze: 1, size: 3, density: 5, pitch: 0.5, speed: 0, back: 2, scatter: 0.3, jitter: 0.8, detune: 0.008, pan: 0.9, tone: 1600, echo: 0.4, time: 0.9, dark: 1500, amp: 1.4 }],
+  ['drone', 'Fifth below', 'Undertow', { size: 1.8, density: 8, pitch: 0.667, speed: 0.33, back: 2.5, scatter: 0.5, jitter: 1, detune: 0.003, pan: 0.8, tone: 2000, echo: 0.45, time: 0.75, dark: 1200, amp: 1.4 }],
+  ['drone', 'Hum', 'Undertow', { size: 4, density: 4, pitch: 0.25, speed: 0.125, back: 4, scatter: 0.4, jitter: 2, detune: 0.002, pan: 0.5, tone: 600, echo: 0.3, time: 1.3, dark: 400, amp: 1.6 }],
+  ['drone', 'Breath bed', 'Slow motion', { size: 2, density: 6, pitch: 1, speed: 0.1, back: 1.5, scatter: 0.8, jitter: 1.2, detune: 0.002, pan: 1, tone: 2500, echo: 0.25, time: 0.6, dark: 2000, amp: 1.7 }],
+  ['drone', 'Riverbed', 'Undertow', { dir: -1, size: 2.2, density: 7, pitch: 0.5, speed: 0.4, back: 3, scatter: 0.7, jitter: 1.5, detune: 0.005, pan: 0.9, tone: 1100, echo: 0.5, time: 1, dark: 700, amp: 1.4 }],
+  ['cloud', 'Mist', 'Cloud', { size: 0.5, density: 24, pitch: 1, speed: 1, back: 2.5, scatter: 1, jitter: 2, detune: 0.006, pan: 1, tone: 5000, echo: 0.35, time: 0.3, dark: 3000, amp: 1.4 }],
+  ['cloud', 'Murmur', 'Cloud', { size: 0.3, density: 32, pitch: 1, speed: 0.5, back: 3, scatter: 1, jitter: 3, detune: 0.01, pan: 1, tone: 4000, echo: 0.2, time: 0.25, dark: 2500, amp: 1.4 }],
+  ['cloud', 'Haze', 'Cloud', { size: 1, density: 14, pitch: 1, speed: 0.75, back: 1.5, scatter: 0.7, jitter: 0.8, detune: 0.004, pan: 0.8, tone: 3000, echo: 0.5, time: 0.7, dark: 1800, amp: 1.4 }],
+  ['cloud', 'Eddy', 'Cloud', { size: 0.6, density: 18, pitch: 1, speed: 1, back: 4, scatter: 0.5, jitter: 3.5, detune: 0.003, pan: 0.9, tone: 6000, echo: 0.3, time: 0.45, dark: 3500, amp: 1.4 }],
+  ['cloud', 'Dusk', 'Cloud', { size: 0.9, density: 12, pitch: 0.841, speed: 0.6, back: 2, scatter: 0.8, jitter: 1, detune: 0.005, pan: 0.9, tone: 1800, echo: 0.6, time: 0.8, dark: 1000, amp: 1.4 }],
+  ['cloud', 'Rain', 'Cloud', { size: 0.12, density: 40, pitch: 1, speed: 1, back: 3, scatter: 1, jitter: 2.5, detune: 0.01, pan: 1, tone: 7000, echo: 0.15, time: 0.15, dark: 4000, amp: 1.6 }, { types: ['storm'] }],
+  ['choir', 'Choir of fifths', 'Shimmer', { size: 0.9, density: 10, pitch: 1.5, speed: 0.25, back: 1.5, scatter: 0.2, jitter: 0.15, detune: 0.004, pan: 0.8, tone: 4500, echo: 0.45, time: 0.6, dark: 2500, amp: 1.4 }],
+  ['choir', 'Halo', 'Shimmer', { freeze: 1, size: 1.2, density: 8, pitch: 2, speed: 0, back: 1, scatter: 0.15, jitter: 0.08, detune: 0.006, pan: 0.9, tone: 5000, echo: 0.5, time: 0.5, dark: 3000, amp: 1.3 }],
+  ['choir', 'Plainchant', 'Frozen choir', { size: 0.8, density: 12, pitch: 1.335, speed: 0.5, back: 1, scatter: 0.1, jitter: 0.1, detune: 0.002, pan: 0.6, tone: 5000, echo: 0.35, time: 0.75, dark: 2500, amp: 1.4 }],
+  ['choir', 'Undersong', 'Frozen choir', { size: 1.4, density: 9, pitch: 0.749, speed: 0.33, back: 2, scatter: 0.25, jitter: 0.3, detune: 0.003, pan: 0.7, tone: 2500, echo: 0.4, time: 0.8, dark: 1500, amp: 1.4 }],
+  ['choir', 'Hymn', 'Frozen choir', { freeze: 1, size: 2, density: 8, pitch: 1, speed: 0, back: 1.5, scatter: 0.4, jitter: 0.5, detune: 0.012, pan: 1, tone: 4000, echo: 0.55, time: 0.9, dark: 2200, amp: 1.3 }],
+  ['choir', 'Organ', 'Frozen choir', { freeze: 1, size: 0.8, density: 16, pitch: 1, speed: 0, back: 1, scatter: 0, jitter: 0.02, detune: 0, pan: 0.3, tone: 3000, echo: 0.3, time: 0.6, dark: 2000, amp: 1.3 }],
+  ['tape', 'Rewind', 'Backwards', { dir: -1, size: 1, density: 5, pitch: 1, speed: 1, back: 2, scatter: 0.2, jitter: 0.2, detune: 0.002, pan: 0.6, tone: 7000, echo: 0.3, time: 0.5, dark: 3500, amp: 1.4 }],
+  ['tape', 'Reverse dub', 'Backwards', { dir: -1, size: 0.5, density: 4, pitch: 1, speed: 1, back: 0.8, scatter: 0, jitter: 0.05, detune: 0, pan: 0.5, tone: 3500, echo: 0.65, time: 0.5, dark: 1500, amp: 1.5 }],
+  ['tape', 'Worn tape', 'Dub', { drop: 0.15, ramp: 0.08, size: 0.4, density: 12, pitch: 1, speed: 1, back: 0.4, scatter: 0.2, jitter: 0.05, detune: 0.004, pan: 0.4, tone: 3000, echo: 0.2, time: 0.3, dark: 2000, amp: 1.4 }],
+  ['tape', 'Slow stop', 'Tape stop', { drop: 1, ramp: 0.1, size: 0.3, density: 24, pitch: 1, speed: 1, back: 0.1, scatter: 0, jitter: 0, detune: 0, pan: 0.2, tone: 8000, echo: 0.15, time: 0.3, dark: 4000, amp: 0.95 }, { lens: ['short', 'mid'] }],
+  ['tape', 'Wow', 'Tape stop', { drop: 0.06, ramp: 0.7, size: 0.25, density: 30, pitch: 1, speed: 1, back: 0.15, scatter: 0, jitter: 0, detune: 0.002, pan: 0.3, tone: 6000, echo: 0.1, time: 0.2, dark: 4000, amp: 1 }],
+  ['tape', 'Long dub', 'Dub', { drop: 0.03, ramp: 0.1, size: 0.5, density: 3, pitch: 1, speed: 1, back: 1, scatter: 0, jitter: 0.02, detune: 0, pan: 0.9, tone: 2500, echo: 0.8, time: 0.75, dark: 1000, amp: 1.5 }],
+  ['tape', 'Reverse swell', 'Backwards', { dir: -1, size: 2.5, density: 2, pitch: 1, speed: 0.5, back: 3, scatter: 0.3, jitter: 0.5, detune: 0.003, pan: 0.8, tone: 5000, echo: 0.4, time: 1.2, dark: 2000, amp: 1.5 }],
+  ['rhythmic', 'Pulse', 'Gate', { lock: 1, density: 3, size: 0.18, pitch: 1, speed: 1, back: 0.25, scatter: 0, jitter: 0, detune: 0, pan: 0.3, tone: 6000, echo: 0.3, time: 0.5, dark: 3000, amp: 1.8 }, { sub: 2, beats: 0.75 }],
+  ['rhythmic', 'Triplets', 'Gate', { lock: 1, density: 4.5, size: 0.12, pitch: 1, speed: 1, back: 0.5, scatter: 0, jitter: 0.02, detune: 0, pan: 0.6, tone: 5000, echo: 0.25, time: 0.444, dark: 3000, amp: 1.9 }, { sub: 3, beats: 0.667 }],
+  ['rhythmic', 'Half time', 'Gate', { lock: 1, density: 1.5, size: 0.6, pitch: 0.749, speed: 0.5, back: 1, scatter: 0, jitter: 0, detune: 0.002, pan: 0.5, tone: 3000, echo: 0.5, time: 0.333, dark: 1500, amp: 1.5 }, { sub: 1, beats: 0.5 }],
+  ['rhythmic', 'Shuffle', 'Gate', { lock: 1, density: 6, size: 0.08, pitch: 1, speed: 1, back: 0.1, scatter: 0.15, jitter: 0.01, detune: 0, pan: 0.8, tone: 7000, echo: 0.35, time: 0.5, dark: 4000, drop: 0.2, ramp: 0.375, amp: 2 }, { sub: 4, beats: 0.75, types: ['storm', 'rhythm'], lens: ['mid'] }],
+  ['rhythmic', 'Heartbeat', 'Gate', { lock: 1, density: 1.5, size: 0.3, pitch: 0.5, speed: 1, back: 0.3, scatter: 0, jitter: 0, detune: 0, pan: 0, tone: 900, echo: 0.55, time: 0.167, dark: 600, amp: 2 }, { sub: 1, beats: 0.25 }],
+  ['rhythmic', 'Pendulum', 'Backwards', { lock: 1, dir: -1, density: 3, size: 0.4, pitch: 1, speed: 1, back: 0.6, scatter: 0, jitter: 0.03, detune: 0, pan: 1, tone: 5000, echo: 0.2, time: 0.667, dark: 2500, amp: 1.6 }, { sub: 2, beats: 1 }],
+  ['rhythmic', 'Skip', 'Gate', { lock: 1, density: 6, speed: 0, size: 0.07, pitch: 1, back: 0.07, scatter: 0, jitter: 0, detune: 0, pan: 0.2, tone: 7000, echo: 0.2, time: 0.333, dark: 4000, amp: 1.8 }, { sub: 4, beats: 0.5 }],
+  ['glitch', 'Splinter', 'Gate', { size: 0.03, density: 20, pitch: 1, speed: 1, back: 0.5, scatter: 0.3, jitter: 0.1, detune: 0, pan: 0.7, tone: 9000, echo: 0.4, time: 0.0625, dark: 6000, drop: 0.5, ramp: 3, amp: 2.2 }, { lens: ['short'] }],
+  ['glitch', 'Crumble', 'Sparks', { size: 0.05, density: 30, pitch: 0.5, speed: 1, back: 2, scatter: 1, jitter: 1, detune: 0.03, pan: 1, tone: 2500, echo: 0.3, time: 0.11, dark: 1500, amp: 2 }],
+  ['spectral', 'Smear', 'Frozen choir', { freeze: 1, size: 3.5, density: 6, scatter: 1, jitter: 3, pitch: 1, speed: 0, back: 3, detune: 0.002, pan: 1, tone: 6000, echo: 0.3, time: 1.2, dark: 3000, amp: 1.4 }],
+  ['spectral', 'Spectrum', 'Slow motion', { size: 2, density: 10, scatter: 1, jitter: 3.5, pitch: 1, speed: 0.05, back: 4, detune: 0.02, pan: 1, tone: 3500, echo: 0.6, time: 1.4, dark: 1800, amp: 1.4 }],
+  ['spectral', 'Prism', 'Frozen choir', { freeze: 1, size: 1.5, density: 12, scatter: 1, jitter: 2, pitch: 1.5, speed: 0, back: 2, detune: 0.002, pan: 1, tone: 5000, echo: 0.45, time: 0.9, dark: 2500, amp: 1.3 }],
+  ['spectral', 'Ember', 'Frozen choir', { freeze: 1, size: 2.5, density: 8, scatter: 0.8, jitter: 2, pitch: 0.5, speed: 0, back: 3, detune: 0.004, pan: 0.8, tone: 1200, echo: 0.5, time: 1.1, dark: 800, amp: 1.5 }],
+].map(([family, name, base, set, more = {}]) => ({ name, base, family, set: full(set), ...more }));
+const FIRST = CAST_PATCHES.length;
+CAST_PATCHES.push(...MORE.filter((p) => PATCHES.some((q) => q.name === p.base)));
 /**
  * Every patch belongs to a family, and a family says which controls the hand and the tweaks may move and
  * how far (in control values; the hand's window is these turned to 0 to 1 by toT, within MOVABLE). A
@@ -90,7 +146,7 @@ export const FAMILIES = {
   tape: { tone: [800, 16000], echo: [0.1, 0.8], size: [0.3, 2.5], speed: [0.25, 1], pan: [0, 1], density: [2, 12] },
   rhythmic: { tone: [800, 16000], echo: [0, 0.75], pan: [0, 1], size: [0.06, 0.6], speed: [0.5, 1] },
   glitch: { tone: [2000, 10000], echo: [0, 0.75], size: [0.02, 0.1], pan: [0, 1] },
-  spectral: { tone: [800, 6000], detune: [0, 0.02], echo: [0, 0.75], pan: [0, 1] },
+  spectral: { tone: [800, 6000], detune: [0, 0.02], echo: [0, 0.75], pan: [0, 1], jitter: [1, 4], scatter: [0.6, 1] },
 };
 /** Lengths a family never plays at. */
 export const NOT_LEN = { glitch: ['long'], spectral: ['short'] };
@@ -99,8 +155,11 @@ export const FAMILY_OF = {
   'Frozen choir': 'choir', Shimmer: 'choir', Glass: 'choir', 'Slow motion': 'drone', Undertow: 'drone', Cathedral: 'drone',
   Gate: 'rhythmic', Stutter: 'rhythmic', Sparks: 'glitch', Swarm: 'glitch',
 };
-export const familyOf = (name) => FAMILY_OF[name] || 'cloud';
-const NAMES = [...PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)], PARAMS = Object.keys(MOVABLE), KINDS = Object.keys(LENGTHS);
+export const familyOf = (name) => FAMILY_OF[name] || CAST_PATCHES.find((p) => p.name === name)?.family || 'cloud';
+/** A cast patch's own record (sub, beats, types, lens), or null for a page patch. */
+export const patchInfo = (name) => CAST_PATCHES.find((p) => p.name === name) || null;
+// grammar 1 plays the 16 patches it always did; grammar 2 every one
+const NAMES = [...PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)], NAMES1 = NAMES.slice(0, PATCHES.length + FIRST), PARAMS = Object.keys(MOVABLE), KINDS = Object.keys(LENGTHS);
 /** What an engine is handed for a patch name: a page patch's own name, or a cast patch's base and its values. */
 export function patchFor(name) {
   const c = CAST_PATCHES.find((p) => p.name === name);
@@ -110,7 +169,7 @@ export function patchFor(name) {
 export const patchValues = (name) => { const { name: base, set } = patchFor(name); return { ...valuesOf(PATCHES.find((p) => p.name === base) || PATCHES[0]), ...set }; };
 /** How often a scene is naked (no granulator, no layers, no noise), by what its file is: long talk, left to speak. */
 export const NAKED = { speech: 0.2, ambiguous: 0.2, unknown: 0.08, field: 0.05, music: 0.05 };
-const WIDTH = { short: 0.35, mid: 0.55, long: 0.8 };
+const WIDTH = { short: 0.35, mid: 0.55, long: 0.8, breath: 0.3 };
 
 /** The window (0 to 1, as toT) a patch's family lets the hand use on `param`, or null when it may not move it. */
 export function guardT(patch, param) {
@@ -121,6 +180,8 @@ export function guardT(patch, param) {
 }
 /** The controls a patch's family lets move. */
 export const movableFor = (patch) => PARAMS.filter((p) => guardT(patch, p));
+/** Grains sounding at once (density times size): the ring's CPU and how it piles up. */
+export const overlapOf = (name) => { const v = patchValues(name); return v.density * v.size; };
 /** A patch that freezes the ring freezes only after the scene's dry share, never the blend before it. */
 export const freezesAfterDry = (patch) => patchValues(patch).freeze >= 1;
 /**
@@ -147,7 +208,45 @@ const ease = (u) => u * u * (3 - 2 * u);
  * The scene's arc: dry for its first `dry` share (the original, recognisable), then a rise into the
  * granulator over 0.18, a long deep hold, and the release only over the last 0.15. 0 at both ends.
  */
-export const envelope = (x, dry = 0.2) => (x <= dry || x >= 1 ? 0 : x < dry + 0.18 ? ease((x - dry) / 0.18) : x > 0.85 ? ease((1 - x) / 0.15) : 1);
+export const envelope = (x, dry = 0.2, rise = 0.18, hold = 0.85) => (x <= dry || x >= 1 ? 0 : Math.min(ease(Math.min(1, (x - dry) / rise)), ease(Math.min(1, (1 - x) / (1 - hold)))));
+/**
+ * Grammar 2's scene types (plans/plan-cast-patches-scenes.md 3.2): the dry share, the rise, where the release
+ * starts, the granulator's peak, the intensity band the tide moves inside, the families and lengths it plays,
+ * and the interludes it leaves by.
+ */
+const TYPE = (o) => o;
+export const TYPES = {
+  intro: TYPE({ dry: [0.5, 0.8], rise: 0.15, hold: 0.92, peak: [0.3, 0.5], band: [0.3, 0.5], fam: ['cloud', 'tape'], lens: ['mid'], outs: ['dissolve', 'filter', 'clean'] }),
+  build: TYPE({ dry: [0.15, 0.25], rise: 0.5, hold: 0.9, peak: [0.8, 1], band: [0.6, 0.9], fam: ['drone', 'cloud', 'choir'], lens: ['long'], outs: ['echowash', 'dronebridge', 'smear'] }),
+  deep: TYPE({ dry: [0.1, 0.15], rise: 0.15, hold: 0.9, peak: [0.9, 1], band: [0.8, 1], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'frozenbridge'] }),
+  storm: TYPE({ dry: [0.1, 0.1], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'glitch', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'pause', 'smear'] }),
+  rhythm: TYPE({ dry: [0.15, 0.15], rise: 0.12, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['rhythmic', 'tape'], lens: ['mid'], outs: ['tapestop', 'filter'] }),
+  choir: TYPE({ dry: [0.15, 0.25], rise: 0.25, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['choir', 'spectral'], lens: ['mid', 'long'], outs: ['chordbridge', 'frozenbridge', 'dissolve'] }),
+  breath: TYPE({ dry: [0.3, 0.3], rise: 0.2, hold: 0.6, peak: [0.2, 0.4], band: [0.1, 0.3], fam: ['drone', 'cloud'], lens: ['breath'], outs: ['dissolve', 'pause'] }),
+  coda: TYPE({ dry: [0.1, 0.1], rise: 0.2, hold: 0.5, peak: [0.8, 0.8], band: [0.5, 0.8], fam: ['drone', 'spectral'], lens: ['long'], outs: ['pause', 'dronebridge'] }),
+};
+// the same types narrowed to one family, as a section asks for them
+TYPES.tapebuild = { ...TYPES.build, fam: ['tape'] };
+TYPES.cloudbuild = { ...TYPES.build, fam: ['cloud'] };
+TYPES.sdeep = { ...TYPES.deep, fam: ['spectral'] };
+for (const [k, v] of Object.entries(TYPES)) v.name = k;
+/**
+ * Sections: an order of types, and how intense the section is as a whole (what the tide is matched to).
+ * `open` is a dry intro; `stormy` a storm or a rhythmic scene.
+ */
+export const SECTIONS = {
+  arrival: { types: ['intro', 'build', 'deep', 'coda'], level: 0.55 },
+  weather: { types: ['intro', 'cloudbuild', 'storm', 'stormy', 'breath'], level: 0.85 },
+  ritual: { types: ['intro', 'rhythm', 'rhythm', 'choir', 'coda'], level: 0.6 },
+  chapel: { types: ['open', 'choir', 'deep', 'breath'], level: 0.35 },
+  tape: { types: ['intro', 'tapebuild', 'rhythm', 'coda'], level: 0.55 },
+  night: { types: ['deep', 'sdeep', 'breath'], level: 0.8 },
+};
+/** The tide: the piece's intensity over this many planned seconds, low to high and back. */
+export const TIDE_S = 3600;
+export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / TIDE_S + phase);
+/** No patch has more grains sounding at once than this. */
+export const OVERLAP_CAP = 24;
 /** The longer form: intensity rises and falls over ARC scenes, from 0.55 to 1. */
 export const ARC = 5;
 export const intensityAt = (i, jitter = 0) => Math.min(1, Math.max(0.5, 0.55 + 0.45 * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / ARC)) + jitter));
@@ -207,6 +306,12 @@ export const FEATURES = [
   // the same layer on the same kind of file: what works on talk need not work on a field recording
   ...['drone', 'res', 'harm', 'ghost'].map((k) => [0.6, (a, b) => (a.kind && a.kind === b.kind && a.layers?.[k] === b.layers?.[k] ? 1 : 0)]),
 ];
+// grammar 2 also learns the scene type, the patch's family and how long the scene stays dry
+const FEATURES2 = [...FEATURES,
+  [2, (a, b) => (a.type && a.type === b.type ? 1 : 0)],
+  [2, (a, b) => (familyOf(a.patch) === familyOf(b.patch) ? 1 : 0)],
+  [1, (a, b) => (a.dry != null && b.dry != null ? kern(a.dry, b.dry, 0.1) : 0)],
+];
 // The scale the weighted sum is read against: the weights before the layers, so adding a feature adds
 // to what the votes can say rather than thinning every other feature.
 const FEATURE_NORM = 10.7;
@@ -214,9 +319,9 @@ const FEATURE_NORM = 10.7;
  * What the votes say about a scene, -1 to 1: per feature, the mean vote (as -1 to 1) of the voted scenes
  * that share it, shrunk toward 0 when few do; then the features' weighted sum over FEATURE_NORM. 0 with no votes.
  */
-export function prefer(d, said) {
+export function prefer(d, said, features = FEATURES) {
   let s = 0;
-  for (const [w, m] of FEATURES) {
+  for (const [w, m] of features) {
     let num = 0, den = 1;
     for (const v of said) { const x = m(d, v.def); num += (v.s / 2) * x; den += x * Math.abs(v.s) / 2; }
     s += w * (num / den);
@@ -228,7 +333,8 @@ export function prefer(d, said) {
  * @param {number} [o.seed]   a different seed is a different life
  * @param {Array<{def: object, vote: number}>} [o.votes]  1 bad, 2 meh, 3 good, 4 great
  */
-export function createLife({ seed = 1, votes = [] } = {}) {
+export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
+  const G2 = grammar === 2;
   const taste = tasteOf(votes), scenes = [];
   const said = votes.map((v) => ({ def: v?.def, s: scoreOf(v?.vote) })).filter((v) => v.s && v.def && NAMES.includes(v.def.patch) && PARAMS.includes(v.def.param));
   function weighted(list, w, r) {
@@ -243,19 +349,29 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     const [g0, g1] = guardT(patch, param), width = r2(WIDTH[len] * (g1 - g0));
     return { width, lo: r2(clamp(clamp(centre, g0, g1) - width / 2 + nudge * (g1 - g0), g0, g1 - width)) };
   }
-  function fresh(r, prev, recent, i) {
+  /** The patches a scene type may play: its families, the patch's own types and lengths, under the overlap cap. */
+  const poolFor = (T) => NAMES.filter((n) => { const f = patchInfo(n); return T.fam.includes(familyOf(n)) && (!f?.types || f.types.includes(T.name))
+    && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP; });
+  const lensOf = (T, patch, notLen) => {
+    const f = patchInfo(patch), ok = (k) => k !== notLen && !NOT_LEN[familyOf(patch)]?.includes(k) && (!f?.lens || f.lens.includes(k));
+    const ks = T.lens.filter(ok);
+    const any = Object.keys(LENGTHS).filter((k) => k !== notLen);
+    return ks.length ? ks : Object.keys(LENGTHS).filter(ok).length ? Object.keys(LENGTHS).filter(ok) : any;
+  };
+  function fresh(r, prev, recent, i, T) {
     // a patch with at least two controls not moved lately, one for the scene and one for its interlude
-    const free = (n) => movableFor(n).filter((p) => !recent.includes(p)).length >= 2, pool = NAMES.filter((n) => n !== prev?.patch);
+    const free = (n) => movableFor(n).filter((p) => !recent.includes(p)).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
     const patch = pickOne(pool.filter(free).length ? pool.filter(free) : pool, r), can = movableFor(patch);
     const param = pickOne(can.filter((p) => !recent.includes(p)).length ? can.filter((p) => !recent.includes(p)) : can, r);
-    const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(lensFor(patch, same ? prev.len : null), r);
+    const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(T ? lensOf(T, patch, same ? prev.len : null) : lensFor(patch, same ? prev.len : null), r);
     const centre = toT(param, patchValues(patch)[param] ?? fromT(param, 0.5));
     // the window sits near where the patch has the control, give or take, inside the family's guard
     return { patch, param, len, ...windowOf(patch, param, len, centre, (r() - 0.5) * 0.3) };
   }
   /** A liked scene with one thing changed: its length, where its window sits, or its interlude. */
-  function vary(base, r, prev, recent, i) {
-    if (base.patch === prev?.patch || recent.includes(base.param) || !LENGTHS[base.len] || !guardT(base.patch, base.param)
+  function vary(base, r, prev, recent, i, T) {
+    if (T && (!poolFor(T).includes(base.patch) || !lensOf(T, base.patch, null).includes(base.len))) return null;
+    if (base.patch === prev?.patch || recent.includes(base.param) || !LENGTHS2[base.len] || !guardT(base.patch, base.param)
       || movableFor(base.patch).filter((p) => p !== base.param && !recent.includes(p)).length < 1) return null;
     const same = i >= 2 && prev.len === scenes[i - 2].len;
     const [g0, g1] = guardT(base.patch, base.param), w0 = r2(WIDTH[base.len] * (g1 - g0));
@@ -263,7 +379,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
       iKind: IKINDS[base.iKind] ? base.iKind : undefined, key: base.key ? { ...base.key } : undefined, layers: base.layers ? { ...base.layers } : undefined };
     const what = same && base.len === prev.len ? 0 : r() * (d.layers ? 4 / 3 : 1);
     if (what >= 1) { const k = pickOne(['drone', 'res', 'harm', 'ghost'], r); d.layers[k] = pickOne(LAYERS[k].filter((x) => x !== d.layers[k]), r); }
-    else if (what < 1 / 3) { d.len = pickOne(lensFor(d.patch, null).filter((k) => k !== base.len && !(same && k === prev.len)), r) ?? d.len; d.width = r2(WIDTH[d.len] * (g1 - g0)); d.lo = r2(clamp(d.lo, g0, g1 - d.width)); }
+    else if (what < 1 / 3) { d.len = pickOne((T ? lensOf(T, d.patch, null) : lensFor(d.patch, null)).filter((k) => k !== base.len && !(same && k === prev.len)), r) ?? d.len; d.width = r2(WIDTH[d.len] * (g1 - g0)); d.lo = r2(clamp(d.lo, g0, g1 - d.width)); }
     else if (what < 2 / 3) {
       const step = (r() < 0.5 ? -1 : 1) * (0.08 + 0.1 * r()) * (g1 - g0);
       const lo0 = d.lo;
@@ -274,13 +390,16 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     return d;
   }
   /** The rest of a scene: its time, its granulator, its interlude, and two other controls set aside the patch. */
-  function complete(d, r, recent, prev) {
-    d.dwell = Math.round(LENGTHS[d.len] * (0.8 + 0.4 * r()));
-    d.peak ??= r2(0.7 + 0.3 * r());
+  function complete(d, r, recent, prev, T) {
+    d.dwell = Math.round(LENGTHS2[d.len] * (0.8 + 0.4 * r()));
+    if (T) { if (!(d.peak >= T.peak[0] && d.peak <= T.peak[1])) d.peak = r2(T.peak[0] + (T.peak[1] - T.peak[0]) * r()); } else d.peak ??= r2(0.7 + 0.3 * r());
     // never the same kind of interlude twice in a row; a filter hand-over needs tone free for its hand
     const tone = [d.param, d.notI, ...recent].includes('tone') || !guardT(d.patch, 'tone');
-    if (!d.iKind || d.iKind === prev?.iKind || (tone && IKINDS[d.iKind]?.param)) {
-      d.iKind = weighted(Object.keys(IKINDS).filter((k) => k !== prev?.iKind && k !== d.notKind && !(tone && IKINDS[k].param)), (k) => IKINDS[k].odds, r);
+    // grammar 2: the type's own ways out, and the dial's sweep only between sections, rarely
+    const outs = T ? [...T.outs, ...(d.secLast ? ['radio'] : [])] : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
+    if (!d.iKind || d.iKind === prev?.iKind || (tone && IKINDS[d.iKind]?.param) || (T && !outs.includes(d.iKind))) {
+      const can = outs.filter((k) => k !== prev?.iKind && k !== d.notKind && !(tone && IKINDS[k].param));
+      d.iKind = can.length ? weighted(can, odds, r) : 'dissolve';
     }
     delete d.notKind;
     const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch);
@@ -292,6 +411,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     d.iWet = r2(within(K.wet));
     d.iFreeze = K.freeze;
     d.iPath = K.path;
+    if (d.iKind === 'echowash') d.iTime = r2(0.9 + 0.4 * r());
     const [i0, i1] = guardT(d.patch, d.iParam) ?? [0, 1], iw = r2(Math.min(K.param ? 0.6 * (i1 - i0) : 0.25, i1 - i0));
     d.ilo = r2(i0 + r() * Math.min(0.4, i1 - i0 - iw)); d.iw = iw;
     d.up = r() < 0.5;
@@ -307,7 +427,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     if (!d.layers) d.layers = layersOf(r, d.kind);
     return d;
   }
-  const learned = (d) => (said.length ? prefer(d, said) : 0);
+  const learned = (d) => (said.length ? prefer(d, said, G2 ? FEATURES2 : FEATURES) : 0);
   /** A fresh set of layers, with odds by what the file is (ODDS). */
   function layersOf(r, kind) {
     const o = ODDS[kind] || ODDS.unknown, some = (k) => (r() < o[k] ? pickOne(LAYERS[k].slice(1), r) : 'none');
@@ -322,6 +442,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
       room: r2(0.1 + 0.3 * r()), roomSize: r2(0.4 + 0.5 * r()) };
   }
   function make(i, ctx = {}) {
+    if (G2) return make2(i, ctx);
     const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729);
     const recent = scenes.flatMap((s) => [s.param, s.iParam]).slice(-FRESH);
     const cands = [];
@@ -337,6 +458,72 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     const allowed = !prev?.naked && prev?.iKind !== 'clean' && !(i >= 2 && prev.len === 'long' && scenes[i - 2].len === 'long');
     if (allowed && rng(seed * 31337 + i * 7907)() < (NAKED[kind] ?? NAKED.music)) { const n = naked(d, rng(seed * 4241 + i)); if (!taste.disliked.includes(coreId(n))) return n; }
     return d;
+  }
+  // ── grammar 2: sections of scene types over a tide (plans/plan-cast-patches-scenes.md 3 and 4) ──
+  const secs = [], phase = rng(seed * 613)() * 2 * Math.PI;
+  /** The tide at scene i, from the planned time before it: pure in the seed, so a twin rebuilds it. */
+  const tideAt = (i) => tideOf(scenes.slice(0, i).reduce((a, x) => a + x.dwell + x.blend, 0), phase);
+  const secScore = {};
+  for (const v of said) if (v.def.section) secScore[v.def.section] = (secScore[v.def.section] || 0) + v.s;
+  const secWeight = (n) => { const x = secScore[n] || 0; return Math.exp((2 * x) / (Math.abs(x) + 4)); };
+  function sectionAt(i) {
+    if (secs[i]) return secs[i];
+    const r = rng(seed * 8191 + i * 131), tide = tideAt(i), before = i ? secs[i - 1]?.section : null;
+    const names = Object.keys(SECTIONS).filter((n) => n !== before && (n !== 'weather' || tide > 0.5));
+    const name = weighted(names, (n) => Math.exp(-(((SECTIONS[n].level - tide) / 0.3) ** 2)) * secWeight(n), r);
+    const list = [...SECTIONS[name].types], m = Math.floor(list.length / 2), u = r();
+    if (u < 0.3 && list.length > 3) list.splice(m, 1); else if (u < 0.6 && list.length < 6) list.splice(m, 0, list[m]);
+    list.forEach((type, k) => { secs[i + k] = { section: name, type, pos: k, last: k === list.length - 1, tide }; });
+    return secs[i];
+  }
+  function make2(i, ctx = {}) {
+    const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729), kind = ctx.kind || 'unknown', at = sectionAt(i);
+    const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH);
+    // no naked speech: the owner does not want it (2026-10-18), so a section opens on a dry intro
+    const type = at.type === 'open' ? 'intro' : at.type === 'stormy' ? (r() < 0.5 ? 'storm' : 'rhythm') : at.type;
+    const T = TYPES[type];
+    const cands = [];
+    for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i, T));
+    for (let k = 0; taste.liked.length && !prev?.from && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i, T); if (v) cands.push(v); }
+    for (const c of cands) Object.assign(c, { kind, type, section: at.section, secLast: at.last });
+    const ok = cands.map((c) => complete(c, r, recent, prev, T)).filter((c) => !taste.disliked.includes(coreId(c)) && !ducks(c));
+    const d = weighted(ok.length ? ok : cands, (x) => Math.exp(LEAN * learned(x)), r);
+    const a = rng(seed * 977 + i * 31), within = ([lo, hi]) => lo + (hi - lo) * a();
+    const Tt = TYPES[d.type];
+    d.dry = r2(within(Tt.dry)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
+    // inside its type's band by the tide, and the whole band lower at low tide, so the hour is heard
+    d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.75 + 0.25 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
+    d.layers = typeLayers(d.layers, Tt, rng(seed * 2741 + i * 59));
+    // a locked patch plays on the scene's tempo: so many grains a beat, its echo so many beats
+    const f = patchInfo(d.patch);
+    if (f?.sub) {
+      if (!d.layers.bpm) d.layers = { ...d.layers, bpm: Math.round(70 + 40 * a()), pulseOn: 'grains' };
+      d.set = { density: r2((d.layers.bpm / 60) * f.sub * 1000) / 1000, time: Math.round((f.beats * 60 / d.layers.bpm) * 1000) / 1000 };
+    }
+    // the key the scene after this one starts in, drawn now so a bridge can glide or pivot to it
+    if (prev?.nextKey) d.key = { ...prev.nextKey };
+    const kr = rng(seed * 523 + i * 17), move = pickOne([0, 7, 5, 2, 10], kr);
+    d.nextKey = { root: (d.key.root + move) % 12, minor: kr() < 0.6 };
+    return d;
+  }
+  /** A type's layers over the drawn ones: what each type keeps, adds and leaves out. */
+  function typeLayers(L, T, r) {
+    const n = T.name.replace(/^(tape|cloud)build$/, 'build').replace(/^sdeep$/, 'deep'), ghost = () => pickOne(['res', 'comb', 'bpf'], r);
+    const none = { res: 'none', harm: 'none', ghost: 'none', bpm: 0 };
+    switch (n) {
+      case 'intro': return { ...L, ...none, drone: 'key', droneLevel: r2(0.2 + 0.1 * r()), room: r2(0.1 + 0.1 * r()) };
+      case 'build': return { ...L, drone: L.drone === 'none' ? 'key' : L.drone };
+      case 'deep': return { ...L, drone: 'both', droneLevel: r2(0.4 + 0.2 * r()), res: pickOne(['fifths', 'minor7'], r), harm: pickOne(['none', 'octfifth'], r), bpm: 0,
+        ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(25 + 20 * r()), room: r2(0.3 + 0.2 * r()) };
+      case 'storm': return { ...L, drone: pickOne(['none', 'freeze'], r), res: 'none', harm: pickOne(['cluster', 'none'], r), bpm: 0,
+        ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(15 + 15 * r()), room: 0.3 };
+      case 'rhythm': return { ...L, drone: 'key', bpm: Math.round(70 + 40 * r()), pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(['res', 'grains'], r),
+        res: L.res === 'none' ? pickOne(['fifths', 'minor7', 'major'], r) : L.res };
+      case 'choir': return { ...L, drone: 'key', harm: pickOne(['octfifth', 'triad'], r), res: pickOne(['major', 'minor7'], r), bpm: 0 };
+      case 'breath': return { ...L, ...none, drone: L.drone === 'none' ? 'key' : L.drone, droneLevel: r2(0.2 + 0.1 * r()) };
+      case 'coda': return { ...L, ...none, drone: pickOne(['freeze', 'both'], r), room: r2(0.4 + 0.1 * r()) };
+      default: return L;
+    }
   }
   /** A naked scene: long, no granulator, no layers, no drone, a plain fade after it. */
   function naked(d, r) {
@@ -356,6 +543,24 @@ export function createLife({ seed = 1, votes = [] } = {}) {
   // the arc's two numbers per scene, from their own draws so they move nothing else in the life
   const arc = (d, i) => { const a = rng(seed * 977 + i * 31); d.dry ??= d.naked ? 1 : r2(0.12 + 0.18 * a()); d.intensity ??= d.naked ? 0 : r2(intensityAt(i, (a() - 0.5) * 0.15)); return d; };
   const scene = (i, ctx) => { while (scenes.length <= i) scenes.push(build(arc(make(scenes.length, scenes.length === i ? ctx : undefined), scenes.length), scenes.length)); return scenes[i]; };
+  /**
+   * What an interlude does at x (0 to 1 of its blend): the granulator's wet and extra values, and for a
+   * bridge the layers held across it (`level` of them, retuned to the next scene's key from halfway).
+   */
+  function shapeOf(s, x) {
+    const L = s.layers || {}, key2 = x < 0.5 ? s.key : s.nextKey || s.key, quiet = { harm: 'none', ghost: 'none', bpm: 0 };
+    switch (s.iKind) {
+      case 'echowash': return { wet: s.iWet * swell(x), extra: { echo: 0.85, time: s.iTime ?? 1.1, dark: 2500, scatter: 1, size: 1 },
+        bridge: { level: 0.3, key: s.key, layers: { ...L, ...quiet, res: 'none', room: 0.8, roomSize: 0.95 } } };
+      case 'tapestop': { const e = ease(Math.min(1, x / 0.4));
+        return { wet: x < 0.1 ? x / 0.1 : x < 0.45 ? 1 : Math.max(0, 1 - (x - 0.45) / 0.2), extra: { pitch: r2(1 - 0.75 * e), speed: r2(1 - e), freeze: x > 0.35 ? 1 : 0 } }; }
+      case 'frozenbridge': return { wet: s.iWet * (x < 0.1 ? x / 0.1 : x < 0.7 ? 1 : Math.max(0, (1 - x) / 0.3)), extra: { freeze: 1, size: 1.5, density: 12, scatter: 0.6 } };
+      case 'dronebridge': return { wet: 0, extra: {}, bridge: { level: 0, key: key2, layers: { ...L, ...quiet, res: 'none', drone: L.drone === 'none' ? 'key' : L.drone, droneLevel: 0.5 } } };
+      case 'chordbridge': return { wet: s.iWet * swell(x), extra: {}, bridge: { level: 0.4, key: key2, layers: { ...L, ...quiet, res: L.res === 'none' ? 'major' : L.res, resWet: 0.5 } } };
+      case 'pause': return { wet: 0, extra: {}, bridge: { level: 0, key: s.key, layers: { ...L, ...quiet, res: 'none', drone: 'none', droneLevel: 0 } } };
+      default: return { wet: s.iWet * swell(x), extra: s.iFreeze ? { freeze: swell(x) } : {} };
+    }
+  }
   /** The JSON a vote stores: everything that makes the scene, nothing derived. */
   const defOf = (s) => { const { i, id, move, iMove, ...d } = s; return d; };
   return {
@@ -363,14 +568,14 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     /** Scene i, `t` seconds after its file landed: what the granulator does and the hand holds. */
     inScene(i, t) {
       const s = scene(i), x = t / s.dwell;
-      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2),
+      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2, s.rise, s.hold),
         value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)), extra: freezesAfterDry(s.patch) ? { freeze: x > (s.dry ?? 0.2) ? 1 : 0 } : {} };
     },
     /** The interlude after scene i, `t` seconds into its blend. */
     inInterlude(i, t) {
-      const s = scene(i), x = t / s.blend;
-      return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: `${s.iKind} interlude`, wet: s.iWet * swell(x),
-        value: fromT(s.iParam, positionAt(s.iMove, t * 1000)), extra: s.iFreeze ? { freeze: swell(x) } : {} };
+      const s = scene(i), x = t / s.blend, sh = shapeOf(s, Math.min(1, Math.max(0, x)));
+      return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: `${s.iKind} interlude`, wet: sh.wet,
+        value: fromT(s.iParam, positionAt(s.iMove, t * 1000)), extra: sh.extra, ...(sh.bridge ? { bridge: sh.bridge } : {}) };
     },
   };
 }

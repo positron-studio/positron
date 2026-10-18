@@ -746,7 +746,7 @@
       const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE); local.set('path', s.iPath ?? 0);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises; a frozen
       // patch stays open until the dry share is over
-      local.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0, ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch;
+      local.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0, ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
       layersFor(s);
       announce(LOCAL, L.si, life.defOf(s), L.file); scopeEvent('landing');
       paintScene();
@@ -755,13 +755,13 @@
     if (st.phase === 'blend' && L.phase !== 'blend') {
       const s = life.scene(L.si);
       L.blendAt = t; local.set('noise', s.iNoise); scopeEvent('interlude');
-      // a pause lets the drones go too, so it is silence; the next landing sets them again
-      if (s.iKind === 'pause' && layerEng) layerEng.apply({ ...s.layers, drone: 'none' }, s.key);
     }
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch(engPatch(v.patch, { mix: 0 })); }
     local.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
+    // a bridge holds some layers across the blend and retunes them to the next scene's key from halfway
+    if (v.bridge && layerEng) { const bk = `${L.si}|${v.bridge.key?.root}|${v.bridge.key?.minor}`; if (bk !== L.bridged) { L.bridged = bk; layerEng.apply(v.bridge.layers, v.bridge.key); } }
     lifeNow = v;
   }
   /** `keep` keeps the life startLocal just made; a switch into live mid-play starts a new one. */
@@ -797,7 +797,7 @@
   function layerTick(st, t) {
     if (!layerEng || !life) return;
     const s = life.scene(lifeState.si), since = t - lifeState.sceneAt;
-    layerEng.level(st.phase === 'blend' ? 0 : layerLevel(since / s.dwell, s.dry) * (0.6 + 0.4 * (s.intensity ?? 1)));
+    layerEng.level(st.phase === 'blend' ? (lifeNow?.bridge?.level ?? 0) : layerLevel(since / s.dwell, s.dry, s.rise, s.hold) * (0.6 + 0.4 * (s.intensity ?? 1)));
     if (heard.done || !local.tunerAnalyser) return;
     if (since >= 1 && since < 5) {
       const a = local.tunerAnalyser; chromaBuf ||= new Float32Array(a.frequencyBinCount); a.getFloatFrequencyData(chromaBuf);
@@ -819,7 +819,7 @@
   // a ghost: the next file in the queue, or the one before, from somewhere inside it, for a few seconds
   function ghostTick(t) {
     const Ly = layerEng?.layers;
-    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1), life?.scene(lifeState.si).dry) < 0.5)) return;
+    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1), life?.scene(lifeState.si).dry, life?.scene(lifeState.si).rise, life?.scene(lifeState.si).hold) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + ghostGap(Ly, lifeState.item?.seconds) * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
       const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
@@ -891,7 +891,8 @@
   /** A scene in words: what plays, the patch and its set controls, what moves, the interlude, the key and the layers. */
   function describe(si, def, file) {
     const tw = Object.entries(tweaksOf(def)).map(([n, x]) => `${n} ${fmt(x)}`).join(', ');
-    return `scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then ${IWORDS[def.iKind] ?? `a ${def.iKind} interlude`}; ${layersSay(def)}`;
+    const what = def.type ? `, ${TWORDS[def.type] ?? def.type}${def.section ? ` in ${def.section}` : ''}` : '';
+    return `scene ${si + 1}${what}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then ${IWORDS[def.iKind] ?? `a ${def.iKind} interlude`}; ${layersSay(def)}`;
   }
   /** One log line per scene. */
   function announce(t, si, def, file) { if (def) d.log(`${t} ${describe(si, def, file)}`); }
@@ -936,7 +937,9 @@
     try { const j = await (await fetch(`${BASE}/votes`)).json(); if (Array.isArray(j.votes)) votes = j.votes; } catch { /* none yet */ }
   }
   /** A scene's controls set aside its patch, as values. */
-  const IWORDS = { dissolve: 'a dissolve', filter: 'a filter hand-over', pause: 'a pause' };
+  const TWORDS = { intro: 'a dry intro', naked: 'naked speech', build: 'a slow build', cloudbuild: 'a slow build', tapebuild: 'a slow build', deep: 'a deep drone',
+    sdeep: 'a deep drone', storm: 'a granular storm', rhythm: 'a rhythmic scene', choir: 'a choir', breath: 'a breath', coda: 'a coda' };
+  const IWORDS = { dissolve: 'a dissolve', filter: 'a filter hand-over', pause: 'a pause', echowash: 'an echo wash', tapestop: 'a tape stop', frozenbridge: 'a frozen bridge', dronebridge: 'a drone bridge', chordbridge: 'a chord hand-over' };
   const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, fromT(n, t)]));
   /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
   const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
@@ -1104,7 +1107,7 @@
       castBtns.button('cast').click(); await tick(400);
       const has = (f) => calls.some(f), st0 = calls.find(([c]) => c === 'start')?.[1];
       const logged = (re) => d.logs?.some?.((l) => re.test(l.msg)) ?? window.__demo.logs.some((l) => re.test(l.msg));
-      const seen0 = { shown: logged(new RegExp(`^local scene 1: .*${S0.patch}.*moving ${S0.param}`)) && !detail.contains(soundSec), moving: lMove.textContent };
+      const seen0 = { shown: logged(new RegExp(`^local scene 1[,:].*: .*${S0.patch}.*moving ${S0.param}`)) && !detail.contains(soundSec), moving: lMove.textContent };
       d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving, the scene announced in the log (its box hidden)',
         localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'grains' && st0.set.drift === 1
         && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === patchFor(S0.patch).name && localFile(items[0]) === `${BASE}/file/${items[0].id}`
@@ -1169,7 +1172,7 @@
       rowOf('user3').click(); calls.length = 0; sent.length = 0;
       const sdef = L42.defOf(L42.scene(4)), slife = (si, inst) => ({ si, inst, def: sdef, kind: 'scene', param: sdef.param, value: 0.5, wet: 0.4, len: sdef.len, file: 'their file' });
       take('user3', { target: 'user3', onAir: true, playing: true, now: { id: 'f', title: 'their file', at: 20 }, life: slife(4, 'u3-4'), lines: [] });
-      const stShown = logged(new RegExp(`^user3 scene 5: their file, ${sdef.patch}`)) && lScene.textContent.startsWith('5') && lPatch.textContent.startsWith(sdef.patch);
+      const stShown = logged(new RegExp(`^user3 scene 5[^:]*: their file, ${sdef.patch}`)) && lScene.textContent.startsWith('5') && lPatch.textContent.startsWith(sdef.patch);
       sceneBtns.button('next').click(); await tick();
       const stepSent = sent.find(([t, m]) => t === 'user3' && m.cmd === 'step')?.[1], stBusy = sceneBtns.button('next').dataset.busy === '1';
       take('user3', { target: 'user3', onAir: true, playing: true, now: { id: 'f', title: 'their file', at: 21 }, life: slife(5, 'u3-5'), lines: [] });
