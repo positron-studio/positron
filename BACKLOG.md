@@ -1,5 +1,9 @@
 ## Open
 
+- **/radio/cast/: transitions without the wind noise; alternatives and variations** (2026-10-18). Asked: *"channel changig still too winds noise, cartoonish. think sometjing else, alternatives, varaiatons"*. Every interlude still passes through the tuner's noise sweep; propose other kinds of hand-over.
+- **/radio/cast/: the ghosts are a bit lame** (2026-10-18). Asked: *"ghsot voices a bit lame"* about a scene with ghosts through resonators. Make a visit more of an event: louder, longer, transformed (slowed or shifted, stretched, wide, into a big room), not a faint band-pass.
+- **/radio/cast/: the scene footer in sans, equal padding** (2026-10-18). Asked: *"equal padding. sans serif"* with a screenshot of the footer text.
+- **/radio/cast/: the scope without its own border, and no empty band above the waveform** (2026-10-18). Asked: *"rm borders, top padding of waverform"* with a screenshot of the scope inside the panel.
 - **/radio/cast/: the longer the file, the more ghosts visit** (2026-10-18). Asked: *"the longer file the more ghost stations visiting. backlog"*. Ghost visits scale with the file's length (feed `seconds`), so a long recording is visited more often than a short one; both engines.
 - ~~**/radio/cast/: more drones**~~ (2026-10-18, DONE: drone odds 0.95 (music 0.85), both kinds twice as often, levels 0.3 to 0.6, drones on their own bus past the scene fade, gliding 6 s to the next key). Asked: *"more drony stuff"*. Drones in nearly every scene, louder, and carried across scenes (gliding to the next key) instead of fading with each scene; together with *"fx can be wetter"*.
 - ~~**/radio/cast/: a label above each station name**~~ (2026-10-18, DONE). Asked: *"add labels o ntop of station names on card (local positron / live postron / live vain / live vain etc"*. local positron, live positron (preview), live väin (radio1965, user1 to user4).
