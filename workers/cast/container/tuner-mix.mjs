@@ -3,6 +3,9 @@
 // until pinkNoise or createTunerGraph (the AM graph, used by /radio/scenery/) is handed one.
 
 export const CLEAR_W = 0.035, ECHO_W = 0.13, ECHO_MAX = 0.35;
+// The saturation: the band times DRIVE, then tanh(SAT_K x) / tanh(SAT_K), so a hot master's transients stay out of
+// the knee. why: lessons/workers-cast.md#drive
+export const DRIVE = 0.5, SAT_K = 1.2;
 
 /**
  * mix(t) for stations at `at` (0 to 1) on the dial: clear is a narrow bell, echo a faint wide
@@ -45,7 +48,7 @@ export function pinkNoise(ctx, seconds = 4) {
 
 /**
  * /radio/tuner/'s AM graph, in one place for a page that tunes buffers: every leg through its
- * clear (a dulling lowpass) and its echo, noise and the whistle into one mono band-pass and
+ * clear (a dulling lowpass) and its echo, noise and the whistle into one mono band-pass, DRIVE and
  * a soft saturation. `legs[i].input` takes station i, `noiseIn` the noise; `out` is the set.
  * `apply(m, { whistle })` moves every gain to `mix(t)`'s answer `m`.
  */
@@ -54,11 +57,12 @@ export function createTunerGraph(ctx, stations) {
   hp.channelCount = 1; hp.channelCountMode = 'explicit'; hp.channelInterpretation = 'speakers';
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3500; lp.Q.value = 0.7;
   const shaper = ctx.createWaveShaper();
-  const curve = new Float32Array(1024), k = 2.2;
+  const curve = new Float32Array(1024), k = SAT_K;
   for (let i = 0; i < curve.length; i++) { const x = (i / (curve.length - 1)) * 2 - 1; curve[i] = Math.tanh(k * x) / Math.tanh(k); }
   shaper.curve = curve; shaper.oversample = '2x';
+  const drive = ctx.createGain(); drive.gain.value = DRIVE;
   const out = ctx.createGain(); out.gain.value = 0.8;
-  hp.connect(lp); lp.connect(shaper); shaper.connect(out);
+  hp.connect(lp); lp.connect(drive); drive.connect(shaper); shaper.connect(out);
   const whistle = ctx.createOscillator(); whistle.type = 'sine';
   const wGain = ctx.createGain(); wGain.gain.value = 0;
   whistle.connect(wGain); wGain.connect(hp); whistle.start();

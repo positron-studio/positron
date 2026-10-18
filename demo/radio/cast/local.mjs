@@ -13,6 +13,8 @@ export const PATCH_LIMITS = { freeze: [0, 1], speed: [0, 4], back: [0, RING_SECO
   size: [0.02, 4], jitter: [0, 4], pitch: [0.25, 4], detune: [0, 0.1], pan: [0, 1], amp: [0, 3], tone: [200, 20000], echo: [0, 0.9],
   time: [0.01, 1.5], dark: [200, 20000], drop: [0, 1], ramp: [0.05, 4], dir: [-1, 1], lock: [0, 1], mix: [0, 1] };
 export const MODES = ['copy', 'mix', 'grains'];
+// The cast's blends carry no off-tune whistle; /radio/tuner/ and /radio/scenery/ keep theirs. why: lessons/workers-cast.md#whistle
+export const WHISTLE = false;
 const PREFETCH_S = 6;
 
 /** One mix control clamped as the container clamps it, or null. */
@@ -121,7 +123,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     if (!playing) return;
     clock();
     m = mix(tune);
-    graph.apply({ ...m, noise: m.noise * ctl.noise });
+    graph.apply({ ...m, noise: m.noise * ctl.noise }, { whistle: WHISTLE });
   }
   function route() {
     if (!ctx) return;

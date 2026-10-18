@@ -215,6 +215,67 @@ minus lead was -42 ms (the whole-block floor plus one 20 ms tick), ahead of the 
 throughout, first MP3 frame 37 ms after the start, node at 3.0 % of a core (the two decoders and LAME are
 separate processes). The 90 s real-file run: -43 ms, 3.6 %, 95 MiB RSS.
 
+### drive
+
+`DRIVE = 0.5` and `SAT_K = 1.2` in `demo/shell/tuner-mix.mjs` (and its copy), used by `createTunerGraph` and by
+`createTuner` alike. Asked 2026-10-18 on `/radio/cast/`, the local station in mix: *"mix has this annoying
+clipping sound on kalle 1 2 and driving "prõgisemine" in estonian. what to do? granulator washes it away"*.
+
+Until then the band went straight into tanh(2.2x) / tanh(2.2): a small-signal gain of 2.25 (+7 dB, then 0.8 out,
++5.1 dB overall) with the curve's flat top at 1. MEASURED 2026-10-18 on the five archive files, fetched once each
+through `/file/<id>` and decoded to float (no clipping in the decode), in node through an instrumented copy of
+`createTuner` that matched the real one to 6e-11:
+
+| file | source rms | source peak | 1 s rms into the shaper, median | distorted moments / min | THD | out rms |
+| --- | --- | --- | --- | --- | --- | --- |
+| Kalle | -14.2 dB | +0.1 dBFS | -15.4 dB | 242 | -17.7 dB | -12.1 dBFS |
+| Kalle 2 | -13.0 dB | +0.6 dBFS | -14.9 dB | 258 | -19.1 dB | -10.7 dBFS |
+| Driving along | -19.5 dB | -5.9 dBFS | -27.9 dB | 96 | -28.1 dB | -23.0 dBFS |
+| Evening rituals (control) | -24.0 dB | -0.3 dBFS | -30.3 dB | 40 | -19.6 dB | -19.8 dBFS |
+| Audio test (control) | -26.3 dB | +0.4 dBFS | -28.9 dB | 46 | -28.5 dB | -23.5 dBFS |
+
+A distorted moment is a 2 ms window where the output departs from the small-signal line by more than 10 per cent
+of the signal (residual over linear above -20 dB), counted once per 20 ms; THD is the residual against a best
+fit gain per 2048 samples. The three files reported are the three highest, and only those. Two causes:
+
+- Kalle and Kalle 2 are hot, limited masters (12,240 and 11,416 samples at or over 0.9, 57 and 56 flat topped
+  runs in the file itself), and the highpass's phase rotation lifts their band to +6.1 dBFS at the shaper, so
+  7,635 samples in 108 s sat on the curve's flat top in the real engine and every transient was squashed.
+- Driving along is not hot but is 82 per cent energy under 200 Hz and very peaky in the band (rms -27.9, peak
+  -3.3, a 25 dB crest): the highpass takes the bass away and its percussive clicks (1.5 ms bursts in 2 to 6 kHz,
+  rhythmic at 645 ms, the same in all three files) reach the knee alone. The band also lifts the 2 to 3.5 kHz
+  share of its energy from -24.4 dB in the file to -13.7 dB in the mix (Kalle +4.6, the controls +1.9 to +2.9).
+
+What it is NOT: the output never passed full scale (peak 0.8, -1.9 dBFS, so the int16 cast, LAME and the
+browser's destination never clip); the sum of two slots plus noise never passed 1 before the shaper in a blend;
+the chain added no impulsiveness of its own (kurtosis of 2 to 6 kHz per 50 ms frame, median: Kalle 9.2 in the
+file, 6.8 out; Driving 55.2 in, 29.5 out). A slow cut-only leveller before the shaper (target mean |x| 0.06,
+0.5 Hz detector) was tried in the model and refused: Kalle only went from 242 to 154 moments a minute, Driving
+not at all (its rms is low, its peaks are not), and it pumped 3.7 dB a second.
+
+After, same files: Kalle 22 a minute (-91 per cent), Kalle 2 22, Driving 0, Evening 0, Audio test 0; THD -33.7,
+-35.8, -48.0, -36.1, -48.9 dB; 0 samples on the flat top in the real engine over 10 minutes; at most 2 samples per
+file reach the curve's end. The cost is level: the small-signal gain is now -4.8 dB, so a quiet file comes out
+about 10 dB quieter than before (Audio test -33.1 dBFS rms) and a hot one about 8 dB (Kalle -20.4). Fixed
+headroom cannot keep the old loudness: with the output at 0.8 any gain that keeps quiet files as loud squashes
+hot ones. A makeup gain after the shaper with a limiter is the next step if the mix reads too quiet. Grid of
+(drive, k): (0.5, 1.5) 71 a minute on Kalle at -3.6 dB; (0.6, 1.2) 60 at -3.2 dB; (0.45, 1.0) 2 at -6.5 dB.
+NOT HEARD: nobody listened to the after; the proxies above are all there is.
+
+`mixer-test.mjs` holds it: the master lowpass reaches the shaper only through one gain of DRIVE, a full scale
+1 kHz tone comes out under -26 dB THD+N (-29.4 measured), and two negative controls (drive 1 and k 2.2 give
+-13.3 dB; a -26 dBFS tone gives -80.5 dB).
+
+### whistle
+
+`WHISTLE = false` in `mixer.mjs` and in `demo/radio/cast/local.mjs`, compared by `local-test.mjs`. Asked
+2026-10-18: *"this annoying policecar like siren (transition). hate that"*. It is the off-tune carrier's beat
+that `createMix` puts between stations (pitch 150 + 40000 * distance Hz, up to 3200), which is what an AM dial
+does and what `/radio/tuner/` and `/radio/scenery/` keep. The cast's engine renders with `{ whistle: false }` and
+the local engine applies the graph with it. MEASURED across one 16 s blend with silent files and noise 0, so the
+output is the whistle alone: -27.6 dBFS rms before, the tap at -30 dB through the middle 10 s; after, digital
+silence and no tap in any second.
+
 ## `workers/cast/worker.mjs`: their streams
 
 ### live

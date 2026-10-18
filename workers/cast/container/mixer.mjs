@@ -1,7 +1,7 @@
 // The cast's mix mode, pure: two slots on an AM dial, the drift's clock, pink noise, the band and the
 // saturation of /radio/tuner/'s graph, ported sample by sample. No I/O; sources are injected.
 // why: lessons/workers-cast.md#mixer
-import { createMix } from './tuner-mix.mjs';
+import { createMix, DRIVE, SAT_K } from './tuner-mix.mjs';
 
 export const SR = 44100;
 export const BLOCK = 882;                      // 20 ms
@@ -10,6 +10,8 @@ export const QUANTUM = 128;                    // filter coefficients move at We
 export const SLOTS = [{ at: 0.46, echo: 0.09 }, { at: 0.54, echo: 0.13 }];
 export const DEFAULTS = { tune: SLOTS[0].at, drift: 1, dwell: 40, blend: 16, noise: 1 };
 export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2, 120], noise: [0, 2] };
+// The cast's blends carry no off-tune whistle; createTuner keeps it for a test. why: lessons/workers-cast.md#whistle
+export const WHISTLE = false;
 
 /** Clamps one control to LIMITS, or null when the name or value is not one. */
 export function clampSet(name, v) {
@@ -68,8 +70,8 @@ export function pinkBuffer(seconds = 4, rand = Math.random, sr = SR) {
   return a;
 }
 
-/** The WaveShaper's curve: tanh(2.2x) / tanh(2.2) over 1024 points, read with linear interpolation. */
-export function shaperCurve(k = 2.2, n = 1024) {
+/** The WaveShaper's curve: tanh(SAT_K x) / tanh(SAT_K) over 1024 points, read with linear interpolation. */
+export function shaperCurve(k = SAT_K, n = 1024) {
   const c = new Float32Array(n);
   for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(k * x) / Math.tanh(k); }
   return c;
@@ -91,12 +93,12 @@ export function seeded(seed = 1) {
 /**
  * createTunerGraph in samples: each slot's clear (gain, then a lowpass at `bright`) and echo (gain, a
  * delay with 0.35 feedback, a 900 Hz bandpass), noise and whistle, into the mono 200 Hz highpass,
- * 3500 Hz lowpass, the tanh shaper and 0.8. `render(inputs, m, out)` moves every gain toward `m`
- * with setTargetAtTime's 0.04 s constant. `taps` holds each part's sum of squares for the meters.
+ * 3500 Hz lowpass, DRIVE, the tanh shaper and 0.8 (`drive` and `k` are options only for a test). `render(inputs, m, out)`
+ * moves every gain toward `m` with setTargetAtTime's 0.04 s constant. `taps` holds each part's sum of squares for the meters.
  */
-export function createTuner({ slots = SLOTS, sr = SR, rand = Math.random } = {}) {
+export function createTuner({ slots = SLOTS, sr = SR, rand = Math.random, drive = DRIVE, k = SAT_K } = {}) {
   const hp = createBiquad('highpass', 200, 0.7, sr), lp = createBiquad('lowpass', 3500, 0.7, sr);
-  const curve = shaperCurve(), noise = pinkBuffer(4, rand, sr);
+  const curve = shaperCurve(k), noise = pinkBuffer(4, rand, sr);
   const a = 1 - Math.exp(-1 / (0.04 * sr));        // one sample of setTargetAtTime(tc 0.04)
   const legs = slots.map((st) => {
     const d = Math.round((st.echo ?? 0.1) * sr);
@@ -133,7 +135,8 @@ export function createTuner({ slots = SLOTS, sr = SR, rand = Math.random } = {})
           phase += pitch / sr; if (phase >= 1) phase -= 1;
           const wh = wGain * Math.sin(2 * Math.PI * phase);
           taps.noise += nz * nz; taps.whistle += wh * wh;
-          const y = 0.8 * shape(curve, lp.step(hp.step(sum + nz + wh)));
+          // why: lessons/workers-cast.md#drive
+          const y = 0.8 * shape(curve, drive * lp.step(hp.step(sum + nz + wh)));
           out[i] = y;
           taps.out += y * y; if (Math.abs(y) > taps.peak) taps.peak = Math.abs(y);
         }
@@ -231,7 +234,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
       m = { ...m, noise: m.noise * ctl.noise };
       const inputs = slots.map((sl) => (sl.src ? sl.src.read(BLOCK) : null));
       for (const sl of slots) if (sl.src?.underrun) { underruns += sl.src.underrun; sl.src.underrun = 0; }
-      tuner.render(inputs, m, mono);
+      tuner.render(inputs, m, mono, { whistle: WHISTLE });
       for (let i = 0; i < BLOCK; i++) {
         const v = Math.max(-32768, Math.min(32767, Math.round(mono[i] * 32767)));
         pcm.writeInt16LE(v, i * 4); pcm.writeInt16LE(v, i * 4 + 2);

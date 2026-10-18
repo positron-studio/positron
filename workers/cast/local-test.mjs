@@ -14,6 +14,7 @@ ok('SLOTS are the container\'s', same(L.SLOTS, M.SLOTS), JSON.stringify(L.SLOTS)
 ok('mix DEFAULTS are the container\'s', same(L.DEFAULTS, M.DEFAULTS), JSON.stringify(L.DEFAULTS));
 ok('mix LIMITS are the container\'s', same(L.LIMITS, M.LIMITS));
 ok('SR is the container\'s 44100', L.SR === M.SR);
+ok('the whistle is off in both, as the container\'s', L.WHISTLE === false && M.WHISTLE === false);
 ok('PATCH_LIMITS are the container\'s', same(L.PATCH_LIMITS, PATCH_LIMITS));
 // the clamps, on values in range, on both edges, past them and on garbage
 const SETS = [['tune', 0.5], ['tune', -1], ['tune', 2], ['drift', 0.4], ['drift', 0.6], ['dwell', 1], ['dwell', 9999], ['blend', 30],

@@ -1,12 +1,12 @@
 // node workers/cast/mixer-test.mjs [--live 60]: the cast's mix mode with no container and no network.
 // The port is graded against the page's own createTunerGraph, run on a fake AudioContext that records
-// every value it is given, so the two cannot drift apart. 10 of the asserts are NEGATIVE CONTROLS.
+// every value it is given, so the two cannot drift apart. 11 of the asserts are NEGATIVE CONTROLS.
 // --live S runs the mixer and the encoder against the wall clock for S seconds into a sink that counts.
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as M from './container/mixer.mjs';
-import { createTunerGraph, pinkNoise, createMix } from '../../demo/shell/tuner-mix.mjs';
+import { createTunerGraph, pinkNoise, createMix, DRIVE } from '../../demo/shell/tuner-mix.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 let pass = 0, fail = 0;
@@ -19,11 +19,11 @@ ok('container/tuner-mix.mjs is byte for byte demo/shell/tuner-mix.mjs',
 
 // ── 2. the graph's values, recorded off the real createTunerGraph ──
 function fakeCtx(sampleRate = 44100) {
-  const made = [];
+  const made = [], edges = [];
   const param = (v) => ({ value: v, setTargetAtTime() {} });
-  const node = (kind, extra = {}) => { const n = { kind, connect() {}, disconnect() {}, ...extra }; made.push(n); return n; };
+  const node = (kind, extra = {}) => { const n = { kind, connect(t) { edges.push([n, t]); return t; }, disconnect() {}, ...extra }; made.push(n); return n; };
   return {
-    made, sampleRate, currentTime: 0,
+    made, edges, sampleRate, currentTime: 0,
     createBiquadFilter: () => node('biquad', { type: 'lowpass', frequency: param(350), Q: param(1) }),
     createWaveShaper: () => node('shaper', { curve: null, oversample: 'none' }),
     createGain: () => node('gain', { gain: param(1) }),
@@ -46,6 +46,10 @@ ok('the feedback is 0.35 and the output 0.8', ctx.made.some((n) => n.kind === 'g
 const curve = M.shaperCurve();
 ok('the shaper curve is the page\'s, point for point', shaper.curve.length === curve.length && shaper.curve.every((v, i) => v === curve[i]));
 ok('NEGATIVE CONTROL: tanh(2.0x) is not that curve', M.shaperCurve(2.0).some((v, i) => Math.abs(v - curve[i]) > 1e-3));
+const into = (n) => ctx.edges.filter(([, t]) => t === n).map(([f]) => f), driveNode = into(shaper)[0];
+ok(`the master lowpass reaches the shaper only through one gain of DRIVE ${DRIVE}`,
+  into(shaper).length === 1 && driveNode.kind === 'gain' && driveNode.gain.value === DRIVE && into(driveNode).length === 1 && into(driveNode)[0] === lps[0],
+  `into the shaper: ${into(shaper).map((n) => `${n.kind} ${n.gain?.value ?? ''}`).join(', ')}`);
 const r1 = M.seeded(7), r2 = M.seeded(7), saved = Math.random;
 Math.random = r1; const page = pinkNoise(fakeCtx(), 1).getChannelData(0); Math.random = saved;
 const ours = M.pinkBuffer(1, r2);
@@ -85,7 +89,10 @@ ok('after the blend B carries the sound and A has gone (its echo tail under -60 
 ok('noise rises between stations: the loudest blend second at least 9 dB over the floor on a slot', loud - at(2).noise >= 9, `floor ${at(2).noise} dB, blend ${loud} dB`);
 const half = createMix(M.SLOTS)(0.5).noise, on = createMix(M.SLOTS)(M.SLOTS[0].at).noise;
 ok('and the gain behind it is 0.04 on a slot and over 0.2 halfway', near(on, 0.04, 0.001) && half > 0.2, `${on.toFixed(3)} and ${half.toFixed(3)}`);
-ok('the whistle is only off tune', at(2).whistle === null || at(2).whistle < -60, `on a slot ${at(2).whistle}, mid ${mid.whistle}`);
+ok('the cast carries no whistle: not one second of the 30 has any', M.WHISTLE === false && met.every((x) => x.whistle === null), `mid blend ${mid.whistle}`);
+const wt = M.createTuner({ rand: M.seeded(1) }), wo = new Float32Array(M.BLOCK * 50), half5 = { ...createMix(M.SLOTS)(0.5), noise: 0 };
+for (let i = 0; i < wo.length; i += M.BLOCK) wt.render([null, null], half5, wo.subarray(i, i + M.BLOCK));
+ok('NEGATIVE CONTROL: createTuner with its whistle on sounds it halfway, so the meter can see one', wt.taps.whistle > 0, `${(10 * Math.log10(wt.taps.whistle / wt.taps.n)).toFixed(1)} dB`);
 ok('no clipping: every second peaks under 0 dBFS', met.every((x) => x.peak < 0), `loudest ${Math.max(...met.map((x) => x.peak))} dB`);
 const st = eng.status();
 ok('landings at 10 and 20 s at dwell 6 blend 4, and blending again at 30', st.landings === 2 && st.phase === 'blend', `${st.landings} landings, phase ${st.phase}`);
@@ -134,6 +141,23 @@ const clearHf = hfShare(white), amHf = hfShare(outA.subarray(8820));
 ok('the AM path: energy above 4 kHz, against 300 Hz to 3 kHz, at least 15 dB lower than the clear input', clearHf - amHf >= 15,
   `clear ${clearHf.toFixed(1)} dB, AM ${amHf.toFixed(1)} dB`);
 ok('NEGATIVE CONTROL: the instrument sees no drop between the clear input and itself', Math.abs(hfShare(white) - clearHf) < 0.01);
+
+// ── 5b. a hot master: the Kalle files reach the shaper at +6 dBFS. why: lessons/workers-cast.md#drive ──
+// A 1 kHz tone at full scale, dead on a slot, no noise: the share of the output that is not the tone (THD+N).
+function thd(tuner, amp = 1) {
+  const tone = new Float32Array(44100 * 2).map((_, i) => amp * Math.sin(2 * Math.PI * 1000 * i / 44100)), out = new Float32Array(tone.length);
+  for (let i = 0; i < tone.length; i += M.BLOCK) tuner.render([tone.subarray(i, i + M.BLOCK), null], dead, out.subarray(i, i + M.BLOCK));
+  const y = out.subarray(44100);
+  let c = 0, sn = 0, all = 0;
+  for (let i = 0; i < y.length; i++) { c += y[i] * Math.cos(2 * Math.PI * 1000 * i / 44100); sn += y[i] * Math.sin(2 * Math.PI * 1000 * i / 44100); all += y[i] * y[i]; }
+  const fund = 2 * (c * c + sn * sn) / y.length;
+  return 10 * Math.log10((all - fund) / fund);
+}
+const hot = thd(M.createTuner({ rand: M.seeded(1) })), was = thd(M.createTuner({ rand: M.seeded(1), drive: 1, k: 2.2 }));
+ok('a full scale tone leaves the saturation under 5 per cent THD+N (-26 dB)', hot < -26, `${hot.toFixed(1)} dB`);
+ok('NEGATIVE CONTROL: without DRIVE and at k 2.2 the same tone is squashed past 10 per cent (-20 dB)', was > -20, `${was.toFixed(1)} dB`);
+const quietT = thd(M.createTuner({ rand: M.seeded(1) }), 0.05);
+ok('NEGATIVE CONTROL: a tone at -26 dBFS passes nearly clean, so the instrument is not reading its own floor', quietT < -45, `${quietT.toFixed(1)} dB`);
 
 // ── 6. the clock, on a fake wall ──
 let fakeNow = 0;
