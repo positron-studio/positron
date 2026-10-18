@@ -317,7 +317,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     return { drone, droneLevel: r2(0.3 + 0.3 * r()), droneOct: r() < 0.5 ? -1 : -2,
       res: some('res'), resDecay: r2(0.5 + 3.5 * r()), resWet: r2(0.15 + 0.35 * r()),
       harm: some('harm'), harmSpread: r2(r()),
-      ghost: some('ghost'), ghostEvery: Math.round(20 + 40 * r()), ghostLen: Math.round(3 + 7 * r()), ghostSide: r() < 0.5 ? 'next' : 'prev', ghostLevel: r2(0.1 + 0.15 * r()),
+      ghost: some('ghost'), ghostEvery: Math.round(20 + 40 * r()), ghostLen: Math.round(8 + 7 * r()), ghostSide: r() < 0.5 ? 'next' : 'prev', ghostLevel: r2(0.15 + 0.15 * r()),
       bpm: pulse ? Math.round(60 + 60 * r()) : 0, pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(kind === 'speech' ? LAYERS.pulseOn : LAYERS.pulseOn.slice(0, 2), r),
       room: r2(0.1 + 0.3 * r()), roomSize: r2(0.4 + 0.5 * r()) };
   }
