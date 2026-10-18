@@ -85,7 +85,7 @@
   import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES } from '/radio/cast/life.mjs';
+  import { createLife, VOTES, fromT } from '/radio/cast/life.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -626,7 +626,7 @@
     localFor = LOCAL;
     d.set('listening', LOCAL);
     const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
-    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0 } }; }
+    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
     await local.start({ queue: localQueue(), ...sound });
     if (!localOn()) return;
     if (isLive) startLife(true);
@@ -656,6 +656,8 @@
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
       const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend);
+      // the patch with the scene's own controls set aside it, dry, before the granulator rises
+      local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s) } }); L.patch = s.patch;
       paintScene();
     }
     if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = t;
@@ -720,6 +722,8 @@
   async function loadVotes() {
     try { const j = await (await fetch(`${BASE}/votes`)).json(); if (Array.isArray(j.votes)) votes = j.votes; } catch { /* none yet */ }
   }
+  /** A scene's controls set aside its patch, as values. */
+  const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, fromT(n, t)]));
   const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
   function paintScene() {
     const L = lifeState, n = mine.get(L.inst)?.vote || 0, s = lifeTimer && life ? life.scene(L.si) : null;
@@ -733,7 +737,8 @@
   }
   function paintLife() {
     const v = lifeNow;
-    lPatch.textContent = v ? v.patch : '';
+    const tw = v && life ? Object.entries(tweaksOf(life.scene(lifeState.si))).map(([n, x]) => `${n} ${fmt(x)}`).join(', ') : '';
+    lPatch.textContent = v ? `${v.patch}${tw ? ` with ${tw}` : ''}` : '';
     lMove.textContent = v ? `${v.param} ${fmt(v.value)}, ${v.kind === 'interlude' ? 'interlude' : `${v.len} scene`}` : '';
     lWet.textContent = v ? `${Math.round(v.wet * 100)} %` : '';
   }
@@ -929,7 +934,8 @@
       calls.length = 0; needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
       d.assert('the next landing is scene 1: its own dwell, blend and patch, and one file on the card again',
         has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
-        && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && cards[LOCAL].now2.hidden && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
+        && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && cards[LOCAL].now2.hidden
+        && Object.keys(S1.tweak).length === 2 && has(([c, p]) => c === 'patch' && p.name === S1.patch && Object.keys(S1.tweak).every((n) => n in p.set)) && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
       // stepping: next and previous ask for a scene and start the transition; the press sweeps until it lands
       calls.length = 0; sceneBtns.button('next').click(); await tick(100);
       const nextBusy = sceneBtns.button('next').dataset.busy === '1' && calls.some(([c]) => c === 'next');
