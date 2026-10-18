@@ -7,7 +7,7 @@ import { plan, positionAt, rng, MOVES } from '../../shell/hand.mjs';
 import { PATCHES, valuesOf } from '../../granulator/grain-ring.mjs';
 
 /** How long the needle stays on a file, by kind, in seconds (the clock's dwell, at most 600). */
-export const LENGTHS = { short: 45, mid: 100, long: 200 };
+export const LENGTHS = { short: 45, mid: 80, long: 150 };
 /** An interlude is the blend between two files, in seconds (the clock's blend, at most 120). */
 export const INTERLUDE = [4, 20];
 /**
@@ -17,7 +17,7 @@ export const INTERLUDE = [4, 20];
  * drift a little of both.
  */
 export const IKINDS = {
-  radio: { noise: [0.7, 1.4], wet: [0.08, 0.2], blend: [10, 20], freeze: false },
+  radio: { noise: [0.5, 1], wet: [0.08, 0.2], blend: [10, 20], freeze: false },
   smear: { noise: [0, 0.12], wet: [0.45, 0.75], blend: [8, 18], freeze: true },
   clean: { noise: [0, 0.05], wet: [0, 0.08], blend: [4, 8], freeze: false },
   drift: { noise: [0.25, 0.5], wet: [0.2, 0.4], blend: [8, 16], freeze: false },

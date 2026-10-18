@@ -80,7 +80,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     ghostOut = ctx.createGain();
     for (const n of [toGrains, ghostOut]) Object.assign(n, { channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
     // what the tuner makes, before any layer: the page's speech onsets are read here, never off the master
-    tunerAnalyser = ctx.createAnalyser(); tunerAnalyser.fftSize = 1024; toGrains.connect(tunerAnalyser);
+    tunerAnalyser = ctx.createAnalyser(); tunerAnalyser.fftSize = 8192; toGrains.connect(tunerAnalyser);
     noise = ctx.createBufferSource(); noise.buffer = pinkNoise(ctx); noise.loop = true; noise.connect(graph.noiseIn); noise.start();
     // each slot: what it plays reaches its tuner leg through its level, and in copy mode the master straight, unlevelled
     // as the container's frame copier is

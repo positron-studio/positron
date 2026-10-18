@@ -419,6 +419,10 @@
     if (!pendingMode && fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
     showGrains(MODES[mixUi.mode.get()] === 'grains'); showLive(MODES[mixUi.mode.get()] === 'live');
     mixUi.mode.buttons[3].hidden = target !== LOCAL;
+    // local is live only: copy, mix and grains are the stations' until live runs on air
+    mixUi.mode.el.style.display = target === LOCAL ? 'none' : '';
+    // on local the sound is the live scene, so the section waits for one rather than drawing an empty box
+    if (typeof soundSec !== 'undefined') soundSec.style.display = target === LOCAL && !lifeNow ? 'none' : '';
     const gp = w.patch || {}, gi = Math.max(0, NAMES.indexOf(gp.name ?? NAMES[0])), gv = { ...valuesOf(PATCHES[gi]), mix: 1, ...(gp.set || {}) };
     if (fresh('patch')) mixUi.patch.show(NAMES[gi], gi);
     for (const n of GRAIN) if (fresh(`g${n}`) && fresh('patch')) mixUi[`g${n}`].set(gv[n], true);
@@ -688,7 +692,7 @@
       layersFor(s);
       paintScene();
     }
-    ghostTick(t); onsetTick();
+    ghostTick(t); onsetTick(); layerTick(st, t);
     if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = t;
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
@@ -718,9 +722,33 @@
         .then((e) => { layerEng = e; if (lifeTimer) layersFor(life.scene(lifeState.si)); }, (e) => d.log(`the layers did not come up: ${e.message}`, 'warn'));
     }
     if (!layerEng) return;
-    layerEng.apply(s.layers, s.key); layerEng.level(1);
+    layerEng.apply(s.layers, s.key); layerEng.level(0);
+    heard.acc = new Float64Array(12); heard.done = false;
     ghost.next = secs() + s.layers.ghostEvery * 0.5; ghost.until = 0; local.ghostStop(); layerEng.ghost(false);
     pulse(s.layers);
+  }
+  // the layers rise after the file has started and fall away before it ends, so a new chord is set in
+  // silence; their key is the file's own strongest note, heard in its first seconds
+  const ease = (u) => u * u * (3 - 2 * u), heard = { acc: new Float64Array(12), done: false };
+  const layerLevel = (x) => (x < 0.12 ? 0 : x < 0.3 ? ease((x - 0.12) / 0.18) : x > 0.8 ? ease(Math.max(0, (0.95 - x) / 0.15)) : 1);
+  let chromaBuf = null;
+  function layerTick(st, t) {
+    if (!layerEng || !life) return;
+    const s = life.scene(lifeState.si), since = t - lifeState.sceneAt;
+    layerEng.level(st.phase === 'blend' ? 0 : layerLevel(since / s.dwell));
+    if (heard.done || !local.tunerAnalyser) return;
+    if (since >= 1 && since < 5) {
+      const a = local.tunerAnalyser; chromaBuf ||= new Float32Array(a.frequencyBinCount); a.getFloatFrequencyData(chromaBuf);
+      const hzPer = a.context.sampleRate / a.fftSize;
+      for (let i = Math.ceil(60 / hzPer); i < Math.min(chromaBuf.length, 1000 / hzPer); i++) {
+        const pc = ((Math.round(12 * Math.log2((i * hzPer) / 65.406)) % 12) + 12) % 12;
+        heard.acc[pc] += 10 ** (chromaBuf[i] / 20);
+      }
+    } else if (since >= 5) {
+      heard.done = true;
+      const root = heard.acc.indexOf(Math.max(...heard.acc));
+      if (heard.acc[root] > 0) { s.key = { ...s.key, root, heard: true }; layerEng.apply(s.layers, s.key); paintLife(); }
+    }
   }
   function layersOff() {
     clearTimeout(pulseTimer); pulseTimer = 0; local?.ghostStop?.();
@@ -729,7 +757,7 @@
   // a ghost: the next file in the queue, or the one before, from somewhere inside it, for a few seconds
   function ghostTick(t) {
     const Ly = layerEng?.layers;
-    if (!Ly || Ly.ghost === 'none') return;
+    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1)) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layerEng.ghost(false); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
       const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
@@ -811,7 +839,7 @@
   const KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
   /** A scene's layers in words, for the readout: its key, then each layer it carries. */
   function layersSay(s) {
-    const Ly = s.layers || {}, out = [`${KEYS[s.key?.root ?? 0]} ${s.key?.minor ? 'minor' : 'major'}`];
+    const Ly = s.layers || {}, out = [`${KEYS[s.key?.root ?? 0]} ${s.key?.minor ? 'minor' : 'major'}${s.key?.heard ? ' (heard in the file)' : ''}`];
     if (Ly.drone !== 'none') out.push(`${Ly.drone} drone`);
     if (Ly.res !== 'none') out.push(`resonators ${Ly.res}`);
     if (Ly.harm !== 'none') out.push(`harmonizer ${Ly.harm}`);
@@ -858,7 +886,8 @@
   const detail = el('div', 'vc-detail');
   // next sits on the program's heading: it steps through the program
   const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
-  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('', progHead, progEmpty, progHost));
+  const soundSec = sec('sound', sound.el);
+  detail.append(sec('', head, playing.el), soundSec, sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
