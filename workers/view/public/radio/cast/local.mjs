@@ -58,7 +58,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   const g = { patch: PATCHES[0].name, values: { ...RING_DEFAULTS, ...valuesOf(PATCHES[0]) }, mix: 1 };
   const mix = createMix(SLOTS, WHISTLE_SOFT);
   let mode = 'mix', ctx = null, graph = null, master = null, analyser = null, gates = null, toGrains = null, noise = null;
-  let ghostOut = null, ghostP = null, sc = null, tunerAnalyser = null;
+  let ghostOut = null, ghostP = null, sc = null, tunerAnalyser = null, onGrain = null;
   let engine = null, eng = null, booting = null, grains = 0, softenReady = null, softenOk = false;
   let items = [], nextIdx = 0, pending = null, playing = false, timer = 0;
   let from = 0, cycleFrom = 0, phase = 'off', k = 0, tune = ctl.tune, m = mix(tune), landings = 0;
@@ -180,7 +180,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   }
   function bootGrains() {
     engine ||= createRingEngine({ log });
-    booting ||= engine.boot({ ctx, input: inputPairs(ctx, [toGrains, ghostOut]), inputChannels: 4, log, grain: () => { grains++; } }).then((r) => {
+    booting ||= engine.boot({ ctx, input: inputPairs(ctx, [toGrains, ghostOut]), inputChannels: 4, log, grain: (g) => { grains++; onGrain?.(g); } }).then((r) => {
       r.out.gain.value = 1; r.out.connect(gates.grains); sc = r.scsynth;
       engine.fixed(g.values); engine.knob('mix', g.mix); engine.fresh(); engine.land();
       eng = r; route();
@@ -192,6 +192,8 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     get ctx() { return ctx; },
     get analyser() { return analyser; },
     get tunerAnalyser() { return tunerAnalyser; },
+    /** Called with every grain the ring fires (`{ pos, ago, dur, rate }`), for a picture. */
+    set onGrain(fn) { onGrain = fn; },
     /** The scsynth the ring runs in, once grains has booted: the layers run beside it. */
     get scsynth() { return sc; },
     /** Play `item` from `at` seconds into the ghost input only; levelled as its slot would be. */
