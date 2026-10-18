@@ -216,14 +216,14 @@ export const envelope = (x, dry = 0.2, rise = 0.18, hold = 0.85) => (x <= dry ||
  */
 const TYPE = (o) => o;
 export const TYPES = {
-  intro: TYPE({ dry: [0.5, 0.8], rise: 0.15, hold: 0.92, peak: [0.3, 0.5], band: [0.3, 0.5], fam: ['cloud', 'tape'], lens: ['mid'], outs: ['dissolve', 'filter', 'clean'] }),
-  build: TYPE({ dry: [0.15, 0.25], rise: 0.5, hold: 0.9, peak: [0.8, 1], band: [0.6, 0.9], fam: ['drone', 'cloud', 'choir'], lens: ['long'], outs: ['echowash', 'dronebridge', 'smear'] }),
-  deep: TYPE({ dry: [0.1, 0.15], rise: 0.15, hold: 0.9, peak: [0.9, 1], band: [0.8, 1], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'frozenbridge'] }),
-  storm: TYPE({ dry: [0.1, 0.1], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'glitch', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'pause', 'smear'] }),
-  rhythm: TYPE({ dry: [0.15, 0.15], rise: 0.12, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['rhythmic', 'tape'], lens: ['mid'], outs: ['tapestop', 'filter'] }),
-  choir: TYPE({ dry: [0.15, 0.25], rise: 0.25, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['choir', 'spectral'], lens: ['mid', 'long'], outs: ['chordbridge', 'frozenbridge', 'dissolve'] }),
-  breath: TYPE({ dry: [0.3, 0.3], rise: 0.2, hold: 0.6, peak: [0.2, 0.4], band: [0.1, 0.3], fam: ['drone', 'cloud'], lens: ['breath'], outs: ['dissolve', 'pause'] }),
-  coda: TYPE({ dry: [0.1, 0.1], rise: 0.2, hold: 0.5, peak: [0.8, 0.8], band: [0.5, 0.8], fam: ['drone', 'spectral'], lens: ['long'], outs: ['pause', 'dronebridge'] }),
+  intro: TYPE({ dry: [0.12, 0.2], rise: 0.15, hold: 0.92, peak: [0.75, 0.95], band: [0.6, 0.8], fam: ['choir', 'cloud', 'drone'], lens: ['mid'], outs: ['dissolve', 'filter', 'clean'] }),
+  build: TYPE({ dry: [0.06, 0.1], rise: 0.35, hold: 0.9, peak: [0.8, 1], band: [0.6, 0.9], fam: ['drone', 'cloud', 'choir'], lens: ['long'], outs: ['echowash', 'dronebridge', 'smear'] }),
+  deep: TYPE({ dry: [0.04, 0.08], rise: 0.15, hold: 0.9, peak: [0.9, 1], band: [0.8, 1], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'frozenbridge'] }),
+  storm: TYPE({ dry: [0.05, 0.05], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'glitch', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'pause', 'smear'] }),
+  rhythm: TYPE({ dry: [0.06, 0.06], rise: 0.12, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['rhythmic', 'tape'], lens: ['mid'], outs: ['tapestop', 'filter'] }),
+  choir: TYPE({ dry: [0.06, 0.1], rise: 0.25, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['choir', 'spectral'], lens: ['mid', 'long'], outs: ['chordbridge', 'frozenbridge', 'dissolve'] }),
+  breath: TYPE({ dry: [0.1, 0.1], rise: 0.2, hold: 0.6, peak: [0.6, 0.8], band: [0.4, 0.6], fam: ['drone', 'cloud'], lens: ['breath'], outs: ['dissolve', 'pause'] }),
+  coda: TYPE({ dry: [0.05, 0.05], rise: 0.2, hold: 0.5, peak: [0.9, 0.9], band: [0.5, 0.8], fam: ['drone', 'spectral'], lens: ['long'], outs: ['pause', 'dronebridge'] }),
 };
 // the same types narrowed to one family, as a section asks for them
 TYPES.tapebuild = { ...TYPES.build, fam: ['tape'] };
@@ -434,7 +434,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const pulse = r() < o.pulse;
     // a drone in nearly every scene, and both kinds at once as often as either alone
     const drone = r() < o.drone ? pickOne(['freeze', 'key', 'both', 'both'], r) : 'none';
-    return { drone, droneLevel: r2(0.3 + 0.3 * r()), droneOct: r() < 0.5 ? -1 : -2,
+    return { drone, droneLevel: r2(G2 ? 0.45 + 0.25 * r() : 0.3 + 0.3 * r()), droneOct: r() < 0.5 ? -1 : -2,
       res: some('res'), resDecay: r2(0.5 + 3.5 * r()), resWet: r2(0.15 + 0.35 * r()),
       harm: some('harm'), harmSpread: r2(r()),
       ghost: some('ghost'), ghostEvery: Math.round(20 + 40 * r()), ghostLen: Math.round(8 + 7 * r()), ghostSide: r() < 0.5 ? 'next' : 'prev', ghostLevel: r2(0.15 + 0.15 * r()),
@@ -491,8 +491,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const a = rng(seed * 977 + i * 31), within = ([lo, hi]) => lo + (hi - lo) * a();
     const Tt = TYPES[d.type];
     d.dry = r2(within(Tt.dry)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
-    // inside its type's band by the tide, and the whole band lower at low tide, so the hour is heard
-    d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.75 + 0.25 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
+    // inside its type's band by the tide, and the whole band a little lower at low tide
+    d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
     d.layers = typeLayers(d.layers, Tt, rng(seed * 2741 + i * 59));
     // a locked patch plays on the scene's tempo: so many grains a beat, its echo so many beats
     const f = patchInfo(d.patch);
@@ -511,7 +511,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const n = T.name.replace(/^(tape|cloud)build$/, 'build').replace(/^sdeep$/, 'deep'), ghost = () => pickOne(['res', 'comb', 'bpf'], r);
     const none = { res: 'none', harm: 'none', ghost: 'none', bpm: 0 };
     switch (n) {
-      case 'intro': return { ...L, ...none, drone: 'key', droneLevel: r2(0.2 + 0.1 * r()), room: r2(0.1 + 0.1 * r()) };
+      // speech as an instrument from the start: sung through resonators over a full drone, never plain talk
+      case 'intro': return { ...L, ...none, drone: 'both', droneLevel: r2(0.45 + 0.15 * r()), res: pickOne(['fifths', 'major', 'minor7'], r), harm: r() < 0.5 ? 'octfifth' : 'none', room: r2(0.2 + 0.2 * r()) };
       case 'build': return { ...L, drone: L.drone === 'none' ? 'key' : L.drone };
       case 'deep': return { ...L, drone: 'both', droneLevel: r2(0.4 + 0.2 * r()), res: pickOne(['fifths', 'minor7'], r), harm: pickOne(['none', 'octfifth'], r), bpm: 0,
         ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(25 + 20 * r()), room: r2(0.3 + 0.2 * r()) };
@@ -520,7 +521,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       case 'rhythm': return { ...L, drone: 'key', bpm: Math.round(70 + 40 * r()), pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(['res', 'grains'], r),
         res: L.res === 'none' ? pickOne(['fifths', 'minor7', 'major'], r) : L.res };
       case 'choir': return { ...L, drone: 'key', harm: pickOne(['octfifth', 'triad'], r), res: pickOne(['major', 'minor7'], r), bpm: 0 };
-      case 'breath': return { ...L, ...none, drone: L.drone === 'none' ? 'key' : L.drone, droneLevel: r2(0.2 + 0.1 * r()) };
+      case 'breath': return { ...L, ...none, drone: L.drone === 'none' ? 'key' : L.drone, droneLevel: r2(0.45 + 0.15 * r()) };
       case 'coda': return { ...L, ...none, drone: pickOne(['freeze', 'both'], r), room: r2(0.4 + 0.1 * r()) };
       default: return L;
     }
