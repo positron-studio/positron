@@ -34,6 +34,10 @@
   .vc-at { font: 12px var(--mono); font-variant-numeric: tabular-nums; }
   .vc-at:empty { display: none; }
   .vc-ctl > .pos-icobtn[hidden] { display: none; }
+  .vc-ctl.vc-vote { flex-wrap: nowrap; justify-content: space-between; width: 100%; }
+  .vc-vote > .vc-ctl { gap: 8px; flex-wrap: nowrap; }
+  .vc-vote .pos-bgroup { width: auto; min-width: auto; }
+  .vc-vote .pos-bgroup-row { min-width: auto; overflow-x: visible; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .vc-detail { display: flex; flex-direction: column; gap: 28px; }
   .vc-mix > .sld-group { width: 100%; }
@@ -367,6 +371,16 @@
   // live: what the life is doing, in place of the controls it is moving
   const lifeRows = createGlueRows({ grid: true, align: 'start', full: true });
   const lPatch = el('span', 'vc-v'), lMove = el('span', 'vc-v'), lWet = el('span', 'vc-v');
+  const sceneBtns = createButtonGroup({ buttons: [
+    { id: 'prev', icon: 'skip-back', label: 'the previous scene', onPress: () => step(-1) },
+    { id: 'next', icon: 'skip-forward', label: 'the next scene', onPress: () => step(1) },
+  ] });
+  const voteDown = createIconButton({ icon: 'minus', label: 'not this one', pressed: false, onPress: () => vote(-1) });
+  const voteUp = createIconButton({ icon: 'plus', label: 'more like this', pressed: false, onPress: () => vote(1) });
+  const lScene = el('span', 'vc-v'), sceneCtl = el('span', 'vc-ctl vc-vote'), votePair = el('span', 'vc-ctl');
+  votePair.append(voteDown.el, voteUp.el); sceneCtl.append(sceneBtns.el, votePair);
+  lifeRows.row([sceneCtl]);
+  lifeRows.row([k('scene'), lScene]);
   lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]);
   const lifeRow = sound.row([lifeRows.el], {});
   const showLive = (on) => { lifeRow.hidden = !on || !lifeNow; mixRow.hidden = on; dial.el.hidden = on; if (on) showGrains(false); };
@@ -607,7 +621,7 @@
     localFor = LOCAL;
     d.set('listening', LOCAL);
     const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
-    if (isLive) { life = createLife({ seed: lifeSeed() }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.interlude.blend }); sound.patch = { name: s0.patch, set: { mix: 0 } }; }
+    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0 } }; }
     await local.start({ queue: localQueue(), ...sound });
     if (!localOn()) return;
     if (isLive) startLife(true);
@@ -630,12 +644,15 @@
     if (!localOn() || !life) return;
     const st = local.status(), L = lifeState, t = secs();
     if (st.landings !== L.land) {
-      L.land = st.landings; L.sceneAt = t;
-      const s = life.scene(L.land); local.set('dwell', s.dwell); local.set('blend', s.interlude.blend);
+      L.si = L.land === -1 ? 0 : L.want ?? L.si + 1; L.want = null;
+      L.land = st.landings; L.sceneAt = t; L.inst = `${Date.now().toString(36)}-${L.si}`;
+      L.file = st.slots[st.from]?.title || '';
+      const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend);
+      paintScene();
     }
     if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = t;
     L.phase = st.phase;
-    const v = st.phase === 'blend' ? life.inInterlude(L.land, t - L.blendAt) : life.inScene(L.land, t - L.sceneAt);
+    const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch({ name: v.patch, set: { mix: 0 } }); }
     local.patch({ set: { [v.param]: v.value, mix: v.wet } });
     lifeNow = v;
@@ -643,16 +660,52 @@
   /** `keep` keeps the life startLocal just made; a switch into live mid-play starts a new one. */
   function startLife(keep = false) {
     if (!localOn()) return;
-    if (!keep || !life) life = createLife({ seed: lifeSeed() });
-    Object.assign(lifeState, { land: -1, phase: '', patch: '' });
+    if (!keep || !life) life = createLife({ seed: lifeSeed(), votes });
+    Object.assign(lifeState, { land: -1, phase: '', patch: '', si: 0, want: null, inst: '' });
     local.set('drift', 1);
     clearInterval(lifeTimer); lifeTimer = setInterval(lifeTick, 50); lifeTick();
   }
   function stopLife(restore = false) {
-    clearInterval(lifeTimer); lifeTimer = 0; lifeNow = null;
+    clearInterval(lifeTimer); lifeTimer = 0; lifeNow = null; lifeState.want = null; paintScene();
     if (restore && localOn()) { local.set('dwell', mixUi.dwell.get()); local.set('blend', mixUi.blend.get()); local.patch({ name: NAMES[patchAt()], set: { mix: mixUi.gmix.get() } }); }
   }
+  // previous and next ask for a scene and start the transition at once; the press sweeps until it lands
+  function step(by) {
+    if (!lifeTimer || lifeState.want != null) return;
+    lifeState.want = Math.max(0, lifeState.si + by);
+    local.next(); paintScene();
+  }
+  // a vote is on the scene as it played (`inst`): the same press again takes it back
+  let votes = [];
+  const mine = new Map();
+  let postVote = (body) => fetch(`${BASE}/votes?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify(body) })
+    .then((r) => r.json()).catch((e) => ({ error: e.message }));
+  async function vote(n) {
+    const L = lifeState;
+    if (!lifeTimer || !L.inst) return;
+    if (!key) { d.log('a vote needs the key: open this page once with ?key=', 'warn'); return; }
+    const v = mine.get(L.inst) === n ? 0 : n, def = life.defOf(life.scene(L.si));
+    mine.set(L.inst, v);
+    votes = votes.filter((x) => x.inst !== L.inst).concat(v ? [{ inst: L.inst, def, vote: v, file: L.file }] : []);
+    paintScene();
+    const r = await postVote({ inst: L.inst, def, vote: v, file: L.file });
+    if (r?.error) d.log(`the vote was not kept: ${r.error}`, 'warn');
+    else d.log(v ? `${v > 0 ? 'liked' : 'not liked'}: ${def.patch}, ${def.param}` : 'vote taken back');
+  }
+  async function loadVotes() {
+    try { const j = await (await fetch(`${BASE}/votes`)).json(); if (Array.isArray(j.votes)) votes = j.votes; } catch { /* none yet */ }
+  }
   const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
+  function paintScene() {
+    const L = lifeState, n = mine.get(L.inst) || 0, s = lifeTimer && life ? life.scene(L.si) : null;
+    lScene.textContent = s ? `${L.si + 1}${s.from ? ', a variation' : ''}` : '';
+    voteUp.pressed(n > 0); voteDown.pressed(n < 0);
+    for (const [b, by] of [['prev', -1], ['next', 1]]) {
+      const btn = sceneBtns.button(b);
+      if (L.want != null && L.want === Math.max(0, L.si + by)) btn.dataset.busy = '1'; else delete btn.dataset.busy;
+    }
+    sceneBtns.button('prev').disabled = !s || L.si === 0;
+  }
   function paintLife() {
     const v = lifeNow;
     lPatch.textContent = v ? v.patch : '';
@@ -680,6 +733,7 @@
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
+  if (!SELFCHECK) loadVotes();
 
   window.__demo.bay = bay;
   window.__demo.listenUrl = listenUrl;
@@ -705,7 +759,7 @@
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length + detail.querySelectorAll('.pos-icobtn[aria-pressed]').length, detail.querySelectorAll('.sld-lane').length, isOn(t)]);
+      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length + Number(detail.contains(dial.el)), detail.querySelectorAll('.sld-lane').length, isOn(t)]);
     }
     d.assert('selecting a station opens it on the right, and each one has mode, the clock, tune, dwell, blend and the grain controls',
       seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 7 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
@@ -840,17 +894,43 @@
       const seen0 = { lifeShown: !lifeRow.hidden && mixRow.hidden && getComputedStyle(dial.el).display === 'none' && grainRow.hidden, moving: lMove.textContent };
       d.assert('live on local: the engine runs grains on the clock, scene 0 sets its dwell, blend and patch, and moves its one control with the wet',
         seen0.lifeShown && has(([c, v]) => c === 'mode' && v === 'grains') && has(([c, n, v]) => c === 'set' && n === 'drift' && v === 1)
-        && has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S0.dwell) && has(([c, n, v]) => c === 'set' && n === 'blend' && v === S0.interlude.blend)
+        && has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S0.dwell) && has(([c, n, v]) => c === 'set' && n === 'blend' && v === S0.blend)
         && has(([c, p]) => c === 'patch' && p.name === S0.patch) && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set)
         && seen0.moving.startsWith(`${S0.param} `) && status[LOCAL].wanted.mode === 'live', JSON.stringify({ seen0, S0: [S0.patch, S0.param, S0.dwell], calls: calls.slice(0, 8) }));
       calls.length = 0; needle = { ...needle, phase: 'blend' }; await tick(400);
       d.assert('in the blend the interlude moves another control, and the local card shows both files and the time',
-        has(([c, p]) => c === 'patch' && p.set && S0.interlude.param in p.set) && !has(([c, p]) => c === 'patch' && p.name)
+        has(([c, p]) => c === 'patch' && p.set && S0.iParam in p.set) && !has(([c, p]) => c === 'patch' && p.name)
         && cards[LOCAL].now2.textContent === 'file B' && !cards[LOCAL].now2.hidden && nowOf(LOCAL) === 'file A' && cards[LOCAL].at.textContent === '0:03' && lMove.textContent.endsWith('interlude'), JSON.stringify({ now: nowOf(LOCAL), now2: cards[LOCAL].now2.textContent, at: cards[LOCAL].at.textContent, m: lMove.textContent }));
       calls.length = 0; needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
       d.assert('the next landing is scene 1: its own dwell, blend and patch, and one file on the card again',
         has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
         && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && cards[LOCAL].now2.hidden && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
+      // stepping: next and previous ask for a scene and start the transition; the press sweeps until it lands
+      calls.length = 0; sceneBtns.button('next').click(); await tick(100);
+      const nextBusy = sceneBtns.button('next').dataset.busy === '1' && calls.some(([c]) => c === 'next');
+      needle = { ...needle, landings: 2, from: 0 }; await tick(400);
+      const atTwo = lifeState.si === 2 && !sceneBtns.button('next').dataset.busy && has(([c, p]) => c === 'patch' && p.name === L42.scene(2).patch);
+      calls.length = 0; sceneBtns.button('prev').click(); await tick(100);
+      const prevBusy = sceneBtns.button('prev').dataset.busy === '1';
+      needle = { ...needle, landings: 3, from: 1 }; await tick(400);
+      d.assert('next starts the transition and lands on the next scene; previous goes back one; each press sweeps until it lands',
+        nextBusy && atTwo && prevBusy && lifeState.si === 1 && !sceneBtns.button('prev').dataset.busy && lScene.textContent.startsWith('2'),
+        JSON.stringify({ nextBusy, atTwo, prevBusy, si: lifeState.si, scene: lScene.textContent }));
+      // votes, against a recorder instead of the store
+      const posted = [], realPost = postVote;
+      postVote = async (b) => { posted.push(b); return { ok: true }; };
+      voteUp.el.click(); await tick();
+      const up = posted.at(-1), upLit = voteUp.el.getAttribute('aria-pressed') === 'true' && voteDown.el.getAttribute('aria-pressed') === 'false';
+      voteUp.el.click(); await tick();
+      const back = posted.at(-1);
+      voteDown.el.click(); await tick();
+      const down = posted.at(-1);
+      d.assert('+ keeps a like on the scene as it plays, with the def that rebuilds it; + again takes it back; - keeps a dislike',
+        up?.vote === 1 && up.inst === lifeState.inst && JSON.stringify(up.def) === JSON.stringify(life.defOf(life.scene(1))) && up.file === 'file B' && upLit
+        && back?.vote === 0 && back.inst === up.inst && down?.vote === -1 && voteDown.el.getAttribute('aria-pressed') === 'true'
+        && votes.filter((x) => x.inst === up.inst).length === 1 && votes.at(-1).vote === -1, JSON.stringify({ up, back, down }));
+      d.assert('NEGATIVE CONTROL: the votes went to the recorder only, never to a station', sent.every(([, m]) => m.cmd !== 'vote') && posted.length === 3);
+      postVote = realPost; votes = []; mine.clear();
       rowOf('user3').click(); await tick();
       const liveOff = mixUi.mode.buttons[3].hidden;
       rowOf(LOCAL).click(); await tick(100);
