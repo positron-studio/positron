@@ -25,7 +25,12 @@
   .vc-vote > .vc-ctl { gap: 8px; flex-wrap: nowrap; }
   .vc-vote .pos-bgroup { width: auto; min-width: auto; }
   .vc-vote .pos-bgroup-row { min-width: auto; overflow-x: visible; }
-  .vc-comment .pos-field { width: 100%; }
+  .vc-v.vc-wrap { white-space: normal; overflow: visible; }
+  .vc-say { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+  .vc-say .pos-field { width: 100%; }
+  .vc-votes > .pos-toggle { flex: 1 1 0; }
+  .vc-votes > [aria-pressed="true"] { position: relative; z-index: 1; }
+  .vc-votes { display: flex; width: 100%; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .vc-detail { display: flex; flex-direction: column; gap: 28px; }
   .vc-mix > .sld-group { width: 100%; }
@@ -360,20 +365,22 @@
   const showGrains = (on) => { grainRow.hidden = !on; grainSliders.hidden = !on; };
   // live: what the life is doing, in place of the controls it is moving
   const lifeRows = createGlueRows({ grid: true, align: 'start', full: true });
-  const lPatch = el('span', 'vc-v'), lMove = el('span', 'vc-v'), lWet = el('span', 'vc-v');
+  const lPatch = el('span', 'vc-v vc-wrap'), lMove = el('span', 'vc-v'), lWet = el('span', 'vc-v');
   const sceneBtns = createButtonGroup({ buttons: [
     { id: 'prev', icon: 'skip-back', label: 'the previous scene', onPress: () => step(-1) },
     { id: 'next', icon: 'skip-forward', label: 'the next scene', onPress: () => step(1) },
   ] });
   // the vote on the scene playing: bad, ok, good (keys 1 to 3); the lit one again takes it back
   const voteBtns = Object.fromEntries(Object.entries(VOTES).map(([n, w]) => [n, createToggle({ label: w, title: `key ${n}`, onChange: () => vote(Number(n)) })]));
-  const lScene = el('span', 'vc-v'), sceneCtl = el('span', 'vc-ctl vc-vote'), votePair = el('span', 'vc-ctl');
-  votePair.append(...Object.values(voteBtns).map((t) => t.el)); sceneCtl.append(sceneBtns.el, votePair);
+  const lScene = el('span', 'vc-v'), sceneCtl = el('span', 'vc-ctl vc-vote'), votePair = el('span', 'pos-seg vc-votes');
+  votePair.append(...Object.values(voteBtns).map((t) => t.el)); sceneCtl.append(sceneBtns.el);
   lifeRows.row([sceneCtl]);
   lifeRows.row([k('scene'), lScene]);
   lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]);
   const comment = createField({ label: 'comment', rows: 3, placeholder: 'what works here, what does not', onInput: () => commentLater() });
-  lifeRows.row([comment.el], { cls: 'vc-comment' });
+  // what you think of the scene, in one block: the vote over the comment
+  const sayBox = el('div', 'vc-say'); sayBox.append(votePair, comment.el);
+  lifeRows.row([sayBox], { cls: 'vc-comment' });
   const lifeRow = sound.row([lifeRows.el], {});
   const showLive = (on) => { lifeRow.hidden = !on || !lifeNow; mixRow.hidden = on; dial.el.hidden = on; if (on) showGrains(false); };
   showGrains(false);
