@@ -232,5 +232,10 @@ check('votes learn the family: liked choirs come up more, and every family still
   `${share(base600, (x) => familyOf(x.patch) === 'choir').toFixed(2)} to ${share(SF, (x) => familyOf(x.patch) === 'choir').toFixed(2)}`);
 check('votes learn the section: a liked ritual comes up more, and never twice in a row', share(SS, (x) => x.section === 'ritual') > share(base600, (x) => x.section === 'ritual') * 1.2,
   `${share(base600, (x) => x.section === 'ritual').toFixed(2)} to ${share(SS, (x) => x.section === 'ritual').toFixed(2)}`);
+// a clicking file (soften) gets long smooth grains only: no echoing tape, no chops, no glitch, no storm
+const softL = createLife0({ grammar: 2, seed: 11 }), SO = Array.from({ length: 400 }, (_, i) => softL.scene(i, { kind: kindAt(i), soft: i % 3 === 0 }));
+const softOk = SO.filter((x, i) => i % 3 === 0).every((x) => L2.SMOOTH.includes(familyOf(x.patch)) && !['storm', 'rhythm', 'tapebuild', 'cloudbuild'].includes(x.type));
+check('a clicking file plays only drone, choir and spectral patches, never a storm or a rhythmic scene', softOk);
+check('NEGATIVE CONTROL: the same scenes without the flag play tape, rhythmic or glitch patches', S2.slice(0, 400).filter((x, i) => i % 3 === 0).some((x) => !L2.SMOOTH.includes(familyOf(x.patch))));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);

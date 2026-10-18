@@ -67,9 +67,9 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   // a twin rebuilds the life's scenes as the station made them (each file's kind, each key it heard), so scene `si`
   // is the station's to the bit. why: lessons/workers-cast.md#handover
   const hist = Array.isArray(resume?.hist) ? resume.hist : [];
-  for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
+  for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined, soft: !!hist[k]?.soft }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
   const si0 = resume && Number.isInteger(resume.si) && resume.si >= 0 ? resume.si : 0;
-  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined });
+  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften });
   const L = { land: -1, si: si0, sceneAt: 0, blendAt: 0, phase: '', patch: '', inst: '', file: '', item: null, prevItem: null, want: null, now: null, level: 0 };
   const ghost = { next: 0, until: 0, stopAt: 0, src: null, item: null, level: 1, soften: null };
   const counts = { pulses: 0, onsets: 0, ghosts: 0, keys: 0, chains: 0 };
@@ -172,7 +172,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         L.si = first ? si0 : L.want ?? L.si + 1; L.want = null;
         L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = first && resume?.inst ? resume.inst : `${Date.now().toString(36)}-${L.si}`;
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
-        const s = life.scene(L.si, { kind: L.item?.kind || undefined });
+        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften });
         e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE); e.set('path', s.iPath ?? 0);
         // a frozen patch stays open until the scene's dry share is over
         g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
@@ -219,7 +219,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     handoff() {
       const x = g.status(), back = Math.max(0, x.clockBacklog ?? x.backlog ?? 0), on = x.slots[x.from], s = L.land >= 0 ? life.scene(L.si) : null;
       if (!s || !on?.id) return null;
-      const made = Array.from({ length: L.si + 1 }, (_, k) => { const sc = life.scene(k); return { kind: sc.kind, key: sc.key }; });
+      const made = Array.from({ length: L.si + 1 }, (_, k) => { const sc = life.scene(k); return { kind: sc.kind, soft: !!sc.soft, key: sc.key }; });
       const left = Number.isFinite(on.seconds) ? on.seconds - on.played - x.blend - 1 : Infinity;
       return { id: on.id, title: on.title, pos: +(on.played - back).toFixed(3), cycleT: +(x.cycleT - back).toFixed(3), wall: Date.now(),
         si: L.si, inst: L.inst, hist: made, def: life.defOf(s), phase: x.phase, safeS: x.phase === 'dwell' ? +Math.min(x.dwell - x.cycleT, left).toFixed(1) : 0, seed };

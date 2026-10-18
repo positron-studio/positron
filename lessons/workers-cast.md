@@ -725,3 +725,11 @@ dBFS. Breath bed read -7.3 and its amp went from 1.4 to 1.7.
 No naked speech in grammar 2. Asked: *"I am sating i do jot want naked speech"*, *"Too much of it in prev
 versions"*. A bypass of the tuner for naked scenes was built and measured (within 0.2 dB of the tuner at
 `BARE_GAIN` 0.5 on a voice-like source) and removed the same minute, unshipped.
+
+## soft-files
+
+`life.mjs` make2, `ctx.soft`, 2026-10-18. The files the soften stage marks (Kalle, Kalle 2, Driving along: 1.5 ms
+clicks at 2 to 6 kHz, see #drive) play only drone, choir and spectral patches, and a storm or rhythmic scene on
+one becomes a deep drone or a choir. Asked: *"current kalle is uninspiring and glitchy"*: it was Long dub, an
+echo of 0.8 on half-second grains, which repeats every click. Both drivers pass `soft` from the feed's `soften`,
+and the container's history carries it so a twin rebuilds the same scenes.

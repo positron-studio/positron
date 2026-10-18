@@ -245,6 +245,9 @@ export const SECTIONS = {
 /** The tide: the piece's intensity over this many planned seconds, low to high and back. */
 export const TIDE_S = 3600;
 export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / TIDE_S + phase);
+/** The families that smooth a clicking file, and what its sharp scene types become. */
+export const SMOOTH = ['drone', 'choir', 'spectral'];
+export const SHARP_TYPES = { storm: 'deep', rhythm: 'choir', tapebuild: 'build', cloudbuild: 'build' };
 /** No patch has more grains sounding at once than this. */
 export const OVERLAP_CAP = 24;
 /** The longer form: intensity rises and falls over ARC scenes, from 0.55 to 1. */
@@ -480,12 +483,15 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729), kind = ctx.kind || 'unknown', at = sectionAt(i);
     const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH);
     // no naked speech: the owner does not want it (2026-10-18), so a section opens on a dry intro
-    const type = at.type === 'open' ? 'intro' : at.type === 'stormy' ? (r() < 0.5 ? 'storm' : 'rhythm') : at.type;
-    const T = TYPES[type];
+    let type = at.type === 'open' ? 'intro' : at.type === 'stormy' ? (r() < 0.5 ? 'storm' : 'rhythm') : at.type;
+    // a file with clicks in it (`soft`, the soften stage's files: Kalle, Kalle 2, Driving along) gets long
+    // smooth grains only: echoes, chops and glitches repeat its clicks. why: lessons/workers-cast.md#soft-files
+    if (ctx.soft && SHARP_TYPES[type]) type = SHARP_TYPES[type];
+    const T = ctx.soft ? { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] } : TYPES[type];
     const cands = [];
     for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i, T));
     for (let k = 0; taste.liked.length && !prev?.from && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i, T); if (v) cands.push(v); }
-    for (const c of cands) Object.assign(c, { kind, type, section: at.section, secLast: at.last });
+    for (const c of cands) Object.assign(c, { kind, type, section: at.section, secLast: at.last, ...(ctx.soft ? { soft: true } : {}) });
     const ok = cands.map((c) => complete(c, r, recent, prev, T)).filter((c) => !taste.disliked.includes(coreId(c)) && !ducks(c));
     const d = weighted(ok.length ? ok : cands, (x) => Math.exp(LEAN * learned(x)), r);
     const a = rng(seed * 977 + i * 31), within = ([lo, hi]) => lo + (hi - lo) * a();
