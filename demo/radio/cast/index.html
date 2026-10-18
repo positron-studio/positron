@@ -56,8 +56,6 @@
   import { createPicker } from '/shell/picker.mjs';
   import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createTable } from '/shell/table.mjs';
-  import { createWaveShape } from '/shell/synth-view.mjs';
-  import { scopeWindow } from '/shell/rt-scope.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
   useMediumColours();
 
@@ -474,7 +472,6 @@
     const rms = Math.sqrt(sum / player.buf.length);
     d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     d.set('heard', Math.floor(player.audio.currentTime));
-    scope.set({ points: scopeWindow(player.buf), reason: '', name: listenTarget });
   }
   function startListening(t) {
     const url = listenUrl(t);
@@ -486,7 +483,6 @@
     listenTarget = t;
     player.audio.src = url;
     d.set('listening', t);
-    scope.el.hidden = false;
     player.audio.play().catch(() => { /* the error event says why */ });
     clearInterval(levelTimer);
     levelTimer = setInterval(readLevel, 250);
@@ -498,8 +494,6 @@
     if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
     listenTarget = null;
     d.set('listening', ''); d.set('level', ''); d.set('heard', '');
-    scope.set({ points: null, reason: null, name: '' });
-    scope.el.hidden = true;
     paintDetail(); pb.refresh();
   }
   // ── the local station: its sound controls as they stand, on its program, heard here at once ──
@@ -518,7 +512,6 @@
     local ||= makeLocal();
     localFor = LOCAL;
     d.set('listening', LOCAL);
-    scope.el.hidden = false;
     await local.start({ queue: localQueue(), ...localSound() });
     if (!localOn()) return;
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
@@ -529,7 +522,6 @@
     local?.stop(); localFor = null;
     clearInterval(levelTimer);
     d.set('listening', ''); d.set('level', ''); d.set('heard', '');
-    scope.set({ points: null, reason: null, name: '' }); scope.el.hidden = true;
     paintRow(LOCAL); paintDetail(); pb.refresh();
   }
   const localBuf = new Float32Array(2048);
@@ -543,10 +535,7 @@
     const rms = Math.sqrt(sum / localBuf.length), st = local.status();
     d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     d.set('heard', Math.floor(st.slots[st.from]?.at ?? 0));
-    scope.set({ points: scopeWindow(localBuf), reason: '', name: LOCAL });
   }
-  const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
-  scope.el.hidden = true;
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
   const stations = sec('stations', stTable.el); stations.classList.add('vc-stations');
@@ -554,7 +543,7 @@
   detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('program', progEmpty, progHost));
   const main = el('div', 'vc-main'); main.append(stations, detail);
   wire(); markOpen(); paintRow(LOCAL); paintDetail();
-  d.stack.add(main, scope.el, sec('archive', archList.el), pb.el);
+  d.stack.add(main, sec('archive', archList.el), pb.el);
   await loadFeed();
 
   window.__demo.bay = bay;
@@ -673,7 +662,7 @@
       d.assert('START on local plays its own program here with its sound as it stands, each file from /file/<id>',
         localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'mix'
         && st0.set.drift === 0 && Math.abs(st0.set.tune - 0.51) < 1e-9 && st0.patch.name === NAMES[patchAt()] && localFile(items[0]) === `${BASE}/file/${items[0].id}`
-        && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here' && !scope.el.hidden,
+        && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here',
         JSON.stringify({ st0, word: word(LOCAL) }));
       calls.length = 0;
       mixUi.tune.set(0.5);
