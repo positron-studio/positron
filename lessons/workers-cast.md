@@ -499,3 +499,11 @@ about ever. `content-type` is forwarded, never invented.
 MEASURED 2026-10-17 on the deploy, *Driving along* (`evt_1791874248959`): first request 200, `x-cast-cache: miss`,
 1,630,223 bytes, `audio/mpeg`; second 200, `hit`, the same bytes (cmp); `range: bytes=1000-1999` 206,
 `content-range: bytes 1000-1999/1630223`, `hit`; an unknown id and `..%2Fx` 404.
+
+### ghost-input
+
+`demo/radio/cast/local.mjs`, the ghost player. The layers hear a second file on scsynth busses 4 and 5
+(`bootScsynth({ inputChannels: 4, input: inputPairs(ctx, [toGrains, ghostOut]) })`, lessons/kit-scsynth.md
+#input-channels). `inputPairs` splits each feed with a ChannelSplitter, which is `discrete`: a mono feed
+would land on the left channel only and the ring, which reads `Mix(In.ar(2, 2)) * 0.5`, would drop 6 dB.
+So both feeds are set to 2 channels, `explicit`, `speakers`, and a mono file is upmixed before the split.

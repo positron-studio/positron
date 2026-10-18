@@ -82,16 +82,19 @@
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
   import { createLife, VOTES, fromT, tasteOf, fileWeight } from '/radio/cast/life.mjs';
+  import { createLayerEngine, euclid, stepSeconds } from '/radio/cast/layers.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
   const BASE = q.get('cast') || 'https://cast.positron.studio';
   const SHOUT = q.get('shout') || 'https://shout.positron.studio';
   const d = mount({ name: 'Väin cast',
-    what: 'Each station plays Väin\'s archive with its own program and sound, tried here first and put on air from Cloudflare.',
+    what: '',
     index: '/', indexLabel: 'positron',
-    readout: { listening: '', heard: 's', level: 'dB', prelisten: '' } });
-  conceptNav('radio/cast');
+    readout: null });
+  // no readout row: the values the page used to show there are dropped
+  const show = () => {};
+  conceptNav('radio/cast', { say: false });
 
   let key = q.get('key') || '';
   try { if (key) localStorage.setItem('vain-cast-key', key); else key = localStorage.getItem('vain-cast-key') || ''; } catch { /* no storage */ }
@@ -387,7 +390,8 @@
   votePair.append(...Object.values(voteBtns).map((t) => t.el)); sceneCtl.append(sceneBtns.el);
   lifeRows.row([sceneCtl]);
   lifeRows.row([k('scene'), lScene]);
-  lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]);
+  const lLayers = el('span', 'vc-v vc-wrap');
+  lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]); lifeRows.row([k('layers'), lLayers]);
   const comment = createField({ label: 'comment', rows: 3, placeholder: 'what works here, what does not', onInput: () => commentLater() });
   // what you think of the scene, in one block: the vote over the comment
   const sayBox = el('div', 'vc-say'); sayBox.append(votePair, comment.el);
@@ -449,7 +453,10 @@
       { id: 'add', icon: 'plus', label: `add ${x.title} to the program`, onPress: () => editProgram([...progOf(target), x.id]) },
     ] });
     const name = el('span', 'vc-v', x.title); name.title = x.title;
-    const r = archList.row([name, el('span', 'vc-day', (x.at || '').slice(5, 10)), btns.el], { cls: 'vc-file vc-arch' });
+    // the upload day as a day and a month; the full date on hover
+    const when = x.at ? new Date(x.at) : null, day = el('span', 'vc-day', when ? when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
+    if (when) day.title = when.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const r = archList.row([name, day, btns.el], { cls: 'vc-file vc-arch' });
     archRows.set(x.id, { r, btns });
   }
   const showPre = () => { for (const [id, a] of archRows) a.btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten'); };
@@ -553,16 +560,16 @@
     pre.onerror = () => { d.log(`${x.title} did not play`, 'warn'); stopPrelisten(); };
     pre.onplaying = () => { showPre(); pb.refresh(); };
     pre.src = x.url; preId = x.id;
-    d.set('prelisten', x.title);
+    show('prelisten', x.title);
     prePlay(pre)?.catch?.(() => { /* the error event says why */ });
     clearInterval(levelTimer);
-    levelTimer = setInterval(() => d.set('heard', pre ? Math.floor(pre.currentTime) : ''), 500);
+    levelTimer = setInterval(() => show('heard', pre ? Math.floor(pre.currentTime) : ''), 500);
     showPre();
   }
   function stopPrelisten() {
     if (pre) { pre.pause(); pre.removeAttribute('src'); pre.load(); }
     preId = null; clearInterval(levelTimer);
-    d.set('prelisten', ''); d.set('heard', '');
+    show('prelisten', ''); show('heard', '');
     showPre(); pb.refresh();
   }
 
@@ -583,8 +590,8 @@
     let sum = 0;
     for (const v of player.buf) sum += v * v;
     const rms = Math.sqrt(sum / player.buf.length);
-    d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
-    d.set('heard', Math.floor(player.audio.currentTime));
+    show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
+    show('heard', Math.floor(player.audio.currentTime));
   }
   function startListening(t) {
     const url = listenUrl(t);
@@ -595,7 +602,7 @@
     player.ctx.resume().catch(() => { /* sound may be late, the stream is not */ });
     listenTarget = t;
     player.audio.src = url;
-    d.set('listening', t);
+    show('listening', t);
     player.audio.play().catch(() => { /* the error event says why */ });
     clearInterval(levelTimer);
     levelTimer = setInterval(readLevel, 250);
@@ -606,7 +613,7 @@
     clearInterval(levelTimer);
     if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
     listenTarget = null;
-    d.set('listening', ''); d.set('level', ''); d.set('heard', '');
+    show('listening', ''); show('level', ''); show('heard', '');
     paintDetail(); pb.refresh();
   }
   // ── the local station: its sound controls as they stand, on its program, heard here at once ──
@@ -629,7 +636,7 @@
     stopListening(); stopPrelisten();
     local ||= makeLocal();
     localFor = LOCAL;
-    d.set('listening', LOCAL);
+    show('listening', LOCAL);
     const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
     if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(sound.queue?.[0]?.id ?? localQueue()[0]?.id))?.kind }); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
     await local.start({ queue: localQueue(), ...sound });
@@ -642,7 +649,7 @@
     if (!localFor) return;
     stopLife(); local?.stop(); localFor = null; landed();
     clearInterval(levelTimer);
-    d.set('listening', ''); d.set('level', ''); d.set('heard', '');
+    show('listening', ''); show('level', ''); show('heard', '');
     paintRow(LOCAL); paintDetail(); pb.refresh();
   }
   // ── the life on local: scene i is the dial's i-th landing; its blend to the next file is the interlude ──
@@ -658,14 +665,17 @@
       L.land = st.landings; L.sceneAt = t; L.inst = `${Date.now().toString(36)}-${L.si}`;
       L.file = st.slots[st.from]?.title || '';
       const kind = items.find((x) => x.title === L.file)?.kind;
-      instDef.set(L.inst, { def: life.defOf(life.scene(L.si)), file: L.file });
+      L.prevItem = L.item; L.item = items.find((x) => x.title === L.file) || null;
+      instDef.set(L.inst, { def: life.defOf(life.scene(L.si, { kind })), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
       const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
-      local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s) } }); L.patch = s.patch;
+      local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 } }); L.patch = s.patch;
+      layersFor(s);
       paintScene();
     }
+    ghostTick(t); onsetTick();
     if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = t;
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
@@ -683,7 +693,62 @@
   }
   function stopLife(restore = false) {
     clearInterval(lifeTimer); lifeTimer = 0; lifeNow = null; lifeState.want = null; paintScene();
+    layersOff();
     if (restore && localOn()) { local.set('dwell', mixUi.dwell.get()); local.set('blend', mixUi.blend.get()); local.set('noise', 1); local.patch({ name: NAMES[patchAt()], set: { mix: mixUi.gmix.get() } }); }
+  }
+  // ── the layers (layers.mjs) beside the ring: booted once grains is up, set per scene ──
+  let layerEng = null, layerBoot = null, pulseTimer = 0, pulseStep = 0;
+  const ghost = { next: 0, until: 0 };
+  function layersFor(s) {
+    if (!layerEng && !layerBoot && local.scsynth) {
+      layerBoot = createLayerEngine(local.scsynth, { log: (m) => d.log(m) })
+        .then((e) => { layerEng = e; if (lifeTimer) layersFor(life.scene(lifeState.si)); }, (e) => d.log(`the layers did not come up: ${e.message}`, 'warn'));
+    }
+    if (!layerEng) return;
+    layerEng.apply(s.layers, s.key); layerEng.level(1);
+    ghost.next = secs() + s.layers.ghostEvery * 0.5; ghost.until = 0; local.ghostStop(); layerEng.ghost(false);
+    pulse(s.layers);
+  }
+  function layersOff() {
+    clearTimeout(pulseTimer); pulseTimer = 0; local?.ghostStop?.();
+    if (layerEng) layerEng.apply(null);
+  }
+  // a ghost: the next file in the queue, or the one before, from somewhere inside it, for a few seconds
+  function ghostTick(t) {
+    const Ly = layerEng?.layers;
+    if (!Ly || Ly.ghost === 'none') return;
+    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * Math.random()); }
+    else if (!ghost.until && t >= ghost.next) {
+      const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
+      if (!who) { ghost.next = t + 10; return; }
+      local.ghost({ ...who, gain: who.gain }, 20 + Math.random() * 180); layerEng.ghost(true); ghost.until = t + Ly.ghostLen;
+      d.log(`a ghost: ${who.title}`);
+    }
+  }
+  // the pulse: a euclidean pattern at the scene's tempo, on the grains (the ring's beat), the resonators,
+  // or nothing but the speech's own onsets
+  function pulse(Ly) {
+    clearTimeout(pulseTimer); pulseTimer = 0;
+    if (!Ly.bpm || Ly.pulseOn === 'onsets') return;
+    const [k, n] = Ly.pattern, hits = euclid(k, n), dt = stepSeconds(Ly.bpm, n) * 1000;
+    const go = () => {
+      if (hits[pulseStep++ % n]) {
+        if (Ly.pulseOn === 'res') layerEng?.hit(dt / 1000 * 1.5);
+        else if (local.scsynth) { local.scsynth.send('/n_set', 4000, 'beat', 1); setTimeout(() => local.scsynth?.send('/n_set', 4000, 'beat', 0), 15); }
+      }
+      pulseTimer = setTimeout(go, dt);
+    };
+    go();
+  }
+  const onsetBuf = new Float32Array(1024), onset = { avg: 0, last: 0 };
+  function onsetTick() {
+    const Ly = layerEng?.layers;
+    if (!Ly?.bpm || Ly.pulseOn !== 'onsets' || !local.tunerAnalyser) return;
+    local.tunerAnalyser.getFloatTimeDomainData(onsetBuf);
+    let s2 = 0; for (const v of onsetBuf) s2 += v * v;
+    const r = Math.sqrt(s2 / onsetBuf.length), now = performance.now();
+    if (r > 0.01 && r > onset.avg * 1.6 && now - onset.last > 120) { onset.last = now; layerEng.hit(0.25); }
+    onset.avg = onset.avg * 0.9 + r * 0.1;
   }
   // previous and next ask for a scene and start the transition at once; the press sweeps until it lands
   function step(by) {
@@ -730,6 +795,18 @@
   }
   /** A scene's controls set aside its patch, as values. */
   const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, fromT(n, t)]));
+  const KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  /** A scene's layers in words, for the readout: its key, then each layer it carries. */
+  function layersSay(s) {
+    const Ly = s.layers || {}, out = [`${KEYS[s.key?.root ?? 0]} ${s.key?.minor ? 'minor' : 'major'}`];
+    if (Ly.drone !== 'none') out.push(`${Ly.drone} drone`);
+    if (Ly.res !== 'none') out.push(`resonators ${Ly.res}`);
+    if (Ly.harm !== 'none') out.push(`harmonizer ${Ly.harm}`);
+    if (Ly.ghost !== 'none') out.push(`ghosts ${Ly.ghost}`);
+    if (Ly.bpm) out.push(Ly.pulseOn === 'onsets' ? 'pulse on the speech' : `pulse ${Ly.pattern[0]} of ${Ly.pattern[1]} at ${Ly.bpm}`);
+    if (!layerEng) out.push('(layers starting)');
+    return out.join(', ');
+  }
   const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
   function paintScene() {
     const L = lifeState, n = mine.get(L.inst)?.vote || 0, s = lifeTimer && life ? life.scene(L.si) : null;
@@ -747,6 +824,7 @@
     lPatch.textContent = v ? `${v.patch}${tw ? ` with ${tw}` : ''}` : '';
     lMove.textContent = v ? `${v.param} ${fmt(v.value)}, ${v.kind === 'interlude' ? v.len : `${v.len} scene`}` : '';
     lWet.textContent = v ? `${Math.round(v.wet * 100)} %` : '';
+    lLayers.textContent = v && life ? layersSay(life.scene(lifeState.si)) : '';
   }
   const localBuf = new Float32Array(2048);
   function readLocal() {
@@ -758,8 +836,8 @@
     let sum = 0;
     for (const v of localBuf) sum += v * v;
     const rms = Math.sqrt(sum / localBuf.length), st = local.status();
-    d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
-    d.set('heard', Math.floor(st.slots[st.from]?.at ?? 0));
+    show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
+    show('heard', Math.floor(st.slots[st.from]?.at ?? 0));
   }
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };

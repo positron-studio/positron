@@ -27,5 +27,57 @@ check('euclid k of n always has k hits, spread so no gap differs from another by
 }));
 check('NEGATIVE CONTROL: the gap check catches all hits bunched at the start', (() => { const at = [0, 1, 2], n = 8, gaps = at.map((v, i) => ((at[(i + 1) % at.length] - v + n) % n) || n); return Math.max(...gaps) - Math.min(...gaps) > 1; })());
 check('a step at 120 bpm: a beat 0.5 s, an eighth 0.25 s, a sixteenth 0.125 s', stepSeconds(120, 4) === 0.5 && stepSeconds(120, 8) === 0.25 && stepSeconds(120, 16) === 0.125);
+
+// ── --browser: each layer alone in the wasm scsynth, against a voice-like source at the levelled loudness ──
+// Grades level, not taste: every layer audible (above -40 dB) and none drowning the file (under +3 dB of it).
+if (process.argv.includes('--browser')) {
+  const { compileLayers } = await import('./layers.mjs');
+  const { launchChrome, connectCdp } = await import('../../chrome.mjs');
+  const BASE = process.env.DEMO_BASE_LOCAL || 'http://127.0.0.1:8890';
+  const { bytes } = compileLayers();
+  const PAGE = `async (defs) => {
+    const S = await import('${BASE}/shell/scsynth.mjs'), L = await import('${BASE}/radio/cast/layers.mjs');
+    const ctx = new AudioContext({ sampleRate: 48000 }); await ctx.resume();
+    // a voice-like source: pink-ish noise through two formants, opened four times a second, rms near -23 dB
+    const voice = (seed) => { const b = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate), a = b.getChannelData(0); let y = 0, s = seed;
+      for (let i = 0; i < a.length; i++) { s = (s * 16807) % 2147483647; y = 0.97 * y + ((s / 2147483647) * 2 - 1) * 0.3; a[i] = y * (0.5 + 0.5 * Math.sin(2 * Math.PI * 4 * i / ctx.sampleRate)) ** 2; }
+      const n = new AudioBufferSourceNode(ctx, { buffer: b, loop: true }), f1 = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 700, Q: 2, gain: 12 }), f2 = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1800, Q: 3, gain: 9 }), g = new GainNode(ctx, { gain: 0.12 });
+      n.connect(f1); f1.connect(f2); f2.connect(g); n.start(); return g; };
+    const main = voice(7), ghost = voice(99);
+    for (const n of [main, ghost]) Object.assign(n, { channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
+    const eng = await S.bootScsynth({ audioContext: ctx, input: S.inputPairs(ctx, [main, ghost]), inputChannels: 4 });
+    eng.meter.fftSize = 32768;
+    const rms = async () => { await eng.sleep(2500); const x = new Float32Array(32768); eng.meter.getFloatTimeDomainData(x); let s2 = 0; for (const v of x) s2 += v * v; return Math.sqrt(s2 / x.length); };
+    for (const [name, b] of Object.entries(defs)) { const d = await eng.sendAndWait((m) => (m[0] === '/done' || m[0] === '/fail') && m[1] === '/d_recv', 5000, '/d_recv', new Uint8Array(b)); if (!d || d[0] !== '/done') return { error: name }; }
+    // the source itself, read off its bus and sent out, as the reference
+    const probe = (await import('${BASE}/shell/sclang-lite.mjs')).compile('{ Mix(In.ar(2, 2)) * 0.5 }', { name: 'probe' });
+    await eng.sendAndWait((m) => m[0] === '/done', 5000, '/d_recv', probe.bytes);
+    eng.send('/s_new', 'probe', 4900, 0, 0); const src = await rms(); eng.send('/n_free', 4900); await eng.sleep(300);
+    const E = await L.createLayerEngine(eng), key = { root: 2, minor: true }, out = { src };
+    const base = { drone: 'none', droneLevel: 0.3, droneOct: -1, res: 'none', resWet: 0.3, resDecay: 1.5, harm: 'none', harmSpread: 0.6, ghost: 'none', ghostLevel: 0.17, bpm: 0, room: 0, roomSize: 0.7 };
+    const cases = { drone: { drone: 'key' }, freeze: { drone: 'freeze' }, res: { res: 'minor7' }, harm: { harm: 'octfifth' }, ghostbpf: { ghost: 'bpf' }, ghostcomb: { ghost: 'comb' }, ghostres: { ghost: 'res' } };
+    for (const [k, c] of Object.entries(cases)) { E.apply({ ...base, ...c }, key); if (k.startsWith('ghost')) E.ghost(true); out[k] = await rms(); E.apply({ ...base }, key); E.ghost(false); await eng.sleep(4500); }
+    E.apply(base, key); out.silent = await rms();
+    E.stop();
+    await eng.sonic.destroy?.(); if (ctx.state !== 'closed') await ctx.close();
+    return out;
+  }`;
+  const b = await launchChrome({ prefix: 'layers-test', args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required', '--mute-audio'] });
+  try {
+    const c = await connectCdp(b.wsUrl, { timeout: 180000 }), p = await c.page();
+    await p.S('Page.enable'); await p.S('Page.navigate', { url: `${BASE}/shell/scsynth.mjs` }); await new Promise((r) => setTimeout(r, 1200));
+    const r = await p.S('Runtime.evaluate', { expression: `(${PAGE})(${JSON.stringify(Object.fromEntries(Object.entries(bytes).map(([k, v]) => [k, [...v]])))})`, awaitPromise: true, returnByValue: true });
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+    const got = r.result.value, db = (x) => 20 * Math.log10(Math.max(x, 1e-9));
+    console.log(`  source ${db(got.src).toFixed(1)} dB rms; each layer alone, relative to it:`);
+    for (const k of Object.keys(got).filter((k) => !['src', 'silent', 'error'].includes(k))) console.log(`    ${k.padEnd(11)} ${(db(got[k]) - db(got.src)).toFixed(1)} dB`);
+    check('every layer compiles in the wasm scsynth and runs', !got.error, got.error);
+    check('the source is at a levelled loudness (-30 to -15 dB rms)', db(got.src) > -30 && db(got.src) < -15, db(got.src).toFixed(1));
+    const rel = Object.fromEntries(Object.keys(got).filter((k) => !['src', 'silent', 'error'].includes(k)).map((k) => [k, db(got[k]) - db(got.src)]));
+    check('every layer is heard through the real controller: above -24 dB of the file', Object.values(rel).every((v) => v > -24), JSON.stringify(rel));
+    check('no layer competes with the file: each at least 6 dB under it, ghosts at least 10', Object.entries(rel).every(([k, v]) => v < (k.startsWith('ghost') ? -10 : -6)), JSON.stringify(rel));
+    check('NEGATIVE CONTROL: every layer off is silent, so the level checks can fail', db(got.silent) < -80, db(got.silent).toFixed(1));
+  } finally { await b.close(); }
+}
 console.log(`layers-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);
