@@ -482,7 +482,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // the drone is one of the tricks, not the bed: a section has one in DRONE_SHARE of cases, held across its
     // scenes in one kind, register and level, and none the rest. Asked: "drones are fine but should be only trick"
     const dr = rng(seed * 3301 + i * 7), drone = dr() < DRONE_SHARE
-      ? { drone: pickOne(['key', 'freeze', 'both'], dr), droneLevel: r2(0.4 + 0.25 * dr()), droneOct: dr() < 0.5 ? -1 : -2 } : { drone: 'none' };
+      ? { drone: pickOne(['key', 'freeze', 'both'], dr), droneLevel: r2(0.3 + 0.2 * dr()), droneOct: dr() < 0.5 ? -1 : -2 } : { drone: 'none' };
     list.forEach((type, k) => { secs[i + k] = { section: name, type, pos: k, last: k === list.length - 1, tide, drone }; });
     return secs[i];
   }
