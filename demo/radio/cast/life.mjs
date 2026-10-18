@@ -20,10 +20,10 @@ export const DWELL_NOISE = 0.2;
  * drift a little of both.
  */
 export const IKINDS = {
-  radio: { noise: [0.5, 1], wet: [0.08, 0.2], blend: [10, 20], freeze: false },
-  smear: { noise: [0, 0.12], wet: [0.45, 0.75], blend: [8, 18], freeze: true },
-  clean: { noise: [0, 0.05], wet: [0, 0.08], blend: [4, 8], freeze: false },
-  drift: { noise: [0.25, 0.5], wet: [0.2, 0.4], blend: [8, 16], freeze: false },
+  radio: { noise: [0.5, 1], wet: [0.15, 0.3], blend: [10, 20], freeze: false },
+  smear: { noise: [0, 0.12], wet: [0.6, 0.9], blend: [8, 18], freeze: true },
+  clean: { noise: [0, 0.05], wet: [0.05, 0.15], blend: [4, 8], freeze: false },
+  drift: { noise: [0.25, 0.5], wet: [0.3, 0.5], blend: [8, 16], freeze: false },
 };
 /** The controls a hand may move: range, and whether it reads on a log scale. */
 export const MOVABLE = {
@@ -51,9 +51,9 @@ export const LAYERS = {
  * through resonators and a harmonizer sings, noise through resonators turns pitched, music needs less.
  */
 export const ODDS = {
-  speech: { drone: 0.8, res: 0.7, harm: 0.6, ghost: 0.6, pulse: 0.3 },
-  field: { drone: 0.8, res: 0.6, harm: 0.35, ghost: 0.6, pulse: 0.4 },
-  music: { drone: 0.6, res: 0.35, harm: 0.4, ghost: 0.5, pulse: 0.5 },
+  speech: { drone: 0.95, res: 0.7, harm: 0.6, ghost: 0.6, pulse: 0.3 },
+  field: { drone: 0.95, res: 0.6, harm: 0.35, ghost: 0.6, pulse: 0.4 },
+  music: { drone: 0.85, res: 0.35, harm: 0.4, ghost: 0.5, pulse: 0.5 },
 };
 ODDS.unknown = ODDS.speech;
 /** Each scene is picked from this many new candidates plus up to VARIATIONS of liked scenes. */
@@ -104,7 +104,7 @@ const pickOne = (list, r) => list[Math.floor(r() * list.length)];
 export const fileWeight = (score = 0) => (score <= -6 ? 0 : 2 ** Math.min(3, Math.max(-3, score / 2)));
 const kern = (x, y, w = 0.15) => Math.exp(-(((x - y) / w) ** 2));
 const mid = (d) => (d.lo ?? 0) + (d.width ?? WIDTH[d.len] ?? 0.5) / 2;
-const peakT = (d) => ((d.peak ?? 0.7) - 0.55) / 0.35;
+const peakT = (d) => ((d.peak ?? 0.85) - 0.7) / 0.3;
 /**
  * The features a vote can teach, each a weight and how much a scene shares it with a voted one (0 to 1):
  * patch, control, length, where the hand moves on that control, how much granulator, the interlude's
@@ -184,7 +184,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
   /** The rest of a scene: its time, its granulator, its interlude, and two other controls set aside the patch. */
   function complete(d, r, recent, prev) {
     d.dwell = Math.round(LENGTHS[d.len] * (0.8 + 0.4 * r()));
-    d.peak ??= r2(0.55 + 0.35 * r());
+    d.peak ??= r2(0.7 + 0.3 * r());
     d.iParam = pickOne(PARAMS.filter((p) => ![...recent, d.param, d.notI].includes(p)), r);
     delete d.notI;
     // never the same kind of interlude twice in a row
@@ -212,7 +212,9 @@ export function createLife({ seed = 1, votes = [] } = {}) {
   function layersOf(r, kind) {
     const o = ODDS[kind] || ODDS.unknown, some = (k) => (r() < o[k] ? pickOne(LAYERS[k].slice(1), r) : 'none');
     const pulse = r() < o.pulse;
-    return { drone: some('drone'), droneLevel: r2(0.15 + 0.25 * r()), droneOct: r() < 0.5 ? -1 : -2,
+    // a drone in nearly every scene, and both kinds at once as often as either alone
+    const drone = r() < o.drone ? pickOne(['freeze', 'key', 'both', 'both'], r) : 'none';
+    return { drone, droneLevel: r2(0.3 + 0.3 * r()), droneOct: r() < 0.5 ? -1 : -2,
       res: some('res'), resDecay: r2(0.5 + 3.5 * r()), resWet: r2(0.15 + 0.35 * r()),
       harm: some('harm'), harmSpread: r2(r()),
       ghost: some('ghost'), ghostEvery: Math.round(20 + 40 * r()), ghostLen: Math.round(3 + 7 * r()), ghostSide: r() < 0.5 ? 'next' : 'prev', ghostLevel: r2(0.1 + 0.15 * r()),

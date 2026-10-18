@@ -165,7 +165,9 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
      * this arrival-time axis; a loop's media bounds do not, so only the wrap is drawn.
      * why: lessons/kit-grain-scope.md#wrap
      */
-    wrap() { wraps.push({ t: now() }); },
+    // `colour` (a CSS colour) and `short` (a tick at the foot) let a page mark several kinds of moment;
+    // with neither it is the loop's grey hairline it always was
+    wrap({ colour = null, short = false } = {}) { wraps.push({ t: now(), colour, short }); },
 
     /**
      * Where a loop has got to, as a fraction of the picture's width; `null` takes it away.
@@ -368,7 +370,8 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
           ctx.strokeStyle = C.mark; ctx.lineWidth = 1; ctx.globalAlpha = 1;
           for (const m of wraps) {
             const x = X(m.t);
-            ctx.beginPath(); ctx.moveTo(x + 0.5, 2); ctx.lineTo(x + 0.5, H - 2); ctx.stroke();
+            ctx.strokeStyle = m.colour || C.mark;
+            ctx.beginPath(); ctx.moveTo(x + 0.5, m.short ? H * 0.82 : 2); ctx.lineTo(x + 0.5, H - 2); ctx.stroke();
           }
           ctx.restore();
         }

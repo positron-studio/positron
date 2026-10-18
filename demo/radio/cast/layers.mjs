@@ -57,13 +57,15 @@ export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12)
 // pair 8 and 9, and the room reads that pair and writes the output. sclang-lite has no array controls,
 // so a chord is f0 to f11. why: lessons/workers-cast.md#layers
 
-export const LAYER_BUS = 8, RES_N = 12, GHOST_N = 4;
+export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
+/** The drones stay up across scenes and glide to the next key; the other layers fade with each scene. */
+export const DRONES = ['ldrone', 'lfreeze'];
 const fs = (n, from = 0) => Array.from({ length: n }, (_, i) => `\\f${from + i}.kr(${110 * (i + 1)})`);
 export const PROGRAMS = {
   // three detuned saws on root, fifth and octave, breathing through a slow low-pass
   ldrone: `{ var amp = Lag.kr(\\amp.kr(0), 4);
   var cut = \\cut.kr(500) * (1 + (LFNoise2.kr(0.05) * 0.5));
-  var s = (VarSaw.ar(\\f0.kr(55), 0, 0.3) + (VarSaw.ar(\\f1.kr(82), 0, 0.4) * 0.7) + (VarSaw.ar(\\f2.kr(110) * 1.003, 0, 0.5) * 0.5)) * 0.25;
+  var s = (VarSaw.ar(Lag.kr(\\f0.kr(55), 6), 0, 0.3) + (VarSaw.ar(Lag.kr(\\f1.kr(82), 6), 0, 0.4) * 0.7) + (VarSaw.ar(Lag.kr(\\f2.kr(110), 6) * 1.003, 0, 0.5) * 0.5)) * 0.25;
   Pan2.ar(RLPF.ar(s, cut, 0.6) * amp, LFNoise2.kr(0.03) * 0.3) }`,
   // the file itself held and slowed: low-passed, an octave down, into a long room
   lfreeze: `{ var amp = Lag.kr(\\amp.kr(0), 4);
@@ -95,13 +97,16 @@ export const PROGRAMS = {
   var s = (bp * \\wb.kr(1)) + (cb * \\wc.kr(0) * 0.5) + (rs * \\wr.kr(0) * 0.12);
   Pan2.ar(Limiter.ar(LeakDC.ar(s), 0.5, 0.01) * amp, LFNoise2.kr(0.1) * 0.8) }`,
 };
-export const ROOM = `{ var w = FreeVerb2.ar(In.ar(${LAYER_BUS}, 1), In.ar(${LAYER_BUS + 1}, 1), \\mix.kr(0.3), \\size.kr(0.7), 0.5);
-  Limiter.ar(w * Lag.kr(\\gain.kr(1), 2), 0.9, 0.01) }`;
+export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2);
+  var l = (In.ar(${LAYER_BUS}, 1) * g) + In.ar(${DRONE_BUS}, 1);
+  var r = (In.ar(${LAYER_BUS + 1}, 1) * g) + In.ar(${DRONE_BUS + 1}, 1);
+  var w = FreeVerb2.ar(l, r, \\mix.kr(0.3), \\size.kr(0.7), 0.5);
+  Limiter.ar(w, 0.9, 0.01) }`;
 
 /** Compile every program; `bad` lists any the compiler refused, with why. */
 export function compileLayers() {
   const out = {}, bad = [];
-  for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
+  for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: DRONES.includes(name) ? DRONE_BUS : LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
   const room = compile(ROOM, { name: 'lroom', bus: 0 });
   if (room.ok) out.lroom = room.bytes; else bad.push(`lroom: ${room.message}`);
   return { bytes: out, bad };
@@ -133,18 +138,18 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
       if (!L) { for (const n of Object.keys(PROGRAMS)) set(n, { amp: 0 }); return; }
       const dz = droneHz(key, L.droneOct ?? -1), ch = chordHz(key, L.res === 'none' ? 'fifths' : L.res, { octaves: 3, from: 1 }), rt = harmRatios(L.harm, L.harmSpread);
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
-      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.35 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
-      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 3.5 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
-      set('lres', { amp: L.res !== 'none' ? L.resWet * 0.4 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
+      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.5 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
+      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
+      set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
-      set('lharm', { amp: L.harm !== 'none' ? 1 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
+      set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
       const gc = chordHz(key, 'fifths', { octaves: 1, from: 2 });
       set('lghost', { amp: 0, wb: L.ghost === 'bpf' ? 1 : 0, wc: L.ghost === 'comb' ? 1 : 0, wr: L.ghost === 'res' ? 1 : 0, root: hz((key?.root ?? 0) + 24),
         ...Object.fromEntries(gc.slice(0, GHOST_N).map((f, i) => [`f${i}`, f])) });
       set('lroom', { mix: L.room ?? 0.3, size: L.roomSize ?? 0.7 });
     },
     /** A ghost rising (`on`) or fading; its level is the scene's. */
-    ghost(on) { set('lghost', { amp: on && now?.ghost !== 'none' ? now.ghostLevel * 2 : 0 }); },
+    ghost(on) { set('lghost', { amp: on && now?.ghost !== 'none' ? now.ghostLevel * 2.6 : 0 }); },
     /** One pulse hit on the resonators: opens them for `len` seconds. */
     hit(len = 0.3) { set('lres', { hit: 1, hitlen: len }); setTimeout(() => set('lres', { hit: 0 }), 20); },
     /** Everything the layers make, 0 to 1, for a fade with the scene. */

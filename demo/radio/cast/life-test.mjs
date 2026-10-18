@@ -51,7 +51,7 @@ check('the same seed and votes are the same life, another seed another', first({
 check('a scene\'s def is plain JSON that rebuilds the same id', S.slice(0, 20).every((s) => sceneId(JSON.parse(JSON.stringify(life.defOf(s)))) === s.id));
 
 // votes: liked scenes come back as variations and their patch and control come up more; disliked ones less
-const liked = S[3], hated = S[5];
+const liked = S[3], hated = S.slice(4).find((x) => x.patch !== liked.patch);
 const votes = [...Array(3)].map(() => ({ def: life.defOf(liked), vote: 3 })).concat([...Array(3)].map(() => ({ def: life.defOf(hated), vote: 1 })));
 const taste = tasteOf(votes);
 check('the votes are read: a liked scene, a disliked one, and scores per patch and control',
@@ -116,7 +116,7 @@ check('each scene has a key, moving mostly by a fifth, a fourth or a step', S.ev
 const keyDrones = Z.filter((x) => x.layers.drone === 'key').slice(0, 8), noDrones = Z.filter((x) => x.layers.drone === 'none').slice(0, 8);
 const W = many(createLife({ seed: 5, votes: [...keyDrones.map((x) => ({ def: life.defOf(x), vote: 4 })), ...noDrones.map((x) => ({ def: life.defOf(x), vote: 1 }))] }), 600);
 check('votes learn the layers: liked key drones come up more, disliked silence under the scene less',
-  share(W.filter((x) => !x.from), L('drone') && ((x) => x.layers.drone === 'key')) > share(Z, (x) => x.layers.drone === 'key') + 0.08 && share(W, (x) => x.layers.drone === 'none') < share(Z, (x) => x.layers.drone === 'none') - 0.05,
+  share(W.filter((x) => !x.from), L('drone') && ((x) => x.layers.drone === 'key')) > share(Z, (x) => x.layers.drone === 'key') + 0.08 && share(W, (x) => x.layers.drone === 'none') <= share(Z, (x) => x.layers.drone === 'none'),
   `key ${share(Z, (x) => x.layers.drone === 'key').toFixed(2)} to ${share(W.filter((x) => !x.from), (x) => x.layers.drone === 'key').toFixed(2)}, none ${share(Z, (x) => x.layers.drone === 'none').toFixed(2)} to ${share(W, (x) => x.layers.drone === 'none').toFixed(2)}`);
 const ft = tasteOf([{ def: life.defOf(liked), vote: 1, file: 'Kalle' }, { def: life.defOf(hated), vote: 1, file: 'Kalle' }, { def: life.defOf(liked), vote: 1, file: 'Kalle' }, { def: life.defOf(liked), vote: 4, file: 'Dub hour' }]);
 check('votes count against the file they played on: three bads sink Kalle out of the picks, a great lifts another',

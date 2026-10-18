@@ -19,6 +19,7 @@
   .vc-cards > .pos-card[aria-pressed="true"] { border-color: var(--hi); }
   .vc-cards > .pos-card[aria-pressed="true"] .pos-card-t { color: var(--hi); }
   .vc-cards .pos-card-f { align-items: center; justify-content: space-between; }
+  .vc-eyebrow { font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim2); margin-bottom: -4px; }
   .vc-now2 { color: var(--dim2); }
   .vc-at { font: 12px var(--mono); font-variant-numeric: tabular-nums; }
   .vc-at:empty { display: none; }
@@ -48,6 +49,10 @@
   .vc-head > .pos-sec-h { margin: 0; }
   .vc-url { font: 12px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
   .vc-url[hidden] { display: none; }
+  .pos-vp[hidden] { display: none; }
+  .vc-scope { width: 100%; height: 100%; }
+  .vc-scope .pos-scope { height: 100%; }
+  .vc-scene { font: 12px/1.45 var(--mono); color: var(--dim); white-space: normal; text-wrap: balance; }
   .vc-ctl > .pos-icobtn[hidden] { display: none; }
   /* the group's own display beats the UA [hidden] */
   .vc-head .pos-bgroup[hidden] { display: none; }
@@ -75,8 +80,9 @@
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createIconButton } from '/shell/icon-button.mjs';
-  import { createWaveShape } from '/shell/synth-view.mjs';
-  import { scopeWindow } from '/shell/rt-scope.mjs';
+  import { createGrainScope } from '/shell/grain-scope.mjs';
+  import { RING_SECONDS } from '/granulator/grain-ring.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createToggle } from '/shell/toggle.mjs';
   import { createField } from '/shell/field.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
@@ -260,6 +266,8 @@
   const cardRow = el('div', 'vc-cards'), cards = {};
   for (const t of STATIONS) {
     const c = createCard({ title: t, minH: 92 }), stops = el('span', 'vc-dim', '');
+    // where the station is heard: here in this browser, on our own stream, or on Väin's
+    c.el.querySelector('.pos-card-t').before(el('span', 'vc-eyebrow', t === LOCAL ? 'local positron' : t === 'preview' ? 'live positron' : 'live väin'));
     // under what plays: the second file while two blend, and how far into the file
     const now2 = el('span', 'pos-card-d vc-now2'), at = el('span', 'vc-dim vc-at');
     now2.hidden = true; c.el.querySelector('.pos-card-d').after(now2, at);
@@ -545,7 +553,7 @@
     const rms = Math.sqrt(sum / player.buf.length);
     show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     show('heard', Math.floor(player.audio.currentTime));
-    scopeShow(player.buf, listenTarget);
+    scopeShow(listenTarget);
   }
   function startListening(t) {
     const url = listenUrl(t);
@@ -571,10 +579,36 @@
     scopeOff(); paintDetail(); pb.refresh();
   }
   // the scope under the station head: what is heard, local's output or the stream being listened to
-  const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
-  scope.el.hidden = true;
-  const scopeShow = (buf, name) => { scope.el.hidden = false; scope.set({ points: scopeWindow(buf), reason: '', name }); };
-  const scopeOff = () => { scope.set({ points: null, reason: null, name: '' }); scope.el.hidden = true; };
+  // the last ten seconds heard as a scrolling waveform, a line per grain the ring fires, and the scene's
+  // events in colour; in a video panel whose footer says the scene. why: lessons/workers-cast.md#scope
+  const scopeHost = el('div', 'vc-scope');
+  const scope = createGrainScope(scopeHost, { seconds: 10, height: 120, grainSeconds: RING_SECONDS });
+  const sceneLine = el('span', 'vc-scene');
+  const scopePanel = createVideoPanel({ media: scopeHost, left: false, right: false, centre: sceneLine, aspect: '6 / 1', fullMode: 'bare' });
+  scopePanel.el.hidden = true;
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  /** The kinds of moment drawn on the scope, each in a medium's colour; pulse and onset as ticks at the foot. */
+  const EVENTS = { landing: ['--md-program', false], interlude: ['--md-file', false], ghost: ['--md-video', false], pulse: ['--md-midi', true], onset: ['--md-value', true] };
+  const scopeEvent = (kind) => { const [c, short] = EVENTS[kind]; if (!scopePanel.el.hidden) scope.wrap({ colour: css(c), short }); };
+  let feedRaf = 0, lastFeed = 0, feedBuf = null, scopeName = '';
+  function feedLoop() {
+    const an = listening() ? player?.an : localOn() ? local.analyser : null;
+    if (!an) { feedRaf = 0; return; }
+    if (feedBuf?.length !== an.fftSize) feedBuf = new Float32Array(an.fftSize);
+    an.getFloatTimeDomainData(feedBuf);
+    const t = performance.now(), n = Math.min(feedBuf.length, Math.round(((t - (lastFeed || t)) / 1000) * an.context.sampleRate));
+    lastFeed = t;
+    if (n > 0) scope.feed(feedBuf.subarray(feedBuf.length - n), an.context.sampleRate);
+    feedRaf = requestAnimationFrame(feedLoop);
+  }
+  const scopeShow = (name) => {
+    scopePanel.el.hidden = false;
+    if (name !== scopeName) { scopeName = name; scope.clear(); scope.source(name); }
+    if (!feedRaf) { lastFeed = 0; feedRaf = requestAnimationFrame(feedLoop); }
+    const sc = sceneOf(name); sceneLine.textContent = sc ? describe(sc.si, sc.def, sc.file) : '';
+    scope.grainAlpha(name === LOCAL && lifeNow ? Math.max(0.25, lifeNow.wet) : 0);
+  };
+  const scopeOff = () => { cancelAnimationFrame(feedRaf); feedRaf = 0; scope.clear(); scopeName = ''; scopePanel.el.hidden = true; sceneLine.textContent = ''; };
   // ── the local station: its sound controls as they stand, on its program, heard here at once ──
   const localFile = (it) => `${BASE}/file/${encodeURIComponent(it.id)}`;
   let makeLocal = () => createLocal({ fileUrl: localFile, log: (m, kind) => d.log(`local: ${m}`, kind) });
@@ -588,6 +622,8 @@
     if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
     stopListening(); stopPrelisten();
     local ||= makeLocal();
+    // a grain's audio came in `ago` seconds before it fired: placed on the wave at that moment
+    local.onGrain = (g) => { if (scopeName === LOCAL) scope.mark({ pos: Math.max(0, 1 - (g.ago || 0) / RING_SECONDS), level: 1 }); };
     localFor = LOCAL;
     show('listening', LOCAL);
     // local is live: the ring's grains path, the clock on, scene 0's times and patch from the start
@@ -628,11 +664,11 @@
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 } }); L.patch = s.patch;
       layersFor(s);
-      announce(LOCAL, L.si, life.defOf(s), L.file);
+      announce(LOCAL, L.si, life.defOf(s), L.file); scopeEvent('landing');
       paintScene();
     }
     ghostTick(t); onsetTick(); layerTick(st, t);
-    if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = t; local.set('noise', life.scene(L.si).iNoise); }
+    if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = t; local.set('noise', life.scene(L.si).iNoise); scopeEvent('interlude'); }
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch({ name: v.patch, set: { mix: 0 } }); }
@@ -696,11 +732,11 @@
   function ghostTick(t) {
     const Ly = layerEng?.layers;
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1)) < 0.5)) return;
-    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * Math.random()); }
+    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
       const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
       if (!who) { ghost.next = t + 10; return; }
-      local.ghost({ ...who, gain: who.gain }, 20 + Math.random() * 180); layerEng.ghost(true); ghost.until = t + Ly.ghostLen;
+      local.ghost({ ...who, gain: who.gain }, 20 + Math.random() * 180); layerEng.ghost(true); ghost.until = t + Ly.ghostLen; scopeEvent('ghost');
       d.log(`a ghost: ${who.title}`);
     }
   }
@@ -712,6 +748,7 @@
     const [k, n] = Ly.pattern, hits = euclid(k, n), dt = stepSeconds(Ly.bpm, n) * 1000;
     const go = () => {
       if (hits[pulseStep++ % n]) {
+        scopeEvent('pulse');
         if (Ly.pulseOn === 'res') layerEng?.hit(dt / 1000 * 1.5);
         else if (local.scsynth) { local.scsynth.send('/n_set', 4000, 'beat', 1); setTimeout(() => local.scsynth?.send('/n_set', 4000, 'beat', 0), 15); }
       }
@@ -726,7 +763,7 @@
     local.tunerAnalyser.getFloatTimeDomainData(onsetBuf);
     let s2 = 0; for (const v of onsetBuf) s2 += v * v;
     const r = Math.sqrt(s2 / onsetBuf.length), now = performance.now();
-    if (r > 0.01 && r > onset.avg * 1.6 && now - onset.last > 120) { onset.last = now; layerEng.hit(0.25); }
+    if (r > 0.01 && r > onset.avg * 1.6 && now - onset.last > 120) { onset.last = now; layerEng.hit(0.25); scopeEvent('onset'); }
     onset.avg = onset.avg * 0.9 + r * 0.1;
   }
   // previous and next ask for a scene and start the transition at once; the press sweeps until it lands
@@ -763,12 +800,13 @@
     if (lastInst[t] !== x.inst) announce(t, x.si, x.def, x.file ?? st.now?.title ?? '');
     lastInst[t] = x.inst;
   }
-  /** One log line per scene: what plays, the patch, what moves, the interlude, the key and the layers. */
-  function announce(t, si, def, file) {
-    if (!def) return;
+  /** A scene in words: what plays, the patch and its set controls, what moves, the interlude, the key and the layers. */
+  function describe(si, def, file) {
     const tw = Object.entries(tweaksOf(def)).map(([n, x]) => `${n} ${fmt(x)}`).join(', ');
-    d.log(`${t} scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then a ${def.iKind} interlude; ${layersSay(def)}`);
+    return `scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then a ${def.iKind} interlude; ${layersSay(def)}`;
   }
+  /** One log line per scene. */
+  function announce(t, si, def, file) { if (def) d.log(`${t} ${describe(si, def, file)}`); }
   // a vote is on the scene as it played (`inst`): the same press again takes it back. A comment rides
   // on the same row, sent a second after the typing stops, to the scene it was started on.
   let votes = [];
@@ -854,7 +892,7 @@
     const rms = Math.sqrt(sum / localBuf.length), st = local.status();
     show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     show('heard', Math.floor(st.slots[st.from]?.at ?? 0));
-    scopeShow(localBuf, LOCAL);
+    scopeShow(LOCAL);
   }
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
@@ -864,7 +902,7 @@
   const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
   const soundSec = sec('sound', sound.el);
   // the scene box is not on the page: its painters, the votes, the station step and the Votes store are kept for later
-  detail.append(sec('', head, scope.el, playing.el), sec('', progHead, progEmpty, progHost));
+  detail.append(sec('', head, scopePanel.el, playing.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
