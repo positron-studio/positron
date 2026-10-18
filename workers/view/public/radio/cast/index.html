@@ -960,9 +960,12 @@
       comment.input.value = 'the drift is lovely'; comment.input.dispatchEvent(new Event('input')); await tick();
       comment.input.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true })); await tick(1200);
       const said = posted.at(-1);
-      d.assert('the key 2 votes ok, and a comment is kept on the same scene a second after the typing stops',
+      d.assert('the key 2 votes meh, and a comment is kept on the same scene a second after the typing stops',
         two?.vote === 2 && lit() === '2' && said?.comment === 'the drift is lovely' && said.inst === good.inst && said.vote === 2, JSON.stringify({ two, said }));
       d.assert('NEGATIVE CONTROL: a 3 typed into the comment is a letter, not a vote', said?.vote === 2 && posted.filter((b) => b.vote === 3).length === 1);
+      dispatchEvent(new KeyboardEvent('keydown', { key: '4' })); await tick();
+      d.assert('four votes: the key 4 is great, and four buttons say bad, meh, good, great',
+        posted.at(-1)?.vote === 4 && lit() === '4' && Object.values(voteBtns).map((t) => t.button.textContent).join() === 'bad,meh,good,great', Object.values(voteBtns).map((t) => t.button.textContent).join());
       needle = { ...needle, landings: 4, from: 0 }; await tick(400);
       d.assert('the next scene starts with no vote lit and an empty comment', lit() === '' && comment.value() === '' && lifeState.inst !== good.inst);
       postVote = realPost; votes = []; mine.clear();
