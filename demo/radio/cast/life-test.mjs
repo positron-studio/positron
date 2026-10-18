@@ -55,8 +55,8 @@ const votes = [...Array(3)].map(() => ({ def: life.defOf(liked), vote: 3 })).con
 const taste = tasteOf(votes);
 check('the votes are read: a liked scene, a disliked one, and scores per patch and control',
   taste.liked.length === 1 && taste.liked[0].score === 3 && taste.disliked[0] === coreId(hated) && taste.patch[liked.patch] >= 3 - (liked.patch === hated.patch ? 3 : 0));
-check('NEGATIVE CONTROL: a vote with no def, an unknown patch, an ok or a number off the scale counts for nothing',
-  tasteOf([{ vote: 3 }, { def: { patch: 'Nope', param: 'size' }, vote: 3 }, { def: life.defOf(liked), vote: 2 }, { def: life.defOf(liked), vote: 7 }]).liked.length === 0);
+check('NEGATIVE CONTROL: a vote with no def, an unknown patch or a number off the scale counts for nothing',
+  tasteOf([{ vote: 3 }, { def: { patch: 'Nope', param: 'size' }, vote: 3 }, { def: life.defOf(liked), vote: 0 }, { def: life.defOf(liked), vote: 7 }]).liked.length === 0);
 const share = (L, f) => L.filter(f).length / L.length;
 const V = many(createLife({ seed: 1, votes }));
 rules('with votes', V);
@@ -78,6 +78,9 @@ check('a disliked scene never comes back as it was, though without the vote it w
   `${B.filter((s) => coreId(s) === coreId(B[40])).length} times without the vote`);
 check('its patch and control together come up at most half as often', D.filter(pairOf(B[40])).length * 2 <= B.filter(pairOf(B[40])).length,
   `${B.filter(pairOf(B[40])).length} to ${D.filter(pairOf(B[40])).length}`);
+const g = tasteOf([{ def: life.defOf(liked), vote: 4 }]), m = tasteOf([{ def: life.defOf(liked), vote: 2 }]);
+check('great counts twice a good, and meh leans away: no vote sits in the middle', g.liked[0]?.score === 2 && m.patch[liked.patch] === -1 && m.liked.length === 0
+  && tasteOf([{ def: life.defOf(liked), vote: 3 }]).liked[0]?.score === 1);
 check('NEGATIVE CONTROL: with no votes nothing is a variation', S.every((s) => !s.from));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);

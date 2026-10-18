@@ -10,7 +10,7 @@
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
 //   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
-//   POST /votes?key=           {inst, def, vote: 1 bad | 2 ok | 3 good | null, comment, file}: one row per scene played
+//   POST /votes?key=           {inst, def, vote: 1 bad | 2 meh | 3 good | 4 great | null, comment, file}: one row per scene played
 //                              (`inst`); no vote and no comment takes it back
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
 // session in storage, boots the container, relays commands and restarts it when it dies.
@@ -528,7 +528,7 @@ export class Votes {
     try { b = await req.json(); } catch { return json({ error: 'not JSON' }, 400); }
     const inst = String(b?.inst || '').slice(0, 64), vote = b?.vote == null ? null : Number(b.vote), def = JSON.stringify(b?.def ?? null);
     const comment = String(b?.comment ?? '').trim().slice(0, COMMENT_MAX);
-    if (!inst || (vote !== null && ![1, 2, 3].includes(vote))) return json({ error: 'inst and a vote of 1, 2, 3 or none' }, 400);
+    if (!inst || (vote !== null && ![1, 2, 3, 4].includes(vote))) return json({ error: 'inst and a vote of 1 to 4 or none' }, 400);
     if (vote === null && !comment) { this.sql.exec('DELETE FROM vote WHERE inst = ?', inst); return json({ ok: true, inst, vote }); }
     if (def.length > DEF_MAX || typeof b.def?.patch !== 'string' || typeof b.def?.param !== 'string') return json({ error: 'a def with a patch and a param, under 2000 bytes' }, 400);
     const sid = `${b.def.patch}|${b.def.param}|${b.def.len}|${b.def.lo}|${b.def.iParam}`.slice(0, 200);
