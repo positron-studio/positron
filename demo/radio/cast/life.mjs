@@ -17,8 +17,12 @@ export const MOVABLE = {
 };
 /** A control is not moved again until this many others have been (scenes and interludes count). */
 export const FRESH = 4;
-/** The share of scenes that are a variation of a liked one, once there is one. */
-export const BUILD_ON = 0.4;
+/** Each scene is picked from this many new candidates plus up to VARIATIONS of liked scenes. */
+export const CANDIDATES = 12, VARIATIONS = 4;
+/** How hard the pick leans toward what the votes liked: the best candidate at most e^LEAN times the worst. */
+export const LEAN = 8;
+/** Controls set aside the patch in each scene, so there is more than the patch to learn about. */
+export const TWEAKS = 2;
 const NAMES = PATCHES.map((p) => p.name), PARAMS = Object.keys(MOVABLE), KINDS = Object.keys(LENGTHS);
 const WIDTH = { short: 0.35, mid: 0.55, long: 0.8 };
 
@@ -55,8 +59,38 @@ export function tasteOf(votes = []) {
   const liked = [...byId.values()].filter((e) => e.score > 0);
   return { patch, param, pair, liked, disliked: [...byId.values()].filter((e) => e.score < 0).map((e) => coreId(e.def)) };
 }
-const weight = (score = 0) => 2 ** clamp(score, -3, 3);
-
+const pickOne = (list, r) => list[Math.floor(r() * list.length)];
+const kern = (x, y, w = 0.15) => Math.exp(-(((x - y) / w) ** 2));
+const mid = (d) => (d.lo ?? 0) + (d.width ?? WIDTH[d.len] ?? 0.5) / 2;
+const peakT = (d) => ((d.peak ?? 0.7) - 0.55) / 0.35;
+/**
+ * The features a vote can teach, each a weight and how much a scene shares it with a voted one (0 to 1):
+ * patch, control, length, where the hand moves on that control, how much granulator, the interlude's
+ * control, and each control set aside the patch.
+ */
+export const FEATURES = [
+  [2, (a, b) => (a.patch === b.patch ? 1 : 0)],
+  [1.5, (a, b) => (a.param === b.param ? 1 : 0)],
+  [1, (a, b) => (a.len === b.len ? 1 : 0)],
+  [0.8, (a, b) => (a.param === b.param ? kern(mid(a), mid(b)) : 0)],
+  [1, (a, b) => kern(peakT(a), peakT(b), 0.25)],
+  [0.4, (a, b) => (a.iParam === b.iParam ? 1 : 0)],
+  ...Object.keys(MOVABLE).map((k) => [0.3, (a, b) => (a.tweak?.[k] != null && b.tweak?.[k] != null ? kern(a.tweak[k], b.tweak[k], 0.2) : 0)]),
+];
+const FEATURE_W = FEATURES.reduce((a, [w]) => a + w, 0);
+/**
+ * What the votes say about a scene, -1 to 1: per feature, the mean vote (as -1 to 1) of the voted scenes
+ * that share it, shrunk toward 0 when few do; then the features' weighted mean. 0 with no votes.
+ */
+export function prefer(d, said) {
+  let s = 0;
+  for (const [w, m] of FEATURES) {
+    let num = 0, den = 1;
+    for (const v of said) { const x = m(d, v.def); num += (v.s / 2) * x; den += x * Math.abs(v.s) / 2; }
+    s += w * (num / den);
+  }
+  return s / FEATURE_W;
+}
 /**
  * @param {object} [o]
  * @param {number} [o.seed]   a different seed is a different life
@@ -64,7 +98,7 @@ const weight = (score = 0) => 2 ** clamp(score, -3, 3);
  */
 export function createLife({ seed = 1, votes = [] } = {}) {
   const taste = tasteOf(votes), scenes = [];
-  let owed = false; // a variation the freshness rules put off is owed to the next scene
+  const said = votes.map((v) => ({ def: v?.def, s: scoreOf(v?.vote) })).filter((v) => v.s && v.def && NAMES.includes(v.def.patch) && PARAMS.includes(v.def.param));
   function weighted(list, w, r) {
     const ws = list.map(w), sum = ws.reduce((a, b) => a + b, 0);
     let x = r() * sum;
@@ -72,20 +106,21 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     return list.at(-1);
   }
   function fresh(r, prev, recent, i) {
-    const patch = weighted(NAMES.filter((n) => n !== prev?.patch), (n) => weight(taste.patch[n]), r);
-    const param = weighted(PARAMS.filter((p) => !recent.includes(p)), (p) => weight(taste.param[p]) * (taste.pair[`${patch}|${p}`] < 0 ? 0.25 : 1), r);
-    const same = i >= 2 && prev.len === scenes[i - 2].len, kinds = KINDS.filter((k) => !(same && k === prev.len));
-    const len = kinds[Math.floor(r() * kinds.length)];
+    const patch = pickOne(NAMES.filter((n) => n !== prev?.patch), r);
+    const param = pickOne(PARAMS.filter((p) => !recent.includes(p)), r);
+    const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(KINDS.filter((k) => !(same && k === prev.len)), r);
     const width = WIDTH[len];
     const centre = toT(param, valuesOf(PATCHES[NAMES.indexOf(patch)])[param] ?? fromT(param, 0.5));
-    return { patch, param, len, lo: r2(clamp(centre - width / 2, 0, 1 - width)), width };
+    // the window sits near where the patch has the control, give or take
+    return { patch, param, len, width, lo: r2(clamp(centre - width / 2 + (r() - 0.5) * 0.3, 0, 1 - width)) };
   }
   /** A liked scene with one thing changed: its length, where its window sits, or its interlude. */
-  function vary(base, r, prev, recent) {
+  function vary(base, r, prev, recent, i) {
     if (base.patch === prev?.patch || recent.includes(base.param) || !LENGTHS[base.len]) return null;
-    const d = { patch: base.patch, param: base.param, len: base.len, lo: base.lo, width: base.width ?? WIDTH[base.len] };
-    const what = r();
-    if (what < 1 / 3) { d.len = KINDS.filter((k) => k !== base.len)[Math.floor(r() * 2)]; d.width = WIDTH[d.len]; d.lo = r2(clamp(d.lo, 0, 1 - d.width)); }
+    const same = i >= 2 && prev.len === scenes[i - 2].len;
+    const d = { patch: base.patch, param: base.param, len: base.len, lo: base.lo, width: base.width ?? WIDTH[base.len], tweak: { ...(base.tweak || {}) }, peak: base.peak };
+    const what = same && base.len === prev.len ? 0 : r();
+    if (what < 1 / 3) { d.len = pickOne(KINDS.filter((k) => k !== base.len && !(same && k === prev.len)), r); d.width = WIDTH[d.len]; d.lo = r2(clamp(d.lo, 0, 1 - d.width)); }
     else if (what < 2 / 3) {
       const step = (r() < 0.5 ? -1 : 1) * (0.08 + 0.1 * r());
       d.lo = r2(clamp(d.lo + step, 0, 1 - d.width));
@@ -94,22 +129,33 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     d.from = sceneId(base);
     return d;
   }
-  function make(i) {
-    const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729);
-    const recent = scenes.flatMap((s) => [s.param, s.iParam]).slice(-FRESH);
-    let d = null;
-    if (taste.liked.length && (r() < BUILD_ON || owed)) { d = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent); owed = !d; }
-    for (let k = 0; k < 6 && (!d || taste.disliked.includes(coreId(d))); k++) d = fresh(r, prev, recent, i);
-    if (i >= 2 && prev.len === scenes[i - 2].len && d.len === prev.len) { d.len = KINDS.filter((k) => k !== prev.len)[Math.floor(r() * 2)]; d.width = WIDTH[d.len]; d.lo = r2(clamp(d.lo, 0, 1 - d.width)); }
+  /** The rest of a scene: its time, its granulator, its interlude, and two other controls set aside the patch. */
+  function complete(d, r, recent) {
     d.dwell = Math.round(LENGTHS[d.len] * (0.8 + 0.4 * r()));
-    d.peak = r2(0.55 + 0.35 * r());
-    d.iParam = weighted(PARAMS.filter((p) => ![...recent, d.param, d.notI].includes(p)), (p) => weight(taste.param[p]), r);
+    d.peak ??= r2(0.55 + 0.35 * r());
+    d.iParam = pickOne(PARAMS.filter((p) => ![...recent, d.param, d.notI].includes(p)), r);
     delete d.notI;
     d.blend = Math.round(INTERLUDE[0] + r() * (INTERLUDE[1] - INTERLUDE[0]));
     d.iWet = r2(0.15 + 0.2 * r());
     d.ilo = r2(0.4 * r()); d.iw = 0.25;
     d.up = r() < 0.5;
+    if (!d.tweak || !Object.keys(d.tweak).length) {
+      d.tweak = {};
+      for (const k of PARAMS.filter((p) => p !== d.param && p !== d.iParam).sort(() => r() - 0.5).slice(0, TWEAKS)) d.tweak[k] = r2(r());
+    }
+    for (const k of Object.keys(d.tweak)) if (k === d.param || k === d.iParam) delete d.tweak[k];
     return d;
+  }
+  const learned = (d) => (said.length ? prefer(d, said) : 0);
+  function make(i) {
+    const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729);
+    const recent = scenes.flatMap((s) => [s.param, s.iParam]).slice(-FRESH);
+    const cands = [];
+    for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i));
+    for (let k = 0; taste.liked.length && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i); if (v) cands.push(v); }
+    const ok = cands.map((d) => complete(d, r, recent)).filter((d) => !taste.disliked.includes(coreId(d)));
+    // lean toward what was liked, never only toward it: the best is at most e^LEAN times the worst
+    return weighted(ok.length ? ok : cands, (d) => Math.exp(LEAN * learned(d)), r);
   }
   /** A def turned into the hand's two plans; pure in the def and the seed. */
   function build(d, i) {

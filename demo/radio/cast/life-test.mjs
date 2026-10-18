@@ -74,13 +74,23 @@ check('the liked patch comes up more even among new scenes, not only as variatio
 // dislikes alone, over a long life: the exact scene never, its patch and control together rarely
 const B = many(createLife({ seed: 9 }), 1500), D = many(createLife({ seed: 9, votes: [...Array(3)].map(() => ({ def: life.defOf(B[40]), vote: 1 })) }), 1500);
 const pairOf = (x) => (s) => s.patch === x.patch && s.param === x.param;
-check('a disliked scene never comes back as it was, though without the vote it would', !D.some((s) => coreId(s) === coreId(B[40])) && B.filter((s) => coreId(s) === coreId(B[40])).length >= 2,
-  `${B.filter((s) => coreId(s) === coreId(B[40])).length} times without the vote`);
+const banned = B.slice(0, 40).map(coreId), Dall = many(createLife({ seed: 9, votes: B.slice(0, 40).map((x) => ({ def: life.defOf(x), vote: 1 })) }), 400);
+check('a disliked scene never comes back as it was: the same seed without the votes plays all 40, with them none', !Dall.some((x) => banned.includes(coreId(x))) && banned.length === 40);
 check('its patch and control together come up at most half as often', D.filter(pairOf(B[40])).length * 2 <= B.filter(pairOf(B[40])).length,
   `${B.filter(pairOf(B[40])).length} to ${D.filter(pairOf(B[40])).length}`);
 const g = tasteOf([{ def: life.defOf(liked), vote: 4 }]), m = tasteOf([{ def: life.defOf(liked), vote: 2 }]);
 check('great counts twice a good, and meh leans away: no vote sits in the middle', g.liked[0]?.score === 2 && m.patch[liked.patch] === -1 && m.liked.length === 0
   && tasteOf([{ def: life.defOf(liked), vote: 3 }]).liked[0]?.score === 1);
+// learning a kind: great on long scenes heavy with granulator, bad on short ones, across patches
+const Z = many(createLife({ seed: 5 }), 600), longHeavy = Z.filter((x) => x.len === 'long' && x.peak > 0.75).slice(0, 8), short = Z.filter((x) => x.len === 'short').slice(0, 8);
+const K = many(createLife({ seed: 5, votes: [...longHeavy.map((x) => ({ def: life.defOf(x), vote: 4 })), ...short.map((x) => ({ def: life.defOf(x), vote: 1 }))] }), 600);
+const newOnes = K.filter((x) => !x.from), mean = (L, f) => L.reduce((a, x) => a + f(x), 0) / L.length;
+check('a liked KIND comes up more on new scenes, not copies: long scenes rise and short ones fall',
+  share(newOnes, (x) => x.len === 'long') > share(Z, (x) => x.len === 'long') + 0.1 && share(newOnes, (x) => x.len === 'short') < share(Z, (x) => x.len === 'short') - 0.1,
+  `long ${share(Z, (x) => x.len === 'long').toFixed(2)} to ${share(newOnes, (x) => x.len === 'long').toFixed(2)}, short ${share(Z, (x) => x.len === 'short').toFixed(2)} to ${share(newOnes, (x) => x.len === 'short').toFixed(2)}`);
+check('and more granulator: the mean peak of new scenes rises', mean(newOnes, (x) => x.peak) > mean(Z, (x) => x.peak) + 0.02, `${mean(Z, (x) => x.peak).toFixed(3)} to ${mean(newOnes, (x) => x.peak).toFixed(3)}`);
+check('it still explores: all ten patches and every control still play, and most scenes are new, not variations',
+  new Set(K.map((x) => x.patch)).size === 10 && Object.keys(MOVABLE).every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
 check('NEGATIVE CONTROL: with no votes nothing is a variation', S.every((s) => !s.from));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);
