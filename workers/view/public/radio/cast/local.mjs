@@ -3,6 +3,7 @@
 // page's ring on wasm scsynth. Nothing is made until start(). why: lessons/workers-cast.md#local
 import { createMix, createTunerGraph, pinkNoise, handTurn, WHISTLE_SOFT } from '../../shell/tuner-mix.mjs';
 import { createRingEngine, PATCHES, valuesOf, DEFAULTS as RING_DEFAULTS, RING_SECONDS } from '../../granulator/grain-ring.mjs';
+import { inputPairs } from '../../shell/scsynth.mjs';
 
 // The container's numbers (workers/cast/container/mixer.mjs, grain-patch.mjs); workers/cast/local-test.mjs goes red if they differ.
 export const SR = 44100;
@@ -56,6 +57,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   const g = { patch: PATCHES[0].name, values: { ...RING_DEFAULTS, ...valuesOf(PATCHES[0]) }, mix: 1 };
   const mix = createMix(SLOTS, WHISTLE_SOFT);
   let mode = 'mix', ctx = null, graph = null, master = null, analyser = null, gates = null, toGrains = null, noise = null;
+  let ghostOut = null, ghostP = null, sc = null, tunerAnalyser = null;
   let engine = null, eng = null, booting = null, grains = 0;
   let items = [], nextIdx = 0, pending = null, playing = false, timer = 0;
   let from = 0, cycleFrom = 0, phase = 'off', k = 0, tune = ctl.tune, m = mix(tune), landings = 0;
@@ -73,6 +75,12 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     for (const x of Object.values(gates)) { x.gain.value = 0; x.connect(master); }
     graph.out.connect(gates.mix);
     toGrains = ctx.createGain(); graph.out.connect(toGrains);
+    // the ghost: a third player, heard only through the layers (scsynth busses 4 and 5); both feeds stereo
+    // so the merger's splitters see two channels, not a mono left. why: lessons/workers-cast.md#ghost-input
+    ghostOut = ctx.createGain();
+    for (const n of [toGrains, ghostOut]) Object.assign(n, { channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
+    // what the tuner makes, before any layer: the page's speech onsets are read here, never off the master
+    tunerAnalyser = ctx.createAnalyser(); tunerAnalyser.fftSize = 1024; toGrains.connect(tunerAnalyser);
     noise = ctx.createBufferSource(); noise.buffer = pinkNoise(ctx); noise.loop = true; noise.connect(graph.noiseIn); noise.start();
     // each slot: what it plays reaches its tuner leg through its level, and in copy mode the master straight, unlevelled
     // as the container's frame copier is
@@ -149,8 +157,8 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   }
   function bootGrains() {
     engine ||= createRingEngine({ log });
-    booting ||= engine.boot({ ctx, input: toGrains, log, grain: () => { grains++; } }).then((r) => {
-      r.out.gain.value = 1; r.out.connect(gates.grains);
+    booting ||= engine.boot({ ctx, input: inputPairs(ctx, [toGrains, ghostOut]), inputChannels: 4, log, grain: () => { grains++; } }).then((r) => {
+      r.out.gain.value = 1; r.out.connect(gates.grains); sc = r.scsynth;
       engine.fixed(g.values); engine.knob('mix', g.mix); engine.fresh(); engine.land();
       eng = r; route();
     }, (e) => { booting = null; log(`the granulator did not come up: ${e?.message || e}`, 'bad'); });
@@ -160,6 +168,22 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   const api = {
     get ctx() { return ctx; },
     get analyser() { return analyser; },
+    get tunerAnalyser() { return tunerAnalyser; },
+    /** The scsynth the ring runs in, once grains has booted: the layers run beside it. */
+    get scsynth() { return sc; },
+    /** Play `item` from `at` seconds into the ghost input only; levelled as its slot would be. */
+    ghost(item, at = 0) {
+      if (!ctx || !item) return;
+      api.ghostStop();
+      const el = new Audio(); el.crossOrigin = 'anonymous'; el.preload = 'auto'; el.src = fileUrl(item);
+      const src = ctx.createMediaElementSource(el), lv = ctx.createGain();
+      lv.gain.value = levelOf(item.gain); src.connect(lv); lv.connect(ghostOut);
+      el.addEventListener('loadedmetadata', () => { try { el.currentTime = Math.min(at, Math.max(0, (el.duration || at) - 15)); } catch { /* not seekable yet */ } }, { once: true });
+      el.play().catch(() => { /* a press resumes it */ });
+      ghostP = { el, src, lv, item };
+    },
+    ghostStop() { if (!ghostP) return; ghostP.el.pause(); ghostP.el.removeAttribute('src'); ghostP.el.load(); try { ghostP.src.disconnect(); ghostP.lv.disconnect(); } catch { /* gone */ } ghostP = null; },
+    get ghosting() { return ghostP?.item ?? null; },
     nodes: () => ({ master, tuner: graph?.out, grains: eng?.out ?? null, gates }),
     get playing() { return playing; },
     /** Plays `queue` (`{ id, title, gain }`, gain in dB from the feed) with the station's stored sound; resolves when the first file can play. */
@@ -184,6 +208,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     },
     stop() {
       if (!ctx) return;
+      api.ghostStop();
       playing = false; phase = 'off';
       clearInterval(timer);
       for (let j = 0; j < slots.length; j++) place(j, null);

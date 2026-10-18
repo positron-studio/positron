@@ -8,7 +8,8 @@ import { CONCEPTS } from './concept-list.mjs';
 // why: lessons/kit-concept-nav.md#code-rows
 export const CODE_ROWS = 9;
 
-export function conceptNav(id) {
+/** `say: false` keeps the card's line off a page that wants no line under its title. */
+export function conceptNav(id, { say = true } = {}) {
   const head = document.querySelector('.pos-head');
   const back = head?.querySelector('.pos-back');
   if (!head || !back) return;
@@ -23,7 +24,7 @@ export function conceptNav(id) {
   if (me && h1) { h1.textContent = me.title; document.title = me.title; }
   // The card's description under the title; a page that set its own `what` keeps it.
   // why: lessons/kit-concept-nav.md#description
-  if (me?.say && !head.querySelector('.pos-what')) head.append(el('p', 'pos-what', me.say));
+  if (say && me?.say && !head.querySelector('.pos-what')) head.append(el('p', 'pos-what', me.say));
   const row = el('div', 'cc-nav');
   back.replaceWith(row);
   row.append(back);
