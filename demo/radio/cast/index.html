@@ -571,6 +571,38 @@
     show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     show('heard', Math.floor(player.audio.currentTime));
     scopeShow(listenTarget);
+    // WebKit hands a live stream's tap zeros (no byte ranges: WebKit 180696); then the wave comes from a tap of its own
+    let pk = 0; for (const v of player.buf) pk = Math.max(pk, Math.abs(v));
+    const moved = player.audio.currentTime > (player.lastT ?? -1); player.lastT = player.audio.currentTime;
+    player.zeros = pk === 0 && moved ? (player.zeros || 0) + 1 : 0;
+    if (!player.tap && (player.zeros >= 8 || q.get('tap') === '1') && player.audio.src.startsWith(BASE)) startTap(player.audio.src);
+  }
+  /** A second copy of our own stream, cut at MP3 frames and decoded, only to draw the wave. why: lessons/workers-cast.md#ios-scope */
+  function startTap(url) {
+    const ac = new AbortController(), queue = [];
+    player.tap = { ac, queue, ready: 0 };
+    d.log('the wave here comes from a second copy of the stream: this browser gives the player\'s tap no sound');
+    const frameAt = (b, i) => b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0 && ((b[i + 2] >> 4) & 15) !== 0 && ((b[i + 2] >> 4) & 15) !== 15 && ((b[i + 2] >> 2) & 3) !== 3;
+    (async () => {
+      const rd = (await fetch(url, { signal: ac.signal, cache: 'no-store' })).body.getReader();
+      let pending = new Uint8Array(0);
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        const n = new Uint8Array(pending.length + value.length); n.set(pending); n.set(value, pending.length); pending = n;
+        if (pending.length < 8192) continue;
+        let cut = pending.length - 4; while (cut > 0 && !frameAt(pending, cut)) cut--;
+        let from = 0; while (from < cut && !frameAt(pending, from)) from++;
+        if (cut <= from) continue;
+        const chunk = pending.slice(from, cut); pending = pending.slice(cut);
+        try { const ab = await player.ctx.decodeAudioData(chunk.buffer); queue.push(ab.getChannelData(0)); player.tap.rate = ab.sampleRate; while (queue.length > 12) queue.shift(); } catch { /* a chunk that does not decode is skipped */ }
+      }
+    })().catch(() => { /* aborted on stop */ });
+  }
+  /** Up to n samples off the tap's queue, oldest first. */
+  function tapTake(n) {
+    const t = player.tap, out = new Float32Array(n); let k = 0;
+    while (k < n && t.queue.length) { const c = t.queue[0], m = Math.min(n - k, c.length - t.ready); out.set(c.subarray(t.ready, t.ready + m), k); k += m; t.ready += m; if (t.ready >= c.length) { t.queue.shift(); t.ready = 0; } }
+    return out.subarray(0, k);
   }
   function startListening(t) {
     const url = listenUrl(t);
@@ -590,7 +622,7 @@
   function stopListening() {
     if (!listenTarget) return;
     clearInterval(levelTimer);
-    if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
+    if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); player.tap?.ac.abort(); player.tap = null; player.zeros = 0; }
     listenTarget = null;
     show('listening', ''); show('level', ''); show('heard', '');
     scopeOff(); paintDetail(); pb.refresh();
@@ -608,6 +640,11 @@
   const scopeEvent = (kind) => { const [c, short] = EVENTS[kind]; if (scopeName) scope.wrap({ colour: css(c), short }); };
   let feedRaf = 0, lastFeed = 0, feedBuf = null, scopeName = '';
   function feedLoop() {
+    if (listening() && player?.tap) {
+      const t = performance.now(), rate = player.tap.rate || 44100, n = Math.round(((t - (lastFeed || t)) / 1000) * rate); lastFeed = t;
+      const x = n > 0 ? tapTake(n) : null; if (x?.length) scope.feed(x, rate);
+      feedRaf = requestAnimationFrame(feedLoop); return;
+    }
     const an = listening() ? player?.an : localOn() ? local.analyser : null;
     if (!an) { feedRaf = 0; return; }
     if (feedBuf?.length !== an.fftSize) feedBuf = new Float32Array(an.fftSize);

@@ -618,3 +618,15 @@ minutes. So every boot records the worker version (`CF_VERSION_METADATA.id`, the
 and the alarm, which sweeps every 30 s, restarts a container whose boot version differs from the version now
 running, then resumes from the saved progress (the file and second). A boot with no version recorded counts
 as old, so the first deploy of this refreshes whatever was already on air. Nothing is started that was off.
+
+### ios-scope
+
+`demo/radio/cast/index.html`, `startTap`. Reported 2026-10-18: *"No scope on ios??"*. MEASURED by an agent in
+Playwright WebKit (Safari 26.4's engine): `createMediaElementSource` on an `<audio>` playing a source with no
+byte ranges reads exact zeros, 0 of 15 analyser reads, same origin or cross origin, while the same file with
+ranges reads 14 of 15; ManagedMediaSource fed by fetch() reads zeros too. WebKit 180696, open since 2017.
+A live stream has no ranges, so on WebKit the page notices zeros while the audio advances (2 s) and opens a
+second fetch of our own stream, cuts it at MP3 frame headers and decodes ~0.5 s chunks for the wave. Sound
+still comes from the `<audio>`. Costs: a second connection per WebKit listener (counted twice in our preview
+Icecast's stats); the wave is not sample aligned with what is heard. Never for somebody else's mount.
+`?tap=1` forces the path in Chrome.
