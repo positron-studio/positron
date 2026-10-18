@@ -49,6 +49,8 @@
   .vc-head > .pos-sec-h { margin: 0; }
   .vc-url { font: 12px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
   .vc-url[hidden] { display: none; }
+  /* start and stop at one width, the wider word's */
+  .vc-head .pos-bgroup button { min-width: 15ch; }
   .pos-vp[hidden] { display: none; }
   /* inside the panel the scope gives up its page margin (22 px above) and its own border: the panel's edge is the edge */
   .vc-scope .pos-scope { margin: 0; }
@@ -423,7 +425,9 @@
 
   const pick = (t) => { if (t === target) return; target = t; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
   const refuse = (t) => { say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
+  const starting = {};
   const cast = (t) => {
+    if (!(t === LOCAL ? localOn() : status[t]?.playing)) { starting[t] = Date.now(); paintDetail(); }
     if (t === LOCAL) return localOn() ? stopLocal() : startLocal();
     if (status[t]?.playing) return send(t, { cmd: 'stop' });
     if (theirs(t)) return refuse(t);
@@ -462,6 +466,9 @@
     playing.el.hidden = noteRow.hidden;
     const cb = castBtns.button('cast');
     cb.textContent = here ? (on ? 'stop here' : 'play here') : on ? 'stop stream' : 'start stream';
+    // a start sweeps until the station is on air (or local plays), as every pending press here does
+    if (starting[t] && (here ? on : st.onAir || Date.now() - starting[t] > 90_000)) delete starting[t];
+    if (starting[t]) cb.dataset.busy = '1'; else delete cb.dataset.busy;
     cb.title = here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the stream on ${t}` : `start the stream on ${t}`;
     listenBtn.el.hidden = !listenUrl(t); inApp.hidden = here || !!listenUrl(t);
     const lon = listening() && listenTarget === t;
