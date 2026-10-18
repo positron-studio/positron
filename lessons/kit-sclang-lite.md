@@ -436,3 +436,58 @@ receiver), which both the vendored wasm scsynth and the Pi's scsynth carry
 (`strings scsynth-nrt.wasm | grep LinExp`). The MulAdd is written as two
 BinaryOpUGens, as `madd` already is in this file, so `.range(200, 800)` on a
 SinOsc is the same bytes as `mul: 300, add: 500`, which the test asserts.
+
+<a id="ugens-layers"></a>
+
+## sclang-lite.mjs, UGENS, the cast's layers
+
+Added 2026-10-18 for `plans/plan-cast-reinterpret.md` §2.3. Read off the class files of
+supercollider tag `Version-3.13.0` (the container's scsynth is 3.13.0), not develop:
+`Filter.sc` (Ringz, BPF, Lag, LeakDC), `Delays.sc` (CombC, CombL; `Delay.sc` does not exist at
+that tag), `FreeVerb.sc`, `PitchShift.sc`, `Compander.sc` (Limiter is `Normalizer`'s subclass),
+`Noise.sc` (LFNoise2), `Osc.sc` (VarSaw). The server's input order was checked against the
+plugins at the same tag: `Ringz_next` reads `ZIN(0)` in, `ZIN0(1)` freq, `ZIN0(2)` decayTime;
+`PitchShift_Ctor` reads windowSize at 1 and pitchRatio at 2; `FreeVerb2_next` reads IN(0), IN(1),
+then mix at 2; `Limiter_Ctor` reads dur at 2. None of them is `CantAlias`, so `wirePeak` needs
+no `noAlias` for any (`grep CantAlias` over DelayUGens.cpp, FilterUGens.cpp, ReverbUGens.cpp).
+
+What each row carries that is not obvious:
+- `LeakDC.kr`'s coef defaults to 0.9 and `.ar`'s to 0.995, so the row has `argsKr`.
+- `Lag.ar` and `.kr` return `in.madd(mul, add)` when `in.rate == \scalar` or `lagTime == 0`
+  (`scalarPass`). Here it is applied per channel after expansion; sclang tests the whole
+  argument, so an array mixing numbers and signals would differ. Nothing in the cast does that.
+- FreeVerb, FreeVerb2, PitchShift and Limiter have only `*ar`. Limiter has no `mul` or `add`.
+- FreeVerb2 is a `MultiOutUGen` with `checkNInputs(2)`: both its inputs audio rate at `.ar`
+  (`audio2`). FreeVerb and PitchShift check the first input's rate (`same`).
+- CombC and CombL `.ar` call `in.asAudioRateInput(this)`, which in sclang wraps a control rate
+  input in K2A. This subset refuses it instead (`first: 'audio'`), as DelayC already does.
+
+Refused: **Klank**. Its first argument is a `Ref` to a specification array
+(`` `[freqs, amps, rings] ``), and this subset has no backquote and no arrays of arrays, so it
+does not fit. `Mix(Ringz.ar(in, [f1, f2, ...], decay))` is the same bank as 16 blocks and
+compiles today (16 Ringz measured at 0.2 to 0.9 % of the render budget over idle in the browser).
+
+The output bus needed nothing: `compile(src, { bus })` already writes `Out.ar(bus, ...)`. With
+`inputChannels: 4` the first private audio bus is 6 (2 outputs, then 4 inputs).
+
+<a id="test-layers"></a>
+
+## sclang-layers-test.mjs, the layers graded by sound
+
+Measured 2026-10-18 on an M2 Pro. Each UGen is played in the vendored wasm scsynth (headless
+Chrome, the boot's analyser at 32768 frames) and in the container image's native scsynth 3.13
+(`grains-local`, NRT, a float WAV out), and judged on what it sounds like: Ringz rings at 439.5 Hz
+after impulses, BPF's band stands 34 dB over the rest, Lag takes 18.6 dB more off 2 to 12 kHz than
+the raw Pulse, LeakDC brings a mean of 0.5 to 0.0000, CombC and CombL put 41 dB more in the 500 Hz
+harmonics than between them, FreeVerb and FreeVerb2 make 88 to 95 % of samples sound after a
+1 Hz click, PitchShift 1.5 moves 440 Hz to 660.6 Hz, Limiter holds a peak of 4 at 0.500, LFNoise2
+sits 30 dB under LFNoise1 above 1 kHz, VarSaw width 0.5 has no even harmonics (115 dB under the
+3rd). The two engines agree to within 2 dB on every one.
+
+Negative controls, each of which fails the same judge: two arguments swapped in `UGENS` (by
+mutating the row for one compile), the control rate version, and the program without the block.
+Two swaps (Lag's in and lagTime, LeakDC's in and coef) are refused by the compiler before they
+reach an engine, which is counted as caught. The CombC and CombL control rate versions still put
+14.9 dB in the harmonics, so the comb threshold is 25 dB, not 10: a 10 dB threshold let them pass
+on the first run. A class the engine lacks (Ringz renamed Ringy) answers
+`/fail /d_recv UGen 'Ringy' not installed.`, so the `/done` check can fail too.

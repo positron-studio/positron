@@ -56,6 +56,23 @@ export const UGENS = {
   LocalIn:    { file: 'InOut.sc',   args: [['numChannels', 1], ['default', 0]], chans: 'numChannels', inline: 'default', wrap: true },
   LocalOut:   { file: 'InOut.sc',   args: [['channelsArray', REQUIRED]], inline: 'channelsArray', order: ['channelsArray'],
                 outputs: 0, allAudio: true },
+  // The cast's layers, read off Version-3.13.0. `argsKr` where .kr's defaults differ, `audio2` is
+  // FreeVerb2's checkNInputs(2), `scalarPass` is Lag's own early return. Klank is refused.
+  // why: lessons/kit-sclang-lite.md#ugens-layers
+  Ringz:      { file: 'Filter.sc',  args: [['in', 0], ['freq', 440], ['decaytime', 1]], madd: true, first: 'same' },
+  BPF:        { file: 'Filter.sc',  args: [['in', 0], ['freq', 440], ['rq', 1]], madd: true, first: 'same' },
+  Lag:        { file: 'Filter.sc',  args: [['in', 0], ['lagTime', 0.1]], madd: true, first: 'same', scalarPass: true },
+  LeakDC:     { file: 'Filter.sc',  args: [['in', 0], ['coef', 0.995]], argsKr: [['in', 0], ['coef', 0.9]], madd: true, first: 'same' },
+  CombC:      { file: 'Delays.sc',  args: [['in', 0], ['maxdelaytime', 0.2], ['delaytime', 0.2], ['decaytime', 1]], madd: true, first: 'audio' },
+  CombL:      { file: 'Delays.sc',  args: [['in', 0], ['maxdelaytime', 0.2], ['delaytime', 0.2], ['decaytime', 1]], madd: true, first: 'audio' },
+  FreeVerb:   { file: 'FreeVerb.sc', args: [['in', REQUIRED], ['mix', 0.33], ['room', 0.5], ['damp', 0.5]], madd: true, rates: ['ar'], first: 'same' },
+  FreeVerb2:  { file: 'FreeVerb.sc', args: [['in', REQUIRED], ['in2', REQUIRED], ['mix', 0.33], ['room', 0.5], ['damp', 0.5]],
+                madd: true, rates: ['ar'], outputs: 2, first: 'audio2' },
+  PitchShift: { file: 'PitchShift.sc', args: [['in', 0], ['windowSize', 0.2], ['pitchRatio', 1], ['pitchDispersion', 0], ['timeDispersion', 0]],
+                madd: true, rates: ['ar'], first: 'same' },
+  Limiter:    { file: 'Compander.sc', args: [['in', 0], ['level', 1], ['dur', 0.01]], rates: ['ar'] },
+  LFNoise2:   { file: 'Noise.sc',   args: [['freq', 500]], madd: true },
+  VarSaw:     { file: 'Osc.sc',     args: [['freq', 440], ['iphase', 0], ['width', 0.5]], madd: true },
 };
 
 /** `Env`'s class methods, from `Env.sc`, arguments and defaults verbatim. */
@@ -410,10 +427,11 @@ function compileOrThrow(src, name, bus = 0) {
   // ── UGens ───────────────────────────────────────────────────────────────────
 
   function ugen(cls, method, got, at) {
-    const spec = UGENS[cls];
+    const base = UGENS[cls];
     if (method !== 'ar' && method !== 'kr') {
       throw new SclError(`${cls}.${method} is not in this subset, only ${cls}.ar and ${cls}.kr`, at);
     }
+    const spec = method === 'kr' && base.argsKr ? { ...base, args: base.argsKr } : base;
     const argSpec = spec.madd ? [...spec.args, ['mul', 1], ['add', 0]] : spec.args;
     const vals = bind(argSpec, got, `${cls}.${method}`, at);
     const rate = method === 'ar' ? RATE.sample : RATE.slow;
@@ -465,6 +483,8 @@ function compileOrThrow(src, name, bus = 0) {
   }
 
   function one(cls, spec, rate, vals, at) {
+    // Lag.sc: `if (in.rate == \scalar || lagTime == 0) { ^in.madd(mul, add) }`, per channel here.
+    if (spec.scalarPass && (isNum(vals[0]) || (isNum(vals[1]) && vals[1].v === 0))) return vals[0];
     let ins, meta = {};
     if (cls === 'EnvGen') {
       const [env, ...rest] = vals;
@@ -503,6 +523,10 @@ function compileOrThrow(src, name, bus = 0) {
       }
       if (spec.first === 'audio' && rate === RATE.sample && r0 !== RATE.sample) {
         throw new SclError(`${cls}.ar: its first input is ${RATE_WORD[r0]} rate and has to be audio rate`, at);
+      }
+      if (spec.first === 'audio2' && rate === RATE.sample) {
+        const i = [0, 1].find((k) => rateOf(ins[k]) !== RATE.sample);
+        if (i !== undefined) throw new SclError(`${cls}.ar: its input ${i} is ${RATE_WORD[rateOf(ins[i])]} rate and its first two have to be audio rate`, at);
       }
     }
     const refs = ins.map((x) => input(x, at));

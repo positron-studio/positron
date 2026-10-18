@@ -158,3 +158,23 @@ timeout is the answer rather than an error.
 section 3). scsynth answers `/notify` with `/done /notify <client>`, and
 that answer is the fact the sleep was standing in for. If no answer comes
 in a second the boot goes on, as it always did, and says so.
+
+<a id="input-channels"></a>
+
+## scsynth.mjs, bootScsynth, inputChannels (a second input)
+
+Added 2026-10-18 for the cast's ghosts (`plans/plan-cast-reinterpret.md` §2.6): the other file
+on its own busses while the grain ring keeps reading 2 and 3. The earlier note that the input bus
+count "is not ours to set" is about `audio: {...}`, which SuperSonic overwrites. The scsynth option
+itself is honoured: SuperSonic derives `audio.inputChannels` from `scsynthOptions.numInputBusChannels`,
+and the vendored worklet copies `min(channels arriving, inputChannels)` into the input busses.
+
+Two things have to be true at once. The engine has to be booted with 4 inputs, and the
+AudioWorkletNode has to take 4 channels without mixing them: its default is `channelCount` 2,
+mode `max`, `speakers`. `inputChannels: 4` sets both (`explicit`, `discrete`). `inputPairs(ctx,
+[a, b])` builds the 4 channel input from two stereo nodes (a splitter each into one merger).
+
+MEASURED in headless Chrome: 300 Hz on the first pair and 700 Hz on the second, booted with
+`inputChannels: 4`, metrics `audioInputChannels` 4, worklet `channelCount` 4. `In.ar(2, 2)` heard
+300 Hz 157 dB over 700, `In.ar(4, 2)` heard 700 Hz 159 dB over 300. NEGATIVE CONTROL: the same
+4 channel input into a default boot leaves `In.ar(4, 2)` at rms 0.

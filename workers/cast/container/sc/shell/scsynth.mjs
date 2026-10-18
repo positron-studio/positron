@@ -49,12 +49,17 @@ export function loadScsynth() {
 
 /**
  * Bring scsynth up in this tab.
- * @param {{audioContext?: AudioContext, input?: AudioNode, log?: (s: string) => void, onReply?: (m: any[]) => boolean}} opts
+ * @param {{audioContext?: AudioContext, input?: AudioNode, inputChannels?: number, log?: (s: string) => void, onReply?: (m: any[]) => boolean}} opts
  * `input` feeds the hardware input busses; `onReply` sees every OSC message first, true consumes it.
+ * `inputChannels` (default 2) is how many: 4 puts a second stereo pair on busses 4 and 5, see `inputPairs`.
  * why: lessons/kit-scsynth.md#boot
  */
-export async function bootScsynth({ audioContext, input = null, log = () => {}, onReply = null, scsynthOptions = null } = {}) {
+export async function bootScsynth({ audioContext, input = null, inputChannels = 2, log = () => {}, onReply = null, scsynthOptions = null } = {}) {
   const t0 = performance.now();
+  const nIn = Math.floor(Number(inputChannels));
+  if (!(nIn >= 1 && nIn <= 8)) throw new Error(`scsynth inputChannels is 1 to 8, not ${inputChannels}`);
+  // The engine's own option; busses after the 2 outputs. why: lessons/kit-scsynth.md#input-channels
+  if (nIn !== 2) scsynthOptions = { ...(scsynthOptions ?? {}), numInputBusChannels: nIn };
   const { SuperSonic, osc, wasmBytes } = await loadScsynth();
   const moduleMs = performance.now() - t0;
 
@@ -113,6 +118,8 @@ export async function bootScsynth({ audioContext, input = null, log = () => {}, 
       : (input.context !== targ.context) ? 'the input node belongs to a different AudioContext than the engine'
       : null;
     if (why) throw new Error(`scsynth live input refused: ${why}`);
+    // Discrete and explicit, so a 4 channel input is four busses and is never mixed down to two.
+    if (nIn !== 2) { targ.channelCount = nIn; targ.channelCountMode = 'explicit'; targ.channelInterpretation = 'discrete'; }
     input.connect(targ);
   }
 
@@ -181,13 +188,28 @@ export async function bootScsynth({ audioContext, input = null, log = () => {}, 
 
   return {
     sonic, ctx, out, meter, replies,
-    bootMs, moduleMs, notifyMs, notified: !!told,
+    bootMs, moduleMs, notifyMs, notified: !!told, inputChannels: nIn,
     send: (...m) => sonic.send(...m),
     sendAt,
     waitFor, sendAndWait, status, recvDef, sleep,
     /** the server's own answer about its node tree — never inferred here */
     queryTree: () => sendAndWait((m) => String(m[0]) === '/g_queryTree.reply', 5000, '/g_queryTree', 0, 0),
   };
+}
+
+/**
+ * Stereo nodes side by side as one input for `bootScsynth({ input, inputChannels: 2 * nodes.length })`:
+ * the first pair lands on busses 2 and 3, the second on 4 and 5. A mono node fills only its left bus.
+ */
+export function inputPairs(ctx, nodes) {
+  const merger = ctx.createChannelMerger(2 * nodes.length);
+  nodes.forEach((n, i) => {
+    const split = ctx.createChannelSplitter(2);
+    n.connect(split);
+    split.connect(merger, 0, 2 * i);
+    split.connect(merger, 1, 2 * i + 1);
+  });
+  return merger;
 }
 
 export { VENDOR };
