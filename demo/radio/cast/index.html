@@ -26,6 +26,8 @@
   /* a head row keeps its buttons at their own size on a phone, as a video panel slot does */
   .vc-head .pos-bgroup { width: auto; min-width: auto; }
   .vc-head .pos-bgroup-row { min-width: auto; overflow-x: visible; }
+  /* the group's own display beats the UA [hidden] */
+  .vc-head .pos-bgroup[hidden] { display: none; }
   /* a program or archive row: number or day, name, its buttons; the name gives way first */
   .vc-file { display: grid; grid-template-columns: 3ch minmax(0, 1fr) auto auto; }
   .vc-file .vc-n { color: var(--dim); font: 12px var(--mono); font-variant-numeric: tabular-nums; }
@@ -37,7 +39,8 @@
 </style>
 <script type="module">
   // Väin's archive played live into an Icecast mount by a Container a Durable Object keeps alive (workers/cast).
-  // A list of the six stations and the open one beside it: its cast, its sound and its own program.
+  // A list of the stations and the open one beside it: its cast, its sound and its own program.
+  // `local` is a station played in this browser off /file/<id> (local.mjs): free, nothing on air.
   // Control needs ?key= once; it is kept in this browser.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
@@ -70,12 +73,13 @@
   try { if (key) localStorage.setItem('vain-cast-key', key); else key = localStorage.getItem('vain-cast-key') || ''; } catch { /* no storage */ }
 
   // ── the stations; radio1965 is heard through shout (one upstream), user1..4 in the Väin app only ──
-  const STATIONS = ['preview', 'radio1965', 'user1', 'user2', 'user3', 'user4'];
+  const STATIONS = ['local', 'preview', 'radio1965', 'user1', 'user2', 'user3', 'user4'];
+  const LOCAL = 'local';
   const LISTEN = { preview: `${BASE}/listen/preview`, radio1965: `${SHOUT}/radio1965` };
   const listenUrl = (t) => LISTEN[t] || null;
   // per channel, whether Väin's own stream is on it (GET /live, their livestream events)
   let live = {};
-  let target = 'preview'; // the open station
+  let target = LOCAL; // the open station
 
   // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's players ──
   const bay = createBay();
@@ -107,9 +111,11 @@
     radio1965: [['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in'], ['cf-shout:radio1965:audio-out', 'web:player:audio-in']] };
   const status = {}; // target -> its last status
   let player = null, levelTimer = 0, listenTarget = null, pre = null, preId = null;
-  // LOCAL: the open station's sound played in this browser off /file/<id>, free, nothing on air (local.mjs)
+  // the local station's engine, made on its first start (local.mjs)
   let local = null, localFor = null;
   const localOn = () => !!local?.playing;
+  // a control move is heard at once only while the local station is open and playing
+  const localHere = () => localOn() && target === LOCAL;
   const listening = () => !!player && !player.audio.paused;
   const prelistening = () => !!pre && !pre.paused;
   const pb = createPatchbay(bay, { flowing: (l) => {
@@ -120,8 +126,8 @@
   } });
   function wire() {
     for (const l of bay.links()) bay.unlink(l.id);
-    for (const [a, b] of [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)],
-      ...(HEARD[target] || []), ['vain:archive:audio-out', 'web:prelisten:audio-in'],
+    const cast = target === LOCAL ? [] : [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)], ...(HEARD[target] || [])];
+    for (const [a, b] of [...cast, ['vain:archive:audio-out', 'web:prelisten:audio-in'],
       ['vain:archive:audio-out', 'cf-cast:files:audio-in'], ['cf-cast:files:audio-out', 'web:local:audio-in']]) {
       const r = bay.link(a, b, [], { via: a.startsWith('cf-cast:caster') ? 'icecast' : 'https', consent: true });
       if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
@@ -145,7 +151,19 @@
     });
     return opening[t];
   }
-  async function send(t, m) { const s = await control(t); if (s) s.send(JSON.stringify(m)); return !!s; }
+  async function send(t, m) {
+    if (t === LOCAL) return keepLocal(m);
+    const s = await control(t); if (s) s.send(JSON.stringify(m)); return !!s;
+  }
+  // the local station has no caster: its stored sound and program live here, in the shape a status carries
+  function keepLocal(m) {
+    const w = (status[LOCAL] ||= { target: LOCAL, wanted: { set: {}, patch: {} } }).wanted;
+    if (m.cmd === 'mode') w.mode = m.mode;
+    else if (m.cmd === 'set') w.set[m.name] = m.v;
+    else if (m.cmd === 'patch') { if (m.name) w.patch = { name: m.name, set: {} }; Object.assign(w.patch.set ||= {}, m.set || {}); }
+    else if (m.cmd === 'next') local?.next();
+    return true;
+  }
 
   // ── the archive, and each station's program as the caster keeps it ──
   let items = [];
@@ -160,7 +178,7 @@
     const t = target;
     progs[t] = ids; progTouched[t] = Date.now();
     showProgram();
-    if (localOn() && localFor === t) local.queue(localQueue());
+    if (localOn() && t === LOCAL) local.queue(localQueue());
     return send(t, status[t]?.onAir ? { cmd: 'queue', ids } : { cmd: 'program', ids });
   }
 
@@ -172,7 +190,7 @@
     { key: 'now', label: 'now', grow: true, clip: true },
     { key: 'stops', label: 'stops', width: 56 },
   ], onPick: (r) => pick(r.name) });
-  const presence = (t) => createPresence({ of: t, says: { online: 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
+  const presence = (t) => createPresence({ of: t, says: { online: t === LOCAL ? 'here' : 'positron', offline: 'off', unknown: 'not read yet', checking: 'reading', coming: 'starting' },
     busyWords: { page: 'Väin' }, can: ['online', 'offline', 'unknown', 'coming'], state: 'unknown', showName: false });
   stTable.set(STATIONS.map((t) => ({ name: t, who: '', now: '', stops: '' })));
   const stRows = [...stTable.scroller().querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')];
@@ -181,8 +199,9 @@
 
   // ── the open station: its cast, what plays, its sound, its program ──
   const head = el('div', 'vc-head');
-  const dName = el('span', 'vc-name', target), dBadge = presence('the open station');
-  const nameBox = el('span', 'vc-ctl'); nameBox.append(dName, dBadge.el);
+  const dName = el('span', 'vc-name', target), dCast = presence('the open station'), dLocal = presence(LOCAL);
+  let dBadge = dCast;
+  const nameBox = el('span', 'vc-ctl'); nameBox.append(dName, dCast.el, dLocal.el);
   const castBtns = createButtonGroup({ buttons: [
     { id: 'cast', icon: 'play', label: 'start the cast', onPress: () => cast(target) },
     { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send(target, { cmd: 'next' }) },
@@ -193,11 +212,10 @@
   const inApp = el('span', 'vc-dim', 'in the Väin app');
   const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, inApp);
   head.append(nameBox, headCtl);
-  const now = el('span', 'vc-v'), at = el('span', 'vc-dim'), next = el('span', 'vc-v'), note = el('span', 'vc-note');
+  const now = el('span', 'vc-v'), at = el('span', 'vc-dim'), note = el('span', 'vc-note');
   const k = (w) => el('span', 'vc-k', w);
   const playing = createGlueRows({ grid: true, align: 'start', full: true });
   playing.row([k('now'), (() => { const b = el('span', 'vc-ctl'); b.append(now, at); return b; })()]);
-  playing.row([k('next'), next]);
   // every start stops itself at `until` (2 h on); EXTEND moves it to now + the choice
   const hhmm = (t) => (Number.isFinite(t) ? new Date(t).toTimeString().slice(0, 5) : '');
   const stopsAt = el('span', 'vc-v');
@@ -215,7 +233,7 @@
   const lastSent = {}, pendingSet = {};
   function setMix(name, v) {
     touched[name] = Date.now();
-    if (localOn()) local.set(name, v);
+    if (localHere()) local.set(name, v);
     pendingSet[name] = v;
     const wait = Math.max(0, 50 - (Date.now() - (lastSent.at || 0)));
     if (lastSent.timer) return;
@@ -227,16 +245,13 @@
   }
   const MODES = ['copy', 'mix', 'grains'];
   mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
-    onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); if (localOn()) local.mode(v); send(target, { cmd: 'mode', mode: v }); } });
+    onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); if (localHere()) local.mode(v); send(target, { cmd: 'mode', mode: v }); } });
   mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
   mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
     onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
   mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
   mixUi.blend = createSlider({ label: 'blend', min: 2, max: 60, step: 1, value: 16, unit: 's', onInput: (v) => setMix('blend', v) });
   const sound = createGlueRows({ align: 'start', full: true });
-  const localBtns = createButtonGroup({ buttons: [{ id: 'local', label: 'local', onPress: () => (localFor ? stopLocal() : startLocal()) }] });
-  const soundHead = el('div', 'vc-head');
-  soundHead.append(el('h3', 'pos-sec-h', 'sound'), localBtns.el);
   const both = el('span', 'vc-ctl'); both.append(mixUi.mode.el, mixUi.drift.el);
   sound.row([both]);
   sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
@@ -257,12 +272,12 @@
   }
   const showPatch = (i) => { mixUi.patch.show(NAMES[i], i); const v = valuesOf(PATCHES[i]);
     for (const n of GRAIN) mixUi[`g${n}`].set(n === 'mix' ? 1 : v[n], true); };
-  const pickPatch = (i) => { touched.patch = Date.now(); showPatch(i); if (localOn()) local.patch({ name: NAMES[i] }); sendPatch({ name: NAMES[i] }); };
+  const pickPatch = (i) => { touched.patch = Date.now(); showPatch(i); if (localHere()) local.patch({ name: NAMES[i] }); sendPatch({ name: NAMES[i] }); };
   const patchAt = () => Math.max(0, NAMES.indexOf(mixUi.patch.select.value));
   mixUi.patch = createPicker({ label: 'patch', what: 'patch', onPick: pickPatch,
     prev: () => pickPatch((patchAt() + NAMES.length - 1) % NAMES.length), next: () => pickPatch((patchAt() + 1) % NAMES.length) });
   mixUi.patch.options(NAMES, 0);
-  const grainSet = (n) => (v) => { touched[`g${n}`] = Date.now(); if (localOn()) local.patch({ set: { [n]: v } }); sendPatch({ set: { [n]: v } }); };
+  const grainSet = (n) => (v) => { touched[`g${n}`] = Date.now(); if (localHere()) local.patch({ set: { [n]: v } }); sendPatch({ set: { [n]: v } }); };
   mixUi.gmix = createSlider({ label: 'wet', min: 0, max: 1, step: 0.01, value: 1, digits: 2, onInput: grainSet('mix') });
   mixUi.gdensity = createSlider({ label: 'density', min: 0.5, max: 64, step: 0.5, value: 30, unit: '/s', onInput: grainSet('density') });
   mixUi.gsize = createSlider({ label: 'size', min: 0.02, max: 2, step: 0.01, value: 0.15, digits: 2, unit: 's', onInput: grainSet('size') });
@@ -286,13 +301,6 @@
   }
 
   // PROGRAM: the station's queue, in order, each with up and remove
-  const progBtns = createButtonGroup({ buttons: [
-    { id: 'now', label: 'play now', title: 'cut the current file and play the program from the top',
-      onPress: () => { if (theirs(target)) return refuse(target); say(''); return send(target, { cmd: 'play', ids: startIds(target) }); } },
-    { id: 'clear', label: 'clear', onPress: () => editProgram([]) },
-  ] });
-  const progHead = el('div', 'vc-head');
-  progHead.append(el('h3', 'pos-sec-h', 'program'), progBtns.el);
   const progHost = el('div', 'vc-list'), progEmpty = el('span', 'vc-dim', 'empty: start plays the whole archive');
   let progKey = '', progRows = [];
   function showProgram() {
@@ -313,7 +321,7 @@
       });
       progHost.replaceChildren(...(ids.length ? [list.el] : []));
     }
-    const cur = status[target]?.now?.id;
+    const cur = target === LOCAL ? (localOn() ? local.status().slots[local.status().from]?.id : null) : status[target]?.now?.id;
     for (const p of progRows) p.r.dataset.on = String(p.id) === String(cur) ? '1' : '';
     for (const [id, a] of archRows) a.r.dataset.on = String(id) === String(cur) ? '1' : '';
   }
@@ -332,17 +340,26 @@
   }
   const showPre = () => { for (const [id, a] of archRows) a.btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten'); };
 
-  const pick = (t) => { if (t === target) return; stopLocal(); target = t; for (const n of Object.keys(touched)) touched[n] = 0; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
+  const pick = (t) => { if (t === target) return; target = t; for (const n of Object.keys(touched)) touched[n] = 0; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
   const refuse = (t) => { say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
   const cast = (t) => {
+    if (t === LOCAL) return localOn() ? stopLocal() : startLocal();
     if (status[t]?.playing) return send(t, { cmd: 'stop' });
     if (theirs(t)) return refuse(t);
     say('');
     return send(t, { cmd: 'play', ids: startIds(t) });
   };
 
+  // the local station's file now, from its engine
+  const localNow = () => { if (!localOn()) return null; const st = local.status(), x = st.slots[st.from]; return x?.title ? { title: x.title, at: x.at } : null; };
   function paintRow(t) {
-    const st = status[t] || {}, i = STATIONS.indexOf(t), them = theirs(t);
+    const i = STATIONS.indexOf(t);
+    if (t === LOCAL) {
+      badges[t].set(localOn() ? 'online' : 'offline');
+      const title = localNow()?.title || '', cell = stRows[i].children[2]; cell.textContent = title; cell.title = title;
+      return;
+    }
+    const st = status[t] || {}, them = theirs(t);
     if (!status[t] && !live[t]) return;
     badges[t].set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
     badges[t].busy(them ? 'page' : null);
@@ -351,17 +368,19 @@
     stRows[i].children[3].textContent = st.playing ? hhmm(st.until) : '';
   }
   function paintDetail() {
-    const t = target, st = status[t] || {}, them = theirs(t);
+    const t = target, st = status[t] || {}, them = theirs(t), here = t === LOCAL;
+    const on = here ? localOn() : !!st.playing;
     dName.textContent = t;
-    dBadge.set(st.onAir || them ? 'online' : st.playing ? 'coming' : status[t] ? 'offline' : 'unknown');
+    dBadge = here ? dLocal : dCast; dLocal.el.hidden = !here; dCast.el.hidden = here;
+    dBadge.set(here ? (on ? 'online' : 'offline') : st.onAir || them ? 'online' : st.playing ? 'coming' : status[t] ? 'offline' : 'unknown');
     dBadge.busy(them ? 'page' : null);
-    const title = them ? (live[t].title || '') : st.now?.title || '';
+    const cur = here ? localNow() : st.now;
+    const title = them ? (live[t].title || '') : cur?.title || '';
     now.textContent = title; now.title = title;
-    at.textContent = !them && st.now ? mmss(st.now.at) : '';
-    next.textContent = st.onAir ? (st.next?.title || '') : ''; next.title = next.textContent;
-    stopsAt.textContent = st.playing ? hhmm(st.until) : ''; stopsRow.hidden = !st.playing;
-    castBtns.setIcon('cast', st.playing ? 'stop' : 'play', st.playing ? `stop the cast on ${t}` : `start the cast on ${t}`);
-    listenBtn.el.hidden = !listenUrl(t); inApp.hidden = !!listenUrl(t);
+    at.textContent = !them && cur ? mmss(cur.at) : '';
+    stopsAt.textContent = !here && st.playing ? hhmm(st.until) : ''; stopsRow.hidden = here || !st.playing;
+    castBtns.setIcon('cast', on ? 'stop' : 'play', here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the cast on ${t}` : `start the cast on ${t}`);
+    listenBtn.el.hidden = !listenUrl(t); inApp.hidden = here || !!listenUrl(t);
     listenBtn.setIcon('listen', listening() && listenTarget === t ? 'stop' : 'headphones', listening() && listenTarget === t ? `stop listening to ${t}` : `listen to ${t}`);
     const refused = (st.lines || []).at(-1)?.includes('refused: ') ? st.lines.at(-1).split('refused: ')[1] : '';
     if (refused) say(refused);
@@ -384,7 +403,7 @@
   // Read only, our worker, every 3 s, for each station whose socket is not already pushing.
   async function poll() {
     if (document.hidden) return;
-    await Promise.all(STATIONS.filter((t) => !sockets[t]).map(async (t) => {
+    await Promise.all(STATIONS.filter((t) => t !== LOCAL && !sockets[t]).map(async (t) => {
       try { take(t, await (await fetch(`${BASE}/status/${t}`)).json()); } catch { /* next time */ }
     }));
   }
@@ -477,12 +496,12 @@
     scope.el.hidden = true;
     paintDetail(); pb.refresh();
   }
-  // ── LOCAL: the sound controls as they stand, on the open station's program, heard here at once ──
+  // ── the local station: its sound controls as they stand, on its program, heard here at once ──
   const localFile = (it) => `${BASE}/file/${encodeURIComponent(it.id)}`;
   let makeLocal = () => createLocal({ fileUrl: localFile, log: (m, kind) => d.log(`local: ${m}`, kind) });
-  const localQueue = () => startIds(target).map((id) => ({ id, title: titleOf(id) }));
+  const localQueue = () => startIds(LOCAL).map((id) => ({ id, title: titleOf(id) }));
   function localSound() {
-    const w = status[target]?.wanted || {};
+    const w = status[LOCAL]?.wanted || {};
     return { mode: MODES[mixUi.mode.get()],
       set: { ...(w.set || {}), drift: mixUi.drift.get() === 0 ? 1 : 0, tune: mixUi.tune.get(), dwell: mixUi.dwell.get(), blend: mixUi.blend.get() },
       patch: { name: NAMES[patchAt()], set: { ...(w.patch?.set || {}), ...Object.fromEntries(GRAIN.map((n) => [n, mixUi[`g${n}`].get()])) } } };
@@ -491,13 +510,13 @@
     if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
     stopListening(); stopPrelisten();
     local ||= makeLocal();
-    localFor = target;
-    d.set('listening', `local ${target}`);
-    scope.el.hidden = false; paintLocal();
+    localFor = LOCAL;
+    d.set('listening', LOCAL);
+    scope.el.hidden = false;
     await local.start({ queue: localQueue(), ...localSound() });
     if (!localOn()) return;
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
-    pb.refresh();
+    paintRow(LOCAL); paintDetail(); pb.refresh();
   }
   function stopLocal() {
     if (!localFor) return;
@@ -505,7 +524,7 @@
     clearInterval(levelTimer);
     d.set('listening', ''); d.set('level', ''); d.set('heard', '');
     scope.set({ points: null, reason: null, name: '' }); scope.el.hidden = true;
-    paintLocal(); pb.refresh();
+    paintRow(LOCAL); paintDetail(); pb.refresh();
   }
   const localBuf = new Float32Array(2048);
   function readLocal() {
@@ -516,12 +535,8 @@
     const rms = Math.sqrt(sum / localBuf.length), st = local.status();
     d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     d.set('heard', Math.floor(st.slots[st.from]?.at ?? 0));
-    scope.set({ points: scopeWindow(localBuf), reason: '', name: `local ${localFor}` });
-  }
-  function paintLocal() {
-    const b = localBtns.button('local');
-    b.textContent = localFor ? 'stop' : 'local';
-    b.title = localFor ? 'stop the local sound' : 'play this sound here: free, nothing goes on air';
+    scope.set({ points: scopeWindow(localBuf), reason: '', name: LOCAL });
+    paintRow(LOCAL); if (target === LOCAL) { paintDetail(); showProgram(); }
   }
   const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
   scope.el.hidden = true;
@@ -529,9 +544,9 @@
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
   const stations = sec('stations', stTable.el); stations.classList.add('vc-stations');
   const detail = el('div', 'vc-detail');
-  detail.append(sec('', head, playing.el), sec('', soundHead, sound.el), sec('', progHead, progEmpty, progHost));
+  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('program', progEmpty, progHost));
   const main = el('div', 'vc-main'); main.append(stations, detail);
-  wire(); markOpen(); paintDetail(); paintLocal();
+  wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(main, scope.el, sec('archive', archList.el), pb.el);
   await loadFeed();
 
@@ -548,9 +563,10 @@
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|\/file\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
     const rowOf = (t) => stRows[STATIONS.indexOf(t)];
-    d.assert('six stations in one list, preview first, open and marked by default',
-      stRows.map((r) => r.dataset.station).join() === STATIONS.join() && target === 'preview' && dName.textContent === 'preview'
-      && rowOf('preview').classList.contains('on') && stRows.filter((r) => r.classList.contains('on')).length === 1, stRows.map((r) => r.dataset.station).join());
+    const word = (t) => badges[t].el.querySelector('.pos-pres-w').textContent;
+    d.assert('seven stations in one list, local first, open and marked by default',
+      stRows.map((r) => r.dataset.station).join() === STATIONS.join() && STATIONS[0] === LOCAL && target === LOCAL && dName.textContent === LOCAL
+      && rowOf(LOCAL).classList.contains('on') && stRows.filter((r) => r.classList.contains('on')).length === 1, stRows.map((r) => r.dataset.station).join());
     d.assert('a visit opens no control socket, no player, no prelisten and no local sound, and asks no audio URL or file',
       !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !local && !audioReqs().length, audioReqs().join(' '));
     // selecting: a press on a row opens it, and every station has the same sound controls
@@ -562,9 +578,14 @@
     d.assert('selecting a station opens it on the right, and each one has mode, dial, tune, dwell, blend and the grain controls',
       seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 7 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
     rowOf('user1').click();
-    d.assert('radio1965 is heard through shout, never from their server; user1 has no player and says where it is heard',
+    const gone = (e) => getComputedStyle(e).display === 'none';
+    const user1 = gone(listenBtn.el) && !gone(inApp) && inApp.textContent === 'in the Väin app';
+    rowOf(LOCAL).click();
+    d.assert('radio1965 is heard through shout, never from their server; user1 has no player and says where it is heard; local has neither',
       listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1')
-      && listenBtn.el.hidden && !inApp.hidden && inApp.textContent === 'in the Väin app');
+      && user1 && gone(listenBtn.el) && gone(inApp) && stopsRow.hidden);
+    d.assert('local\'s chain: archive through the file pass to this browser, and no caster link at all',
+      linked('cf-cast:files:audio-out', 'web:local:audio-in') && !bay.links().some((l) => l.from.startsWith('cf-cast:caster') || l.to.startsWith('cf-cast:caster')));
     rowOf('preview').click();
     d.assert('preview\'s chain: the caster plays into our own Icecast and the player hears /listen/preview',
       linked('cf-cast:caster:audio-out', 'cf-icecast:preview:audio-in') && linked('cf-icecast:preview:audio-out', 'web:player:audio-in'));
@@ -597,10 +618,6 @@
       d.assert('on air the same + is sent as queue, so it plays after the current file',
         qm?.[0] === 'user3' && qm[1].cmd === 'queue' && qm[1].ids.join() === [items[2].id, items[1].id].join()
         && progRows.find((p) => p.id === items[2].id)?.r.dataset.on === '1', JSON.stringify(qm));
-      progBtns.button('now').click(); await tick();
-      const pm = sent.at(-1);
-      d.assert('play now sends play with the program from the top',
-        pm?.[0] === 'user3' && pm[1].cmd === 'play' && pm[1].ids.join() === [items[2].id, items[1].id].join(), JSON.stringify(pm));
       // the mix controls go to the open station, at most 20 a second
       sent.length = 0;
       mixUi.mode.buttons[1].click();
@@ -632,40 +649,48 @@
       d.assert('a prelisten press sets that file on its own <audio> with no crossOrigin, and a second press takes it off',
         set && !pre.getAttribute('src') && preId === null);
       prePlay = (a) => a.play();
-      // LOCAL, against an engine that records instead of playing, so the check fetches no file
+      // the local station, against an engine that records instead of playing, so the check fetches no file
       const calls = [], realMake = makeLocal;
       makeLocal = () => { const f = { playing: false, analyser: null, status: () => ({ from: 0, slots: [{ at: 0 }] }),
-        start: async (o) => { f.playing = true; calls.push(['start', o]); }, stop: () => { f.playing = false; calls.push(['stop']); },
+        start: async (o) => { f.playing = true; calls.push(['start', o]); }, stop: () => { f.playing = false; calls.push(['stop']); }, next: () => calls.push(['next']),
         set: (n, v) => calls.push(['set', n, v]), mode: (v) => calls.push(['mode', v]), patch: (p) => calls.push(['patch', p]), queue: (qq) => calls.push(['queue', qq]) }; return f; };
-      sent.length = 0;
-      mixUi.mode.buttons[1].click(); await tick(100); sent.length = 0;
-      localBtns.button('local').click(); await tick();
+      for (const n of Object.keys(touched)) touched[n] = 0;
+      rowOf(LOCAL).click();
+      await tick(); sent.length = 0;
+      archRows.get(items[1].id).btns.button('add').click(); await tick();
+      mixUi.mode.buttons[1].click();
+      mixUi.tune.set(0.51); await tick(200);
+      castBtns.button('cast').click(); await tick(300);
       const st0 = calls.find(([c]) => c === 'start')?.[1];
-      d.assert('LOCAL plays the open station\'s program here with its sound as it stands (the dial held at 0.51 above), each file from /file/<id>',
-        localOn() && localFor === 'user3' && st0?.queue.map((x) => x.id).join() === startIds('user3').join() && st0.mode === 'mix'
+      d.assert('START on local plays its own program here with its sound as it stands, each file from /file/<id>',
+        localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'mix'
         && st0.set.drift === 0 && Math.abs(st0.set.tune - 0.51) < 1e-9 && st0.patch.name === NAMES[patchAt()] && localFile(items[0]) === `${BASE}/file/${items[0].id}`
-        && localBtns.button('local').textContent === 'stop' && !scope.el.hidden, JSON.stringify(st0));
+        && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here' && !scope.el.hidden,
+        JSON.stringify({ st0, word: word(LOCAL) }));
       calls.length = 0;
       mixUi.tune.set(0.5);
       const heardAt = calls.find(([c, n]) => c === 'set' && n === 'tune')?.[2];
-      mixUi.gdensity.set(12);
       mixUi.mode.buttons[2].click();
+      mixUi.gdensity.set(12);
+      castBtns.button('next').click();
       await tick(300);
-      d.assert('a control move reaches the local sound at once and is also sent to the station as its stored setting',
-        heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains')
-        && sent.some(([t, m]) => t === 'user3' && m.cmd === 'set' && m.name === 'tune' && m.v === 0.5)
-        && sent.some(([t, m]) => t === 'user3' && m.cmd === 'patch' && m.set?.density === 12)
-        && sent.some(([t, m]) => t === 'user3' && m.cmd === 'mode' && m.mode === 'grains'), JSON.stringify({ calls, sent }));
-      d.assert('NEGATIVE CONTROL: LOCAL never starts a station, so nothing sent is play, queue or extend',
-        sent.length > 0 && sent.every(([, m]) => !['play', 'queue', 'extend'].includes(m.cmd)), sent.map(([, m]) => m.cmd).join());
+      d.assert('on local a control move is heard at once, next skips, and the sound is kept on the page',
+        heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains') && calls.some(([c]) => c === 'next')
+        && status[LOCAL]?.wanted.mode === 'grains' && status[LOCAL].wanted.set.tune === 0.5 && status[LOCAL].wanted.patch.set.density === 12, JSON.stringify({ calls, w: status[LOCAL]?.wanted }));
+      d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
+        calls.length > 0 && !sent.length && !Object.keys(sockets).some((t) => t === LOCAL), sent.map(([t, m]) => `${t} ${m.cmd}`).join());
+      rowOf('user3').click(); calls.length = 0;
+      mixUi.tune.set(0.47); await tick(200);
+      d.assert('local keeps playing while another station is open, and that station\'s controls do not reach it',
+        localOn() && !calls.length && sent.some(([t, m]) => t === 'user3' && m.name === 'tune'), JSON.stringify(calls));
       prePlay = () => null;
-      archRows.get(items[1].id).btns.button('pre').click();
+      archRows.get(items[1].id).btns.button('pre').click(); await tick(300);
       d.assert('one sound at a time: a prelisten stops the local sound',
-        !localOn() && localFor === null && calls.at(-1)?.[0] === 'stop' && preId === items[1].id && localBtns.button('local').textContent === 'local');
+        !localOn() && localFor === null && calls.at(-1)?.[0] === 'stop' && preId === items[1].id && word(LOCAL) === 'off');
       stopPrelisten(); prePlay = (a) => a.play();
       mixUi.mode.buttons[0].click(); showGrains(false);
       makeLocal = realMake; local = null;
-      delete status.user3; delete progs.user3; delete progTouched.user3;
+      delete status.user3; delete progs.user3; delete progTouched.user3; delete status[LOCAL]; delete progs[LOCAL]; delete progTouched[LOCAL];
     }
     for (const n of Object.keys(touched)) touched[n] = 0;
     rowOf('preview').click();
@@ -684,7 +709,6 @@
     await tick(300);
     d.assert('NEGATIVE CONTROL: off air there is no stop time and no EXTEND, in the row or the detail',
       rowOf('user1').children[3].textContent === '' && (() => { rowOf('user1').click(); const off = stopsRow.hidden && !stopsAt.textContent; rowOf('preview').click(); return off; })());
-    const word = (t) => badges[t].el.querySelector('.pos-pres-w').textContent;
     const state = (t) => [badges[t].el.dataset.state, badges[t].el.dataset.busy || ''].join(' ');
     d.assert('three states in words: positron on preview, Väin on radio1965 with their title, off on user1',
       word('preview') === 'positron' && word('radio1965') === 'Väin' && word('user1') === 'off'
@@ -703,7 +727,7 @@
     openSocket = realOpen; key = realKey;
     live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); badges[t].set('unknown'); stRows[STATIONS.indexOf(t)].children[2].textContent = ''; stRows[STATIONS.indexOf(t)].children[3].textContent = ''; }
     mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true);
-    rowOf('preview').click(); say(''); paintDetail(); dBadge.set('unknown');
+    rowOf(LOCAL).click(); say(''); paintRow(LOCAL); paintDetail();
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !localOn() && !audioReqs().length, audioReqs().join(' '));
     poll(); setInterval(poll, 3000);
