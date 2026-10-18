@@ -10,17 +10,20 @@
 //   GET  /status/<target>      the same status, read only
 //   GET  /file/<id>            one archive file by feed id, with CORS and Range, cached at the edge a year (the page's LOCAL)
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
-//   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
+//   GET  /listen/preview       the preview Icecast inside the `preview` caster's container, moved across a handover; 503
+//                              when it is not running
 //   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
 //   POST /votes?key=           {inst, def, vote: 1 bad | 2 meh | 3 good | 4 great | null, comment, file, station?}: one row per
 //                              scene played (`inst`, a station's from its status.life); no vote and no comment takes it back
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
-// session in storage, boots the container, relays commands and restarts it when it dies.
+// session in storage, boots the container, relays commands and restarts it when it dies. A deploy hands
+// a station to a twin container with no gap (handover, lessons/workers-cast.md#handover).
 // The source speaks exactly what Väin's own app sends (radio1965 app/icecastbroadcaster.cpp): PUT over
 // HTTP/1.0, `ice-audio-info: send_notification=0;save_stream=0`, on air at a ` 200` status line.
 
 import { levelFor } from './gains.mjs';
 import { tasteOf, fileWeight } from './container/sc/radio/cast/life.mjs';
+import { createEar } from './splice.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
 const FEED_TYPES = new Set(['audio', 'streamrecording']);
@@ -34,6 +37,10 @@ const MODES = ['live'], RETIRED_MODES = ['copy', 'mix', 'grains'];
 // An empty program starts as this many files, picked as the page picks them; at most VOTES_SENT votes reach the life.
 const PICK = Infinity, VOTES_SENT = 2000; // an empty program starts as the whole archive, shuffled by the votes
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
+// A handover starts with at least SAFE_S of dwell left and goes on with MIN_S once the twin is up; waiting, the
+// alarm looks again every RETRY_MS; TRIES failures in a row refresh the old way. why: lessons/workers-cast.md#handover
+const HANDOVER_SAFE_S = 25, HANDOVER_MIN_S = 10, HANDOVER_RETRY_MS = 3000, HANDOVER_TRIES = 3;
+const other = (k) => (k === 'b' ? 'a' : 'b'), twinOf = (name) => `${name}~b`;
 // Every start stops itself at `until`, kept in the wanted session. why: lessons/workers-cast.md#cap
 const CAP_MS = 2 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 12 * 3600_000, PLAY_CAP_MIN = 60_000;
 const clampMs = (ms, lo) => (Number.isFinite(+ms) ? Math.min(CAP_MAX, Math.max(lo, Math.round(+ms))) : null);
@@ -165,16 +172,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = (t) => new Date(t).toISOString().slice(0, 19) + 'Z';
 
 /**
- * One caster per target, control only. The wanted session (queue, target, start) lives in storage, the
- * audio in the container. An alarm every 30 s reads the container, writes `progress`, and on a death
- * dates it in `deaths` and starts a new container that resumes the queue where progress last saw it.
+ * One caster per target: the wanted session in storage, the audio in slot `a` (its own container) or `b` (the
+ * container of a Caster `<name>~b` that only hosts it); a deploy hands it from one to the other. An alarm every
+ * 30 s writes `progress` and brings a dead container back. why: lessons/workers-cast.md#handover
  */
 export class Caster {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env;
     this.sockets = new Set();
+    this.ears = new Set();
     this.lines = [];
-    this.booting = null; this.watching = false; this.misses = 0; this.killing = false;
+    this.booting = {}; this.watching = false; this.misses = 0; this.killing = false; this.handing = false;
     // A restarted object has no inactivity timeout, so set it again on every wake.
     if (ctx.container?.running) ctx.container.setInactivityTimeout(IDLE_MS).catch(() => { /* next wake */ });
   }
@@ -182,26 +190,83 @@ export class Caster {
   get c() { return this.ctx.container; }
   get st() { return this.ctx.storage; }
 
-  /** The container's /status, or null when it is not running or does not answer in 4 s. */
-  async cstatus() {
-    if (!this.c?.running) return null;
+  /** The slot on air, `a` or `b`, from storage once per wake. */
+  async key() { this.activeK ??= (await this.st.get('active')) || 'a'; return this.activeK; }
+  async setActive(k) { this.activeK = k; await this.st.put('active', k); }
+
+  /** A slot's container behind one shape: running(), start(env), destroy(), idle(), fetch(port, path, init). */
+  slot(k) {
+    if (k !== 'b') {
+      return { k: 'a', running: async () => !!this.c?.running, idle: () => this.c.setInactivityTimeout(IDLE_MS), destroy: () => this.c.destroy(),
+        start: async (env) => { this.c.start({ image: this.c.images.cast, instance: CAST_INSTANCE, enableInternet: true, env }); this.watch(); },
+        fetch: (port, path, init) => this.c.getTcpPort(port).fetch(`http://c${path}`, init) };
+    }
+    const stub = this.env.CASTER.get(this.env.CASTER.idFromName(twinOf(this.name)));
+    const host = async (op, init) => {
+      const r = await stub.fetch(`https://cast/host/${this.name}/${op}`, init);
+      if (r.status === 599) throw new Error((await r.json()).error);
+      return r;
+    };
+    return { k: 'b',
+      running: async () => { try { return !!(await (await host('running')).json()).running; } catch { return false; } },
+      idle: () => host('idle', { method: 'POST' }),
+      destroy: () => host('destroy', { method: 'POST' }),
+      start: async (env) => { await host('start', { method: 'POST', body: JSON.stringify({ env }) }); },
+      fetch: (port, path, init) => host(`port/${port}${path}`, init) };
+  }
+
+  /** The twin's side: a Caster named `<station>~b` hosts one container for the station and nothing else. */
+  async host(req, u) {
+    const [, , station, op, ...rest] = u.pathname.split('/');
     try {
-      const r = await Promise.race([this.c.getTcpPort(8080).fetch('http://c/status'), sleep(4000).then(() => null)]);
+      if (op === 'running') return json({ running: !!this.c?.running });
+      if (op === 'idle') { if (this.c?.running) await this.c.setInactivityTimeout(IDLE_MS); return json({ ok: true }); }
+      if (op === 'destroy') { this.hostKilling = true; if (this.c?.running) await this.c.destroy().catch(() => {}); return json({ ok: true }); }
+      if (op === 'start') {
+        const { env } = await req.json();
+        if (!this.c.running) this.c.start({ image: this.c.images.cast, instance: CAST_INSTANCE, enableInternet: true, env: env || {} });
+        try { await this.c.setInactivityTimeout(IDLE_MS); } catch { /* the next call sets it */ }
+        if (!this.watching) {
+          this.watching = true;
+          // an exit the station did not ask for is a death on the station's side
+          this.c.monitor().then(() => 'the twin container exited', (e) => `the twin container failed: ${String(e?.message || e).slice(0, 160)}`)
+            .then((why) => (this.hostKilling ? null : this.env.CASTER.get(this.env.CASTER.idFromName(station))
+              .fetch(`https://cast/hostexit/${station}`, { method: 'POST', body: JSON.stringify({ why }) }).catch(() => {})))
+            .finally(() => { this.watching = false; this.hostKilling = false; });
+        }
+        return json({ ok: true });
+      }
+      if (op === 'port') {
+        if (!this.c?.running) return json({ error: 'the twin container is not running' }, 599);
+        const path = `/${rest.slice(1).join('/')}${u.search}`;
+        return await this.c.getTcpPort(Number(rest[0])).fetch(`http://c${path}`, { method: req.method, headers: req.headers, body: req.method === 'GET' || req.method === 'HEAD' ? undefined : req.body });
+      }
+    } catch (e) { return json({ error: e.message }, 599); }
+    return json({ error: 'no such host route' }, 404);
+  }
+
+  /** A slot's /status (the slot on air by default), or null when it is not running or does not answer in 4 s. */
+  async cstatus(k) {
+    const sl = this.slot(k ?? await this.key());
+    if (!(await sl.running())) return null;
+    try {
+      const r = await Promise.race([sl.fetch(8080, '/status'), sleep(4000).then(() => null)]);
       return r ? await r.json() : null;
     } catch { return null; }
   }
-  async cpost(path, body) {
+  async running(k) { return this.slot(k ?? await this.key()).running(); }
+  async cpost(path, body, k) {
     // every queue carries each file's gain from the table, a stored one too. why: lessons/workers-cast.md#level
     if (Array.isArray(body?.queue)) body = { ...body, queue: body.queue.map((x) => ({ ...x, ...levelFor(x.id) })) };
-    const r = await this.c.getTcpPort(8080).fetch(`http://c${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const r = await this.slot(k ?? await this.key()).fetch(8080, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `the container answered ${r.status}`);
     return j;
   }
 
   async status() {
-    const [want, progress, deaths, boot, prog, stopped] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'program', 'stopped'].map((k) => this.st.get(k)));
-    const t = targets(this.env)[this.name], s = await this.cstatus();
+    const [want, progress, deaths, boot, prog, stopped, handovers] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'program', 'stopped', 'handovers'].map((k) => this.st.get(k)));
+    const t = targets(this.env)[this.name], k = await this.key(), s = await this.cstatus(k), up = await this.running(k);
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
       program: (prog || []).map(({ id, title }) => ({ id, title })),
@@ -209,8 +274,8 @@ export class Caster {
       until: want ? (want.until ?? want.startedAt + CAP_MS) : null, stopped: stopped || null,
       onAirSeconds: s?.onAir ? Math.round(s.seconds) : 0, files: s?.files ?? 0, frames: s?.frames ?? 0, bytes: s?.bytes ?? 0,
       seconds: s?.seconds ?? 0, skipped: s?.skipped ?? 0, rate: s?.rate ?? 0, kbps: s?.kbps ?? 0, lag: s?.lag ?? null, wall: s?.wall ?? null,
-      container: { running: !!this.c?.running, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
-        rss: s?.rss ?? null, sinkDeaths: s?.sinkDeaths ?? 0, lastError: s?.lastError || null },
+      container: { running: up, slot: k, answering: !!s, bootMs: boot?.ms ?? null, bootedAt: boot ? iso(boot.at) : null, uptime: s?.uptime ?? null,
+        rss: s?.rss ?? null, sinkDeaths: s?.sinkDeaths ?? 0, lastError: s?.lastError || null, handing: this.handing },
       icecast: s?.icecast || null,
       mode: s?.mode || 'live', wanted: { mode: 'live' }, life: s?.mix?.life ?? null,
       mix: s?.mix ? (({ tune, drift, dwell, blend, noise, phase, k, noiseLevel, slots, next, meter, landings, underruns, encoderRestarts, backlog }) =>
@@ -219,7 +284,7 @@ export class Caster {
         chain: c && { dead: c.dead, upS: c.upS, xruns: c.xruns, late: c.late, grains: c.grains, scsynth: c.scsynth,
           procs: Object.fromEntries(Object.entries(c.procs || {}).map(([k, v]) => [k, v && { cpuPct: v.cpuPct, rssMiB: v.rssMiB }])) } }))(s.mix.grains) : null,
       usage: s?.usage || null,
-      progress: progress || null, deaths: deaths || [], lines };
+      progress: progress ? (({ handoff, ...p }) => ({ ...p, scene: handoff?.si ?? null }))(progress) : null, deaths: deaths || [], handovers: handovers || [], lines };
   }
   async push() {
     if (this.pushing || !this.sockets.size) return;
@@ -230,8 +295,15 @@ export class Caster {
 
   async fetch(req) {
     const u = new URL(req.url);
+    if (u.pathname.startsWith('/host/')) return this.host(req, u);
     this.name = u.pathname.split('/')[2];
     if ((await this.st.get('name')) !== this.name) await this.st.put('name', this.name);
+    if (u.pathname.startsWith('/hostexit/')) {
+      const { why } = await req.json().catch(() => ({}));
+      if ((await this.key()) === 'b' && !this.handing && !this.retrying) await this.died(this.killing ? 'killed on purpose' : why || 'the twin container exited');
+      this.killing = false;
+      return json({ ok: true });
+    }
     if (u.pathname.startsWith('/status/')) return json(await this.status());
     if (u.pathname.startsWith('/listen/')) return this.listen();
     if (req.headers.get('upgrade') !== 'websocket') return json({ error: 'a WebSocket' }, 426);
@@ -246,18 +318,33 @@ export class Caster {
   }
 
   /**
-   * A listener on the preview Icecast, proxied from the container's :8000. Never starts a container:
-   * nothing on air is a 503 the page can read. why: lessons/workers-cast.md#preview-listen
+   * A listener on the preview Icecast of the slot on air, frame by frame so a handover can move it (splice.mjs).
+   * Never starts a container: nothing on air is a 503. why: lessons/workers-cast.md#preview-listen, #handover
    */
   async listen() {
     const off = (why) => json({ error: why, onAir: false }, 503);
     if (!targets(this.env)[this.name]?.local) return json({ error: 'no listening here' }, 404);
-    if (!this.c?.running) return off('preview is not on air: its container is not running');
+    const sl = this.slot(await this.key());
+    if (!(await sl.running())) return off('preview is not on air: its container is not running');
     let r;
-    try { r = await this.c.getTcpPort(8000).fetch('http://c/preview', { headers: { 'user-agent': 'positron-cast listen' } }); } catch (e) { return off(`the preview Icecast did not answer: ${e.message}`); }
+    try { r = await sl.fetch(8000, '/preview', { headers: { 'user-agent': 'positron-cast listen' } }); } catch (e) { return off(`the preview Icecast did not answer: ${e.message}`); }
     if (r.status !== 200 || !r.body) { r.body?.cancel(); return off(`the preview Icecast answered ${r.status}: no source on /preview`); }
     const ct = r.headers.get('content-type'); // forwarded, never invented
-    return new Response(r.body, { headers: { ...(ct ? { 'content-type': ct } : {}), 'cache-control': 'no-store', ...cors } });
+    const ear = createEar(r.body, { onEnd: () => this.ears.delete(ear) });
+    this.ears.add(ear);
+    return new Response(ear.readable, { headers: { ...(ct ? { 'content-type': ct } : {}), 'cache-control': 'no-store', ...cors } });
+  }
+
+  /** Every listener onto slot k's Icecast, each at its live edge; resolves with each one's splice. */
+  async spliceAll(k) {
+    const sl = this.slot(k);
+    return Promise.all([...this.ears].map(async (ear) => {
+      try {
+        const r = await sl.fetch(8000, '/preview', { headers: { 'user-agent': 'positron-cast listen' } });
+        if (r.status !== 200 || !r.body) { r.body?.cancel(); return { ok: false, why: `the twin's Icecast answered ${r.status}` }; }
+        return await ear.splice(r.body);
+      } catch (e) { return { ok: false, why: e.message }; }
+    }));
   }
 
   async command(text) {
@@ -266,14 +353,16 @@ export class Caster {
     if (m.cmd === 'extend') return this.extend(m.ms);
     if (m.cmd === 'mode') return this.mode(m.mode);
     if (m.cmd === 'set' || m.cmd === 'patch') throw new Error(`${m.cmd} is the life's on a live station: it moves the sound itself`);
+    // a handover copies the station into a twin: a change now would reach only the one going away
+    if (this.handing && ['step', 'next', 'kill', 'program', 'play', 'queue'].includes(m.cmd)) throw new Error('handing over to the new code: try again in a few seconds');
     if (m.cmd === 'step') return this.step(m.by);
-    if (m.cmd === 'next') { if (this.c?.running) await this.cpost('/next'); return; }
+    if (m.cmd === 'next') { if (await this.running()) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
-    if (m.cmd === 'kill') { if (this.c?.running) { this.killing = true; this.say('killing the container on purpose'); await this.c.destroy().catch(() => {}); } return; }
+    if (m.cmd === 'kill') { if (await this.running()) { this.killing = true; this.say('killing the container on purpose'); await this.slot(await this.key()).destroy().catch(() => {}); } return; }
     if (m.cmd === 'program') return this.program(m.ids);
     if (m.cmd === 'play' || m.cmd === 'queue') {
       const t = targets(this.env)[this.name];
-      const want = await this.st.get('want'), on = !!(want && this.c?.running);
+      const want = await this.st.get('want'), on = !!(want && await this.running());
       // queue on air: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
       if (m.cmd === 'queue') return this.program(m.ids);
       if (!t.pw) throw new Error(`no source password for ${t.label}: waiting on Väin's OK`);
@@ -321,7 +410,7 @@ export class Caster {
     if (ids?.length && !prog.length) throw new Error('none of those is in their archive feed');
     await this.st.put('program', prog);
     const want = await this.st.get('want');
-    if (!want || !this.c?.running) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
+    if (!want || !(await this.running())) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
     // An empty program is the whole archive less what the votes ruled out, on air
     const list = prog.length ? prog : await this.resolve(pickFiles(await feed(this.ctx), await this.votes(), Infinity));
     const cur = (await this.cstatus())?.now?.id, i = list.findIndex((x) => String(x.id) === String(cur));
@@ -331,17 +420,17 @@ export class Caster {
     this.say(prog.length ? `program ${prog.length} files, after this one` : 'program cleared, the whole archive after this one'); this.push();
   }
 
-  /** What the container is told on every /play: live, with this start's seed and the owner's votes. */
-  async mixBody() {
+  /** What the container is told on every /play: live, with this start's seed and the owner's votes up to `upTo`. */
+  async mixBody(upTo) {
     const want = await this.st.get('want');
-    return { mode: 'live', life: { seed: want?.seed ?? 1, votes: await this.votes() } };
+    return { mode: 'live', life: { seed: want?.seed ?? 1, votes: await this.votes(upTo) } };
   }
 
-  /** The owner's votes as the life reads them, `{ def, vote, file }`, newest VOTES_SENT. */
-  async votes() {
+  /** The owner's votes as the life reads them, `{ def, vote, file }`, newest VOTES_SENT, none cast after `upTo`. */
+  async votes(upTo = Infinity) {
     try {
       const r = await this.env.VOTES.get(this.env.VOTES.idFromName('owner')).fetch('https://cast/votes');
-      return ((await r.json()).votes || []).filter((v) => v.vote && v.def).slice(-VOTES_SENT).map(({ def, vote, file }) => ({ def, vote, file }));
+      return ((await r.json()).votes || []).filter((v) => v.vote && v.def && !(v.at > upTo)).slice(-VOTES_SENT).map(({ def, vote, file }) => ({ def, vote, file }));
     } catch (e) { this.say(`votes: ${e.message}`); return []; }
   }
 
@@ -355,7 +444,7 @@ export class Caster {
   /** The next (1) or previous (-1) scene of the life on air: its transition starts at once. */
   async step(by) {
     if (by !== 1 && by !== -1) throw new Error('step by 1 or -1');
-    if (!(await this.st.get('want')) || !this.c?.running) throw new Error('not on air: nothing to step');
+    if (!(await this.st.get('want')) || !(await this.running())) throw new Error('not on air: nothing to step');
     await this.cpost('/step', { by });
     this.say(`step ${by > 0 ? 'next' : 'previous'} scene`); this.push();
   }
@@ -377,54 +466,63 @@ export class Caster {
     await this.st.put('stopped', { at: iso(Date.now()), t: Date.now(), why });
     await this.st.delete(['want', 'progress']);
     await this.st.deleteAlarm();
-    if (this.c?.running) { try { await this.cpost('/stop'); } catch { /* going anyway */ } await this.c.destroy().catch(() => {}); }
+    const k = await this.key();
+    if (await this.running(k)) { try { await this.cpost('/stop', {}, k); } catch { /* going anyway */ } this.killing = true; await this.slot(k).destroy().catch(() => {}); }
+    // a twin left by a handover that did not finish goes too
+    if (await this.running(other(k))) await this.slot(other(k)).destroy().catch(() => {});
     this.say(`off air, ${why}`);
     this.push();
   }
 
-  /** Starts the container if it is not running and waits for server.mjs to listen. */
-  up() {
-    if (this.booting) return this.booting;
+  /**
+   * Starts slot k's container if it is not running and waits for server.mjs to listen. Returns the boot
+   * record, and stores it as `boot` when k is the slot on air.
+   */
+  up(k) {
+    if (this.booting[k]) return this.booting[k];
+    const sl = this.slot(k);
     // A start just after a destroy can hang without listening: give each try READY_MS, then destroy and retry.
     // why: lessons/workers-cast.md#boot-retry
-    this.booting = (async () => {
+    this.booting[k] = (async () => {
       const t0 = Date.now();
       let started = false;
       for (let attempt = 1; ; attempt++) {
         const ta = Date.now();
-        if (!this.c.running) {
+        if (!(await sl.running())) {
           started = true;
           const t = targets(this.env)[this.name];
-          this.c.start({ image: this.c.images.cast, instance: CAST_INSTANCE, enableInternet: true, env: t?.local ? { ICECAST_PW: t.pw } : {} });
+          await sl.start(t?.local ? { ICECAST_PW: t.pw } : {});
         }
-        this.watch();
-        try { await this.c.setInactivityTimeout(IDLE_MS); } catch { /* set again on the next wake */ }
+        try { await sl.idle(); } catch { /* set again on the next wake */ }
         let up = false;
-        while (!(up = !!(await this.cstatus())) && Date.now() - ta < READY_MS) await sleep(100);
+        while (!(up = !!(await this.cstatus(k))) && Date.now() - ta < READY_MS) await sleep(100);
         if (up) break;
         if (attempt >= BOOT_TRIES) throw new Error(`container not listening after ${BOOT_TRIES} tries`);
         this.say(`try ${attempt}: not listening ${READY_MS / 1000} s after start, destroying and trying again`);
         this.retrying = true;
-        await this.c.destroy().catch(() => {});
+        await sl.destroy().catch(() => {});
         await sleep(2000);
+        this.retrying = false;
       }
-      if (!started) return;
-      const ms = Date.now() - t0;
-      await this.st.put('boot', { id: t0, at: t0, ms, version: this.env.CF_VERSION_METADATA?.id ?? null });
-      this.say(`container up in ${ms} ms`);
-    })().finally(() => { this.booting = null; });
-    return this.booting;
+      const boot = { id: t0, at: t0, ms: Date.now() - t0, version: this.env.CF_VERSION_METADATA?.id ?? null, slot: k };
+      if (!started) return (await this.st.get('boot')) || boot;
+      if (k === await this.key()) await this.st.put('boot', boot);
+      this.say(`container ${k} up in ${boot.ms} ms`);
+      return boot;
+    })().finally(() => { this.booting[k] = null; });
+    return this.booting[k];
   }
 
-  /** monitor() resolves or rejects when the container exits; while a session is wanted that is a death. */
+  /** monitor() resolves or rejects when slot a's container exits; while a session is wanted on it that is a death. */
   watch() {
-    if (this.watching) return;
+    if (this.watching || !this.c) return;
     this.watching = true;
     const bootAt = Date.now();
+    const gone = (why) => (this.retrying || this.handing || this.activeK === 'b' ? null : this.died(this.killing ? 'killed on purpose' : why, bootAt));
     this.c.monitor()
-      .then(() => (this.retrying ? null : this.died(this.killing ? 'killed on purpose' : 'the container exited', bootAt)))
-      .catch((e) => (this.retrying ? null : this.died(this.killing ? 'killed on purpose' : `the container failed: ${String(e?.message || e).slice(0, 160)}`, bootAt)))
-      .finally(() => { this.watching = false; this.killing = false; this.retrying = false; });
+      .then(() => gone('the container exited'))
+      .catch((e) => gone(`the container failed: ${String(e?.message || e).slice(0, 160)}`))
+      .finally(() => { this.watching = false; this.killing = false; });
   }
 
   /** Dates a death once per boot, then brings the source back within a second. */
@@ -441,18 +539,22 @@ export class Caster {
     await this.st.setAlarm(Date.now() + 1000);
   }
 
-  /** Boots if needed and hands the container the queue, resuming where progress last saw it. */
+  /** Boots if needed and hands the container the queue, resuming the file, second and scene progress last saw. */
   async bring(why) {
     const want = await this.st.get('want');
     if (!want) return;
-    await this.up();
+    const k = await this.key();
+    await this.up(k);
     const t = targets(this.env)[want.target], p = await this.st.get('progress');
-    const resume = p?.index != null && p.now ? { index: p.index, at: p.now.at } : null;
-    await this.cpost('/play', { queue: want.queue, target: t, resume, ...(await this.mixBody()) });
-    this.say(`${why}: container playing${resume ? ` from file ${resume.index + 1} at ${resume.at} s` : ''}`);
+    // after a death the life goes on from the scene it was in, not at the wall: the sound in between is lost
+    const { queue, resume } = continueFrom(want.queue, p?.handoff ? { ...p.handoff, wall: null } : null);
+    const votesAt = Date.now();
+    await this.cpost('/play', { queue, target: t, resume, ...(await this.mixBody(votesAt)) }, k);
+    await this.st.put('want', { ...want, votesAt });
+    this.say(`${why}: container playing${resume ? ` from scene ${resume.si} in ${resume.title} at ${Math.round(resume.pos)} s` : ''}`);
     // the gap: from the death being dated to the source being on air again
     for (let i = 0; i < 40; i++) {
-      const s = await this.cstatus();
+      const s = await this.cstatus(k);
       if (s?.onAir) {
         const deaths = (await this.st.get('deaths')) || [], d = deaths.at(-1);
         if (d && !d.back) { d.back = iso(Date.now()); d.gapS = +((Date.now() - d.t) / 1000).toFixed(1); await this.st.put('deaths', deaths); this.say(`back on air ${d.gapS} s after the death`); }
@@ -462,32 +564,106 @@ export class Caster {
     }
   }
 
+  /**
+   * A twin on the new code continues the station where it is (file, second, scene, at the wall), takes the
+   * listeners or the mount, then the old one stops. False: wait for a dwell. why: lessons/workers-cast.md#handover
+   */
+  async handover() {
+    const t = targets(this.env)[this.name], fromK = await this.key(), toK = other(fromK), to = this.slot(toK);
+    let h = (await this.cstatus(fromK))?.handoff;
+    // a twin left running holds whatever code it booted with: start it again
+    if (!this.handing && await to.running()) { await to.destroy().catch(() => {}); await sleep(1500); }
+    if (!h) { this.say('handover: the station gave no handoff, refreshing it the old way'); await this.refresh(); return true; }
+    if (h.safeS < HANDOVER_SAFE_S) { this.say(`handover waits for a dwell: ${h.safeS} s before the blend`); return false; }
+    this.handing = true;
+    const rec = { at: iso(Date.now()), from: fromK, to: toK, scene: h.si, file: h.title, local: !!t.local };
+    const t0 = Date.now();
+    try {
+      this.say(`new code deployed: handing ${fromK} over to a twin in ${toK}`);
+      const boot = await this.up(toK);
+      rec.bootMs = Date.now() - t0;
+      // a fresh look at the station, now that the twin can take it
+      h = (await this.cstatus(fromK))?.handoff;
+      if (!h || h.safeS < HANDOVER_MIN_S) throw new Error(`the blend is ${h?.safeS ?? '?'} s away: next sweep`);
+      const want = await this.st.get('want');
+      const { queue, resume } = continueFrom(want.queue, h);
+      await this.cpost('/play', { queue, target: t, resume, hold: !t.local, mode: 'live', life: { seed: want.seed ?? 1, votes: await this.votes(want.votesAt) } }, toK);
+      let tw = null;
+      // its chain, then align() and settle(): about 10 s here
+      for (let i = 0; i < 160; i++) {
+        tw = await this.cstatus(toK);
+        if (tw?.mix?.aligned && (t.local ? tw.onAir : tw.mix.held) && tw.handoff) break;
+        tw = null; await sleep(250);
+      }
+      if (!tw) throw new Error('the twin did not line up in 40 s');
+      rec.alignErrMs = tw.mix.align?.errMs ?? null; rec.settled = tw.mix.align?.settled ?? null;
+      rec.sameScene = tw.handoff.si === h.si && JSON.stringify(tw.handoff.def) === JSON.stringify(h.def);
+      if (t.local) {
+        await this.setActive(toK);
+        const sp = await this.spliceAll(toK);
+        rec.listeners = sp.length; rec.spliced = sp.filter((x) => x.ok).length;
+        rec.splices = sp.slice(0, 4).map(({ ok, why, dropped, waitedMs }) => ({ ok, why, dropped, waitedMs }));
+      } else {
+        // one source per mount: the old lets go, the held twin takes it, retrying every 100 ms
+        const g0 = Date.now();
+        await this.cpost('/stop', {}, fromK).catch(() => {});
+        await this.cpost('/go', {}, toK);
+        await this.setActive(toK);
+        for (let i = 0; i < 100; i++) { const s = await this.cstatus(toK); if (s?.onAir) { rec.goMs = s.mix?.goMs ?? Date.now() - g0; break; } await sleep(100); }
+      }
+      await this.st.put('boot', { ...boot, slot: toK });
+      await this.cpost('/stop', {}, fromK).catch(() => {});
+      await this.slot(fromK).destroy().catch(() => {});
+      rec.overlapS = +((Date.now() - t0) / 1000).toFixed(1);
+      this.handovers = 0;
+      this.say(`handed over to ${toK}: two containers for ${rec.overlapS} s, ${t.local ? `${rec.spliced} of ${rec.listeners} listeners moved` : `the mount taken in ${rec.goMs} ms`}`);
+    } catch (e) {
+      rec.failed = e.message;
+      this.say(`handover failed: ${e.message}; ${fromK} plays on`);
+      if ((await this.key()) === fromK) await to.destroy().catch(() => {});
+      this.failedHandovers = (this.failedHandovers || 0) + 1;
+    } finally {
+      this.handing = false;
+      const list = (await this.st.get('handovers')) || [];
+      list.push(rec); while (list.length > DEATHS_KEEP) list.shift();
+      await this.st.put('handovers', list);
+    }
+    return !rec.failed;
+  }
+
+  /** The old refresh: destroy, boot again and resume. A handover that cannot happen falls back to it. */
+  async refresh() {
+    this.killing = true;
+    await this.slot(await this.key()).destroy().catch(() => {});
+    await sleep(1500);
+    await this.bring('refreshed onto the new code');
+  }
+
   async alarm() {
+    let soon = false;
     try {
       const want = await this.st.get('want');
-      if (!want) { if (this.c?.running) await this.c.destroy().catch(() => {}); return; }
+      if (!want) { for (const k of ['a', 'b']) if (await this.running(k)) await this.slot(k).destroy().catch(() => {}); return; }
       this.name ||= want.target;
       // the cap holds across a restarted object and container: until is in storage
       if (Date.now() >= (want.until ?? want.startedAt + CAP_MS)) return await this.stop('stopped at the cap');
       if (!targets(this.env)[want.target]) return await this.stop(`no station ${want.target}`);
-      const boot = await this.st.get('boot');
-      if (!this.c.running) {
+      const boot = await this.st.get('boot'), k = await this.key(), sl = this.slot(k);
+      if (!(await sl.running())) {
         await this.died('found not running');
         await this.bring('restart');
       } else if (this.env.CF_VERSION_METADATA?.id && boot && boot.version !== this.env.CF_VERSION_METADATA.id) {
-        // a deploy since this container booted: restart it on the new code and resume where progress last saw it
-        // why: lessons/workers-cast.md#refresh-on-deploy
-        this.say('new code deployed: refreshing the container');
-        this.killing = true;
-        await this.c.destroy().catch(() => {});
-        await sleep(1500);
-        await this.bring('refreshed onto the new code');
+        // a deploy since this container booted: a twin on the new code takes over. why: lessons/workers-cast.md#handover
+        if ((this.failedHandovers || 0) >= HANDOVER_TRIES) { this.failedHandovers = 0; this.say(`${HANDOVER_TRIES} handovers failed: refreshing the old way`); await this.refresh(); }
+        else soon = !(await this.handover());
       } else {
-        this.watch();
-        try { await this.c.setInactivityTimeout(IDLE_MS); } catch { /* the constructor set it */ }
-        const s = await this.cstatus();
+        if (k === 'a') this.watch();
+        try { await sl.idle(); } catch { /* the constructor set it */ }
+        // a twin a failed handover left behind
+        if (!this.handing && await this.running(other(k))) await this.slot(other(k)).destroy().catch(() => {});
+        const s = await this.cstatus(k);
         if (!s) {
-          if (++this.misses >= 2) { this.misses = 0; await this.died('status unreachable twice'); await this.c.destroy().catch(() => {}); await this.bring('restart'); }
+          if (++this.misses >= 2) { this.misses = 0; await this.died('status unreachable twice'); await sl.destroy().catch(() => {}); await this.bring('restart'); }
         } else if (!s.playing) {
           this.misses = 0;
           // the process restarted under us, or the session ended inside it
@@ -497,16 +673,29 @@ export class Caster {
           this.misses = 0;
           await this.st.put('progress', { at: iso(Date.now()), t: Date.now(), onAir: s.onAir, seconds: s.seconds, wall: s.wall,
             sessionS: Math.round((Date.now() - want.startedAt) / 1000), files: s.files, lag: s.lag, down: s.down,
-            sinkDeaths: s.sinkDeaths, index: s.index, now: s.now, bytes: s.bytes, rss: s.rss });
+            sinkDeaths: s.sinkDeaths, index: s.index, now: s.now, bytes: s.bytes, rss: s.rss, handoff: s.handoff || null });
         }
       }
     } catch (e) { this.say(`sweep: ${e.message}`); }
     finally {
       const w = await this.st.get('want');
-      if (w) await this.st.setAlarm(Math.max(Date.now() + 1000, Math.min(Date.now() + ALARM_MS, w.until ?? w.startedAt + CAP_MS)));
+      // waiting for a dwell to hand over in: look again in a few seconds rather than at the next sweep
+      if (w) await this.st.setAlarm(Math.max(Date.now() + 1000, Math.min(Date.now() + (soon ? HANDOVER_RETRY_MS : ALARM_MS), w.until ?? w.startedAt + CAP_MS)));
       this.push();
     }
   }
+}
+
+/**
+ * The queue rotated to start at the file on air, and `resume` the handoff; a file no longer queued keeps only
+ * the life's scene. why: lessons/workers-cast.md#handover
+ */
+export function continueFrom(queue, h) {
+  if (!h) return { queue, resume: null };
+  const i = queue.findIndex((x) => String(x.id) === String(h.id));
+  const { def, phase, safeS, seed, ...r } = h;
+  if (i < 0) return { queue, resume: { si: r.si, hist: r.hist, inst: r.inst } };
+  return { queue: [...queue.slice(i), ...queue.slice(0, i)], resume: r };
 }
 
 /** The owner's votes on live scenes: one row per scene played, a def small enough to rebuild it. */

@@ -4,7 +4,7 @@
 import { startGrains } from './grains.mjs';
 import { openDecoder } from './decode.mjs';
 import { levelOf, SR } from './mixer.mjs';
-import { createLife, fromT, DWELL_NOISE, patchFor } from './sc/radio/cast/life.mjs';
+import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry } from './sc/radio/cast/life.mjs';
 /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
 const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
 import { createLayerEngine, euclid, stepSeconds, layerLevel, pitchClass, KEY_FROM, KEY_HZ } from './sc/radio/cast/layers.mjs';
@@ -59,13 +59,18 @@ export function createChroma({ sr = SR, n = CHROMA_N } = {}) {
  * Live on air: `{ queue, target, life: { seed, votes }, set }`. Returns startGrains' handle plus `step(by)` and
  * `status().life`. `decoder(item, { from })` opens a file (openDecoder); `rand` moves the ghosts.
  */
-export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink, say = () => {}, fail = () => {}, onMp3 = null, decoder = null, rand = Math.random } = {}) {
+export function startLive({ queue, target, life: lo = {}, set = {}, resume = null, hold = false }, { openSink, say = () => {}, fail = () => {}, onMp3 = null, decoder = null, rand = Math.random } = {}) {
   const seed = Number.isFinite(+lo.seed) ? Math.round(+lo.seed) : (Math.random() * 2 ** 31) | 0;
   const votes = (Array.isArray(lo.votes) ? lo.votes : []).filter((v) => v && v.def && v.vote);
   const life = createLife({ seed, votes });
   const open = decoder || ((it, o) => openDecoder(it, { log: say, ...o }));
-  const s0 = life.scene(0, { kind: queue[0]?.kind || undefined });
-  const L = { land: -1, si: 0, sceneAt: 0, blendAt: 0, phase: '', patch: '', inst: '', file: '', item: null, prevItem: null, want: null, now: null, level: 0 };
+  // a twin rebuilds the life's scenes as the station made them (each file's kind, each key it heard), so scene `si`
+  // is the station's to the bit. why: lessons/workers-cast.md#handover
+  const hist = Array.isArray(resume?.hist) ? resume.hist : [];
+  for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
+  const si0 = resume && Number.isInteger(resume.si) && resume.si >= 0 ? resume.si : 0;
+  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined });
+  const L = { land: -1, si: si0, sceneAt: 0, blendAt: 0, phase: '', patch: '', inst: '', file: '', item: null, prevItem: null, want: null, now: null, level: 0 };
   const ghost = { next: 0, until: 0, stopAt: 0, src: null, item: null, level: 1, soften: null };
   const counts = { pulses: 0, onsets: 0, ghosts: 0, keys: 0, chains: 0 };
   const recent = new Float32Array(CHROMA_N), chroma = createChroma(), onset = { avg: 0, last: 0 };
@@ -80,7 +85,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
     return x;
   }
   const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE },
-    patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0) }) },
+    patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0) }), resume, hold },
   { openSink, say, fail, onMp3, inputs: 4, ghost: readGhost,
     onBlock(mono) { for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; } },
     async onChain(chain) {
@@ -158,20 +163,32 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
   }
   function tick() {
     if (stopped) return;
+    // a twin's scene starts where the station's was, once align() has set the clock
+    if (resume?.wall && !e.frames) return;
     try {
       const st = e.status(), t = e.seconds;
       if (st.landings !== L.land) {
-        L.si = L.land === -1 ? 0 : L.want ?? L.si + 1; L.want = null;
-        L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = `${Date.now().toString(36)}-${L.si}`;
+        const first = L.land === -1;
+        L.si = first ? si0 : L.want ?? L.si + 1; L.want = null;
+        L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = first && resume?.inst ? resume.inst : `${Date.now().toString(36)}-${L.si}`;
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
         const s = life.scene(L.si, { kind: L.item?.kind || undefined });
-        e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE);
-        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s) })); L.patch = s.patch;
+        e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE); e.set('path', s.iPath ?? 0);
+        // a frozen patch stays open until the scene's dry share is over
+        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch;
         layersFor(s, t);
+        if (first && resume && s.key?.heard) L.keyDone = true;
         say(`scene ${L.si}: ${s.patch}, ${s.param}, ${s.len} on ${L.file}`);
       }
+      // a twin's settle moves the clock under the first scene: the scene moves with it
+      if (resume?.wall && L.land === 0 && !g.aligned && st.phase === 'dwell') L.sceneAt = e.cycleFrom;
       ghostTick(t); onsetTick(); layerTick(st, t);
-      if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = e.cycleFrom + e.ctl.dwell; e.set('noise', life.scene(L.si).iNoise); }
+      if (st.phase === 'blend' && L.phase !== 'blend') {
+        const s = life.scene(L.si);
+        L.blendAt = e.cycleFrom + e.ctl.dwell; e.set('noise', s.iNoise);
+        // a pause lets the drones go too; the next landing sets them again
+        if (s.iKind === 'pause' && layers) layers.apply({ ...s.layers, drone: 'none' }, s.key);
+      }
       L.phase = st.phase;
       L.at = st.phase === 'blend' ? t - L.blendAt : t - L.sceneAt;
       const v = st.phase === 'blend' ? life.inInterlude(L.si, L.at) : life.inScene(L.si, L.at);
@@ -183,7 +200,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
   const timer = setInterval(tick, TICK_MS);
 
   return {
-    engine: e, heard: g.heard, set: g.set, queue: g.queue, next: g.next, patch: g.patch,
+    engine: e, heard: g.heard, set: g.set, queue: g.queue, next: g.next, patch: g.patch, go: g.go,
     get chain() { return g.chain; },
     get layers() { return layers; },
     /** Previous (-1) or next (1) scene: the transition starts now and the asked scene lands with the next file. */
@@ -195,6 +212,18 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
     /** For a test: a tick now, rather than on the timer. */
     tick,
     stop() { stopped = true; clearInterval(timer); clearTimeout(pulseTimer); closeGhost(); layers?.stop(); g.stop(); },
+    /**
+     * Where the station is, as what scsynth hears now: the file and second on air, the seconds into its dwell, the
+     * scene and the life's past. `safeS`: seconds of dwell left before the blend. why: lessons/workers-cast.md#handover
+     */
+    handoff() {
+      const x = g.status(), back = Math.max(0, x.clockBacklog ?? x.backlog ?? 0), on = x.slots[x.from], s = L.land >= 0 ? life.scene(L.si) : null;
+      if (!s || !on?.id) return null;
+      const made = Array.from({ length: L.si + 1 }, (_, k) => { const sc = life.scene(k); return { kind: sc.kind, key: sc.key }; });
+      const left = Number.isFinite(on.seconds) ? on.seconds - on.played - x.blend - 1 : Infinity;
+      return { id: on.id, title: on.title, pos: +(on.played - back).toFixed(3), cycleT: +(x.cycleT - back).toFixed(3), wall: Date.now(),
+        si: L.si, inst: L.inst, hist: made, def: life.defOf(s), phase: x.phase, safeS: x.phase === 'dwell' ? +Math.min(x.dwell - x.cycleT, left).toFixed(1) : 0, seed };
+    },
     status() {
       const x = g.status(), v = L.now, s = L.land >= 0 ? life.scene(L.si) : null;
       return { ...x, mode: 'live',

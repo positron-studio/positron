@@ -618,6 +618,86 @@ minutes. So every boot records the worker version (`CF_VERSION_METADATA.id`, the
 and the alarm, which sweeps every 30 s, restarts a container whose boot version differs from the version now
 running, then resumes from the saved progress (the file and second). A boot with no version recorded counts
 as old, so the first deploy of this refreshes whatever was already on air. Nothing is started that was off.
+Since the handover below this restart is only the fallback (`Caster.refresh()`): a station that gives no handoff,
+or three failed handovers in a row.
+
+### handover
+
+`workers/cast/worker.mjs` (`Caster.handover`, `slot`, `host`, `spliceAll`, `continueFrom`), `workers/cast/splice.mjs`,
+`container/grains.mjs` (`align`, `settle`, `heard`, `clockHeard`, `go`), `container/live.mjs` (`handoff`, `resume`),
+`container/mixer.mjs` (`resume`, `skip`). Asked 2026-10-18: *"11swc seems long"* about the refresh above, then option 4:
+*"hand over to a second container: start the new container alongside, switch the stream to it, then stop the old one.
+No gap at all."*
+
+Why a second Caster. A Durable Object has one container (`ctx.container`, singular, in the Durable Object Container
+API docs and in wrangler's config schema). So a station has two slots: `a` is its own container, `b` the container of
+a Caster named `<station>~b` that only hosts one (`/host/<station>/start|destroy|running|idle|port/<port><path>`, never
+routed from outside: `~` is not in NAME). The station's Caster keeps everything else (want, progress, the alarm) and
+`active` says which slot is on air. Every handover flips it. The host's `monitor()` posts `/hostexit/<station>` when its
+container exits unasked, which is a death of the station when `b` is on air.
+
+What a twin is told. `handoff` (in every live `/status`): the file on air and its second, the seconds into the dwell and
+the scene index, each as scsynth hears them now, at the container's `Date.now()`, plus `hist` (each scene's file kind and
+heard key so far: scene i+1 is made from scene i's key, so the twin rebuilds the same life) and `inst` (so a vote
+taken across the handover is still one row). The twin gets the station's seed and only the votes cast before its life
+began (`want.votesAt`); `sameScene` in the record checks the twin's def against the station's. The queue is rotated to
+start at the file on air. A handover starts only with 25 s of dwell left (a blend has two files in two slots, which a
+twin does not rebuild) and goes on only if 10 s are left once the twin is up; waiting, the alarm looks every 3 s.
+
+Lining up. The twin seeks 4 s past the station (about its chain's start), then before its first block drops sound or
+waits until the file on air is where the station's is at the wall (`align`). That is not enough, because what the
+station says it hears was wrong twice:
+- `heard()` used to be the wall since the first write. MEASURED with a capture of both containers' input and output:
+  a container started the ordinary way has jack-stdin read nothing for about 0.9 s after the first write (it is still
+  connecting), so its heard ran 0.9 s ahead of scsynth. A twin, which waits about 1 s before writing, did not.
+  Jumps across a handover then read +798, -74, -196 ms. Now heard is what jack-stdin has read (`rchar` in
+  `/proc/<pid>/io`) less its ring.
+- jack-stdin's `-S` is frames per channel, not samples: its ring is 32768 frames, 0.743 s, and it keeps it full while
+  node is ahead. MEASURED: what it had read led the wall by 0.67 to 0.72 s in steady state. With the ring taken as
+  0.186 s the twin played the station 230 to 300 ms early; with no ring, the same.
+- Even so, heard is low whenever the ring is not full (node stalls: one status call stalled the write loop 350 ms), and
+  never high. `clockHeard()` is the best of the last 6 s of (heard minus wall), since scsynth runs on JACK's clock.
+- And a twin's first sample waits for the next JACK cycle (up to 186 ms). So once it plays, the twin reads its own
+  clock against the station's and drops or holds the difference (`settle`, every 2 s, at most 3 reads, done within
+  10 ms). MEASURED settles: -106.7 then 5.5; -280.2 then -0.2; -10.2 then 0.5; -90.7 then -0.6; -115 then 1.6;
+  -278.5 then -1.4; -387 then -0.5 ms. Reads taken before jack-stdin had read a whole ring are skipped: they made the
+  first read wrong by the cycle wait.
+A side effect: live.mjs's onsets wait `seconds - heard()`, which is now about 0.74 s more than before, and is now
+when that sound reaches scsynth.
+
+The listeners (preview). `/listen/preview` is no longer a passthrough: each listener is an ear (`createEar`) that
+forwards whole MP3 frames. On a handover every ear opens the twin's Icecast, drops its burst (the first pause of 50 ms
+after 4 KiB: a mount on air for under 4 s bursts less than 64 KiB), and at its live edge stops the old stream on a
+frame boundary and goes on with the twin's, dropping what of the twin's first chunk is older than the old stream's
+last. Only then is the old container told to stop and destroyed.
+
+Väin's mounts. One source per mount: the twin is held (`hold`: aligned and encoding, no source opened), the old one is
+stopped, and `/go` makes the twin connect, retrying every 100 ms for 5 s. Their listeners' connections end when the old
+source goes (see below). A source spliced by the worker instead would need the Durable Object to hold their TCP
+connection, and a deploy reloads the object too, so it was not built.
+
+MEASURED 2026-10-18, OrbStack, the grains image with this tree mounted, two containers at `--cpus 0.5 --memory 1536m`,
+the real Caster through `handover-docker.mjs` (an adapter with ctx.container's shape over `docker run`), seed 16 (a naked
+first scene, so the recordings match sample for sample), files driving, evening, kalle:
+- What a preview listener hears across a handover, found sample exact by locating the sound just before and just after
+  the splice in the old container's own recording (it was kept playing 6 s past the splice for this): 9 handovers over
+  3 runs, +33.4, -59.6, -3.5, -12.6, -72.7, -60.3, -123.5, -41.7, -63 ms (minus is heard twice, plus skipped);
+  median -59.6. Silence at the splice 0.2 to 0.5 ms; the biggest step between samples there 0.037 to 0.074 against
+  0.027 to 0.030 for the 99.9th percentile elsewhere. The listener's stream never ended; every byte was whole frames
+  and decoded to as much sound as the frames say.
+- NEGATIVE CONTROL, the refresh: the listener's stream ends, and one that reconnects at once has no byte for 7,295 to
+  7,702 ms (11 runs), then the station from the last sweep's second (up to 30 s back) and scene.
+- Their mount, on a stand-in Icecast 2.4.4 container with our icecast.xml (no fallback mount): the twin took the mount
+  10 to 30 ms after `/go`, never refused. The stand-in's listener connection ENDED when the old source went; a
+  listener that reconnected at once had bytes again after 465 and 467 ms, an 8,400 byte burst.
+- Two containers ran 9.4 to 10 s per handover here: boot 0.3 s, chain about 3 s, align about 1 s, two settles 4 s,
+  the splice 0.4 to 1.2 s. On Cloudflare the twin's boot was 0.5 to 9 s (an image fetch), so expect 10 to 20 s.
+- `handover-test.mjs` (fake containers, 29 asserts, 3 NEGATIVE CONTROLS): a twin 300 ms off is heard as a 303 ms gap,
+  a splice that keeps the burst repeats 4.2 s.
+
+Not tested: Cloudflare's own timing (boot, the DO hop, NTP between the station's container and the twin's, which the
+alignment assumes agree to a few ms), and Väin's Icecast: whether it has a fallback mount, and how their listeners'
+players react to the connection ending. NOT HEARD: nobody listened to a handover.
 
 ### ios-scope
 

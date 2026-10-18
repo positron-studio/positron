@@ -3,14 +3,16 @@
 // why: lessons/workers-cast.md#mixer
 import { createMix, DRIVE, SAT_K, handTurn, WHISTLE_SOFT } from './tuner-mix.mjs';
 import { createSoften } from './sc/radio/cast/soften.mjs';
+import { crossfade, dwellMix } from './sc/radio/cast/crossfade.mjs';
 
 export const SR = 44100;
 export const BLOCK = 882;                      // 20 ms
 export const QUANTUM = 128;                    // filter coefficients move at Web Audio's render quantum
 // /radio/scenery/'s two slots, 0.08 apart, so halfway is a blend under noise and whistle.
 export const SLOTS = [{ at: 0.46, echo: 0.09 }, { at: 0.54, echo: 0.13 }];
-export const DEFAULTS = { tune: SLOTS[0].at, drift: 1, dwell: 40, blend: 16, noise: 1 };
-export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2, 120], noise: [0, 2] };
+export const DEFAULTS = { tune: SLOTS[0].at, drift: 1, dwell: 40, blend: 16, noise: 1, path: 0 };
+// path: how the next blend hands over (crossfade.mjs PATHS), 0 the dial's sweep
+export const LIMITS = { tune: [0, 1], drift: [0, 1], dwell: [5, 600], blend: [2, 120], noise: [0, 2], path: [0, 3] };
 // The cast's whistle is WHISTLE_SOFT, and the needle crosses a blend by handTurn. why: lessons/workers-cast.md#whistle
 export const WHISTLE = true;
 
@@ -28,7 +30,7 @@ export function clampSet(name, v) {
   const lim = LIMITS[name], x = Number(v);
   if (!lim || !Number.isFinite(x)) return null;
   const c = Math.min(lim[1], Math.max(lim[0], x));
-  return name === 'drift' ? (c >= 0.5 ? 1 : 0) : c;
+  return name === 'drift' ? (c >= 0.5 ? 1 : 0) : name === 'path' ? Math.round(c) : c;
 }
 
 /**
@@ -164,7 +166,7 @@ const db = (x) => (x > 0 ? +(20 * Math.log10(x)).toFixed(1) : null);
  * returns a source `{ read(n) -> Float32Array mono, ended, close(), buffered }`. `block()` renders
  * BLOCK frames of interleaved stereo s16. why: lessons/workers-cast.md#drift
  */
-export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.random, log = () => {}, prefetchS = 6 } = {}) {
+export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.random, log = () => {}, prefetchS = 6, resume = null } = {}) {
   const ctl = { ...DEFAULTS, ...set };
   const mix = createMix(SLOTS, WHISTLE_SOFT), tuner = createTuner({ sr, rand });
   const slots = SLOTS.map(() => ({ item: null, src: null, level: 1 }));
@@ -233,7 +235,22 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     get cycleFrom() { return cycleFrom; },
     /** The item on air (the slot the needle left from), or null. */
     get onItem() { return slots[from].item; },
-    start() { if (!slots[from].item) { const it = take(); if (it) place(from, it); } cycleFrom = tSec(); },
+    // resume `{ from, cycleT }`: the first file opened `from` seconds in, `cycleT` seconds into its dwell.
+    // why: lessons/workers-cast.md#handover
+    start() {
+      if (!slots[from].item) { const it = take(); if (it) place(from, it, resume?.from > 0 ? open(it, { from: resume.from }) : undefined); }
+      if (resume?.from > 0 && slots[from].item) slots[from].played = resume.from;
+      cycleFrom = tSec() - (resume?.cycleT > 0 ? resume.cycleT : 0);
+    },
+    /** Seconds of the file on air played so far (its seek included). */
+    get onPlayed() { return slots[from].played || 0; },
+    /** Drops up to `s` seconds of the file on air, no more than it holds, as if they had played; returns what it dropped. */
+    skip(s) {
+      const sl = slots[from], n = Math.floor(Math.min(s, sl.src?.buffered ?? 0) * sr);
+      if (!sl.src || n <= 0) return 0;
+      sl.src.read(n); sl.played = (sl.played || 0) + n / sr; cycleFrom -= n / sr;
+      return n / sr;
+    },
     /** Resolves when the slot on air holds a second of sound, has ended, or `ms` passed: the clock starts after it. */
     async ready(ms = 8000) {
       const t0 = Date.now(), src = () => slots[from].src;
@@ -257,7 +274,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     },
     block() {
       clock();
-      m = mix(tune);
+      m = ctl.path && phase === 'blend' ? crossfade(ctl.path, from, k) : ctl.path && phase === 'dwell' ? dwellMix(mix(tune), from) : mix(tune);
       m = { ...m, noise: m.noise * ctl.noise };
       const inputs = slots.map((sl) => {
         if (!sl.src) return null;
@@ -284,9 +301,9 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     /** The last whole second's levels in dBFS: each slot's part, the noise, the whistle, the output. */
     get meter() { return meter; },
     status() {
-      return { mode: 'mix', ...ctl, tune: +tune.toFixed(4), phase, k: +k.toFixed(3), from, landings, underruns,
+      return { mode: 'mix', ...ctl, tune: +tune.toFixed(4), phase, k: +k.toFixed(3), from, landings, underruns, cycleT: +(tSec() - cycleFrom).toFixed(3),
         noiseLevel: +m.noise.toFixed(3), seconds: +(frames / sr).toFixed(2),
-        slots: slots.map((sl, j) => ({ id: sl.item?.id ?? null, title: sl.item?.title ?? null, gain: sl.item ? +(20 * Math.log10(sl.level)).toFixed(2) : 0, soften: !!sl.soften, clear: +m.st[j].clear.toFixed(3),
+        slots: slots.map((sl, j) => ({ id: sl.item?.id ?? null, title: sl.item?.title ?? null, played: +(sl.played || 0).toFixed(3), seconds: sl.item?.seconds ?? null, gain: sl.item ? +(20 * Math.log10(sl.level)).toFixed(2) : 0, soften: !!sl.soften, clear: +m.st[j].clear.toFixed(3),
           echo: +m.st[j].echo.toFixed(3), buffered: sl.src ? +(sl.src.buffered ?? 0).toFixed(1) : 0, ended: !!sl.src?.ended })),
         next: pending?.item?.title ?? peekNext()?.title ?? null, meter };
     },

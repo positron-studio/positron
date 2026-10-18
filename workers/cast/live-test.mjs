@@ -247,7 +247,7 @@ async function liveRun() {
     step1 && landing1 ? `step at ${step1.mix.toFixed(2)} s, blend ${step1.blend} s, landed at ${landing1.sceneAt.toFixed(2)} s` : 'no landing');
   ok('a step back lands the previous scene, and a second press on the way is refused', !!(step2?.ok && !step2.again && landing2 && landing2.si === step2.si - 1),
     step2 && landing2 ? `from ${step2.si} to ${landing2.si}` : 'no second landing');
-  ok('the layers ran beside the ring (7 synths) and rose to full in a scene', maxSynths >= 7 && maxLevel === 1, `synths ${maxSynths}, level ${maxLevel}`);
+  ok('the layers ran beside the ring (7 synths) and rose in a scene to its intensity (0.6 to 1)', maxSynths >= 7 && maxLevel >= 0.6 && maxLevel <= 1, `synths ${maxSynths}, level ${maxLevel}`);
   const lf = s.life?.counts || {};
   console.log(`  counts ${JSON.stringify(lf)}, backlog at most ${maxBacklog.toFixed(3)} s, xruns ${ch?.xruns}, late ${ch?.late}, grains ${ch?.grains}`);
   ok('a key was heard in each scene that ran 5 s', lf.keys >= scenes.length - 1, `${lf.keys} keys, ${scenes.length} scenes`);

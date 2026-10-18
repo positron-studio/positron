@@ -8,6 +8,8 @@
 //   POST /patch { name?, set? }   a grain ring patch by name and/or values, clamped
 //   POST /play  { ..., mode: 'live', life: { seed, votes } }   the page's life and layers over grains (live.mjs)
 //   POST /step  { by: 1 | -1 }   live: the next or previous scene, its transition at once
+//   POST /play  { ..., mode: 'live', resume: { id, pos, wall, cycleT, si, hist }, hold }   a twin: continues the station
+//                where `handoff` saw it; held, it opens no source until POST /go. why: lessons/workers-cast.md#handover
 //   GET  /status
 // The worker sends only live since 2026-10-18; copy, mix and grains stay here for the tests.
 // target is { kind: 'icecast', host, port, mount, pw } or { kind: 'ws', url, mount, pw } (our test receiver).
@@ -247,7 +249,7 @@ function start(body) {
       mx.next(); say(`${mxMode} queue replaced, ${queue.length} files`); return;
     }
     mxTarget = target; mxMode = body.mode;
-    mx = body.mode === 'live' ? startLive({ queue, target, life: body.life || {}, set: body.set || {} }, { openSink, say, fail })
+    mx = body.mode === 'live' ? startLive({ queue, target, life: body.life || {}, set: body.set || {}, resume: body.resume || null, hold: !!body.hold }, { openSink, say, fail })
       : body.mode === 'grains' ? startGrains({ queue, target, set: body.set || {}, patch: body.patch || undefined }, { openSink, say, fail })
         : startMix({ queue, target, set: body.set || {} }, { openSink, say, fail });
     say(`${body.mode} started, ${queue.length} files`);
@@ -285,7 +287,7 @@ async function status() {
       now: on?.title ? { id: on.id, title: on.title, at: null } : null, index: null, next: x.next ? { id: null, title: x.next } : null,
       to: `${mxTarget.kind} /${mxTarget.mount}`, since: x.since, files: x.landings, frames: x.frames, bytes: x.bytes, seconds: x.seconds,
       wall: x.wall, lag: x.lag, lead: x.lead, down: x.down, sinkDeaths: x.sinkDeaths, sinkFails: x.sinkFails, skipped: 0, rate: 44100, kbps: 128,
-      mix: x, usage: x.usage, rss: x.usage.nodeRssMiB, lines: lines.slice(-12), lastError };
+      mix: x, usage: x.usage, rss: x.usage.nodeRssMiB, handoff: mx.handoff?.() ?? null, at: now, lines: lines.slice(-12), lastError };
   }
   return {
     mode: s ? 'copy' : null, usage: usage(),
@@ -333,6 +335,8 @@ http.createServer(async (req, res) => {
       return reply(res, 200, await status());
     }
     if (req.url === '/stop') { stop('asked to stop'); return reply(res, 200, await status()); }
+    // a held twin takes the mount: the Caster sends it right after the old source's /stop
+    if (req.url === '/go') { if (!mx?.go?.()) return reply(res, 409, { error: 'nothing is held' }); return reply(res, 200, await status()); }
     return reply(res, 404, { error: 'no such route' });
   } catch (e) { fail(e); return reply(res, 400, { error: redact(e.message) }); }
 }).listen(8080, () => say('listening on 8080'));
