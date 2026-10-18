@@ -712,7 +712,7 @@
     // local is live: the ring's grains path, the clock on, scene 0's times and patch from the start
     const q = localQueue();
     life = createLife({ seed: lifeSeed(), votes });
-    const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(q[0]?.id))?.kind });
+    const it0 = items.find((x) => String(x.id) === String(q[0]?.id)), s0 = life.scene(0, { kind: it0?.kind, soft: !!it0?.soften });
     await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE }, patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0) }) });
     if (!localOn()) return;
     startLife(true);
@@ -740,10 +740,10 @@
       L.file = st.slots[st.from]?.title || '';
       const kind = items.find((x) => x.title === L.file)?.kind;
       L.prevItem = L.item; L.item = items.find((x) => x.title === L.file) || null;
-      instDef.set(L.inst, { def: life.defOf(life.scene(L.si, { kind })), file: L.file });
+      instDef.set(L.inst, { def: life.defOf(life.scene(L.si, { kind, soft: !!L.item?.soften })), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
-      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE); local.set('path', s.iPath ?? 0);
+      const s = life.scene(L.si, { kind, soft: !!L.item?.soften }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE); local.set('path', s.iPath ?? 0);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises; a frozen
       // patch stays open until the dry share is over
       local.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0, ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
