@@ -1,5 +1,9 @@
 ## Open
 
+- **/radio/cast/: a refresh with no gap, by handing over to a second container** (2026-10-18). Asked: *"11swc seems long"*, then *"4."* (option 4: start the new container beside the old, switch the stream, stop the old). Today 11 s: about 9 s image fetch on the first boot after a deploy, 1.5 s pause.
+- **/radio/cast/: no scope on iOS** (2026-10-18). Asked: *"No scope on ios??"* with a phone screenshot (Messenger's in-app browser, listening to preview, waveform empty). Likely WebKit's MediaElementSource giving silence for a streamed source.
+- **/radio/cast/: the footer one height for every description** (2026-10-18). Asked: *"Kee footer h same between differenecr descs"*.
+- **/radio/cast/: more interesting patches, and long blocks of speech again** (2026-10-18). Asked: *"Ma gebintersting patches long block speech again"* (naked speech, asked earlier as *"long text sentences naked nonprocesses speech only"*).
 - **/radio/cast/: no start / stop stream without the key** (2026-10-18). Asked: *"do not show sstart stop stream buttons when no key"*. A visitor without the key sees no stream button on a station; local's play here stays.
 - **/radio/cast/: a deploy refreshes a running station** (2026-10-18). Asked: *"when you update server mixing code can you refresh live station (i am runnin preview atm)"*. The Caster notices its container was booted on an older worker version and restarts it on the new one, resuming from its progress; no key needed.
 - **/radio/cast/: naked speech** (2026-10-18). Asked: *"backlock. long text sentences naked nonprocesses speech only"*. A kind of scene where long spoken passages play as they are: no granulator, no layers, no tuner colour; speech files only.
