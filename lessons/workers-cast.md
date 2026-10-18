@@ -608,3 +608,13 @@ file still loading. Now each engine knows how long the file on air has left (the
 in the browser; the feed's `seconds` against the samples read in the container) and, when the blend would
 otherwise outlast the file, prefetches and opens the next file early and starts the blend so it ends one
 second before the file does. The old ended-file jump stays as the fallback for a file with no known length.
+
+### refresh-on-deploy
+
+`workers/cast/worker.mjs`, the Caster's alarm. Asked 2026-10-18: *"when you update server mixing code can
+you refresh live station (i am runnin preview atm)"*. A deploy does not touch a container already running:
+it keeps the old image until it restarts, and the Durable Object keeps the old worker code for about four
+minutes. So every boot records the worker version (`CF_VERSION_METADATA.id`, the `version_metadata` binding),
+and the alarm, which sweeps every 30 s, restarts a container whose boot version differs from the version now
+running, then resumes from the saved progress (the file and second). A boot with no version recorded counts
+as old, so the first deploy of this refreshes whatever was already on air. Nothing is started that was off.

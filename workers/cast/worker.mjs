@@ -410,7 +410,7 @@ export class Caster {
       }
       if (!started) return;
       const ms = Date.now() - t0;
-      await this.st.put('boot', { id: t0, at: t0, ms });
+      await this.st.put('boot', { id: t0, at: t0, ms, version: this.env.CF_VERSION_METADATA?.id ?? null });
       this.say(`container up in ${ms} ms`);
     })().finally(() => { this.booting = null; });
     return this.booting;
@@ -474,6 +474,14 @@ export class Caster {
       if (!this.c.running) {
         await this.died('found not running');
         await this.bring('restart');
+      } else if (this.env.CF_VERSION_METADATA?.id && boot && boot.version !== this.env.CF_VERSION_METADATA.id) {
+        // a deploy since this container booted: restart it on the new code and resume where progress last saw it
+        // why: lessons/workers-cast.md#refresh-on-deploy
+        this.say('new code deployed: refreshing the container');
+        this.killing = true;
+        await this.c.destroy().catch(() => {});
+        await sleep(1500);
+        await this.bring('refreshed onto the new code');
       } else {
         this.watch();
         try { await this.c.setInactivityTimeout(IDLE_MS); } catch { /* the constructor set it */ }

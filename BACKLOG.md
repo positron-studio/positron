@@ -1,5 +1,7 @@
 ## Open
 
+- **/radio/cast/: no start / stop stream without the key** (2026-10-18). Asked: *"do not show sstart stop stream buttons when no key"*. A visitor without the key sees no stream button on a station; local's play here stays.
+- **/radio/cast/: a deploy refreshes a running station** (2026-10-18). Asked: *"when you update server mixing code can you refresh live station (i am runnin preview atm)"*. The Caster notices its container was booted on an older worker version and restarts it on the new one, resuming from its progress; no key needed.
 - **/radio/cast/: naked speech** (2026-10-18). Asked: *"backlock. long text sentences naked nonprocesses speech only"*. A kind of scene where long spoken passages play as they are: no granulator, no layers, no tuner colour; speech files only.
 - **/radio/cast/: transitions without the wind noise; alternatives and variations** (2026-10-18). Asked: *"channel changig still too winds noise, cartoonish. think sometjing else, alternatives, varaiatons"*. Every interlude still passes through the tuner's noise sweep; propose other kinds of hand-over.
 - **/radio/cast/: the ghosts are a bit lame** (2026-10-18). Asked: *"ghsot voices a bit lame"* about a scene with ghosts through resonators. Make a visit more of an event: louder, longer, transformed (slowed or shifted, stretched, wide, into a big room), not a faint band-pass.
