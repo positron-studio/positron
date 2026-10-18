@@ -32,9 +32,9 @@ export const IKINDS = {
   pause: { noise: [0, 0], wet: [0, 0], blend: [3, 6], freeze: false, path: 3, odds: 0.6, quiet: true },
   // grammar 2 only (odds 0): each scene type names the ones it leaves by. why: plans/plan-cast-patches-scenes.md 3.3
   echowash: { noise: [0, 0], wet: [0.6, 0.8], blend: [10, 18], freeze: false, path: 1, odds: 0 },
-  tapestop: { noise: [0, 0], wet: [1, 1], blend: [6, 10], freeze: false, path: 3, odds: 0 },
-  frozenbridge: { noise: [0, 0], wet: [0.9, 0.9], blend: [10, 18], freeze: false, path: 3, odds: 0 },
-  dronebridge: { noise: [0, 0], wet: [0, 0], blend: [10, 20], freeze: false, path: 3, odds: 0 },
+  tapestop: { noise: [0, 0], wet: [1, 1], blend: [6, 10], freeze: false, path: 1, odds: 0 },
+  frozenbridge: { noise: [0, 0], wet: [0.9, 0.9], blend: [10, 18], freeze: false, path: 1, odds: 0 },
+  dronebridge: { noise: [0, 0], wet: [0, 0], blend: [10, 20], freeze: false, path: 1, odds: 0 },
   chordbridge: { noise: [0, 0], wet: [0.2, 0.2], blend: [12, 20], freeze: false, path: 1, odds: 0 },
 };
 /** The controls a hand may move: range, and whether it reads on a log scale. */
@@ -219,11 +219,11 @@ export const TYPES = {
   intro: TYPE({ dry: [0.12, 0.2], rise: 0.15, hold: 0.92, peak: [0.75, 0.95], band: [0.6, 0.8], fam: ['choir', 'cloud', 'drone'], lens: ['mid'], outs: ['dissolve', 'filter', 'clean'] }),
   build: TYPE({ dry: [0.06, 0.1], rise: 0.35, hold: 0.9, peak: [0.8, 1], band: [0.6, 0.9], fam: ['drone', 'cloud', 'choir'], lens: ['long'], outs: ['echowash', 'dronebridge', 'smear'] }),
   deep: TYPE({ dry: [0.04, 0.08], rise: 0.15, hold: 0.9, peak: [0.9, 1], band: [0.8, 1], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'frozenbridge'] }),
-  storm: TYPE({ dry: [0.05, 0.05], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'glitch', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'pause', 'smear'] }),
+  storm: TYPE({ dry: [0.05, 0.05], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'glitch', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'smear'] }),
   rhythm: TYPE({ dry: [0.06, 0.06], rise: 0.12, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['rhythmic', 'tape'], lens: ['mid'], outs: ['tapestop', 'filter'] }),
   choir: TYPE({ dry: [0.06, 0.1], rise: 0.25, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['choir', 'spectral'], lens: ['mid', 'long'], outs: ['chordbridge', 'frozenbridge', 'dissolve'] }),
-  breath: TYPE({ dry: [0.1, 0.1], rise: 0.2, hold: 0.6, peak: [0.6, 0.8], band: [0.4, 0.6], fam: ['drone', 'cloud'], lens: ['breath'], outs: ['dissolve', 'pause'] }),
-  coda: TYPE({ dry: [0.05, 0.05], rise: 0.2, hold: 0.5, peak: [0.9, 0.9], band: [0.5, 0.8], fam: ['drone', 'spectral'], lens: ['long'], outs: ['pause', 'dronebridge'] }),
+  breath: TYPE({ dry: [0.1, 0.1], rise: 0.2, hold: 0.6, peak: [0.6, 0.8], band: [0.4, 0.6], fam: ['drone', 'cloud'], lens: ['breath'], outs: ['dissolve', 'clean'] }),
+  coda: TYPE({ dry: [0.05, 0.05], rise: 0.2, hold: 0.5, peak: [0.9, 0.9], band: [0.5, 0.8], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'dissolve'] }),
 };
 // the same types narrowed to one family, as a section asks for them
 TYPES.tapebuild = { ...TYPES.build, fam: ['tape'] };
@@ -245,6 +245,8 @@ export const SECTIONS = {
 /** The tide: the piece's intensity over this many planned seconds, low to high and back. */
 export const TIDE_S = 3600;
 export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / TIDE_S + phase);
+/** Grammar 2 plays no patch pitched above this: a fifth up at most. Asked: "annoying hipitch". */
+export const MAX_PITCH = 1.5;
 /** The share of sections that carry a drone. */
 export const DRONE_SHARE = 0.4;
 /** The families that smooth a clicking file, and what its sharp scene types become. */
@@ -356,7 +358,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   }
   /** The patches a scene type may play: its families, the patch's own types and lengths, under the overlap cap. */
   const poolFor = (T) => NAMES.filter((n) => { const f = patchInfo(n); return T.fam.includes(familyOf(n)) && (!f?.types || f.types.includes(T.name))
-    && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP; });
+    && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP && patchValues(n).pitch <= MAX_PITCH; });
   const lensOf = (T, patch, notLen) => {
     const f = patchInfo(patch), ok = (k) => k !== notLen && !NOT_LEN[familyOf(patch)]?.includes(k) && (!f?.lens || f.lens.includes(k));
     const ks = T.lens.filter(ok);

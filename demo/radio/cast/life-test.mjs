@@ -189,7 +189,7 @@ const { l: G, S: S2 } = life2({ seed: 11, n: 2000 });
 rules('grammar 2', S2.slice(0, 600));
 // glitch plays only in storms, and storms only at high tide, so it may miss one of its four in 2000 scenes
 const seen2 = new Set(S2.map((x) => x.patch));
-check('grammar 2 plays every patch in 2000 scenes, and at least three of the four glitch ones', CAST_PATCHES.concat([]).every((c) => familyOf(c.name) === 'glitch' || seen2.has(c.name)) && [...seen2].filter((n) => familyOf(n) === 'glitch').length >= 3 && seen2.size >= 53, `${seen2.size}`);
+check('grammar 2 plays every patch at or under a fifth up in 2000 scenes, none above it, and glitch in storms', CAST_PATCHES.every((c) => familyOf(c.name) === 'glitch' || patchValues(c.name).pitch > L2.MAX_PITCH || seen2.has(c.name)) && [...seen2].filter((n) => familyOf(n) === 'glitch').length >= 2 && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
 const all54 = [...new Set([...(await import('../../granulator/grain-ring.mjs')).PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)])];
 check('every patch is inside PATCH_LIMITS: the engines refuse nothing and change no value', CAST_PATCHES.every((c) => { const k = clampPatch({ name: c.base, set: c.set }); return !k.refused.length && Object.entries(c.set).every(([n, v]) => k.values[n] === (n === 'dir' ? (v < 0 ? -1 : 1) : v)); }));
 const sig = (n) => { const v = patchValues(n); return ['size', 'density', 'pitch', 'speed', 'freeze', 'dir', 'lock', 'scatter'].map((k) => Math.round((v[k] ?? 0) * 100) / 100).join(); };
