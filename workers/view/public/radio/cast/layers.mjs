@@ -58,6 +58,8 @@ export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12)
 // so a chord is f0 to f11. why: lessons/workers-cast.md#layers
 
 export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
+/** A ghost arrives an octave down, a fourth down, as it is, or a fifth up. */
+export const GHOST_SHIFTS = [0.5, 0.75, 1, 1.5];
 /** The drones stay up across scenes and glide to the next key; the other layers fade with each scene. */
 export const DRONES = ['ldrone', 'lfreeze'];
 const fs = (n, from = 0) => Array.from({ length: n }, (_, i) => `\\f${from + i}.kr(${110 * (i + 1)})`);
@@ -88,14 +90,17 @@ export const PROGRAMS = {
   var b = PitchShift.ar(x, 0.2, \\r1.kr(1.5), 0.005, 0.02);
   var c = PitchShift.ar(x, 0.2, \\r2.kr(2), 0.005, 0.02);
   (Pan2.ar(a, sp * -1) + Pan2.ar(b, 0) + Pan2.ar(c, sp)) * amp * 0.5 }`,
-  // the other file visiting: band-passed, through a comb on the root, or through four resonators
+  // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
+  // on the root or four resonators, into a big room of its own, drifting wide
   lghost: `{ var amp = Lag.kr(\\amp.kr(0), 1.5);
   var x = Mix(In.ar(4, 2)) * 0.5;
-  var bp = BPF.ar(x, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.3) * 2;
-  var cb = CombC.ar(x * 0.3, 0.1, 1 / \\root.kr(110), 2);
-  var rs = Mix([${fs(GHOST_N).map((f) => `Ringz.ar(x * 0.02, ${f}, 1.2)`).join(', ')}]);
-  var s = (bp * \\wb.kr(1)) + (cb * \\wc.kr(0) * 0.5) + (rs * \\wr.kr(0) * 0.12);
-  Pan2.ar(Limiter.ar(LeakDC.ar(s), 0.5, 0.01) * amp, LFNoise2.kr(0.1) * 0.8) }`,
+  var sh = PitchShift.ar(x, 0.25, Lag.kr(\\shift.kr(1), 0.5), 0.01, 0.05);
+  var bp = BPF.ar(sh, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.5) * 1.5;
+  var cb = CombC.ar(sh * 0.3, 0.1, 1 / \\root.kr(110), 3);
+  var rs = Mix([${fs(GHOST_N).map((f) => `Ringz.ar(sh * 0.02, ${f}, 1.5)`).join(', ')}]);
+  var s = (sh * 0.5) + (bp * \\wb.kr(1)) + (cb * \\wc.kr(0) * 0.5) + (rs * \\wr.kr(0) * 0.12);
+  var w = FreeVerb.ar(LeakDC.ar(s), 0.55, 0.92, 0.4);
+  Pan2.ar(Limiter.ar(w, 0.5, 0.01) * amp, LFNoise2.kr(0.15) * 0.9) }`,
 };
 export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2);
   var l = (In.ar(${LAYER_BUS}, 1) * g) + In.ar(${DRONE_BUS}, 1);
@@ -148,8 +153,10 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
         ...Object.fromEntries(gc.slice(0, GHOST_N).map((f, i) => [`f${i}`, f])) });
       set('lroom', { mix: L.room ?? 0.3, size: L.roomSize ?? 0.7 });
     },
-    /** A ghost rising (`on`) or fading; its level is the scene's. */
-    ghost(on) { set('lghost', { amp: on && now?.ghost !== 'none' ? now.ghostLevel * 2.6 : 0 }); },
+    /** A ghost rising (`on`) or fading; its level is the scene's, its pitch picked per visit (GHOST_SHIFTS). */
+    ghost(on, shift = GHOST_SHIFTS[Math.floor(Math.random() * GHOST_SHIFTS.length)]) {
+      set('lghost', on && now?.ghost !== 'none' ? { amp: now.ghostLevel * 3.2, shift } : { amp: 0 });
+    },
     /** One pulse hit on the resonators: opens them for `len` seconds. */
     hit(len = 0.3) { set('lres', { hit: 1, hitlen: len }); setTimeout(() => set('lres', { hit: 0 }), 20); },
     /** Everything the layers make, 0 to 1, for a fade with the scene. */
