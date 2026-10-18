@@ -12,7 +12,24 @@ export const DRIVE = 0.5, SAT_K = 1.2;
  * one, noise fills what no station holds, and the whistle is an off-tune carrier's beat.
  * why: lessons/kit-tuner-mix.md#create-mix
  */
-export function createMix(stations) {
+/** The off-tune carrier's beat: /radio/tuner/'s, and the cast's, quieter, lower and never above 700 Hz. */
+export const WHISTLE_TUNER = { level: 0.05, base: 150, span: 40000, max: 3200 };
+export const WHISTLE_SOFT = { level: 0.02, base: 160, span: 6000, max: 600 };
+
+/**
+ * A hand turning the dial across a blend, 0 to 1 over k: a reach fastest early (Beta(3,4)), past the
+ * station by `over` of the way, then a settle back onto it. 0 at 0 and 1 at 1.
+ */
+export function handTurn(k, over = 0.06) {
+  if (!(k > 0)) return 0;
+  if (k >= 1) return 1;
+  const R = 0.8;
+  if (k < R) { const x = k / R, y = 1 - x; return (1 + over) * (20 * x ** 3 * y ** 3 + 15 * x ** 4 * y ** 2 + 6 * x ** 5 * y + x ** 6); }
+  const u = (k - R) / (1 - R);
+  return 1 + over - over * u * u * (3 - 2 * u);
+}
+
+export function createMix(stations, w = WHISTLE_TUNER) {
   return function mix(t) {
     const st = stations.map((s) => {
       const dist = Math.abs(t - s.at);
@@ -28,8 +45,8 @@ export function createMix(stations) {
     return {
       st, near,
       noise: 0.04 + 0.26 * (1 - best),
-      whistle: 0.05 * (1 - Math.exp(-((nd / 0.012) ** 2))) * Math.exp(-((nd / 0.07) ** 2)),
-      pitch: Math.min(3200, 150 + 40000 * nd),
+      whistle: w.level * (1 - Math.exp(-((nd / 0.012) ** 2))) * Math.exp(-((nd / 0.07) ** 2)),
+      pitch: Math.min(w.max, w.base + w.span * nd),
     };
   };
 }

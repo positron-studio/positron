@@ -204,20 +204,32 @@
   /** The file a station is playing now, or null. */
   const playingId = (t) => (t === LOCAL ? (localOn() ? (({ slots, from }) => slots[from]?.id ?? null)(local.status()) : null)
     : status[t]?.onAir ? status[t].now?.id ?? null : null);
-  // taking out the file that plays first moves on (the clock's transition), then drops it
+  // taking out the file that plays first moves on (the clock's transition); its cross sweeps until the
+  // next file has landed, then the file leaves the program
+  let leaving = null;
   function takeOut(i) {
     const ids = progOf(target), id = ids[i];
-    if (id != null && String(id) === String(playingId(target))) send(target, { cmd: 'next' });
+    if (id != null && String(id) === String(playingId(target))) {
+      if (leaving) return;
+      leaving = { t: target, id, at: Date.now() };
+      send(target, { cmd: 'next' }); showProgram();
+      return;
+    }
     return editProgram(ids.filter((_, j) => j !== i));
+  }
+  /** Called on every status: the leaving file goes once another plays (or nothing does, or 3 min pass). */
+  function landed() {
+    if (!leaving || (String(playingId(leaving.t)) === String(leaving.id) && Date.now() - leaving.at < 180_000)) return;
+    const { t, id } = leaving; leaving = null;
+    editProgram(progOf(t).filter((x) => String(x) !== String(id)), t);
   }
   const titleOf = (id) => items.find((x) => String(x.id) === String(id))?.title || '';
   const mmss = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '');
   const theirs = (t) => !!live[t]?.vain && !status[t]?.onAir;
   // an edit applies after the current file while on air, and is kept for START while off
-  function editProgram(ids) {
-    const t = target;
+  function editProgram(ids, t = target) {
     progs[t] = ids; progTouched[t] = Date.now();
-    showProgram();
+    if (t === target) showProgram();
     if (localOn() && t === LOCAL) local.queue(localQueue());
     return send(t, status[t]?.onAir ? { cmd: 'queue', ids } : { cmd: 'program', ids });
   }
@@ -396,7 +408,11 @@
       progHost.replaceChildren(...(ids.length ? [list.el] : []));
     }
     const cur = target === LOCAL ? (localOn() ? local.status().slots[local.status().from]?.id : null) : status[target]?.now?.id;
-    for (const p of progRows) p.r.dataset.on = String(p.id) === String(cur) ? '1' : '';
+    for (const p of progRows) {
+      p.r.dataset.on = String(p.id) === String(cur) ? '1' : '';
+      const b = p.b.button('rm');
+      if (leaving?.t === target && String(p.id) === String(leaving.id)) b.dataset.busy = '1'; else delete b.dataset.busy;
+    }
     for (const [id, a] of archRows) a.r.dataset.on = String(id) === String(cur) ? '1' : '';
   }
 
@@ -471,6 +487,7 @@
   function take(t, st) {
     if (st.target && st.target !== t) return;
     status[t] = st;
+    landed();
     if (Array.isArray(st.program) && Date.now() - (progTouched[t] || 0) > 3000) progs[t] = st.program.map((x) => x.id);
     paintRow(t); log(t);
     if (t === target) { paintDetail(); showProgram(); pb.refresh(); }
@@ -599,7 +616,7 @@
   }
   function stopLocal() {
     if (!localFor) return;
-    stopLife(); local?.stop(); localFor = null;
+    stopLife(); local?.stop(); localFor = null; landed();
     clearInterval(levelTimer);
     d.set('listening', ''); d.set('level', ''); d.set('heard', '');
     paintRow(LOCAL); paintDetail(); pb.refresh();
@@ -644,6 +661,7 @@
   }
   const localBuf = new Float32Array(2048);
   function readLocal() {
+    landed();
     if (!localOn()) return;
     paintRow(LOCAL); if (target === LOCAL) { paintDetail(); showProgram(); paintLife(); }
     if (!local.analyser) return;
@@ -857,10 +875,14 @@
         needle = { tune: 0.46, drift: 1, phase: 'blend', landings: 0, from: 0, slots: [{ id: five[0], at: 30, title: 'a' }, { id: five[1], at: 0, title: 'b' }] };
         calls.length = 0; progRows[2].b.button('rm').click(); await tick();
         const quiet = !calls.some(([c]) => c === 'next');
-        calls.length = 0; progRows[0].b.button('rm').click(); await tick();
-        const ni = calls.findIndex(([c]) => c === 'next'), qi = calls.findIndex(([c]) => c === 'queue'), q = calls[qi]?.[1].map((x) => x.id) || [];
-        d.assert('the cross on the playing file starts the transition first, then drops it; the queue carries on after the next file',
-          ni >= 0 && qi > ni && !q.includes(five[0]) && q[0] === five[3] && progOf(LOCAL).length === 3, JSON.stringify({ ni, qi, q }));
+        calls.length = 0; progRows[0].b.button('rm').click(); await tick(300);
+        const sweeping = progRows[0].b.button('rm').dataset.busy === '1' && progOf(LOCAL).length === 4 && !calls.some(([c]) => c === 'queue');
+        const ni = calls.findIndex(([c]) => c === 'next');
+        needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
+        const qi = calls.findIndex(([c]) => c === 'queue'), q = calls[qi]?.[1].map((x) => x.id) || [];
+        d.assert('the cross on the playing file starts the transition and sweeps until the next file lands, then the file leaves; the queue carries on after it',
+          sweeping && ni >= 0 && qi > ni && !q.includes(five[0]) && q[0] === five[3] && progOf(LOCAL).length === 3
+          && !progRows.some((p) => p.b.button('rm').dataset.busy), JSON.stringify({ sweeping, ni, qi, q }));
         d.assert('NEGATIVE CONTROL: the cross on a file that is not playing does not move on', quiet);
         shuffle = realShuffle;
       }
