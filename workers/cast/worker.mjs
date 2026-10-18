@@ -32,7 +32,7 @@ const CAST_INSTANCE = { vcpu: 0.5, memoryMib: 1536, diskMb: 2048 };
 // others for its tests. why: lessons/workers-cast.md#live-container
 const MODES = ['live'], RETIRED_MODES = ['copy', 'mix', 'grains'];
 // An empty program starts as this many files, picked as the page picks them; at most VOTES_SENT votes reach the life.
-const PICK = 5, VOTES_SENT = 2000;
+const PICK = Infinity, VOTES_SENT = 2000; // an empty program starts as the whole archive, shuffled by the votes
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 // Every start stops itself at `until`, kept in the wanted session. why: lessons/workers-cast.md#cap
 const CAP_MS = 2 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 12 * 3600_000, PLAY_CAP_MIN = 60_000;

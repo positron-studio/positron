@@ -265,5 +265,18 @@ if (li > 0) {
     `${clock.seconds.toFixed(3)} s made in ${wall.toFixed(3)} s, drift ${(drift * 1000).toFixed(0)} ms, ${sent.toFixed(2)} s of MP3, first frame at ${first} ms, node CPU ${((cpu.user + cpu.system) / 1e4 / wall).toFixed(1)} %`);
 }
 
+// a file shorter than its scene: the blend ends with it, so the hand-over never passes through silence
+{
+  const shortItems = (secs) => [{ id: 's', title: 'short', f: 220, seconds: secs }, { id: 't', title: 'next', f: 330, seconds: secs }];
+  const run2 = (secs) => {
+    const e = M.createEngine({ open: (it) => toneSource(it.f, 10), queue: shortItems(secs), set: { dwell: 30, blend: 4, noise: 0 }, rand: M.seeded(5) });
+    e.start(); const m = run(e, 20); return m;
+  };
+  const known = run2(10), unknown = run2(undefined);
+  const quietest = (m) => Math.min(...m.filter((x) => x.at > 2 && x.at < 16).map((x) => x.out ?? -99));
+  ok('a 10 s file in a 30 s scene hands over to the next before it ends: no second in the first 16 s falls under -30 dB', quietest(known) > -30, `quietest ${quietest(known).toFixed(1)} dB`);
+  // the stand-in opens instantly, so the old dip here is shallower than a real file loading over the network
+  ok('NEGATIVE CONTROL: with no length known the old jump dips at least 10 dB deeper at the hand-over', quietest(unknown) < quietest(known) - 10, `quietest ${quietest(unknown).toFixed(1)} dB`);
+}
 console.log(`\n${pass}/${pass + fail}`);
 process.exit(fail ? 1 : 0);

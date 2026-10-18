@@ -4,7 +4,7 @@
 import { startGrains } from './grains.mjs';
 import { openDecoder } from './decode.mjs';
 import { levelOf, SR } from './mixer.mjs';
-import { createLife, fromT } from './sc/radio/cast/life.mjs';
+import { createLife, fromT, DWELL_NOISE } from './sc/radio/cast/life.mjs';
 import { createLayerEngine, euclid, stepSeconds, layerLevel, pitchClass, KEY_FROM, KEY_HZ } from './sc/radio/cast/layers.mjs';
 import { createSoften } from './sc/radio/cast/soften.mjs';
 
@@ -77,7 +77,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
     ghost.soften?.process(x);
     return x;
   }
-  const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: s0.iNoise },
+  const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE },
     patch: { name: s0.patch, set: { mix: 0, ...tweaksOf(s0), lock: lockOf(s0) } } },
   { openSink, say, fail, onMp3, inputs: 4, ghost: readGhost,
     onBlock(mono) { for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; } },
@@ -163,13 +163,13 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
         L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = `${Date.now().toString(36)}-${L.si}`;
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
         const s = life.scene(L.si, { kind: L.item?.kind || undefined });
-        e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', s.iNoise);
+        e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE);
         g.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: lockOf(s) } }); L.patch = s.patch;
         layersFor(s, t);
         say(`scene ${L.si}: ${s.patch}, ${s.param}, ${s.len} on ${L.file}`);
       }
       ghostTick(t); onsetTick(); layerTick(st, t);
-      if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = e.cycleFrom + e.ctl.dwell;
+      if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = e.cycleFrom + e.ctl.dwell; e.set('noise', life.scene(L.si).iNoise); }
       L.phase = st.phase;
       L.at = st.phase === 'blend' ? t - L.blendAt : t - L.sceneAt;
       const v = st.phase === 'blend' ? life.inInterlude(L.si, L.at) : life.inScene(L.si, L.at);

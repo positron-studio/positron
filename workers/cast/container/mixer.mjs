@@ -177,7 +177,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
   function place(j, it, src) {
     const sl = slots[j];
     try { sl.src?.close(); } catch { /* gone */ }
-    sl.item = it; sl.src = src || (it ? open(it) : null); sl.level = levelOf(it?.gain);
+    sl.item = it; sl.src = src || (it ? open(it) : null); sl.level = levelOf(it?.gain); sl.played = 0;
     // after the level, before the tuner, as the page's worklet is. why: lessons/workers-cast.md#soften
     sl.soften = it?.soften ? createSoften(sr) : null;
     if (it) log(`slot ${'ab'[j]}: ${it.title}`);
@@ -191,6 +191,8 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
     log(`landed on slot ${'ab'[to]}: ${slots[to].item?.title ?? 'nothing'}`);
   }
   const ended = (j) => !slots[j].src || slots[j].src.ended;
+  /** Seconds the file in slot j still has to play, from the feed's length and what has been read; else unknown. */
+  const left = (j) => { const sl = slots[j], d = sl.item?.seconds; return sl.src && Number.isFinite(d) ? d - (sl.played || 0) : Infinity; };
 
   function clock() {
     const to = 1 - from, preroll = Math.min(ctl.dwell / 2, 4);
@@ -200,6 +202,12 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
       phase = 'held'; k = 0; tune = ctl.tune; return;
     }
     let t = tSec() - cycleFrom;
+    // a file shorter than its scene: the next is fetched and opened in time, and the blend ends with the file
+    // rather than starting from its silence. why: lessons/workers-cast.md#short-files
+    const early = left(from) - ctl.blend - 1;
+    if (t < ctl.dwell && early <= preroll + prefetchS && !slots[to].item) prefetch();
+    if (t < ctl.dwell && early <= preroll && !slots[to].item) arrive(to);
+    if (t < ctl.dwell && early <= 0 && slots[to].item) { cycleFrom = tSec() - ctl.dwell; t = ctl.dwell; }
     // the station on air ran out in its dwell: start the blend now
     if (t < ctl.dwell && slots[from].item && ended(from)) { cycleFrom = tSec() - ctl.dwell; t = ctl.dwell; }
     if (t >= ctl.dwell - preroll - prefetchS && !slots[to].item) prefetch();
@@ -253,7 +261,7 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
       m = { ...m, noise: m.noise * ctl.noise };
       const inputs = slots.map((sl) => {
         if (!sl.src) return null;
-        const x = sl.src.read(BLOCK);
+        const x = sl.src.read(BLOCK); sl.played = (sl.played || 0) + BLOCK / sr;
         if (sl.level !== 1) for (let i = 0; i < x.length; i++) x[i] *= sl.level;
         if (sl.soften) sl.soften.process(x);
         return x;

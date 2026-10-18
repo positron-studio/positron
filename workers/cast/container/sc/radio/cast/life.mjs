@@ -10,6 +10,9 @@ import { PATCHES, valuesOf } from '../../granulator/grain-ring.mjs';
 export const LENGTHS = { short: 45, mid: 80, long: 150 };
 /** An interlude is the blend between two files, in seconds (the clock's blend, at most 120). */
 export const INTERLUDE = [4, 20];
+/** The tuning noise while a scene sits on its station, as the clock's `noise`; an interlude's own level comes only with its blend.
+ * Quiet talk and field recordings were heard as static under 0.04 times a radio interlude's noise held all scene. */
+export const DWELL_NOISE = 0.2;
 /**
  * What an interlude sounds like, by kind: the tuning noise (the clock's `noise`, 0 to 2), how far the
  * granulator swells, how long the blend is, and whether the granulator freezes the outgoing file.

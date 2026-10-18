@@ -597,3 +597,14 @@ instance), `live-test.mjs --live`:
 
 Not tested here: Cloudflare's own scheduler (whether its half vCPU throttles as `--cpus 0.5` does), and their Icecast.
 NOT HEARD: nobody listened to the live run.
+
+### short-files
+
+`demo/radio/cast/local.mjs` and `workers/cast/container/mixer.mjs`, the clock. Reported 2026-10-18:
+*"sound cuts off when files change"*. A scene's dwell (45 to 150 s) is often longer than its file (the
+clip tests are 15 s, Driving along 102 s). The clock used to notice only once the file had ENDED: it then
+jumped to the blend and opened the next file at that moment, so the blend started from silence toward a
+file still loading. Now each engine knows how long the file on air has left (the media element's duration
+in the browser; the feed's `seconds` against the samples read in the container) and, when the blend would
+otherwise outlast the file, prefetches and opens the next file early and starts the blend so it ends one
+second before the file does. The old ended-file jump stays as the fallback for a file with no known length.
