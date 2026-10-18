@@ -2771,6 +2771,8 @@ button.pos-sm[data-glyph="1"] { width: var(--ctl-sm); height: var(--ctl-sm); pad
    ink. `pointer-events: none` keeps targets. */
 /* why: lessons/css-shell.md#pos-icobtn-svg */
 .pos-icobtn > svg { display: block; pointer-events: none; }
+/* A toggle's on state lights the glyph, as .pos-fdr-hand does; without it `pressed` drew nothing. */
+.pos-icobtn[aria-pressed="true"] { color: var(--hi); border-color: var(--line2); }
 
 /* Link button (demo/shell/link-button.mjs): every base `button` face taken
    back so it sits in text. Underline always on, a phone has no hover. Focus
