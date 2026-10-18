@@ -192,6 +192,12 @@
   // an empty program starts as five archive files at random, kept as the program so each can be taken out
   const PICK = 5;
   let shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  // five picked on load for local and an idle preview; shown, and sent only with START
+  const picked = {};
+  function pickOnLoad() {
+    for (const t of [LOCAL, 'preview']) if (!progOf(t).length && !(t === LOCAL ? localOn() : status[t]?.playing)) { startIds(t); picked[t] = true; }
+    showProgram();
+  }
   function startIds(t) {
     if (!progOf(t).length && items.length) {
       // weighted by what the votes said about each file, so a file voted down comes up less, and at -6 not at all
@@ -322,9 +328,11 @@
   const sayBox = el('div', 'vc-say'); sayBox.append(votePair, comment.el);
   lifeRows.row([sayBox], { cls: 'vc-comment' });
   const lifeRow = sound.row([lifeRows.el], {});
+  // the scene box is off the page (see where `detail` is built); the keys 1 to 4 vote only when it is on
+  const SHOW_SCENE = false;
   /** The scene section shows once there is a scene, rather than as an empty box. */
   function paintSound() {
-    const on = !!sceneOf();
+    const on = SHOW_SCENE && !!sceneOf();
     lifeRow.hidden = !on;
     if (typeof soundSec !== 'undefined') soundSec.style.display = on ? '' : 'none';
   }
@@ -435,7 +443,8 @@
     status[t] = st;
     tookScene(t, st);
     landed();
-    if (Array.isArray(st.program) && Date.now() - (progTouched[t] || 0) > 3000) progs[t] = st.program.map((x) => x.id);
+    // an idle station with no stored program keeps the five this page picked for it
+    if (Array.isArray(st.program) && Date.now() - (progTouched[t] || 0) > 3000 && !(picked[t] && !st.playing && !st.program.length)) progs[t] = st.program.map((x) => x.id);
     paintRow(t); log(t);
     if (t === target) { paintDetail(); showProgram(); pb.refresh(); }
   }
@@ -585,6 +594,7 @@
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 } }); L.patch = s.patch;
       layersFor(s);
+      announce(LOCAL, L.si, life.defOf(s), L.file);
       paintScene();
     }
     ghostTick(t); onsetTick(); layerTick(st, t);
@@ -716,7 +726,14 @@
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
     }
+    if (lastInst[t] !== x.inst) announce(t, x.si, x.def, x.file ?? st.now?.title ?? '');
     lastInst[t] = x.inst;
+  }
+  /** One log line per scene: what plays, the patch, what moves, the interlude, the key and the layers. */
+  function announce(t, si, def, file) {
+    if (!def) return;
+    const tw = Object.entries(tweaksOf(def)).map(([n, x]) => `${n} ${fmt(x)}`).join(', ');
+    d.log(`${t} scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then a ${def.iKind} interlude; ${layersSay(def)}`);
   }
   // a vote is on the scene as it played (`inst`): the same press again takes it back. A comment rides
   // on the same row, sent a second after the typing stops, to the scene it was started on.
@@ -751,7 +768,7 @@
   }
   // keys 1 to 3 vote on live, unless a field has the keyboard
   addEventListener('keydown', (e) => {
-    if (!VOTES[e.key] || e.metaKey || e.ctrlKey || e.altKey || !sceneOf() || e.target.closest?.('input, textarea, select')) return;
+    if (!SHOW_SCENE || !VOTES[e.key] || e.metaKey || e.ctrlKey || e.altKey || !sceneOf() || e.target.closest?.('input, textarea, select')) return;
     e.preventDefault(); vote(Number(e.key));
   });
   async function loadVotes() {
@@ -810,10 +827,13 @@
   // next sits on the program's heading: it steps through the program
   const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
   const soundSec = sec('sound', sound.el);
-  detail.append(sec('', head, playing.el), soundSec, sec('', progHead, progEmpty, progHost));
+  // the scene box is not on the page: its painters, the votes, the station step and the Votes store are kept for later
+  detail.append(sec('', head, playing.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
+  if (!SELFCHECK) await poll();
+  pickOnLoad();
   if (!SELFCHECK) loadVotes();
 
   window.__demo.bay = bay;
@@ -834,15 +854,18 @@
     d.assert('seven stations as one row of cards, local first, open and marked by default',
       order() === STATIONS.join() && STATIONS[0] === LOCAL && target === LOCAL && dName.textContent === LOCAL
       && isOn(LOCAL) && STATIONS.filter(isOn).length === 1, order());
+    d.assert('on load local and an idle preview each show five archive files, picked here and sent nowhere',
+      [LOCAL, 'preview'].every((t) => progOf(t).length === Math.min(5, items.length) && new Set(progOf(t)).size === progOf(t).length) && !progOf('user1').length,
+      JSON.stringify({ local: progOf(LOCAL).length, preview: progOf('preview').length }));
     d.assert('a visit opens no control socket, no player, no prelisten and no local sound, and asks no audio URL or file',
       !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !local && !audioReqs().length, audioReqs().join(' '));
     // selecting: a press on a card opens it; with nothing playing there is no scene box, and no mode controls anywhere
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, getComputedStyle(soundSec).display, detail.querySelectorAll('.pos-choice, .sld-lane').length, isOn(t)]);
+      seen.push([t, dName.textContent, detail.contains(soundSec) ? 'box' : 'none', detail.querySelectorAll('.pos-choice, .sld-lane, .vc-votes, textarea').length, isOn(t)]);
     }
-    d.assert('selecting a station opens it, live only: no copy, mix or grains controls, and no empty scene box before a scene plays',
+    d.assert('selecting a station opens it, live only: no copy, mix or grains controls, and no scene box or vote box on the page',
       seen.every(([t, n, disp, ctl, on]) => n === t && disp === 'none' && ctl === 0 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
     rowOf(LOCAL).click();
     const press = (t, k) => rowOf(t).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
@@ -878,7 +901,7 @@
       const am = sent.at(-1);
       d.assert('+ adds to the open station\'s program, and off air it is sent as program, in order',
         am?.[0] === 'user3' && am[1].cmd === 'program' && am[1].ids.join() === [items[2].id, items[0].id].join()
-        && progRows.length === 2 && progRows[0].id === items[2].id && !progOf('preview').length, JSON.stringify(am));
+        && progRows.length === 2 && progRows[0].id === items[2].id && progOf('preview').length === Math.min(5, items.length), JSON.stringify(am));
       progRows[1].b.button('up').click(); await tick();
       const um = sent.at(-1);
       progRows[0].b.button('rm').click(); await tick();
@@ -906,7 +929,7 @@
       makeLocal = () => { const f = { playing: false, analyser: null, status: () => ({ from: 0, slots: [{ at: 0 }], ...needle }),
         start: async (o) => { f.playing = true; calls.push(['start', o]); }, stop: () => { f.playing = false; calls.push(['stop']); }, next: () => calls.push(['next']),
         set: (n, v) => calls.push(['set', n, v]), mode: (v) => calls.push(['mode', v]), patch: (p) => calls.push(['patch', p]), queue: (qq) => calls.push(['queue', qq]) }; return f; };
-      rowOf(LOCAL).click();
+      rowOf(LOCAL).click(); progs[LOCAL] = []; showProgram();
       await tick(); sent.length = 0;
       archRows.get(items[1].id).btns.button('add').click(); await tick();
       // live: the life takes the dial's clock, one patch and one control per scene, an interlude in each blend
@@ -915,8 +938,9 @@
       needle = { tune: 0.46, drift: 1, phase: 'dwell', landings: 0, from: 0, slots: [{ at: 3, title: 'file A' }, { at: 0, title: 'file B' }] };
       castBtns.button('cast').click(); await tick(400);
       const has = (f) => calls.some(f), st0 = calls.find(([c]) => c === 'start')?.[1];
-      const seen0 = { shown: !lifeRow.hidden && getComputedStyle(soundSec).display !== 'none', moving: lMove.textContent };
-      d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving',
+      const logged = (re) => d.logs?.some?.((l) => re.test(l.msg)) ?? window.__demo.logs.some((l) => re.test(l.msg));
+      const seen0 = { shown: logged(new RegExp(`^local scene 1: .*${S0.patch}.*moving ${S0.param}`)) && !detail.contains(soundSec), moving: lMove.textContent };
+      d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving, the scene announced in the log (its box hidden)',
         localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'grains' && st0.set.drift === 1
         && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === S0.patch && localFile(items[0]) === `${BASE}/file/${items[0].id}`
         && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here' && seen0.shown
@@ -959,16 +983,18 @@
         good?.vote === 3 && good.inst === lifeState.inst && JSON.stringify(good.def) === JSON.stringify(life.defOf(life.scene(1))) && good.file === 'file B' && goodLit === '3'
         && back?.vote === null && back.inst === good.inst && backLit === '' && bad?.vote === 1 && lit() === '1'
         && votes.filter((x) => x.inst === good.inst).length === 1 && votes.at(-1).vote === 1, JSON.stringify({ good, back, bad, goodLit, backLit }));
-      dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); await tick();
+      const n0 = posted.length; dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); await tick();
+      const keysQuiet = posted.length === n0;
+      voteBtns[2].button.click(); await tick();
       const two = posted.at(-1);
       comment.input.value = 'the drift is lovely'; comment.input.dispatchEvent(new Event('input')); await tick();
       comment.input.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true })); await tick(1200);
       const said = posted.at(-1);
-      d.assert('the key 2 votes meh, and a comment is kept on the same scene a second after the typing stops',
-        two?.vote === 2 && lit() === '2' && said?.comment === 'the drift is lovely' && said.inst === good.inst && said.vote === 2, JSON.stringify({ two, said }));
+      d.assert('meh votes 2, and a comment is kept on the same scene a second after the typing stops; with the box hidden the keys do not vote',
+        keysQuiet && two?.vote === 2 && lit() === '2' && said?.comment === 'the drift is lovely' && said.inst === good.inst && said.vote === 2, JSON.stringify({ two, said }));
       d.assert('NEGATIVE CONTROL: a 3 typed into the comment is a letter, not a vote', said?.vote === 2 && posted.filter((b) => b.vote === 3).length === 1);
-      dispatchEvent(new KeyboardEvent('keydown', { key: '4' })); await tick();
-      d.assert('four votes: the key 4 is great, and four buttons say bad, meh, good, great',
+      voteBtns[4].button.click(); await tick();
+      d.assert('four votes: great is 4, and four buttons say bad, meh, good, great',
         posted.at(-1)?.vote === 4 && lit() === '4' && Object.values(voteBtns).map((t) => t.button.textContent).join() === 'bad,meh,good,great', Object.values(voteBtns).map((t) => t.button.textContent).join());
       needle = { ...needle, landings: 4, from: 0 }; await tick(400);
       d.assert('the next scene starts with no vote lit and an empty comment', lit() === '' && comment.value() === '' && lifeState.inst !== good.inst);
@@ -978,7 +1004,7 @@
       rowOf('user3').click(); calls.length = 0; sent.length = 0;
       const sdef = L42.defOf(L42.scene(4)), slife = (si, inst) => ({ si, inst, def: sdef, kind: 'scene', param: sdef.param, value: 0.5, wet: 0.4, len: sdef.len, file: 'their file' });
       take('user3', { target: 'user3', onAir: true, playing: true, now: { id: 'f', title: 'their file', at: 20 }, life: slife(4, 'u3-4'), lines: [] });
-      const stShown = getComputedStyle(soundSec).display !== 'none' && lScene.textContent.startsWith('5') && lPatch.textContent.startsWith(sdef.patch);
+      const stShown = logged(new RegExp(`^user3 scene 5: their file, ${sdef.patch}`)) && lScene.textContent.startsWith('5') && lPatch.textContent.startsWith(sdef.patch);
       sceneBtns.button('next').click(); await tick();
       const stepSent = sent.find(([t, m]) => t === 'user3' && m.cmd === 'step')?.[1], stBusy = sceneBtns.button('next').dataset.busy === '1';
       take('user3', { target: 'user3', onAir: true, playing: true, now: { id: 'f', title: 'their file', at: 21 }, life: slife(5, 'u3-5'), lines: [] });
@@ -989,9 +1015,9 @@
         stShown && stepSent?.by === 1 && stBusy && !sceneBtns.button('next').dataset.busy && lScene.textContent.startsWith('6')
         && posted2[0]?.inst === 'u3-5' && posted2[0].vote === 4 && posted2[0].def?.patch === sdef.patch && localOn() && !calls.some(([c]) => c === 'next'),
         JSON.stringify({ stShown, stepSent, stBusy, posted: posted2[0] && { inst: posted2[0].inst, vote: posted2[0].vote } }));
-      d.assert('NEGATIVE CONTROL: a station that is off shows no scene, and next sends nothing', (() => {
+      d.assert('NEGATIVE CONTROL: a station that is off has no scene, and next sends nothing', (() => {
         take('user3', { target: 'user3', onAir: false, playing: false, lines: [] }); const before = sent.length; sceneBtns.button('next').click();
-        return getComputedStyle(soundSec).display === 'none' && sent.length === before; })());
+        return !sceneOf('user3') && sent.length === before; })());
       // an empty program starts as five at random; the cross on the playing file moves on first
       if (items.length >= 6) {
         stopLocal(); rowOf(LOCAL).click(); delete progs[LOCAL];
