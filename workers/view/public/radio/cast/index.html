@@ -64,6 +64,7 @@
   .vc-url[hidden] { display: none; }
   /* start and stop at one width, the wider word's */
   .vc-head .pos-bgroup button:not(.pos-icobtn) { min-width: 15ch; }
+  .vc-head .pos-bgroup[hidden] { display: none; }
   .pos-vp[hidden] { display: none; }
   /* inside the panel the scope gives up its page margin (22 px above) and its own border: the panel's edge is the edge */
   .vc-scope .pos-scope { margin: 0; }
@@ -482,6 +483,8 @@
     // a start sweeps until the station is on air (or local plays), as every pending press here does
     if (starting[t] && (here ? on : st.onAir || Date.now() - starting[t] > 90_000)) delete starting[t];
     if (starting[t]) cb.dataset.busy = '1'; else delete cb.dataset.busy;
+    // a station's stream button needs the key; without it a visitor can look and play local, not start a station
+    castBtns.el.hidden = !here && !key;
     cb.title = here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the stream on ${t}` : `start the stream on ${t}`;
     listenBtn.el.hidden = !listenUrl(t); inApp.hidden = here || !!listenUrl(t);
     const lon = listening() && listenTarget === t;
