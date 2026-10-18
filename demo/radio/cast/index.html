@@ -278,15 +278,18 @@
   const dName = el('span', 'vc-name', target), dCast = presence('the open station'), dLocal = presence(LOCAL);
   let dBadge = dCast;
   const nameBox = el('span', 'vc-ctl'); nameBox.append(dName, dCast.el, dLocal.el);
+  // play on the station's own head; next on the program it steps through
   const castBtns = createButtonGroup({ buttons: [
     { id: 'cast', icon: 'play', label: 'start the cast', onPress: () => cast(target) },
+  ] });
+  const nextBtns = createButtonGroup({ buttons: [
     { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send(target, { cmd: 'next' }) },
   ] });
   const listenBtn = createButtonGroup({ buttons: [
     { id: 'listen', icon: 'headphones', label: 'listen', onPress: () => (listening() && listenTarget === target ? stopListening() : startListening(target)) },
   ] });
   const inApp = el('span', 'vc-dim', 'in the Väin app');
-  const headCtl = el('span', 'vc-ctl'); headCtl.append(listenBtn.el, inApp);
+  const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, inApp);
   head.append(nameBox, headCtl);
   const note = el('span', 'vc-note');
   const k = (w) => el('span', 'vc-k', w);
@@ -762,8 +765,8 @@
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
   const stations = sec('stations', cardRow);
   const detail = el('div', 'vc-detail');
-  // play and next sit on the program's heading: they play the program
-  const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), castBtns.el);
+  // next sits on the program's heading: it steps through the program
+  const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
   detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
@@ -901,7 +904,7 @@
       const heardAt = calls.find(([c, n]) => c === 'set' && n === 'tune')?.[2];
       mixUi.mode.buttons[2].click();
       mixUi.gdensity.set(12);
-      castBtns.button('next').click();
+      nextBtns.button('next').click();
       await tick(300);
       d.assert('on local a control move is heard at once, next skips, and the sound is kept on the page',
         heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains') && calls.some(([c]) => c === 'next')
