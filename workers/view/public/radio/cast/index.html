@@ -61,6 +61,7 @@
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createIconButton } from '/shell/icon-button.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
   import { createPresence } from '/shell/presence.mjs';
   import { createChoice } from '/shell/choice.mjs';
@@ -259,7 +260,12 @@
   const MODES = ['copy', 'mix', 'grains'];
   mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
     onPick: (v) => { touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); if (localHere()) local.mode(v); send(target, { cmd: 'mode', mode: v }); } });
-  mixUi.drift = createChoice({ label: 'dial', options: [['clock', 1], ['hand', 0]], at: 0, onPick: (v) => setMix('drift', v) });
+  // the dial: lit, the clock turns it (drift 1); off, it stays where tune was put. get() is 0 for the clock.
+  const dial = createIconButton({ icon: 'clock', label: 'the clock turns the dial', pressed: true, onPress: () => {
+    const on = !dial.pressed(); mixUi.drift.set(on ? 0 : 1); setMix('drift', on ? 1 : 0);
+  } });
+  mixUi.drift = { el: dial.el, get: () => (dial.pressed() ? 0 : 1),
+    set: (i) => { dial.pressed(i === 0); dial.set('clock', i === 0 ? 'the clock turns the dial' : 'the dial stays where tune puts it: press to let the clock turn it'); } };
   mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
     onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
   mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
@@ -301,7 +307,7 @@
   showGrains(false);
   /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
   function paintMix(st) {
-    const w = st.wanted || {}, set = w.set || {}, x = st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
+    const w = st.wanted || {}, set = w.set || {}, x = target === LOCAL ? (localOn() ? local.status() : null) : st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
     if (pendingMode && (pendingMode.t !== target || w.mode === pendingMode.v || Date.now() - pendingMode.at > 20000)) pendingMode = null;
     if (!pendingMode && fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
     showGrains(MODES[mixUi.mode.get()] === 'grains');
@@ -541,7 +547,9 @@
   }
   const localBuf = new Float32Array(2048);
   function readLocal() {
-    if (!localOn() || !local.analyser) return;
+    if (!localOn()) return;
+    paintRow(LOCAL); if (target === LOCAL) { paintDetail(); showProgram(); }
+    if (!local.analyser) return;
     local.analyser.getFloatTimeDomainData(localBuf);
     let sum = 0;
     for (const v of localBuf) sum += v * v;
@@ -549,7 +557,6 @@
     d.set('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     d.set('heard', Math.floor(st.slots[st.from]?.at ?? 0));
     scope.set({ points: scopeWindow(localBuf), reason: '', name: LOCAL });
-    paintRow(LOCAL); if (target === LOCAL) { paintDetail(); showProgram(); }
   }
   const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
   scope.el.hidden = true;
@@ -586,9 +593,9 @@
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length, detail.querySelectorAll('.sld-lane').length, rowOf(t).classList.contains('on')]);
+      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length + detail.querySelectorAll('.pos-icobtn[aria-pressed]').length, detail.querySelectorAll('.sld-lane').length, rowOf(t).classList.contains('on')]);
     }
-    d.assert('selecting a station opens it on the right, and each one has mode, dial, tune, dwell, blend and the grain controls',
+    d.assert('selecting a station opens it on the right, and each one has mode, the clock, tune, dwell, blend and the grain controls',
       seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 7 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
     rowOf('user1').click();
     const gone = (e) => getComputedStyle(e).display === 'none';
@@ -664,7 +671,8 @@
       prePlay = (a) => a.play();
       // the local station, against an engine that records instead of playing, so the check fetches no file
       const calls = [], realMake = makeLocal;
-      makeLocal = () => { const f = { playing: false, analyser: null, status: () => ({ from: 0, slots: [{ at: 0 }] }),
+      let needle = { tune: 0.5, drift: 0 };
+      makeLocal = () => { const f = { playing: false, analyser: null, status: () => ({ from: 0, slots: [{ at: 0 }], ...needle }),
         start: async (o) => { f.playing = true; calls.push(['start', o]); }, stop: () => { f.playing = false; calls.push(['stop']); }, next: () => calls.push(['next']),
         set: (n, v) => calls.push(['set', n, v]), mode: (v) => calls.push(['mode', v]), patch: (p) => calls.push(['patch', p]), queue: (qq) => calls.push(['queue', qq]) }; return f; };
       for (const n of Object.keys(touched)) touched[n] = 0;
@@ -690,6 +698,17 @@
       d.assert('on local a control move is heard at once, next skips, and the sound is kept on the page',
         heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains') && calls.some(([c]) => c === 'next')
         && status[LOCAL]?.wanted.mode === 'grains' && status[LOCAL].wanted.set.tune === 0.5 && status[LOCAL].wanted.patch.set.density === 12, JSON.stringify({ calls, w: status[LOCAL]?.wanted }));
+      // the clock: one press lights it and hands the dial back; the slider then shows where the engine's needle is
+      const heldBefore = mixUi.drift.get() === 1 && dial.el.getAttribute('aria-pressed') === 'false';
+      calls.length = 0; touched.tune = 0; touched.drift = 0;
+      dial.el.click(); needle = { tune: 0.5234, drift: 1 };
+      await tick(400);
+      d.assert('the clock button: held after a tune move, one press lights it and the tune slider follows the needle as the clock moves it',
+        heldBefore && dial.el.getAttribute('aria-pressed') === 'true' && calls.some(([c, n, v]) => c === 'set' && n === 'drift' && v === 1)
+        && status[LOCAL].wanted.set.drift === 1 && Math.abs(mixUi.tune.get() - 0.523) < 0.0011, JSON.stringify({ heldBefore, tune: mixUi.tune.get(), calls }));
+      needle = { tune: 0.47, drift: 1 }; await tick(400);
+      d.assert('NEGATIVE CONTROL: the needle moving does not take the dial off the clock or send a tune',
+        Math.abs(mixUi.tune.get() - 0.47) < 0.0011 && dial.el.getAttribute('aria-pressed') === 'true' && !calls.some(([c, n]) => c === 'set' && n === 'tune'), JSON.stringify(calls));
       d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
         calls.length > 0 && !sent.length && !Object.keys(sockets).some((t) => t === LOCAL), sent.map(([t, m]) => `${t} ${m.cmd}`).join());
       rowOf('user3').click(); calls.length = 0;
