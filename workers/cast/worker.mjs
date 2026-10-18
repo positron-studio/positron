@@ -10,7 +10,8 @@
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container; 503 when it is not running
 //   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
-//   POST /votes?key=           {inst, def, vote: 1 | -1 | 0, file}: one vote per scene played (`inst`), 0 takes it back
+//   POST /votes?key=           {inst, def, vote: 1 bad | 2 ok | 3 good | null, comment, file}: one row per scene played
+//                              (`inst`); no vote and no comment takes it back
 // The audio source runs in a Container (container/server.mjs); the Caster object only holds the wanted
 // session in storage, boots the container, relays commands and restarts it when it dies.
 // The source speaks exactly what Väin's own app sends (radio1965 app/icecastbroadcaster.cpp): PUT over
@@ -511,25 +512,27 @@ export class Caster {
 }
 
 /** The owner's votes on live scenes: one row per scene played, a def small enough to rebuild it. */
-const VOTE_CAP = 5000, DEF_MAX = 2000;
+const VOTE_CAP = 5000, DEF_MAX = 2000, COMMENT_MAX = 1000;
 export class Votes {
   constructor(state) {
     this.sql = state.storage.sql;
     this.sql.exec('CREATE TABLE IF NOT EXISTS vote(inst TEXT PRIMARY KEY, at INTEGER, sid TEXT, vote INTEGER, def TEXT, file TEXT)');
+    try { this.sql.exec('ALTER TABLE vote ADD COLUMN comment TEXT'); } catch { /* already there */ }
   }
   async fetch(req) {
     if (req.method === 'GET') {
-      const rows = this.sql.exec('SELECT inst, at, sid, vote, def, file FROM vote ORDER BY at').toArray();
+      const rows = this.sql.exec('SELECT inst, at, sid, vote, def, file, comment FROM vote ORDER BY at').toArray();
       return json({ votes: rows.map((x) => ({ ...x, def: JSON.parse(x.def) })) });
     }
     let b = null;
     try { b = await req.json(); } catch { return json({ error: 'not JSON' }, 400); }
-    const inst = String(b?.inst || '').slice(0, 64), vote = Number(b?.vote), def = JSON.stringify(b?.def ?? null);
-    if (!inst || ![1, -1, 0].includes(vote)) return json({ error: 'inst and a vote of 1, -1 or 0' }, 400);
-    if (vote === 0) { this.sql.exec('DELETE FROM vote WHERE inst = ?', inst); return json({ ok: true, inst, vote }); }
+    const inst = String(b?.inst || '').slice(0, 64), vote = b?.vote == null ? null : Number(b.vote), def = JSON.stringify(b?.def ?? null);
+    const comment = String(b?.comment ?? '').trim().slice(0, COMMENT_MAX);
+    if (!inst || (vote !== null && ![1, 2, 3].includes(vote))) return json({ error: 'inst and a vote of 1, 2, 3 or none' }, 400);
+    if (vote === null && !comment) { this.sql.exec('DELETE FROM vote WHERE inst = ?', inst); return json({ ok: true, inst, vote }); }
     if (def.length > DEF_MAX || typeof b.def?.patch !== 'string' || typeof b.def?.param !== 'string') return json({ error: 'a def with a patch and a param, under 2000 bytes' }, 400);
     const sid = `${b.def.patch}|${b.def.param}|${b.def.len}|${b.def.lo}|${b.def.iParam}`.slice(0, 200);
-    this.sql.exec('INSERT OR REPLACE INTO vote(inst, at, sid, vote, def, file) VALUES (?, ?, ?, ?, ?, ?)', inst, Date.now(), sid, vote, def, String(b.file || '').slice(0, 200));
+    this.sql.exec('INSERT OR REPLACE INTO vote(inst, at, sid, vote, def, file, comment) VALUES (?, ?, ?, ?, ?, ?, ?)', inst, Date.now(), sid, vote, def, String(b.file || '').slice(0, 200), comment);
     this.sql.exec('DELETE FROM vote WHERE inst IN (SELECT inst FROM vote ORDER BY at DESC LIMIT -1 OFFSET ?)', VOTE_CAP);
     return json({ ok: true, inst, vote, sid });
   }

@@ -51,12 +51,12 @@ check('a scene\'s def is plain JSON that rebuilds the same id', S.slice(0, 20).e
 
 // votes: liked scenes come back as variations and their patch and control come up more; disliked ones less
 const liked = S[3], hated = S[5];
-const votes = [...Array(3)].map(() => ({ def: life.defOf(liked), vote: 1 })).concat([...Array(3)].map(() => ({ def: life.defOf(hated), vote: -1 })));
+const votes = [...Array(3)].map(() => ({ def: life.defOf(liked), vote: 3 })).concat([...Array(3)].map(() => ({ def: life.defOf(hated), vote: 1 })));
 const taste = tasteOf(votes);
 check('the votes are read: a liked scene, a disliked one, and scores per patch and control',
   taste.liked.length === 1 && taste.liked[0].score === 3 && taste.disliked[0] === coreId(hated) && taste.patch[liked.patch] >= 3 - (liked.patch === hated.patch ? 3 : 0));
-check('NEGATIVE CONTROL: a vote with no def, an unknown patch or no sign counts for nothing',
-  tasteOf([{ vote: 1 }, { def: { patch: 'Nope', param: 'size' }, vote: 1 }, { def: life.defOf(liked), vote: 0 }]).liked.length === 0);
+check('NEGATIVE CONTROL: a vote with no def, an unknown patch, an ok or a number off the scale counts for nothing',
+  tasteOf([{ vote: 3 }, { def: { patch: 'Nope', param: 'size' }, vote: 3 }, { def: life.defOf(liked), vote: 2 }, { def: life.defOf(liked), vote: 7 }]).liked.length === 0);
 const share = (L, f) => L.filter(f).length / L.length;
 const V = many(createLife({ seed: 1, votes }));
 rules('with votes', V);
@@ -72,7 +72,7 @@ check('the liked patch comes up more even among new scenes, not only as variatio
   share(V.filter((s) => !s.from), (s) => s.patch === liked.patch) > share(S, (s) => s.patch === liked.patch) * 1.3,
   `${share(S, (s) => s.patch === liked.patch).toFixed(2)} to ${share(V.filter((s) => !s.from), (s) => s.patch === liked.patch).toFixed(2)}`);
 // dislikes alone, over a long life: the exact scene never, its patch and control together rarely
-const B = many(createLife({ seed: 9 }), 1500), D = many(createLife({ seed: 9, votes: [...Array(3)].map(() => ({ def: life.defOf(B[40]), vote: -1 })) }), 1500);
+const B = many(createLife({ seed: 9 }), 1500), D = many(createLife({ seed: 9, votes: [...Array(3)].map(() => ({ def: life.defOf(B[40]), vote: 1 })) }), 1500);
 const pairOf = (x) => (s) => s.patch === x.patch && s.param === x.param;
 check('a disliked scene never comes back as it was, though without the vote it would', !D.some((s) => coreId(s) === coreId(B[40])) && B.filter((s) => coreId(s) === coreId(B[40])).length >= 2,
   `${B.filter((s) => coreId(s) === coreId(B[40])).length} times without the vote`);
