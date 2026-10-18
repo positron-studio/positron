@@ -117,6 +117,16 @@ ok('NEGATIVE CONTROL: an unknown control or a non number is refused', held.set('
 const short = M.createEngine({ open: (it) => toneSource(it.f, it.id === 'a' ? 2 : 1e9), queue: items, set: { dwell: 20, blend: 4 }, rand: M.seeded(3) });
 short.start(); run(short, 8);
 ok('a file that runs out in its dwell starts the blend at once', short.status().landings === 1, `${short.status().landings} landings by 8 s`);
+// the crossfade paths (crossfade.mjs): no dial sweep, so no hiss, no whistle and no waiting echo
+const dis = M.createEngine({ open: (it) => toneSource(it.f), queue: items, set: { dwell: 6, blend: 4, path: 1 }, rand: M.seeded(3) });
+dis.start();
+const dm = run(dis, 12), dAt = (s) => dm.find((x) => x.at >= s), dBlendNoise = Math.max(...dm.filter((x) => x.at > 6 && x.at <= 10).map((x) => x.noise ?? -99));
+const dWh = Math.max(...dm.filter((x) => x.at > 6 && x.at <= 10).map((x) => x.whistle ?? -99));
+ok('a dissolve: the waiting file is silent in the dwell, no whistle and no noise rise in the blend, and it lands like the dial',
+  dAt(5).slot[1] === null || dAt(5).slot[1] < -60, JSON.stringify({ wait: dAt(5).slot, noise: [at(2).noise, dBlendNoise], whistle: dWh, landings: dis.status().landings }));
+ok('and through its blend the noise stays at the floor and no whistle sounds, landing on B',
+  dBlendNoise <= at(2).noise + 1 && dWh < -80 && dis.status().landings === 1 && dAt(11.5).slot[1] > -12, JSON.stringify({ noise: [at(2).noise, dBlendNoise], whistle: dWh, onB: dAt(11.5).slot }));
+ok('NEGATIVE CONTROL: path is clamped to a whole path, and status reports it', dis.set('path', 2.6) === 3 && dis.set('path', 9) === 3 && dis.status().path === 3 && dis.set('path', 0) === 0);
 
 // ── 5. the AM band: quiet white noise in, dead on a slot, the share of energy above 4 kHz ──
 function fft(re, im) {

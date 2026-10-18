@@ -1,12 +1,14 @@
 // node demo/radio/cast/life-test.mjs: the living sound's planner, no browser. Most of these are
 // negative controls: a life that repeats, reuses a control, leaves the granulator on at a seam, or
 // ignores a vote fails.
-import { createLife, tasteOf, fileWeight, CAST_PATCHES, patchFor, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
+import { createLife, tasteOf, fileWeight, CAST_PATCHES, patchFor, sceneId, coreId, envelope, swell, MOVABLE, FRESH, guardT, movableFor, ducks, familyOf, FAMILIES, NOT_LEN, freezesAfterDry, patchValues, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
 
 let ok = 0, bad = 0;
 const check = (name, pass, detail = '') => { if (pass) ok++; else { bad++; console.log(`FAIL ${name}${detail ? `\n  ${detail}` : ''}`); } };
 const N = 300, many = (life, n = N) => Array.from({ length: n }, (_, i) => life.scene(i));
 const life = createLife({ seed: 1 }), S = many(life);
+// the controls some family lets the hand move (pitch is never moved)
+const MOVING = Object.keys(MOVABLE).filter((k) => [...new Set(S.map((s) => s.patch))].some((p) => guardT(p, k)));
 const reused = (list) => list.findIndex((p, i) => list.slice(Math.max(0, i - FRESH), i).includes(p));
 const period = (keys) => { for (let p = 1; p <= 40; p++) if (keys.slice(0, 120).every((k, i) => k === keys[i + p])) return p; return 0; };
 const key = (s) => `${s.patch}|${s.param}|${s.len}|${s.iParam}`;
@@ -23,7 +25,7 @@ rules('no votes', S);
 check('NEGATIVE CONTROL: the freshness check catches a control moved twice in a row', reused(['size', 'pitch', 'pitch']) === 2);
 check('NEGATIVE CONTROL: the period check finds a loop of 3', period(Array.from({ length: 200 }, (_, i) => String(i % 3))) === 3);
 check('every length kind, every control and all ten patches are used', Object.keys(LENGTHS).every((k) => S.some((s) => s.len === k))
-  && Object.keys(MOVABLE).every((k) => S.some((s) => s.param === k)) && new Set(S.map((s) => s.patch)).size === 16);
+  && MOVING.every((k) => S.some((s) => s.param === k)) && new Set(S.map((s) => s.patch)).size === 16);
 check('the clock can carry every scene: dwell within 5..600 s, blend within the interlude range',
   S.every((s) => s.dwell >= 5 && s.dwell <= 600 && s.blend >= INTERLUDE[0] && s.blend <= INTERLUDE[1]));
 
@@ -35,7 +37,7 @@ for (let i = 0; i < 60; i++) {
   const xs = Array.from({ length: 101 }, (_, j) => at(j / 100)), ys = Array.from({ length: 101 }, (_, j) => life.inInterlude(i, (j / 100) * s.blend));
   if (![...xs, ...ys].every((v) => inRange(v.param, v.value) && v.wet >= 0 && v.wet <= 1)) range = false;
   const t = xs.map((v) => toT(s.param, v.value)), turns = t.slice(2).filter((v, j) => Math.sign(v - t[j + 1]) * Math.sign(t[j + 1] - t[j]) < 0 && Math.abs(v - t[j + 1]) > 1e-4).length;
-  if (turns > 1 || Math.abs(t[85] - t[15]) < 0.2) oneMove = false;
+  if (turns > 1 || Math.abs(t[85] - t[15]) < 0.4 * s.width) oneMove = false;
   if (Math.max(...ys.map((v) => v.wet)) > IKINDS[s.iKind].wet[1] + 1e-9 || s.iNoise < IKINDS[s.iKind].noise[0] - 1e-9 || s.iNoise > IKINDS[s.iKind].noise[1] + 1e-9
     || s.blend < IKINDS[s.iKind].blend[0] || s.blend > IKINDS[s.iKind].blend[1]) light = false;
   const u = ys.map((v) => toT(v.param, v.value)), uTurns = u.slice(2).filter((v, j) => Math.sign(v - u[j + 1]) * Math.sign(u[j + 1] - u[j]) < 0).length;
@@ -91,15 +93,15 @@ check('a liked KIND comes up more on new scenes, not copies: long scenes rise an
   `long ${share(Z, (x) => x.len === 'long').toFixed(2)} to ${share(newOnes, (x) => x.len === 'long').toFixed(2)}, short ${share(Z, (x) => x.len === 'short').toFixed(2)} to ${share(newOnes, (x) => x.len === 'short').toFixed(2)}`);
 check('and more granulator: the mean peak of new scenes rises', mean(newOnes, (x) => x.peak) > mean(Z, (x) => x.peak) + 0.02, `${mean(Z, (x) => x.peak).toFixed(3)} to ${mean(newOnes, (x) => x.peak).toFixed(3)}`);
 check('it still explores: every patch and every control still play, and most scenes are new, not variations',
-  new Set(K.map((x) => x.patch)).size === 10 + CAST_PATCHES.length && Object.keys(MOVABLE).every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
+  new Set(K.map((x) => x.patch)).size === 10 + CAST_PATCHES.length && MOVING.every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
 check('all four kinds of interlude play, never the same kind twice in a row', Object.keys(IKINDS).every((k) => S.some((x) => x.iKind === k)) && S.every((x, i) => !i || x.iKind !== S[i - 1].iKind));
 check('a smear freezes the outgoing sound through its swell and lets go at the end, the other kinds never freeze',
   S.slice(0, 40).every((x, i) => { const mid = life.inInterlude(i, x.blend / 2).extra, end = life.inInterlude(i, x.blend).extra; return x.iKind === 'smear' ? mid.freeze > 0.9 && end.freeze === 0 : !('freeze' in mid); }));
-const smears = Z.filter((x) => x.iKind === 'smear').slice(0, 6), radios = Z.filter((x) => x.iKind === 'radio').slice(0, 6);
-const T2 = many(createLife({ seed: 5, votes: [...smears.map((x) => ({ def: life.defOf(x), vote: 4 })), ...radios.map((x) => ({ def: life.defOf(x), vote: 1 }))] }), 600);
+// radio is rare (its odds), so the transition's learning is read over several lives, not one
+const kindShare = (votes) => { const c = { smear: 0, radio: 0, n: 0 }; for (let seed = 5; seed <= 9; seed++) { const L0 = many(createLife({ seed }), 400), L = votes ? many(createLife({ seed, votes: votes(L0) }), 400) : L0; for (const x of L) { c.n++; if (x.iKind in c) c[x.iKind]++; } } return { smear: c.smear / c.n, radio: c.radio / c.n }; };
+const k0 = kindShare(null), k1 = kindShare((L0) => [...L0.filter((x) => x.iKind === 'smear').slice(0, 6).map((x) => ({ def: life.defOf(x), vote: 4 })), ...L0.filter((x) => x.iKind === 'radio').slice(0, 6).map((x) => ({ def: life.defOf(x), vote: 1 }))]);
 check('votes learn the transition too: liked smears come up more, disliked radio hiss less',
-  share(T2, (x) => x.iKind === 'smear') > share(Z, (x) => x.iKind === 'smear') + 0.05 && share(T2, (x) => x.iKind === 'radio') < share(Z, (x) => x.iKind === 'radio') - 0.05,
-  `smear ${share(Z, (x) => x.iKind === 'smear').toFixed(2)} to ${share(T2, (x) => x.iKind === 'smear').toFixed(2)}, radio ${share(Z, (x) => x.iKind === 'radio').toFixed(2)} to ${share(T2, (x) => x.iKind === 'radio').toFixed(2)}`);
+  k1.smear > k0.smear + 0.05 && k1.radio < k0.radio * 0.8, `smear ${k0.smear.toFixed(3)} to ${k1.smear.toFixed(3)}, radio ${k0.radio.toFixed(3)} to ${k1.radio.toFixed(3)}`);
 // layers: every kind plays, about as often as meant, and the votes learn them too
 const L = (k) => (x) => x.layers[k];
 check('every layer kind plays, at about the odds for its kind of file (unknown counts as talk)',
@@ -133,5 +135,42 @@ check('every scene starts dry for 12 to 30 % and its granulator is up by half wa
 const ints = arcs.filter((x) => !x.naked).map((x) => x.intensity);
 check('intensity rises and falls over the scenes: some near 1, some near 0.55', Math.max(...ints) > 0.9 && Math.min(...ints) < 0.65, `${Math.min(...ints)} to ${Math.max(...ints)}`);
 check('NEGATIVE CONTROL: with no votes nothing is a variation', S.every((s) => !s.from));
+
+// ── families, guards and the duck rule (plans/plan-cast-patches-scenes.md 2.1) ──
+const inGuard = (x) => { const g = guardT(x.patch, x.param); return g && x.lo >= g[0] - 1e-9 && x.lo + x.width <= g[1] + 0.011
+  && Object.entries(x.tweak || {}).every(([k, t]) => { const h = guardT(x.patch, k); return h && t >= h[0] - 1e-9 && t <= h[1] + 1e-9; }); };
+const all = [...S, ...V, ...K];
+check('every patch has a family, and every family lets at least four controls move', [...new Set(all.map((x) => x.patch))].every((p) => FAMILIES[familyOf(p)] && movableFor(p).length >= 4));
+check('the hand and the tweaks stay inside the family\'s guard, with and without votes', all.filter((x) => !x.naked).every(inGuard), JSON.stringify(all.find((x) => !x.naked && !inGuard(x))));
+check('NEGATIVE CONTROL: the guard check catches a window over the whole range', !inGuard({ patch: 'Shimmer', param: 'size', lo: 0, width: 0.8, tweak: {} }));
+check('pitch is never moved, by the hand or a tweak', all.every((x) => x.param !== 'pitch' && x.iParam !== 'pitch' && !('pitch' in (x.tweak || {}))));
+check('a glitch patch never plays a long scene', all.every((x) => !(NOT_LEN[familyOf(x.patch)] || []).includes(x.len) || x.naked));
+// the ducks scene, as voted 2026-10-18: Shimmer, the hand on scatter 0.18 to 0.73, a tweak putting size at 0.26 s
+const duckDef = { patch: 'Shimmer', param: 'scatter', lo: toT('scatter', 0.18), width: toT('scatter', 0.73) - toT('scatter', 0.18), tweak: { size: toT('size', 0.26) }, iParam: 'echo', ilo: 0.1, iw: 0.25 };
+check('NEGATIVE CONTROL: the duck rule catches the voted ducks scene', ducks(duckDef));
+check('and lets Shimmer itself play, unmoved toward the ducks', !ducks({ ...duckDef, param: 'echo', lo: 0.2, width: 0.3, tweak: {} }));
+check('no scene reaches the ducks, with or without votes', !all.some(ducks), JSON.stringify(all.find(ducks)));
+// ── freeze after the dry share ──
+const frozen = S.slice(0, 200).map((x, i) => [x, i]).filter(([x]) => freezesAfterDry(x.patch) && !x.naked);
+check('a frozen patch is open through its dry share and freezes after it', frozen.length > 3 && frozen.every(([x, i]) => life.inScene(i, x.dwell * x.dry * 0.5).extra.freeze === 0 && life.inScene(i, x.dwell * Math.min(0.95, x.dry + 0.1)).extra.freeze === 1), `${frozen.length} frozen scenes`);
+check('NEGATIVE CONTROL: a patch that does not freeze is never frozen by its scene', !freezesAfterDry('Cloud') && S.slice(0, 60).every((x, i) => freezesAfterDry(x.patch) || !('freeze' in life.inScene(i, x.dwell / 2).extra)));
+// ── the transitions: rare radio, a path per kind ──
+const kinds = (L) => Object.fromEntries(Object.keys(IKINDS).map((k) => [k, share(L, (x) => x.iKind === k)]));
+const ks = kinds(Z);
+check('the dial\'s hiss is rare: radio and drift together under 15 % of interludes, every other kind plays', ks.radio + ks.drift < 0.15 && Object.values(ks).every((v) => v > 0), JSON.stringify(ks));
+check('every interlude carries its path, and only radio, drift and smear sweep the dial', Z.every((x) => x.iPath === IKINDS[x.iKind].path) && Object.entries(IKINDS).every(([k, v]) => (v.path === 0) === ['radio', 'drift', 'smear'].includes(k)));
+check('a filter hand-over moves tone, a pause is silent', Z.filter((x) => x.iKind === 'filter').every((x) => x.iParam === 'tone') && Z.filter((x) => x.iKind === 'pause').every((x) => x.iNoise === 0 && x.iWet === 0));
+// ── crossfade.mjs ──
+const { crossfade, dwellMix } = await import('./crossfade.mjs');
+const { createMix, WHISTLE_SOFT } = await import('../../shell/tuner-mix.mjs');
+const { SLOTS } = await import('./local.mjs');
+const near2 = (a, b, e = 1e-9) => Math.abs(a - b) < e;
+check('a dissolve is equal power all the way, no echo, no whistle, the noise at the floor', [0, 0.2, 0.5, 0.8, 1].every((k) => { const m = crossfade(1, 0, k); return near2(m.st[0].clear ** 2 + m.st[1].clear ** 2, 1) && m.st.every((x) => x.echo === 0) && m.whistle === 0 && m.noise === 0.04; }));
+check('every path starts on the outgoing file and ends on the incoming, open and bright, as the dial lands', [1, 2, 3].every((p) => { const a = crossfade(p, 0, 0), b = crossfade(p, 0, 1); return near2(a.st[0].clear, 1) && near2(a.st[1].clear, 0) && near2(b.st[1].clear, 1) && near2(b.st[0].clear, 0, 1e-12) && near2(b.st[1].bright, 3500, 1e-6); }));
+check('the filter darkens the outgoing file to 300 Hz and opens the incoming from it', near2(crossfade(2, 0, 0.6).st[0].bright, 300, 1e-6) && near2(crossfade(2, 0, 0.4).st[1].bright, 300, 1e-6) && crossfade(2, 0, 0.3).st[0].bright < 1200);
+check('a gap is silence in its middle, and no noise', [0.4, 0.5, 0.6].every((k) => crossfade(3, 1, k).st.every((x) => x.clear < 1e-12)) && crossfade(3, 1, 0.5).noise === 0);
+const mix = createMix(SLOTS, WHISTLE_SOFT), m0 = mix(SLOTS[0].at);
+check('NEGATIVE CONTROL: on the dial the waiting file leaks in as an echo while the scene plays', m0.st[1].echo > 0.2, m0.st[1].echo.toFixed(3));
+check('and dwellMix keeps the waiting file silent, the playing one untouched', dwellMix(m0, 0).st[1].echo === 0 && dwellMix(m0, 0).st[1].clear === 0 && dwellMix(m0, 0).st[0] === m0.st[0]);
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);
