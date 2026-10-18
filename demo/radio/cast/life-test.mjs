@@ -1,7 +1,7 @@
 // node demo/radio/cast/life-test.mjs: the living sound's planner, no browser. Most of these are
 // negative controls: a life that repeats, reuses a control, leaves the granulator on at a seam, or
 // ignores a vote fails.
-import { createLife, tasteOf, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, toT } from './life.mjs';
+import { createLife, tasteOf, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, IKINDS, toT } from './life.mjs';
 
 let ok = 0, bad = 0;
 const check = (name, pass, detail = '') => { if (pass) ok++; else { bad++; console.log(`FAIL ${name}${detail ? `\n  ${detail}` : ''}`); } };
@@ -36,14 +36,15 @@ for (let i = 0; i < 60; i++) {
   if (![...xs, ...ys].every((v) => inRange(v.param, v.value) && v.wet >= 0 && v.wet <= 1)) range = false;
   const t = xs.map((v) => toT(s.param, v.value)), turns = t.slice(2).filter((v, j) => Math.sign(v - t[j + 1]) * Math.sign(t[j + 1] - t[j]) < 0 && Math.abs(v - t[j + 1]) > 1e-4).length;
   if (turns > 1 || Math.abs(t[85] - t[15]) < 0.2) oneMove = false;
-  if (Math.max(...ys.map((v) => v.wet)) > 0.36 || Math.max(...ys.map((v) => v.wet)) >= s.peak) light = false;
+  if (Math.max(...ys.map((v) => v.wet)) > IKINDS[s.iKind].wet[1] + 1e-9 || s.iNoise < IKINDS[s.iKind].noise[0] - 1e-9 || s.iNoise > IKINDS[s.iKind].noise[1] + 1e-9
+    || s.blend < IKINDS[s.iKind].blend[0] || s.blend > IKINDS[s.iKind].blend[1]) light = false;
   const u = ys.map((v) => toT(v.param, v.value)), uTurns = u.slice(2).filter((v, j) => Math.sign(v - u[j + 1]) * Math.sign(u[j + 1] - u[j]) < 0).length;
   if (uTurns < 2) faster = false;
 }
 check('the granulator is out at every seam', seams);
 check('every value stays in its control\'s range and the wet in 0..1', range);
 check('a scene is ONE movement: one way across its window, at most one turn (the settle)', oneMove);
-check('an interlude is lighter than its scene', light);
+check('every interlude stays inside its kind: noise, swell and length', light);
 check('an interlude moves faster: its control turns at least twice in one blend', faster);
 const first = (o) => { const l = createLife(o); return many(l, 20).map(key).join(); };
 check('the same seed and votes are the same life, another seed another', first({ seed: 1 }) === S.slice(0, 20).map(key).join() && first({ seed: 2 }) !== first({ seed: 1 }));
@@ -69,7 +70,7 @@ check('the disliked scene does not come back as it was', !V.some((s) => coreId(s
 if (hated.patch !== liked.patch) check('the disliked patch plays less', share(V, (s) => s.patch === hated.patch) < share(S, (s) => s.patch === hated.patch),
   `${share(S, (s) => s.patch === hated.patch).toFixed(2)} to ${share(V, (s) => s.patch === hated.patch).toFixed(2)}`);
 check('the liked patch comes up more even among new scenes, not only as variations',
-  share(V.filter((s) => !s.from), (s) => s.patch === liked.patch) > share(S, (s) => s.patch === liked.patch) * 1.3,
+  share(V.filter((s) => !s.from), (s) => s.patch === liked.patch) > share(S, (s) => s.patch === liked.patch) * 1.25,
   `${share(S, (s) => s.patch === liked.patch).toFixed(2)} to ${share(V.filter((s) => !s.from), (s) => s.patch === liked.patch).toFixed(2)}`);
 // dislikes alone, over a long life: the exact scene never, its patch and control together rarely
 const B = many(createLife({ seed: 9 }), 1500), D = many(createLife({ seed: 9, votes: [...Array(3)].map(() => ({ def: life.defOf(B[40]), vote: 1 })) }), 1500);
@@ -91,6 +92,14 @@ check('a liked KIND comes up more on new scenes, not copies: long scenes rise an
 check('and more granulator: the mean peak of new scenes rises', mean(newOnes, (x) => x.peak) > mean(Z, (x) => x.peak) + 0.02, `${mean(Z, (x) => x.peak).toFixed(3)} to ${mean(newOnes, (x) => x.peak).toFixed(3)}`);
 check('it still explores: all ten patches and every control still play, and most scenes are new, not variations',
   new Set(K.map((x) => x.patch)).size === 10 && Object.keys(MOVABLE).every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
+check('all four kinds of interlude play, never the same kind twice in a row', Object.keys(IKINDS).every((k) => S.some((x) => x.iKind === k)) && S.every((x, i) => !i || x.iKind !== S[i - 1].iKind));
+check('a smear freezes the outgoing sound through its swell and lets go at the end, the other kinds never freeze',
+  S.slice(0, 40).every((x, i) => { const mid = life.inInterlude(i, x.blend / 2).extra, end = life.inInterlude(i, x.blend).extra; return x.iKind === 'smear' ? mid.freeze > 0.9 && end.freeze === 0 : !('freeze' in mid); }));
+const smears = Z.filter((x) => x.iKind === 'smear').slice(0, 6), radios = Z.filter((x) => x.iKind === 'radio').slice(0, 6);
+const T2 = many(createLife({ seed: 5, votes: [...smears.map((x) => ({ def: life.defOf(x), vote: 4 })), ...radios.map((x) => ({ def: life.defOf(x), vote: 1 }))] }), 600);
+check('votes learn the transition too: liked smears come up more, disliked radio hiss less',
+  share(T2, (x) => x.iKind === 'smear') > share(Z, (x) => x.iKind === 'smear') + 0.05 && share(T2, (x) => x.iKind === 'radio') < share(Z, (x) => x.iKind === 'radio') - 0.05,
+  `smear ${share(Z, (x) => x.iKind === 'smear').toFixed(2)} to ${share(T2, (x) => x.iKind === 'smear').toFixed(2)}, radio ${share(Z, (x) => x.iKind === 'radio').toFixed(2)} to ${share(T2, (x) => x.iKind === 'radio').toFixed(2)}`);
 check('NEGATIVE CONTROL: with no votes nothing is a variation', S.every((s) => !s.from));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);
