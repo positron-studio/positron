@@ -1,3 +1,45 @@
+# Handoff, 2026-10-18, session 83: the Väin cast becomes a living piece, goes on air on radio1965 with the Väin team listening
+
+## Where it is right now
+
+- **Site: BUILD `86d57f0a-193144-5ce2`**, confirmed on the edge. **Cast worker `80539701`.** Last commit `563f0bf9`. GitHub: not pushed (well over 100 commits; the personal account switch in CLAUDE.md). Counted 19:45Z: 63 demo rows, 62 built; 136 plans.
+- **Nothing is casting.** preview, radio1965 and user1..4 read `playing:false` at 19:45Z. radio1965 was on air from about 19:02 to 19:44 UTC, started and stopped by the owner, with the Väin team listening.
+- **radio1965's stored program** is 10 files: preview's 13 less "Audio test" and both "Clip test" (test recordings now never enter a program anywhere).
+- **The container is 1 vCPU / 3 GiB since 19:32** (`CAST_INSTANCE`, was 0.5 / 1.5). On radio1965 the half CPU sat at 43 to 47 % of its 50 % in a Smear scene, the source fell 10 to 34 s behind real time and jack logged 11 xruns; on the full CPU: lag -1.2 s, 0 xruns in the first 65 s, 39 % of a core. Costs twice per hour on air.
+
+## What the owner said about the sound, and where it stands (read before touching `life.mjs` or `layers.mjs`)
+
+- **No naked speech.** *"I am sating i do jot want naked speech"*, *"Too much of it in prev versions"*. Grammar 2 never plays a naked scene. A tuner bypass for it was built, measured and removed unshipped (`lessons/workers-cast.md#grammar-2`).
+- **Speech as an instrument**, not talk with a faint drone: *"faint drone and som much speeach. i asked to use speech as instrument"*. Dry share now 4 to 20 %, peaks 0.75 to 1, intros sung through resonators.
+- **Drones are one trick**: *"drones are fine but should be only trcik"*, *"rising and falling is cool but getting repeating"*, *"drone too lound, overwhelms a bit"*, *"want so head changing tone/frequ on drone over time"*. A drone in 40 % of sections (`DRONE_SHARE`), held through the section, levels 0.3 to 0.5, about 9 dB under the file at the test level; the ldrone low-pass sweeps three octaves, the saws change shape, the octave wanders a semitone.
+- **No high pitch**: *"this high drone was annonying"*, *"annoying hipitch"*. Grammar 2 plays no patch above pitch 1.5 (`MAX_PITCH`), the harmonizer has no octave-up voice, resonators span two octaves, ghosts never shift up.
+- **No silence, no fading volume**: *"fade out and in volume: better not"*, *"audio sopped again"*. Every bridge cross-fades (path 1); `pause` is out of grammar 2. NOT DONE: levelling each patch's wet loudness to the dry file so the effect rising does not change the volume (the measured table is in `lessons/workers-cast.md#grammar-2`: 2.1 to 9.9 dB under).
+- **Kalle, Kalle 2, Driving along** (clicks): only drone, choir and spectral patches (`soft`).
+- **Also liked:** *"ok better with voices"*.
+
+## What landed this session (all in `plans/plan-cast-patches-scenes.md`, reported in full in chat)
+
+- **Grammar 2** (`createLife({ grammar })`, default 2, grammar 1 kept bit for bit by `life-g1.json`): 54 patches in seven families with guard ranges and the duck rule, nine scene types in six sections, an hour-long tide, the crossfade module (`crossfade.mjs`, both engines), bridges (echo wash, tape stop, frozen, drone, chord), rhythm on the tempo, ghosts as events (11 to 15 dB under, more on longer files). Every new patch measured in the browser ring: 3.0 to 8.5 dB under the dry voice, peaks under -7.4 dBFS.
+- **Gapless refresh** (`handover()` in `worker.mjs`, `splice.mjs`, `lessons/workers-cast.md#handover`): a deploy boots a twin Caster `<station>~b`, lines it up and switches. On Cloudflare, five times: aligned 1 to 5 ms; boots 14 to 84 s (two containers that long); Väin's mount taken in 106 to 300 ms.
+- **The page player reconnects** when a stream ends while the station is on air (deployed, not yet seen working on a real drop).
+- Tests at the end: life-test 98/98, layers-test 15/15 (and `--browser` 20/20), mixer-test 54/54, local-test 26/26, live-test 27/27, grains-test 25/25, handover-test 29/29, the page's selfcheck 36/36.
+
+## Learned the hard way today
+
+- **A cast deploy while a station is on Väin's mount stops every listener**: their Icecast takes one source, the old one leaves, connections end, and no player reconnects by itself. The owner had to say *"not good, v2in team is lisening. stoppen again"*. Do not deploy the cast worker while a Väin mount is on air without asking; batch changes.
+- **The Caster notices a deploy 4 to 6 minutes later** (the alarm), then the handover waits for 25 s of dwell; budget 5 to 7 minutes before a change is heard.
+- **`sameScene: false` after a deploy is expected when `life.mjs` changed**: the twin rebuilds the life with the new planner.
+- **A preview listener counted "0 of 0 moved"** at a handover while the owner was listening; whether the page's `/listen/preview` connection survives a cast deploy was not checked (the owner heard cracks then). Open.
+
+## Open (BACKLOG.md has the words)
+
+- Level each patch's wet to the dry file (the volume rising and falling with the effect).
+- Whether `/listen/preview` survives a deploy; the cracks heard on preview at 19:02.
+- The quiet stretches: the output read -51 to -57 dB in places on EMA salvestab Varssavis and under a frozen Hymn waiting for a short file.
+- The scene in the ICY title (not ours to write on Väin's mount; preview's listen proxy does not pass ICY).
+- Step 10 (a private ring bus for a real reverb wash, a euclidean gate) and step 11 is effectively done (the container runs grammar 2).
+- Push to GitHub.
+
 # Handoff, 2026-10-18, session 82: the Väin cast grows a preview Icecast, the tuner mix, the grain ring, a cap and LOCAL
 
 ## Where it is right now
