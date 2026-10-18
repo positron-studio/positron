@@ -32,11 +32,9 @@
   .vc-cards > .pos-card[aria-pressed="true"] { border-color: var(--hi); }
   .vc-cards > .pos-card[aria-pressed="true"] .pos-card-t { color: var(--hi); }
   .vc-cards .pos-card-f { align-items: center; justify-content: space-between; }
-  .pos-choice button[hidden] { display: none; }
   .vc-now2 { color: var(--dim2); }
   .vc-at { font: 12px var(--mono); font-variant-numeric: tabular-nums; }
   .vc-at:empty { display: none; }
-  .vc-ctl > .pos-icobtn[hidden] { display: none; }
   .vc-ctl.vc-vote { flex-wrap: nowrap; justify-content: space-between; width: 100%; }
   .vc-vote > .vc-ctl { gap: 8px; flex-wrap: nowrap; }
   .vc-vote .pos-bgroup { width: auto; min-width: auto; }
@@ -49,7 +47,6 @@
   .vc-votes { display: flex; width: 100%; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .vc-detail { display: flex; flex-direction: column; gap: 28px; }
-  .vc-mix > .sld-group { width: 100%; }
   .vc-k { color: var(--dim); text-transform: uppercase; font: 12px var(--mono); }
   .vc-v { font: 13px var(--mono); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vc-dim { color: var(--dim); font: 12px var(--sans); }
@@ -83,15 +80,10 @@
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createIconButton } from '/shell/icon-button.mjs';
   import { createToggle } from '/shell/toggle.mjs';
   import { createField } from '/shell/field.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
   import { createPresence } from '/shell/presence.mjs';
-  import { createChoice } from '/shell/choice.mjs';
-  import { createSlider, createSliderGroup } from '/shell/slider.mjs';
-  import { createPicker } from '/shell/picker.mjs';
-  import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
   import { createLife, VOTES, fromT, tasteOf, fileWeight } from '/radio/cast/life.mjs';
@@ -213,6 +205,12 @@
   // an empty program starts as five archive files at random, kept as the program so each can be taken out
   const PICK = 5;
   let shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  // five picked on load for local and an idle preview; shown, and sent only with START
+  const picked = {};
+  function pickOnLoad() {
+    for (const t of [LOCAL, 'preview']) if (!progOf(t).length && !(t === LOCAL ? localOn() : status[t]?.playing)) { startIds(t); picked[t] = true; }
+    showProgram();
+  }
   function startIds(t) {
     if (!progOf(t).length && items.length) {
       // weighted by what the votes said about each file, so a file voted down comes up less, and at -6 not at all
@@ -320,76 +318,9 @@
   const noteRow = playing.row([note]); noteRow.hidden = true;
   const say = (w) => { note.textContent = w; noteRow.hidden = !w; playing.el.hidden = stopsRow.hidden && noteRow.hidden; };
 
-  // SOUND, for every station: copy plays files whole, mix tunes an AM dial between two of them
-  const mixUi = {}, touched = {};
-  // A picked mode holds until the station reports it: a status built before the press can land seconds later.
-  let pendingMode = null;
-  const lastSent = {}, pendingSet = {};
-  function setMix(name, v) {
-    touched[name] = Date.now();
-    if (localHere()) local.set(name, v);
-    pendingSet[name] = v;
-    const wait = Math.max(0, 50 - (Date.now() - (lastSent.at || 0)));
-    if (lastSent.timer) return;
-    const t = target;
-    lastSent.timer = setTimeout(() => {
-      lastSent.timer = 0; lastSent.at = Date.now();
-      for (const [n, x] of Object.entries(pendingSet)) { send(t, { cmd: 'set', name: n, v: x }); delete pendingSet[n]; }
-    }, wait);
-  }
-  // live (local only for now): the dial walks the program and a life (life.mjs) plays the granulator
-  const MODES = ['copy', 'mix', 'grains', 'live'];
-  const engineMode = (m) => (m === 'live' ? 'grains' : m);
-  mixUi.mode = createChoice({ label: 'mode', options: MODES.map((m) => [m, m]), at: 0,
-    onPick: (v) => {
-      touched.mode = Date.now(); pendingMode = { t: target, v, at: Date.now() }; showGrains(v === 'grains'); showLive(v === 'live');
-      if (localHere()) { local.mode(engineMode(v)); if (v === 'live') startLife(); else stopLife(true); }
-      send(target, { cmd: 'mode', mode: v });
-    } });
-  // the dial: lit, the clock turns it (drift 1); off, it stays where tune was put. get() is 0 for the clock.
-  const dial = createIconButton({ icon: 'clock', label: 'the clock turns the dial', pressed: true, onPress: () => {
-    const on = !dial.pressed(); mixUi.drift.set(on ? 0 : 1); setMix('drift', on ? 1 : 0);
-  } });
-  mixUi.drift = { el: dial.el, get: () => (dial.pressed() ? 0 : 1),
-    set: (i) => { dial.pressed(i === 0); dial.set('clock', i === 0 ? 'the clock turns the dial' : 'the dial stays where tune puts it: press to let the clock turn it'); } };
-  mixUi.tune = createSlider({ label: 'tune', min: 0.4, max: 0.6, step: 0.001, value: 0.46, digits: 3,
-    onInput: (v) => { setMix('tune', v); touched.drift = Date.now(); mixUi.drift.set(1, true); } });
-  mixUi.dwell = createSlider({ label: 'dwell', min: 5, max: 180, step: 1, value: 40, unit: 's', onInput: (v) => setMix('dwell', v) });
-  mixUi.blend = createSlider({ label: 'blend', min: 2, max: 60, step: 1, value: 16, unit: 's', onInput: (v) => setMix('blend', v) });
+  // SOUND: the live scene; on local from its own life, on a station from the status it pushes (status.life).
+  // copy, mix and grains are archived (archive/demos/radio-cast-modes-index.html).
   const sound = createGlueRows({ align: 'start', full: true });
-  const both = el('span', 'vc-ctl'); both.append(mixUi.mode.el, mixUi.drift.el);
-  sound.row([both]);
-  const mixRow = sound.row([createSliderGroup([mixUi.tune, mixUi.dwell, mixUi.blend]).el], { cls: 'vc-mix' });
-  // grains: the mix through /radio/scenery/'s grain ring, a patch of the page's ten and four of its controls
-  const NAMES = PATCHES.map((p) => p.name), GRAIN = ['mix', 'density', 'size', 'pitch'];
-  const grainLast = {}, grainPending = {};
-  function sendPatch(m) {
-    const t = target;
-    if (m.name) { grainPending.name = m.name; grainPending.set = {}; }
-    Object.assign(grainPending.set ||= {}, m.set || {});
-    if (grainLast.timer) return;
-    grainLast.timer = setTimeout(() => {
-      grainLast.timer = 0; grainLast.at = Date.now();
-      const body = { cmd: 'patch', ...(grainPending.name ? { name: grainPending.name } : {}), set: grainPending.set || {} };
-      delete grainPending.name; grainPending.set = {};
-      send(t, body);
-    }, Math.max(0, 50 - (Date.now() - (grainLast.at || 0))));
-  }
-  const showPatch = (i) => { mixUi.patch.show(NAMES[i], i); const v = valuesOf(PATCHES[i]);
-    for (const n of GRAIN) mixUi[`g${n}`].set(n === 'mix' ? 1 : v[n], true); };
-  const pickPatch = (i) => { touched.patch = Date.now(); showPatch(i); if (localHere()) local.patch({ name: NAMES[i] }); sendPatch({ name: NAMES[i] }); };
-  const patchAt = () => Math.max(0, NAMES.indexOf(mixUi.patch.select.value));
-  mixUi.patch = createPicker({ label: 'patch', what: 'patch', onPick: pickPatch,
-    prev: () => pickPatch((patchAt() + NAMES.length - 1) % NAMES.length), next: () => pickPatch((patchAt() + 1) % NAMES.length) });
-  mixUi.patch.options(NAMES, 0);
-  const grainSet = (n) => (v) => { touched[`g${n}`] = Date.now(); if (localHere()) local.patch({ set: { [n]: v } }); sendPatch({ set: { [n]: v } }); };
-  mixUi.gmix = createSlider({ label: 'wet', min: 0, max: 1, step: 0.01, value: 1, digits: 2, onInput: grainSet('mix') });
-  mixUi.gdensity = createSlider({ label: 'density', min: 0.5, max: 64, step: 0.5, value: 30, unit: '/s', onInput: grainSet('density') });
-  mixUi.gsize = createSlider({ label: 'size', min: 0.02, max: 2, step: 0.01, value: 0.15, digits: 2, unit: 's', onInput: grainSet('size') });
-  mixUi.gpitch = createSlider({ label: 'pitch', min: 0.25, max: 4, step: 0.01, value: 1, digits: 2, onInput: grainSet('pitch') });
-  const grainRow = sound.row([mixUi.patch.el], {});
-  const grainSliders = sound.row([createSliderGroup(GRAIN.map((n) => mixUi[`g${n}`])).el], { cls: 'vc-mix' });
-  const showGrains = (on) => { grainRow.hidden = !on; grainSliders.hidden = !on; };
   // live: what the life is doing, in place of the controls it is moving
   const lifeRows = createGlueRows({ grid: true, align: 'start', full: true });
   const lPatch = el('span', 'vc-v vc-wrap'), lMove = el('span', 'vc-v'), lWet = el('span', 'vc-v');
@@ -410,25 +341,13 @@
   const sayBox = el('div', 'vc-say'); sayBox.append(votePair, comment.el);
   lifeRows.row([sayBox], { cls: 'vc-comment' });
   const lifeRow = sound.row([lifeRows.el], {});
-  const showLive = (on) => { lifeRow.hidden = !on || !lifeNow; mixRow.hidden = on; dial.el.hidden = on; if (on) showGrains(false); };
-  showGrains(false);
-  /** Follows the caster: its stored mode and controls, and the dial as the clock moves it. */
-  function paintMix(st) {
-    const w = st.wanted || {}, set = w.set || {}, x = target === LOCAL ? (localOn() ? local.status() : null) : st.mix, fresh = (n) => Date.now() - (touched[n] || 0) > 2000;
-    if (pendingMode && (pendingMode.t !== target || w.mode === pendingMode.v || Date.now() - pendingMode.at > 20000)) pendingMode = null;
-    if (!pendingMode && fresh('mode')) mixUi.mode.set(Math.max(0, MODES.indexOf(w.mode)), true);
-    showGrains(MODES[mixUi.mode.get()] === 'grains'); showLive(MODES[mixUi.mode.get()] === 'live');
-    mixUi.mode.buttons[3].hidden = target !== LOCAL;
-    // local is live only: copy, mix and grains are the stations' until live runs on air
-    mixUi.mode.el.style.display = target === LOCAL ? 'none' : '';
-    // on local the sound is the live scene, so the section waits for one rather than drawing an empty box
-    if (typeof soundSec !== 'undefined') soundSec.style.display = target === LOCAL && !lifeNow ? 'none' : '';
-    const gp = w.patch || {}, gi = Math.max(0, NAMES.indexOf(gp.name ?? NAMES[0])), gv = { ...valuesOf(PATCHES[gi]), mix: 1, ...(gp.set || {}) };
-    if (fresh('patch')) mixUi.patch.show(NAMES[gi], gi);
-    for (const n of GRAIN) if (fresh(`g${n}`) && fresh('patch')) mixUi[`g${n}`].set(gv[n], true);
-    if (fresh('drift')) mixUi.drift.set((x?.drift ?? set.drift ?? 1) ? 0 : 1, true);
-    if (fresh('tune')) mixUi.tune.set(x?.tune ?? set.tune ?? 0.46, true);
-    for (const n of ['dwell', 'blend']) if (fresh(n)) mixUi[n].set(set[n] ?? (n === 'dwell' ? 40 : 16), true);
+  // the scene box is off the page (see where `detail` is built); the keys 1 to 4 vote only when it is on
+  const SHOW_SCENE = false;
+  /** The scene section shows once there is a scene, rather than as an empty box. */
+  function paintSound() {
+    const on = SHOW_SCENE && !!sceneOf();
+    lifeRow.hidden = !on;
+    if (typeof soundSec !== 'undefined') soundSec.style.display = on ? '' : 'none';
   }
 
   // PROGRAM: the station's queue, in order, each with up and remove
@@ -478,7 +397,7 @@
   }
   const showPre = () => { for (const [id, a] of archRows) a.btns.setIcon('pre', preId === id ? 'stop' : 'headphones', preId === id ? 'stop the prelisten' : 'prelisten'); };
 
-  const pick = (t) => { if (t === target) return; target = t; for (const n of Object.keys(touched)) touched[n] = 0; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
+  const pick = (t) => { if (t === target) return; target = t; say(''); wire(); markOpen(); paintDetail(); showProgram(); log(t); };
   const refuse = (t) => { say('Väin is streaming here'); d.log(`${t}: Väin is streaming here`, 'warn'); return false; };
   const cast = (t) => {
     if (t === LOCAL) return localOn() ? stopLocal() : startLocal();
@@ -525,7 +444,7 @@
     const refused = (st.lines || []).at(-1)?.includes('refused: ') ? st.lines.at(-1).split('refused: ')[1] : '';
     if (refused) say(refused);
     else if (!them && note.textContent === 'Väin is streaming here') say('');
-    paintMix(st);
+    paintSound(); paintScene(); paintLife();
   }
   const said = {};
   function log(t) {
@@ -535,8 +454,10 @@
   function take(t, st) {
     if (st.target && st.target !== t) return;
     status[t] = st;
+    tookScene(t, st);
     landed();
-    if (Array.isArray(st.program) && Date.now() - (progTouched[t] || 0) > 3000) progs[t] = st.program.map((x) => x.id);
+    // an idle station with no stored program keeps the five this page picked for it
+    if (Array.isArray(st.program) && Date.now() - (progTouched[t] || 0) > 3000 && !(picked[t] && !st.playing && !st.program.length)) progs[t] = st.program.map((x) => x.id);
     paintRow(t); log(t);
     if (t === target) { paintDetail(); showProgram(); pb.refresh(); }
   }
@@ -640,25 +561,21 @@
   const localQueue = () => {
     const ids = startIds(LOCAL), held = localOn() ? local.status().slots.map((x) => x.id) : [];
     const last = Math.max(-1, ...held.map((h) => ids.findIndex((x) => String(x) === String(h))));
-    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => ({ id, title: titleOf(id), gain: items.find((x) => String(x.id) === String(id))?.gain }));
+    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => { const it = items.find((x) => String(x.id) === String(id)); return { id, title: titleOf(id), gain: it?.gain, soften: !!it?.soften }; });
   };
-  function localSound() {
-    const w = status[LOCAL]?.wanted || {};
-    return { mode: engineMode(MODES[mixUi.mode.get()]),
-      set: { ...(w.set || {}), drift: mixUi.drift.get() === 0 ? 1 : 0, tune: mixUi.tune.get(), dwell: mixUi.dwell.get(), blend: mixUi.blend.get() },
-      patch: { name: NAMES[patchAt()], set: { ...(w.patch?.set || {}), ...Object.fromEntries(GRAIN.map((n) => [n, mixUi[`g${n}`].get()])) } } };
-  }
   async function startLocal() {
     if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
     stopListening(); stopPrelisten();
     local ||= makeLocal();
     localFor = LOCAL;
     show('listening', LOCAL);
-    const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
-    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(sound.queue?.[0]?.id ?? localQueue()[0]?.id))?.kind }); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
-    await local.start({ queue: localQueue(), ...sound });
+    // local is live: the ring's grains path, the clock on, scene 0's times and patch from the start
+    const q = localQueue();
+    life = createLife({ seed: lifeSeed(), votes });
+    const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(q[0]?.id))?.kind });
+    await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: s0.iNoise }, patch: { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } } });
     if (!localOn()) return;
-    if (isLive) startLife(true);
+    startLife(true);
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
     paintRow(LOCAL); paintDetail(); pb.refresh();
   }
@@ -690,6 +607,7 @@
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 } }); L.patch = s.patch;
       layersFor(s);
+      announce(LOCAL, L.si, life.defOf(s), L.file);
       paintScene();
     }
     ghostTick(t); onsetTick(); layerTick(st, t);
@@ -708,10 +626,9 @@
     local.set('drift', 1);
     clearInterval(lifeTimer); lifeTimer = setInterval(lifeTick, 50); lifeTick();
   }
-  function stopLife(restore = false) {
+  function stopLife() {
     clearInterval(lifeTimer); lifeTimer = 0; lifeNow = null; lifeState.want = null; paintScene();
     layersOff();
-    if (restore && localOn()) { local.set('dwell', mixUi.dwell.get()); local.set('blend', mixUi.blend.get()); local.set('noise', 1); local.patch({ name: NAMES[patchAt()], set: { mix: mixUi.gmix.get() } }); }
   }
   // ── the layers (layers.mjs) beside the ring: booted once grains is up, set per scene ──
   let layerEng = null, layerBoot = null, pulseTimer = 0, pulseStep = 0;
@@ -793,9 +710,43 @@
   }
   // previous and next ask for a scene and start the transition at once; the press sweeps until it lands
   function step(by) {
-    if (!lifeTimer || lifeState.want != null) return;
-    lifeState.want = Math.max(0, lifeState.si + by);
-    local.next(); paintScene();
+    const sc = sceneOf();
+    if (!sc || sc.want != null) return;
+    if (target === LOCAL) { lifeState.want = Math.max(0, lifeState.si + by); local.next(); }
+    else { stepWant[target] = Math.max(0, sc.si + by); send(target, { cmd: 'step', by }); }
+    paintScene();
+  }
+  const stepWant = {}, lastInst = {};
+  /** The open station's scene: local's own life, or a station's `status.life`; null when none plays. */
+  function sceneOf(t = target) {
+    if (t === LOCAL) {
+      if (!lifeTimer || !life || !lifeNow) return null;
+      const s = life.scene(lifeState.si);
+      return { si: lifeState.si, inst: lifeState.inst, def: life.defOf(s), from: s.from, now: lifeNow, want: lifeState.want ?? null, file: lifeState.file };
+    }
+    const x = status[t]?.onAir && status[t]?.life;
+    if (!x?.def || !x.inst) return null;
+    return { si: x.si, inst: x.inst, def: x.def, from: x.from ?? x.def.from, want: stepWant[t] ?? null, file: x.file ?? status[t]?.now?.title ?? '',
+      now: { kind: x.kind, param: x.param, value: x.value, wet: x.wet, len: x.len, patch: x.def.patch } };
+  }
+  /** A station's status moved its scene on: the step has landed, a new scene gets an empty comment. */
+  function tookScene(t, st) {
+    const x = st.life;
+    if (!x?.inst) return;
+    instDef.set(x.inst, { def: x.def, file: x.file ?? st.now?.title ?? '', station: t });
+    if (stepWant[t] != null && x.si === stepWant[t]) delete stepWant[t];
+    if (lastInst[t] && lastInst[t] !== x.inst && t === target) {
+      if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
+      commentFor = ''; comment.set('');
+    }
+    if (lastInst[t] !== x.inst) announce(t, x.si, x.def, x.file ?? st.now?.title ?? '');
+    lastInst[t] = x.inst;
+  }
+  /** One log line per scene: what plays, the patch, what moves, the interlude, the key and the layers. */
+  function announce(t, si, def, file) {
+    if (!def) return;
+    const tw = Object.entries(tweaksOf(def)).map(([n, x]) => `${n} ${fmt(x)}`).join(', ');
+    d.log(`${t} scene ${si + 1}${def.from ? ' (a variation)' : ''}: ${file || 'a file'}, ${def.patch}${tw ? ` with ${tw}` : ''}, moving ${def.param} over a ${def.len} scene, then a ${def.iKind} interlude; ${layersSay(def)}`);
   }
   // a vote is on the scene as it played (`inst`): the same press again takes it back. A comment rides
   // on the same row, sent a second after the typing stops, to the scene it was started on.
@@ -803,8 +754,9 @@
   const mine = new Map(); // inst -> { vote, comment }
   let commentFor = '', commentTimer = 0;
   function commentLater() {
-    if (!lifeTimer || !lifeState.inst) return;
-    commentFor ||= lifeState.inst;
+    const sc = sceneOf();
+    if (!sc?.inst) return;
+    commentFor ||= sc.inst;
     clearTimeout(commentTimer); commentTimer = setTimeout(() => keep(commentFor, { comment: comment.value() }), 1000);
   }
   let postVote = (body) => fetch(`${BASE}/votes?key=${encodeURIComponent(key)}`, { method: 'POST', body: JSON.stringify(body) })
@@ -817,18 +769,20 @@
     mine.set(inst, row);
     votes = votes.filter((x) => x.inst !== inst).concat(row.vote ? [{ inst, def, vote: row.vote, file }] : []);
     paintScene();
-    const r = await postVote({ inst, def, file, vote: row.vote, comment: row.comment });
+    const station = [...instDef.entries()].find(([k2]) => k2 === inst)?.[1]?.station;
+    const r = await postVote({ inst, def, file, vote: row.vote, comment: row.comment, ...(station ? { station } : {}) });
     if (r?.error) d.log(`the vote was not kept: ${r.error}`, 'warn');
     else if ('vote' in change) d.log(row.vote ? `${VOTES[row.vote]}: ${def.patch}, ${def.param}` : 'vote taken back');
   }
   function vote(n) {
-    const L = lifeState;
-    if (!lifeTimer || !L.inst) { paintScene(); return; }
-    keep(L.inst, { vote: mine.get(L.inst)?.vote === n ? null : n });
+    const sc = sceneOf();
+    if (!sc?.inst) { paintScene(); return; }
+    if (!instDef.has(sc.inst)) instDef.set(sc.inst, { def: sc.def, file: sc.file });
+    keep(sc.inst, { vote: mine.get(sc.inst)?.vote === n ? null : n });
   }
   // keys 1 to 3 vote on live, unless a field has the keyboard
   addEventListener('keydown', (e) => {
-    if (!VOTES[e.key] || e.metaKey || e.ctrlKey || e.altKey || !lifeTimer || target !== LOCAL || e.target.closest?.('input, textarea, select')) return;
+    if (!SHOW_SCENE || !VOTES[e.key] || e.metaKey || e.ctrlKey || e.altKey || !sceneOf() || e.target.closest?.('input, textarea, select')) return;
     e.preventDefault(); vote(Number(e.key));
   });
   async function loadVotes() {
@@ -845,27 +799,27 @@
     if (Ly.harm !== 'none') out.push(`harmonizer ${Ly.harm}`);
     if (Ly.ghost !== 'none') out.push(`ghosts ${Ly.ghost}`);
     if (Ly.bpm) out.push(Ly.pulseOn === 'onsets' ? 'pulse on the speech' : `pulse ${Ly.pattern[0]} of ${Ly.pattern[1]} at ${Ly.bpm}`);
-    if (!layerEng) out.push('(layers starting)');
+    if (target === LOCAL && !layerEng) out.push('(layers starting)');
     return out.join(', ');
   }
   const fmt = (x) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
   function paintScene() {
-    const L = lifeState, n = mine.get(L.inst)?.vote || 0, s = lifeTimer && life ? life.scene(L.si) : null;
-    lScene.textContent = s ? `${L.si + 1}${s.from ? ', a variation' : ''}` : '';
+    const sc = sceneOf(), n = mine.get(sc?.inst)?.vote || 0;
+    lScene.textContent = sc ? `${sc.si + 1}${sc.from ? ', a variation' : ''}` : '';
     for (const [k2, t] of Object.entries(voteBtns)) t.set(Number(k2) === n, true);
     for (const [b, by] of [['prev', -1], ['next', 1]]) {
       const btn = sceneBtns.button(b);
-      if (L.want != null && L.want === Math.max(0, L.si + by)) btn.dataset.busy = '1'; else delete btn.dataset.busy;
+      if (sc?.want != null && sc.want === Math.max(0, sc.si + by)) btn.dataset.busy = '1'; else delete btn.dataset.busy;
     }
-    sceneBtns.button('prev').disabled = !s || L.si === 0;
+    sceneBtns.button('prev').disabled = !sc || sc.si === 0;
   }
   function paintLife() {
-    const v = lifeNow;
-    const tw = v && life ? Object.entries(tweaksOf(life.scene(lifeState.si))).map(([n, x]) => `${n} ${fmt(x)}`).join(', ') : '';
+    const sc = sceneOf(), v = sc?.now;
+    const tw = sc ? Object.entries(tweaksOf(sc.def)).map(([n, x]) => `${n} ${fmt(x)}`).join(', ') : '';
     lPatch.textContent = v ? `${v.patch}${tw ? ` with ${tw}` : ''}` : '';
     lMove.textContent = v ? `${v.param} ${fmt(v.value)}, ${v.kind === 'interlude' ? v.len : `${v.len} scene`}` : '';
     lWet.textContent = v ? `${Math.round(v.wet * 100)} %` : '';
-    lLayers.textContent = v && life ? layersSay(life.scene(lifeState.si)) : '';
+    lLayers.textContent = sc ? layersSay(sc.def) : '';
   }
   const localBuf = new Float32Array(2048);
   function readLocal() {
@@ -887,10 +841,13 @@
   // next sits on the program's heading: it steps through the program
   const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
   const soundSec = sec('sound', sound.el);
-  detail.append(sec('', head, playing.el), soundSec, sec('', progHead, progEmpty, progHost));
+  // the scene box is not on the page: its painters, the votes, the station step and the Votes store are kept for later
+  detail.append(sec('', head, playing.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
+  if (!SELFCHECK) await poll();
+  pickOnLoad();
   if (!SELFCHECK) loadVotes();
 
   window.__demo.bay = bay;
@@ -911,16 +868,19 @@
     d.assert('seven stations as one row of cards, local first, open and marked by default',
       order() === STATIONS.join() && STATIONS[0] === LOCAL && target === LOCAL && dName.textContent === LOCAL
       && isOn(LOCAL) && STATIONS.filter(isOn).length === 1, order());
+    d.assert('on load local and an idle preview each show five archive files, picked here and sent nowhere',
+      [LOCAL, 'preview'].every((t) => progOf(t).length === Math.min(5, items.length) && new Set(progOf(t)).size === progOf(t).length) && !progOf('user1').length,
+      JSON.stringify({ local: progOf(LOCAL).length, preview: progOf('preview').length }));
     d.assert('a visit opens no control socket, no player, no prelisten and no local sound, and asks no audio URL or file',
       !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !local && !audioReqs().length, audioReqs().join(' '));
-    // selecting: a press on a row opens it, and every station has the same sound controls
+    // selecting: a press on a card opens it; with nothing playing there is no scene box, and no mode controls anywhere
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, detail.querySelectorAll('.pos-choice').length + Number(detail.contains(dial.el)), detail.querySelectorAll('.sld-lane').length, isOn(t)]);
+      seen.push([t, dName.textContent, detail.contains(soundSec) ? 'box' : 'none', detail.querySelectorAll('.pos-choice, .sld-lane, .vc-votes, textarea').length, isOn(t)]);
     }
-    d.assert('selecting a station opens it on the right, and each one has mode, the clock, tune, dwell, blend and the grain controls',
-      seen.every(([t, n, c, s, on]) => n === t && c === 2 && s === 7 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
+    d.assert('selecting a station opens it, live only: no copy, mix or grains controls, and no scene box or vote box on the page',
+      seen.every(([t, n, disp, ctl, on]) => n === t && disp === 'none' && ctl === 0 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
     rowOf(LOCAL).click();
     const press = (t, k) => rowOf(t).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
     press(LOCAL, 'ArrowRight');
@@ -955,7 +915,7 @@
       const am = sent.at(-1);
       d.assert('+ adds to the open station\'s program, and off air it is sent as program, in order',
         am?.[0] === 'user3' && am[1].cmd === 'program' && am[1].ids.join() === [items[2].id, items[0].id].join()
-        && progRows.length === 2 && progRows[0].id === items[2].id && !progOf('preview').length, JSON.stringify(am));
+        && progRows.length === 2 && progRows[0].id === items[2].id && progOf('preview').length === Math.min(5, items.length), JSON.stringify(am));
       progRows[1].b.button('up').click(); await tick();
       const um = sent.at(-1);
       progRows[0].b.button('rm').click(); await tick();
@@ -969,29 +929,6 @@
       d.assert('on air the same + is sent as queue, so it plays after the current file',
         qm?.[0] === 'user3' && qm[1].cmd === 'queue' && qm[1].ids.join() === [items[2].id, items[1].id].join()
         && progRows.find((p) => p.id === items[2].id)?.r.dataset.on === '1', JSON.stringify(qm));
-      // the mix controls go to the open station, at most 20 a second
-      sent.length = 0;
-      mixUi.mode.buttons[1].click();
-      for (const v of [0.47, 0.48, 0.49, 0.5, 0.51]) mixUi.tune.set(v);
-      await tick(400);
-      const mixSent = sent.filter(([, m]) => m.cmd === 'mode' || m.cmd === 'set');
-      d.assert('sound on user3: mode mix is sent to user3, five quick tune moves arrive as one set with the last value, and the dial is held',
-        mixSent.every(([t]) => t === 'user3') && mixSent[0]?.[1].cmd === 'mode' && mixSent[0][1].mode === 'mix'
-        && mixSent.filter(([, m]) => m.name === 'tune').length === 1 && Math.abs((mixSent.find(([, m]) => m.name === 'tune')?.[1].v ?? 0) - 0.51) < 1e-9
-        && mixUi.drift.get() === 1, JSON.stringify(mixSent));
-      // grains: the mode shows the patch row, a picked patch and quick slider moves go as one patch each
-      sent.length = 0;
-      mixUi.mode.buttons[2].click();
-      const shown = !grainRow.hidden && !grainSliders.hidden;
-      mixUi.patch.select.selectedIndex = 1; mixUi.patch.select.onchange();
-      await tick(200);
-      for (const v of [10, 20, 40]) mixUi.gdensity.set(v);
-      await tick(400);
-      const gs = sent.filter(([, m]) => m.cmd === 'patch');
-      d.assert('grains on user3: the patch row shows, a picked patch is sent by name, three density moves arrive as one patch with the last value',
-        shown && sent[0]?.[1].mode === 'grains' && gs[0]?.[1].name === NAMES[1] && gs.length === 2 && gs[1][1].set.density === 40 && gs.every(([t]) => t === 'user3'),
-        JSON.stringify(sent));
-      mixUi.mode.buttons[0].click(); showGrains(false);
       // prelisten, with play() held back, so the check asks their host for nothing
       prePlay = () => null;
       archRows.get(items[1].id).btns.button('pre').click();
@@ -1006,55 +943,25 @@
       makeLocal = () => { const f = { playing: false, analyser: null, status: () => ({ from: 0, slots: [{ at: 0 }], ...needle }),
         start: async (o) => { f.playing = true; calls.push(['start', o]); }, stop: () => { f.playing = false; calls.push(['stop']); }, next: () => calls.push(['next']),
         set: (n, v) => calls.push(['set', n, v]), mode: (v) => calls.push(['mode', v]), patch: (p) => calls.push(['patch', p]), queue: (qq) => calls.push(['queue', qq]) }; return f; };
-      for (const n of Object.keys(touched)) touched[n] = 0;
-      rowOf(LOCAL).click();
+      rowOf(LOCAL).click(); progs[LOCAL] = []; showProgram();
       await tick(); sent.length = 0;
       archRows.get(items[1].id).btns.button('add').click(); await tick();
-      mixUi.mode.buttons[1].click();
-      mixUi.tune.set(0.51); await tick(200);
-      castBtns.button('cast').click(); await tick(300);
-      const st0 = calls.find(([c]) => c === 'start')?.[1];
-      d.assert('START on local plays its own program here with its sound as it stands, each file from /file/<id>',
-        localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'mix'
-        && st0.set.drift === 0 && Math.abs(st0.set.tune - 0.51) < 1e-9 && st0.patch.name === NAMES[patchAt()] && localFile(items[0]) === `${BASE}/file/${items[0].id}`
-        && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here',
-        JSON.stringify({ st0, word: word(LOCAL) }));
-      calls.length = 0;
-      mixUi.tune.set(0.5);
-      const heardAt = calls.find(([c, n]) => c === 'set' && n === 'tune')?.[2];
-      mixUi.mode.buttons[2].click();
-      mixUi.gdensity.set(12);
-      nextBtns.button('next').click();
-      await tick(300);
-      d.assert('on local a control move is heard at once, next skips, and the sound is kept on the page',
-        heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains') && calls.some(([c]) => c === 'next')
-        && status[LOCAL]?.wanted.mode === 'grains' && status[LOCAL].wanted.set.tune === 0.5 && status[LOCAL].wanted.patch.set.density === 12, JSON.stringify({ calls, w: status[LOCAL]?.wanted }));
-      // the clock: one press lights it and hands the dial back; the slider then shows where the engine's needle is
-      const heldBefore = mixUi.drift.get() === 1 && dial.el.getAttribute('aria-pressed') === 'false';
-      calls.length = 0; touched.tune = 0; touched.drift = 0;
-      dial.el.click(); needle = { tune: 0.5234, drift: 1 };
-      await tick(400);
-      d.assert('the clock button: held after a tune move, one press lights it and the tune slider follows the needle as the clock moves it',
-        heldBefore && dial.el.getAttribute('aria-pressed') === 'true' && calls.some(([c, n, v]) => c === 'set' && n === 'drift' && v === 1)
-        && status[LOCAL].wanted.set.drift === 1 && Math.abs(mixUi.tune.get() - 0.523) < 0.0011, JSON.stringify({ heldBefore, tune: mixUi.tune.get(), calls }));
-      needle = { tune: 0.47, drift: 1 }; await tick(400);
-      d.assert('NEGATIVE CONTROL: the needle moving does not take the dial off the clock or send a tune',
-        Math.abs(mixUi.tune.get() - 0.47) < 0.0011 && dial.el.getAttribute('aria-pressed') === 'true' && !calls.some(([c, n]) => c === 'set' && n === 'tune'), JSON.stringify(calls));
-      d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
-        calls.length > 0 && !sent.length && !Object.keys(sockets).some((t) => t === LOCAL), sent.map(([t, m]) => `${t} ${m.cmd}`).join());
       // live: the life takes the dial's clock, one patch and one control per scene, an interlude in each blend
       const realSeed = lifeSeed; lifeSeed = () => 42;
-      const L42 = createLife({ seed: 42 }), S0 = L42.scene(0), S1 = L42.scene(1);
+      const L42 = createLife({ seed: 42 }), S0 = L42.scene(0, { kind: items[1].kind }), S1 = L42.scene(1);
       needle = { tune: 0.46, drift: 1, phase: 'dwell', landings: 0, from: 0, slots: [{ at: 3, title: 'file A' }, { at: 0, title: 'file B' }] };
-      calls.length = 0;
-      mixUi.mode.buttons[3].click(); await tick(400);
-      const has = (f) => calls.some(f);
-      const seen0 = { lifeShown: !lifeRow.hidden && mixRow.hidden && getComputedStyle(dial.el).display === 'none' && grainRow.hidden, moving: lMove.textContent };
-      d.assert('live on local: the engine runs grains on the clock, scene 0 sets its dwell, blend and patch, and moves its one control with the wet',
-        seen0.lifeShown && has(([c, v]) => c === 'mode' && v === 'grains') && has(([c, n, v]) => c === 'set' && n === 'drift' && v === 1)
-        && has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S0.dwell) && has(([c, n, v]) => c === 'set' && n === 'blend' && v === S0.blend)
-        && has(([c, p]) => c === 'patch' && p.name === S0.patch) && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set)
-        && seen0.moving.startsWith(`${S0.param} `) && status[LOCAL].wanted.mode === 'live', JSON.stringify({ seen0, S0: [S0.patch, S0.param, S0.dwell], calls: calls.slice(0, 8) }));
+      castBtns.button('cast').click(); await tick(400);
+      const has = (f) => calls.some(f), st0 = calls.find(([c]) => c === 'start')?.[1];
+      const logged = (re) => d.logs?.some?.((l) => re.test(l.msg)) ?? window.__demo.logs.some((l) => re.test(l.msg));
+      const seen0 = { shown: logged(new RegExp(`^local scene 1: .*${S0.patch}.*moving ${S0.param}`)) && !detail.contains(soundSec), moving: lMove.textContent };
+      d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving, the scene announced in the log (its box hidden)',
+        localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'grains' && st0.set.drift === 1
+        && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === S0.patch && localFile(items[0]) === `${BASE}/file/${items[0].id}`
+        && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here' && seen0.shown
+        && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set) && seen0.moving.startsWith(`${S0.param} `),
+        JSON.stringify({ st0: st0 && { mode: st0.mode, set: st0.set, patch: st0.patch?.name }, S0: [S0.patch, S0.param, S0.dwell], seen0, word: word(LOCAL) }));
+      d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
+        calls.length > 0 && !sent.length && !Object.keys(sockets).some((t) => t === LOCAL), sent.map(([t, m]) => `${t} ${m.cmd}`).join());
       calls.length = 0; needle = { ...needle, phase: 'blend' }; await tick(400);
       d.assert('in the blend the interlude moves another control, and the local card shows both files and the time',
         has(([c, p]) => c === 'patch' && p.set && S0.iParam in p.set) && !has(([c, p]) => c === 'patch' && p.name)
@@ -1090,33 +997,41 @@
         good?.vote === 3 && good.inst === lifeState.inst && JSON.stringify(good.def) === JSON.stringify(life.defOf(life.scene(1))) && good.file === 'file B' && goodLit === '3'
         && back?.vote === null && back.inst === good.inst && backLit === '' && bad?.vote === 1 && lit() === '1'
         && votes.filter((x) => x.inst === good.inst).length === 1 && votes.at(-1).vote === 1, JSON.stringify({ good, back, bad, goodLit, backLit }));
-      dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); await tick();
+      const n0 = posted.length; dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); await tick();
+      const keysQuiet = posted.length === n0;
+      voteBtns[2].button.click(); await tick();
       const two = posted.at(-1);
       comment.input.value = 'the drift is lovely'; comment.input.dispatchEvent(new Event('input')); await tick();
       comment.input.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true })); await tick(1200);
       const said = posted.at(-1);
-      d.assert('the key 2 votes meh, and a comment is kept on the same scene a second after the typing stops',
-        two?.vote === 2 && lit() === '2' && said?.comment === 'the drift is lovely' && said.inst === good.inst && said.vote === 2, JSON.stringify({ two, said }));
+      d.assert('meh votes 2, and a comment is kept on the same scene a second after the typing stops; with the box hidden the keys do not vote',
+        keysQuiet && two?.vote === 2 && lit() === '2' && said?.comment === 'the drift is lovely' && said.inst === good.inst && said.vote === 2, JSON.stringify({ two, said }));
       d.assert('NEGATIVE CONTROL: a 3 typed into the comment is a letter, not a vote', said?.vote === 2 && posted.filter((b) => b.vote === 3).length === 1);
-      dispatchEvent(new KeyboardEvent('keydown', { key: '4' })); await tick();
-      d.assert('four votes: the key 4 is great, and four buttons say bad, meh, good, great',
+      voteBtns[4].button.click(); await tick();
+      d.assert('four votes: great is 4, and four buttons say bad, meh, good, great',
         posted.at(-1)?.vote === 4 && lit() === '4' && Object.values(voteBtns).map((t) => t.button.textContent).join() === 'bad,meh,good,great', Object.values(voteBtns).map((t) => t.button.textContent).join());
       needle = { ...needle, landings: 4, from: 0 }; await tick(400);
       d.assert('the next scene starts with no vote lit and an empty comment', lit() === '' && comment.value() === '' && lifeState.inst !== good.inst);
       postVote = realPost; votes = []; mine.clear();
-      rowOf('user3').click(); await tick();
-      const liveOff = mixUi.mode.buttons[3].hidden;
-      rowOf(LOCAL).click(); await tick(100);
-      d.assert('live is offered on local only: on a station it is not a mode yet',
-        liveOff && !mixUi.mode.buttons[3].hidden && sent.every(([, m]) => m.mode !== 'live'), JSON.stringify({ liveOff }));
-      mixUi.mode.buttons[2].click(); await tick(100);
-      d.assert('leaving live hands the clock back to the sliders: dwell and blend as they stand',
-        lifeTimer === 0 && lifeRow.hidden && has(([c, n, v]) => c === 'set' && n === 'dwell' && v === mixUi.dwell.get()), JSON.stringify(calls.slice(-4)));
       lifeSeed = realSeed;
-      rowOf('user3').click(); calls.length = 0;
-      mixUi.tune.set(0.47); await tick(200);
-      d.assert('local keeps playing while another station is open, and that station\'s controls do not reach it',
-        localOn() && !calls.length && sent.some(([t, m]) => t === 'user3' && m.name === 'tune'), JSON.stringify(calls));
+      // a station in live: its scene comes from its status, previous and next and the votes go to it
+      rowOf('user3').click(); calls.length = 0; sent.length = 0;
+      const sdef = L42.defOf(L42.scene(4)), slife = (si, inst) => ({ si, inst, def: sdef, kind: 'scene', param: sdef.param, value: 0.5, wet: 0.4, len: sdef.len, file: 'their file' });
+      take('user3', { target: 'user3', onAir: true, playing: true, now: { id: 'f', title: 'their file', at: 20 }, life: slife(4, 'u3-4'), lines: [] });
+      const stShown = logged(new RegExp(`^user3 scene 5: their file, ${sdef.patch}`)) && lScene.textContent.startsWith('5') && lPatch.textContent.startsWith(sdef.patch);
+      sceneBtns.button('next').click(); await tick();
+      const stepSent = sent.find(([t, m]) => t === 'user3' && m.cmd === 'step')?.[1], stBusy = sceneBtns.button('next').dataset.busy === '1';
+      take('user3', { target: 'user3', onAir: true, playing: true, now: { id: 'f', title: 'their file', at: 21 }, life: slife(5, 'u3-5'), lines: [] });
+      const posted2 = [], realPost2 = postVote; postVote = async (b) => { posted2.push(b); return { ok: true }; };
+      voteBtns[4].button.click(); await tick();
+      postVote = realPost2; votes = []; mine.clear();
+      d.assert('a station in live shows its scene from its status; next sends step to it (not to local, which plays on) and sweeps until the status lands; a vote names its scene',
+        stShown && stepSent?.by === 1 && stBusy && !sceneBtns.button('next').dataset.busy && lScene.textContent.startsWith('6')
+        && posted2[0]?.inst === 'u3-5' && posted2[0].vote === 4 && posted2[0].def?.patch === sdef.patch && localOn() && !calls.some(([c]) => c === 'next'),
+        JSON.stringify({ stShown, stepSent, stBusy, posted: posted2[0] && { inst: posted2[0].inst, vote: posted2[0].vote } }));
+      d.assert('NEGATIVE CONTROL: a station that is off has no scene, and next sends nothing', (() => {
+        take('user3', { target: 'user3', onAir: false, playing: false, lines: [] }); const before = sent.length; sceneBtns.button('next').click();
+        return !sceneOf('user3') && sent.length === before; })());
       // an empty program starts as five at random; the cross on the playing file moves on first
       if (items.length >= 6) {
         stopLocal(); rowOf(LOCAL).click(); delete progs[LOCAL];
@@ -1144,11 +1059,9 @@
       d.assert('one sound at a time: a prelisten stops the local sound',
         !localOn() && localFor === null && calls.at(-1)?.[0] === 'stop' && preId === items[1].id && word(LOCAL) === 'off');
       stopPrelisten(); prePlay = (a) => a.play();
-      mixUi.mode.buttons[0].click(); showGrains(false);
       makeLocal = realMake; local = null;
       delete status.user3; delete progs.user3; delete progTouched.user3; delete status[LOCAL]; delete progs[LOCAL]; delete progTouched[LOCAL];
     }
-    for (const n of Object.keys(touched)) touched[n] = 0;
     rowOf('preview').click();
     // the three states, from a stubbed /live and a stubbed status
     const UNTIL = new Date(2026, 9, 17, 21, 7).getTime();
@@ -1183,7 +1096,6 @@
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
     live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); if (t !== LOCAL) badges[t].set('unknown'); cards[t].card.set({ desc: '' }); cards[t].stops.textContent = ''; }
-    mixUi.mode.set(0, true); mixUi.drift.set(0, true); mixUi.tune.set(0.46, true);
     rowOf(LOCAL).click(); say(''); paintRow(LOCAL); paintDetail();
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !localOn() && !audioReqs().length, audioReqs().join(' '));

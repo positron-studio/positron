@@ -44,6 +44,14 @@ export function euclid(k, n) {
 /** Seconds of each step at a tempo, when the pattern counts eighths (n 8) or sixteenths (n 16), or beats. */
 export const stepSeconds = (bpm, n) => 60 / bpm / (n === 16 ? 4 : n === 8 ? 2 : 1);
 
+const ease = (u) => u * u * (3 - 2 * u);
+/** The layers' level at `x` of a scene (0 to 1): silent to 12 %, rising to 30 %, falling from 80 % to silent at 95 %. */
+export const layerLevel = (x) => (x < 0.12 ? 0 : x < 0.3 ? ease((x - 0.12) / 0.18) : x > 0.8 ? ease(Math.max(0, (0.95 - x) / 0.15)) : 1);
+/** The key is heard in these seconds of a scene, over these frequencies: a chroma of what the tuner makes. */
+export const KEY_FROM = [1, 5], KEY_HZ = [60, 1000];
+/** A frequency's pitch class, 0 C to 11 B, on BASE_HZ. */
+export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12) + 12) % 12;
+
 // ── the programs that sound them, in the scsynth the grain ring runs in ──────────────────────────────
 // The layers read the tuner on busses 2 and 3 and the ghost player on 4 and 5, write to the private
 // pair 8 and 9, and the room reads that pair and writes the output. sclang-lite has no array controls,

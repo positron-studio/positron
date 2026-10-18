@@ -4,6 +4,7 @@
 import { createMix, createTunerGraph, pinkNoise, handTurn, WHISTLE_SOFT } from '../../shell/tuner-mix.mjs';
 import { createRingEngine, PATCHES, valuesOf, DEFAULTS as RING_DEFAULTS, RING_SECONDS } from '../../granulator/grain-ring.mjs';
 import { inputPairs } from '../../shell/scsynth.mjs';
+import { WORKLET as SOFTEN_WORKLET } from './soften.mjs';
 
 // The container's numbers (workers/cast/container/mixer.mjs, grain-patch.mjs); workers/cast/local-test.mjs goes red if they differ.
 export const SR = 44100;
@@ -58,7 +59,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   const mix = createMix(SLOTS, WHISTLE_SOFT);
   let mode = 'mix', ctx = null, graph = null, master = null, analyser = null, gates = null, toGrains = null, noise = null;
   let ghostOut = null, ghostP = null, sc = null, tunerAnalyser = null;
-  let engine = null, eng = null, booting = null, grains = 0;
+  let engine = null, eng = null, booting = null, grains = 0, softenReady = null, softenOk = false;
   let items = [], nextIdx = 0, pending = null, playing = false, timer = 0;
   let from = 0, cycleFrom = 0, phase = 'off', k = 0, tune = ctl.tune, m = mix(tune), landings = 0;
   const slots = SLOTS.map(() => ({ item: null, el: null, src: null }));
@@ -85,7 +86,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     // each slot: what it plays reaches its tuner leg through its level, and in copy mode the master straight, unlevelled
     // as the container's frame copier is
     slots.forEach((s, j) => {
-      s.bus = ctx.createGain(); s.level = ctx.createGain(); s.bus.connect(s.level); s.level.connect(graph.legs[j].input);
+      s.bus = ctx.createGain(); s.level = ctx.createGain(); s.bus.connect(s.level); s.level.connect(graph.legs[j].input); s.soft = null;
       s.copy = ctx.createGain(); s.copy.gain.value = 0; s.bus.connect(s.copy); s.copy.connect(gates.copy);
     });
   }
@@ -99,12 +100,26 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     return { item, el, src };
   }
   function close(x) { if (!x?.el) return; x.el.pause(); x.el.removeAttribute('src'); x.el.load(); try { x.src.disconnect(); } catch { /* gone */ } }
+  // a file marked `soften` passes the soften worklet between its level and where it goes (soften.mjs, the
+  // container's stage); any other file is wired as before, node for node. why: lessons/workers-cast.md#soften
+  function softenNode() {
+    return new AudioWorkletNode(ctx, 'cast-soften', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+      channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
+  }
+  function soften(level, to, on) {
+    level.disconnect();
+    const n = on && softenOk ? softenNode() : null;
+    if (n) { level.connect(n); n.connect(to); } else level.connect(to);
+    return n;
+  }
   function place(j, p) {
     const s = slots[j];
     close(s); s.item = s.el = s.src = null;
+    if (s.soft) { s.soft.disconnect(); s.soft = soften(s.level, graph.legs[j].input, false); }
     if (!p) return;
     Object.assign(s, p);
     s.level.gain.value = levelOf(p.item.gain);
+    if (p.item.soften) s.soft = soften(s.level, graph.legs[j].input, true);
     s.src.connect(s.bus);
     s.el.play().catch(() => { /* the error event says why */ });
     log(`slot ${'ab'[j]}: ${p.item.title}`);
@@ -178,19 +193,25 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
       const el = new Audio(); el.crossOrigin = 'anonymous'; el.preload = 'auto'; el.src = fileUrl(item);
       const src = ctx.createMediaElementSource(el), lv = ctx.createGain();
       lv.gain.value = levelOf(item.gain); src.connect(lv); lv.connect(ghostOut);
+      const soft = item.soften ? soften(lv, ghostOut, true) : null;
       el.addEventListener('loadedmetadata', () => { try { el.currentTime = Math.min(at, Math.max(0, (el.duration || at) - 15)); } catch { /* not seekable yet */ } }, { once: true });
       el.play().catch(() => { /* a press resumes it */ });
-      ghostP = { el, src, lv, item };
+      ghostP = { el, src, lv, soft, item };
     },
-    ghostStop() { if (!ghostP) return; ghostP.el.pause(); ghostP.el.removeAttribute('src'); ghostP.el.load(); try { ghostP.src.disconnect(); ghostP.lv.disconnect(); } catch { /* gone */ } ghostP = null; },
+    ghostStop() { if (!ghostP) return; ghostP.el.pause(); ghostP.el.removeAttribute('src'); ghostP.el.load(); try { ghostP.src.disconnect(); ghostP.lv.disconnect(); ghostP.soft?.disconnect(); } catch { /* gone */ } ghostP = null; },
     get ghosting() { return ghostP?.item ?? null; },
     nodes: () => ({ master, tuner: graph?.out, grains: eng?.out ?? null, gates }),
     get playing() { return playing; },
-    /** Plays `queue` (`{ id, title, gain }`, gain in dB from the feed) with the station's stored sound; resolves when the first file can play. */
+    /** Plays `queue` (`{ id, title, gain, soften }`, gain in dB and soften from the feed) with the station's stored sound; resolves when the first file can play. */
     async start({ queue = [], mode: md, set = {}, patch } = {}) {
       if (playing) api.stop();
       if (!ctx) build();
       await ctx.resume().catch(() => { /* a press resumes it */ });
+      softenReady ||= ctx.audioWorklet
+        ? ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([SOFTEN_WORKLET], { type: 'text/javascript' })))
+          .then(() => (softenOk = true), (e) => { log(`the soften stage did not load: ${e?.message || e}`, 'warn'); return false; })
+        : Promise.resolve(false);
+      await softenReady;
       if (MODES.includes(md)) mode = md;
       for (const [n, v] of Object.entries(set || {})) { const c = clampSet(n, v); if (c !== null) ctl[n] = c; }
       if (patch) api.patch(patch);
@@ -250,7 +271,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
       return { playing, mode, ...ctl, tune: +tune.toFixed(4), phase, k: +k.toFixed(3), from, landings,
         noiseLevel: +(m.noise * ctl.noise).toFixed(3), at: ctx ? +now().toFixed(2) : 0,
         slots: slots.map((s, j) => ({ id: s.item?.id ?? null, title: s.item?.title ?? null,
-          gain: s.item ? +(20 * Math.log10(levelOf(s.item.gain))).toFixed(2) : 0, clear: +m.st[j].clear.toFixed(3),
+          gain: s.item ? +(20 * Math.log10(levelOf(s.item.gain))).toFixed(2) : 0, soften: !!s.soft, clear: +m.st[j].clear.toFixed(3),
           at: s.el ? +s.el.currentTime.toFixed(2) : 0, ended: !!s.el?.ended })),
         next: pending?.item?.title ?? peekNext()?.title ?? null,
         grains: { up: !!eng, patch: g.patch, mix: g.mix, values: { ...g.values }, heard: grains } };
