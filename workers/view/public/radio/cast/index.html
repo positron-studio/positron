@@ -574,7 +574,18 @@
     ctx.createMediaElementSource(audio).connect(an);
     an.connect(ctx.destination);
     audio.addEventListener('playing', () => { d.log(`listening to ${listenTarget}`); pb.refresh(); });
-    audio.addEventListener('error', () => { d.log(`${listenTarget} did not play: is it on air?`, 'warn'); stopListening(); });
+    // a station's stream ends when its source moves (a deploy hands it to a new container): while the station
+    // is still on air, the player comes back by itself instead of going quiet
+    const again = (why) => {
+      const t = listenTarget;
+      if (!t) return;
+      if (!status[t]?.playing || (player.retries = (player.retries || 0) + 1) > 30) { d.log(`${t} did not play: is it on air?`, 'warn'); stopListening(); return; }
+      d.log(`${t}: the stream ${why}, listening again`);
+      setTimeout(() => { if (listenTarget === t) { audio.src = listenUrl(t); audio.play().catch(() => { /* the error event comes again */ }); } }, 700);
+    };
+    audio.addEventListener('ended', () => again('ended'));
+    audio.addEventListener('error', () => again('broke'));
+    audio.addEventListener('playing', () => { if (player) player.retries = 0; });
     return { audio, ctx, an, buf: new Float32Array(an.fftSize) };
   }
   function readLevel() {
