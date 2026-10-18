@@ -129,6 +129,8 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   function prefetch() { if (!pending) { const it = take(); if (it) pending = open(it); } }
   function arrive(j) { if (!pending) prefetch(); if (pending) { place(j, pending); pending = null; } }
   const ended = (j) => !slots[j].el || slots[j].el.ended;
+  /** Seconds the file in slot j still has to play: its own duration, else the feed's, else unknown. */
+  const left = (j) => { const e = slots[j].el; if (!e) return Infinity; const d = Number.isFinite(e.duration) ? e.duration : slots[j].item?.seconds; return Number.isFinite(d) ? d - e.currentTime : Infinity; };
 
   // The container's clock (mixer.mjs createEngine), in this context's audio seconds.
   function clock() {
@@ -144,6 +146,12 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
       phase = 'held'; k = 0; tune = ctl.tune; return;
     }
     let t = now() - cycleFrom;
+    // a file shorter than its scene: the next is fetched and opened in time, and the blend ends with the file
+    // rather than starting from its silence. why: lessons/workers-cast.md#short-files
+    const early = left(from) - ctl.blend - 1;
+    if (t < ctl.dwell && early <= preroll + PREFETCH_S && !slots[to].item) prefetch();
+    if (t < ctl.dwell && early <= preroll && !slots[to].item) arrive(to);
+    if (t < ctl.dwell && early <= 0 && slots[to].item) { cycleFrom = now() - ctl.dwell; t = ctl.dwell; }
     if (t < ctl.dwell && slots[from].item && ended(from)) { cycleFrom = now() - ctl.dwell; t = ctl.dwell; }
     if (t >= ctl.dwell - preroll - PREFETCH_S && !slots[to].item) prefetch();
     if (t >= ctl.dwell - preroll && !slots[to].item) arrive(to);

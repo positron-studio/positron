@@ -59,6 +59,9 @@
   .vc-head .pos-bgroup { width: auto; min-width: auto; }
   .vc-head .pos-bgroup-row { min-width: auto; overflow-x: visible; }
   .vc-head > .pos-sec-h { margin: 0; }
+  .vc-url { font: 12px var(--mono); color: var(--dim); overflow-wrap: anywhere; }
+  .vc-url[hidden] { display: none; }
+  .vc-ctl > .pos-icobtn[hidden] { display: none; }
   /* the group's own display beats the UA [hidden] */
   .vc-head .pos-bgroup[hidden] { display: none; }
   /* a program or archive row: number or day, name, its buttons; the name gives way first */
@@ -67,6 +70,10 @@
   .vc-file .vc-day { color: var(--dim); font: 12px var(--mono); }
   .vc-arch { grid-template-columns: minmax(0, 1fr) auto auto; }
   .vc-file[data-on="1"] .vc-v { color: var(--hi); }
+  /* how far into a playing file: a 2 px bar along the row's foot, out of the grid's flow */
+  .vc-file { position: relative; }
+  .vc-prog { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: var(--hi); pointer-events: none; }
+  .vc-prog[data-second="1"] { opacity: .45; }
   .vc-list { width: 100%; }
 </style>
 <script type="module">
@@ -80,13 +87,16 @@
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createIconButton } from '/shell/icon-button.mjs';
+  import { createWaveShape } from '/shell/synth-view.mjs';
+  import { scopeWindow } from '/shell/rt-scope.mjs';
   import { createToggle } from '/shell/toggle.mjs';
   import { createField } from '/shell/field.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
   import { createPresence } from '/shell/presence.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES, fromT, tasteOf, fileWeight } from '/radio/cast/life.mjs';
+  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE } from '/radio/cast/life.mjs';
   import { createLayerEngine, euclid, stepSeconds } from '/radio/cast/layers.mjs';
   useMediumColours();
 
@@ -202,10 +212,10 @@
   let items = [];
   const progs = {}, progTouched = {};
   const progOf = (t) => progs[t] || [];
-  // an empty program starts as five archive files at random, kept as the program so each can be taken out
-  const PICK = 5;
+  // an empty program starts as the whole archive in a random order, kept as the program so each can be taken out
+  const PICK = Infinity; // the whole archive, in an order the file votes lean
   let shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  // five picked on load for local and an idle preview; shown, and sent only with START
+  // the archive picked on load for local and an idle preview; shown, and sent only with START
   const picked = {};
   function pickOnLoad() {
     for (const t of [LOCAL, 'preview']) if (!progOf(t).length && !(t === LOCAL ? localOn() : status[t]?.playing)) { startIds(t); picked[t] = true; }
@@ -294,29 +304,24 @@
   const nameBox = el('span', 'vc-ctl'); nameBox.append(dName, dCast.el, dLocal.el);
   // play on the station's own head; next on the program it steps through
   const castBtns = createButtonGroup({ buttons: [
-    { id: 'cast', icon: 'play', label: 'start the cast', onPress: () => cast(target) },
+    { id: 'cast', label: 'start stream', onPress: () => cast(target) },
   ] });
   const nextBtns = createButtonGroup({ buttons: [
     { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send(target, { cmd: 'next' }) },
   ] });
-  const listenBtn = createButtonGroup({ buttons: [
-    { id: 'listen', icon: 'headphones', label: 'listen', onPress: () => (listening() && listenTarget === target ? stopListening() : startListening(target)) },
-  ] });
+  // listening is a lit headphones toggle, so the only square on the head is the stream's stop
+  const listenBtn = createIconButton({ icon: 'headphones', label: 'listen', pressed: false,
+    onPress: () => (listening() && listenTarget === target ? stopListening() : startListening(target)) });
+  const listenLink = el('a', 'vc-url'); listenLink.target = '_blank'; listenLink.rel = 'noopener';
   const inApp = el('span', 'vc-dim', 'in the Väin app');
-  const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, inApp);
+  const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, listenLink, inApp);
   head.append(nameBox, headCtl);
   const note = el('span', 'vc-note');
   const k = (w) => el('span', 'vc-k', w);
   const playing = createGlueRows({ grid: true, align: 'start', full: true });
-  // every start stops itself at `until` (2 h on); EXTEND moves it to now + the choice
-  const hhmm = (t) => (Number.isFinite(t) ? new Date(t).toTimeString().slice(0, 5) : '');
-  const stopsAt = el('span', 'vc-v');
-  const EXTEND = [['1 h', 3600_000], ['4 h', 4 * 3600_000], ['12 h', 12 * 3600_000]];
-  const extendBtns = createButtonGroup({ label: 'extend', buttons: EXTEND.map(([w, ms]) => ({ id: w, label: w, title: `stop ${w} from now`, onPress: () => send(target, { cmd: 'extend', ms }) })) });
-  const stopsRow = playing.row([k('stops'), (() => { const b = el('span', 'vc-ctl'); b.append(stopsAt, extendBtns.el); return b; })()]);
-  stopsRow.hidden = true;
+  // the server still stops a station 2 h after its start; the page no longer shows or extends it
   const noteRow = playing.row([note]); noteRow.hidden = true;
-  const say = (w) => { note.textContent = w; noteRow.hidden = !w; playing.el.hidden = stopsRow.hidden && noteRow.hidden; };
+  const say = (w) => { note.textContent = w; noteRow.hidden = !w; playing.el.hidden = noteRow.hidden; };
 
   // SOUND: the live scene; on local from its own life, on a station from the status it pushes (status.life).
   // copy, mix and grains are archived (archive/demos/radio-cast-modes-index.html).
@@ -351,8 +356,23 @@
   }
 
   // PROGRAM: the station's queue, in order, each with up and remove
-  const progHost = el('div', 'vc-list'), progEmpty = el('span', 'vc-dim', 'empty: start picks five at random');
+  const progHost = el('div', 'vc-list'), progEmpty = el('span', 'vc-dim', 'empty: start plays the whole archive in a random order');
   let progKey = '', progRows = [];
+  /** Where each playing file is, by id: seconds in, and whether it is the one on air or the one blending in. */
+  function positions(t) {
+    const out = new Map();
+    if (t === LOCAL) {
+      if (!localOn()) return out;
+      const st = local.status();
+      st.slots.forEach((x, j) => { if (x.id != null) out.set(String(x.id), { s: x.at, main: j === st.from }); });
+      return out;
+    }
+    const st = status[t];
+    if (!st?.playing) return out;
+    for (const x of st.mix?.slots || []) if (x.id != null && Number.isFinite(x.at)) out.set(String(x.id), { s: x.at, main: false });
+    if (st.now?.id != null && Number.isFinite(st.now.at)) out.set(String(st.now.id), { s: st.now.at, main: true });
+    return out;
+  }
   function showProgram() {
     const ids = progOf(target), keyNow = `${target}|${ids.join()}`;
     progEmpty.hidden = !!ids.length;
@@ -367,13 +387,18 @@
         if (i === 0) b.button('up').disabled = true;
         const name = el('span', 'vc-v', titleOf(id) || String(id)); name.title = name.textContent;
         const r = list.row([el('span', 'vc-n', String(i + 1)), name, el('span', 'vc-day', ''), b.el], { cls: 'vc-file' });
-        return { id, r, b };
+        const bar = el('span', 'vc-prog'); r.append(bar);
+        return { id, r, b, bar };
       });
       progHost.replaceChildren(...(ids.length ? [list.el] : []));
     }
     const cur = target === LOCAL ? (localOn() ? local.status().slots[local.status().from]?.id : null) : status[target]?.now?.id;
+    const pos = positions(target);
     for (const p of progRows) {
       p.r.dataset.on = String(p.id) === String(cur) ? '1' : '';
+      const at = pos.get(String(p.id)), len = items.find((x) => String(x.id) === String(p.id))?.seconds;
+      p.bar.style.width = at && len ? `${Math.min(100, (100 * at.s) / len).toFixed(2)}%` : '0';
+      if (at && !at.main) p.bar.dataset.second = '1'; else delete p.bar.dataset.second;
       const b = p.b.button('rm');
       if (leaving?.t === target && String(p.id) === String(leaving.id)) b.dataset.busy = '1'; else delete b.dataset.busy;
     }
@@ -427,7 +452,6 @@
     badges[t].set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
     badges[t].busy(them ? 'page' : null);
     paintNow(t, them ? (live[t].title || '') : st.now?.title || '', '', them ? NaN : st.now?.at);
-    cards[t].stops.textContent = st.playing ? `stops ${hhmm(st.until)}` : '';
   }
   function paintDetail() {
     const t = target, st = status[t] || {}, them = theirs(t), here = t === LOCAL;
@@ -436,11 +460,15 @@
     dBadge = here ? dLocal : dCast; dLocal.el.hidden = !here; dCast.el.hidden = here;
     dBadge.set(here ? (on ? 'online' : 'offline') : st.onAir || them ? 'online' : st.playing ? 'coming' : status[t] ? 'offline' : 'unknown');
     dBadge.busy(them ? 'page' : null);
-    stopsAt.textContent = !here && st.playing ? hhmm(st.until) : ''; stopsRow.hidden = here || !st.playing;
-    playing.el.hidden = stopsRow.hidden && noteRow.hidden;
-    castBtns.setIcon('cast', on ? 'stop' : 'play', here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the cast on ${t}` : `start the cast on ${t}`);
+    playing.el.hidden = noteRow.hidden;
+    const cb = castBtns.button('cast');
+    cb.textContent = here ? (on ? 'stop here' : 'play here') : on ? 'stop stream' : 'start stream';
+    cb.title = here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the stream on ${t}` : `start the stream on ${t}`;
     listenBtn.el.hidden = !listenUrl(t); inApp.hidden = here || !!listenUrl(t);
-    listenBtn.setIcon('listen', listening() && listenTarget === t ? 'stop' : 'headphones', listening() && listenTarget === t ? `stop listening to ${t}` : `listen to ${t}`);
+    const lon = listening() && listenTarget === t;
+    listenBtn.pressed(lon); listenBtn.set('headphones', lon ? `stop listening to ${t}` : `listen to ${t}`);
+    const lu = listenUrl(t);
+    listenLink.hidden = !lu; if (lu) { listenLink.href = lu; listenLink.textContent = lu.replace(/^https:\/\//, ''); }
     const refused = (st.lines || []).at(-1)?.includes('refused: ') ? st.lines.at(-1).split('refused: ')[1] : '';
     if (refused) say(refused);
     else if (!them && note.textContent === 'Väin is streaming here') say('');
@@ -530,6 +558,7 @@
     const rms = Math.sqrt(sum / player.buf.length);
     show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     show('heard', Math.floor(player.audio.currentTime));
+    scopeShow(player.buf, listenTarget);
   }
   function startListening(t) {
     const url = listenUrl(t);
@@ -552,8 +581,13 @@
     if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); }
     listenTarget = null;
     show('listening', ''); show('level', ''); show('heard', '');
-    paintDetail(); pb.refresh();
+    scopeOff(); paintDetail(); pb.refresh();
   }
+  // the scope under the station head: what is heard, local's output or the stream being listened to
+  const scope = createWaveShape({ reason: null, colour: '--hi', height: 96, name: '' });
+  scope.el.hidden = true;
+  const scopeShow = (buf, name) => { scope.el.hidden = false; scope.set({ points: scopeWindow(buf), reason: '', name }); };
+  const scopeOff = () => { scope.set({ points: null, reason: null, name: '' }); scope.el.hidden = true; };
   // ── the local station: its sound controls as they stand, on its program, heard here at once ──
   const localFile = (it) => `${BASE}/file/${encodeURIComponent(it.id)}`;
   let makeLocal = () => createLocal({ fileUrl: localFile, log: (m, kind) => d.log(`local: ${m}`, kind) });
@@ -561,7 +595,7 @@
   const localQueue = () => {
     const ids = startIds(LOCAL), held = localOn() ? local.status().slots.map((x) => x.id) : [];
     const last = Math.max(-1, ...held.map((h) => ids.findIndex((x) => String(x) === String(h))));
-    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => { const it = items.find((x) => String(x.id) === String(id)); return { id, title: titleOf(id), gain: it?.gain, soften: !!it?.soften }; });
+    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => { const it = items.find((x) => String(x.id) === String(id)); return { id, title: titleOf(id), gain: it?.gain, soften: !!it?.soften, seconds: it?.seconds }; });
   };
   async function startLocal() {
     if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
@@ -573,7 +607,7 @@
     const q = localQueue();
     life = createLife({ seed: lifeSeed(), votes });
     const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(q[0]?.id))?.kind });
-    await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: s0.iNoise }, patch: { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } } });
+    await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE }, patch: { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } } });
     if (!localOn()) return;
     startLife(true);
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
@@ -581,7 +615,7 @@
   }
   function stopLocal() {
     if (!localFor) return;
-    stopLife(); local?.stop(); localFor = null; landed();
+    stopLife(); local?.stop(); localFor = null; landed(); scopeOff();
     clearInterval(levelTimer);
     show('listening', ''); show('level', ''); show('heard', '');
     paintRow(LOCAL); paintDetail(); pb.refresh();
@@ -603,7 +637,7 @@
       instDef.set(L.inst, { def: life.defOf(life.scene(L.si, { kind })), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
-      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
+      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', DWELL_NOISE);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: s.layers.bpm && s.layers.pulseOn === 'grains' ? 1 : 0 } }); L.patch = s.patch;
       layersFor(s);
@@ -611,7 +645,7 @@
       paintScene();
     }
     ghostTick(t); onsetTick(); layerTick(st, t);
-    if (st.phase === 'blend' && L.phase !== 'blend') L.blendAt = t;
+    if (st.phase === 'blend' && L.phase !== 'blend') { L.blendAt = t; local.set('noise', life.scene(L.si).iNoise); }
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch({ name: v.patch, set: { mix: 0 } }); }
@@ -833,6 +867,7 @@
     const rms = Math.sqrt(sum / localBuf.length), st = local.status();
     show('level', rms > 1e-5 ? (20 * Math.log10(rms)).toFixed(1) : '');
     show('heard', Math.floor(st.slots[st.from]?.at ?? 0));
+    scopeShow(localBuf, LOCAL);
   }
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
@@ -842,7 +877,7 @@
   const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
   const soundSec = sec('sound', sound.el);
   // the scene box is not on the page: its painters, the votes, the station step and the Votes store are kept for later
-  detail.append(sec('', head, playing.el), sec('', progHead, progEmpty, progHost));
+  detail.append(sec('', head, scope.el, playing.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
@@ -868,8 +903,8 @@
     d.assert('seven stations as one row of cards, local first, open and marked by default',
       order() === STATIONS.join() && STATIONS[0] === LOCAL && target === LOCAL && dName.textContent === LOCAL
       && isOn(LOCAL) && STATIONS.filter(isOn).length === 1, order());
-    d.assert('on load local and an idle preview each show five archive files, picked here and sent nowhere',
-      [LOCAL, 'preview'].every((t) => progOf(t).length === Math.min(5, items.length) && new Set(progOf(t)).size === progOf(t).length) && !progOf('user1').length,
+    d.assert('on load local and an idle preview each show the whole archive in some order, picked here and sent nowhere',
+      [LOCAL, 'preview'].every((t) => progOf(t).length === items.length && new Set(progOf(t)).size === items.length) && !progOf('user1').length,
       JSON.stringify({ local: progOf(LOCAL).length, preview: progOf('preview').length }));
     d.assert('a visit opens no control socket, no player, no prelisten and no local sound, and asks no audio URL or file',
       !Object.keys(sockets).length && !Object.keys(opening).some((t) => opening[t]) && !player && !pre && !local && !audioReqs().length, audioReqs().join(' '));
@@ -894,7 +929,7 @@
     rowOf(LOCAL).click();
     d.assert('radio1965 is heard through shout, never from their server; user1 has no player and says where it is heard; local has neither',
       listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1')
-      && user1 && gone(listenBtn.el) && gone(inApp) && stopsRow.hidden);
+      && user1 && gone(listenBtn.el) && gone(inApp));
     d.assert('local\'s chain: archive through the file pass to this browser, and no caster link at all',
       linked('cf-cast:files:audio-out', 'web:local:audio-in') && !bay.links().some((l) => l.from.startsWith('cf-cast:caster') || l.to.startsWith('cf-cast:caster')));
     rowOf('preview').click();
@@ -915,7 +950,7 @@
       const am = sent.at(-1);
       d.assert('+ adds to the open station\'s program, and off air it is sent as program, in order',
         am?.[0] === 'user3' && am[1].cmd === 'program' && am[1].ids.join() === [items[2].id, items[0].id].join()
-        && progRows.length === 2 && progRows[0].id === items[2].id && progOf('preview').length === Math.min(5, items.length), JSON.stringify(am));
+        && progRows.length === 2 && progRows[0].id === items[2].id && progOf('preview').length === items.length, JSON.stringify(am));
       progRows[1].b.button('up').click(); await tick();
       const um = sent.at(-1);
       progRows[0].b.button('rm').click(); await tick();
@@ -957,19 +992,19 @@
       d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving, the scene announced in the log (its box hidden)',
         localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'grains' && st0.set.drift === 1
         && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === S0.patch && localFile(items[0]) === `${BASE}/file/${items[0].id}`
-        && castBtns.button('cast').title === 'stop playing here' && word(LOCAL) === 'here' && seen0.shown
+        && castBtns.button('cast').textContent === 'stop here' && word(LOCAL) === 'here' && seen0.shown
         && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set) && seen0.moving.startsWith(`${S0.param} `),
         JSON.stringify({ st0: st0 && { mode: st0.mode, set: st0.set, patch: st0.patch?.name }, S0: [S0.patch, S0.param, S0.dwell], seen0, word: word(LOCAL) }));
       d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
         calls.length > 0 && !sent.length && !Object.keys(sockets).some((t) => t === LOCAL), sent.map(([t, m]) => `${t} ${m.cmd}`).join());
       calls.length = 0; needle = { ...needle, phase: 'blend' }; await tick(400);
-      d.assert('in the blend the interlude moves another control, and the local card shows both files and the time',
-        has(([c, p]) => c === 'patch' && p.set && S0.iParam in p.set) && !has(([c, p]) => c === 'patch' && p.name)
+      d.assert('in the blend the interlude moves another control and brings its own noise, and the local card shows both files and the time',
+        has(([c, p]) => c === 'patch' && p.set && S0.iParam in p.set) && has(([c, n, v]) => c === 'set' && n === 'noise' && v === S0.iNoise) && !has(([c, p]) => c === 'patch' && p.name)
         && (S0.iFreeze ? has(([c, p]) => c === 'patch' && p.set?.freeze > 0) : !has(([c, p]) => c === 'patch' && 'freeze' in (p.set || {})))
         && cards[LOCAL].now2.textContent === 'file B' && !cards[LOCAL].now2.hidden && nowOf(LOCAL) === 'file A' && cards[LOCAL].at.textContent === '0:03' && lMove.textContent.endsWith('interlude'), JSON.stringify({ now: nowOf(LOCAL), now2: cards[LOCAL].now2.textContent, at: cards[LOCAL].at.textContent, m: lMove.textContent }));
       calls.length = 0; needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
-      d.assert('the next landing is scene 1: its own dwell, blend and patch, and one file on the card again',
-        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, n, v]) => c === 'set' && n === 'noise' && v === S1.iNoise) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
+      d.assert('the next landing is scene 1: its own dwell, blend and patch, the noise back down for the scene, and one file on the card again',
+        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, n, v]) => c === 'set' && n === 'noise' && v === DWELL_NOISE) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
         && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && cards[LOCAL].now2.hidden
         && Object.keys(S1.tweak).length === 2 && has(([c, p]) => c === 'patch' && p.name === S1.patch && Object.keys(S1.tweak).every((n) => n in p.set)) && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
       // stepping: next and previous ask for a scene and start the transition; the press sweeps until it lands
@@ -1037,19 +1072,19 @@
         stopLocal(); rowOf(LOCAL).click(); delete progs[LOCAL];
         const realShuffle = shuffle; shuffle = (a) => a;
         calls.length = 0; castBtns.button('cast').click(); await tick(300);
-        const q0 = calls.find(([c]) => c === 'start')?.[1].queue.map((x) => x.id) || [], five = items.slice(0, 5).map((x) => x.id);
-        d.assert('START with an empty program picks five archive files and shows them as the program',
-          q0.join() === five.join() && progOf(LOCAL).join() === five.join() && progRows.length === 5 && progEmpty.hidden, JSON.stringify(q0));
+        const q0 = calls.find(([c]) => c === 'start')?.[1].queue.map((x) => x.id) || [], five = items.slice(0, 5).map((x) => x.id), all = items.map((x) => x.id);
+        d.assert('START with an empty program takes the whole archive and shows it as the program',
+          q0.join() === all.join() && progOf(LOCAL).join() === all.join() && progRows.length === items.length && progEmpty.hidden, JSON.stringify(q0));
         needle = { tune: 0.46, drift: 1, phase: 'blend', landings: 0, from: 0, slots: [{ id: five[0], at: 30, title: 'a' }, { id: five[1], at: 0, title: 'b' }] };
         calls.length = 0; progRows[2].b.button('rm').click(); await tick();
         const quiet = !calls.some(([c]) => c === 'next');
         calls.length = 0; progRows[0].b.button('rm').click(); await tick(300);
-        const sweeping = progRows[0].b.button('rm').dataset.busy === '1' && progOf(LOCAL).length === 4 && !calls.some(([c]) => c === 'queue');
+        const sweeping = progRows[0].b.button('rm').dataset.busy === '1' && progOf(LOCAL).length === items.length - 1 && !calls.some(([c]) => c === 'queue');
         const ni = calls.findIndex(([c]) => c === 'next');
         needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
         const qi = calls.findIndex(([c]) => c === 'queue'), q = calls[qi]?.[1].map((x) => x.id) || [];
         d.assert('the cross on the playing file starts the transition and sweeps until the next file lands, then the file leaves; the queue carries on after it',
-          sweeping && ni >= 0 && qi > ni && !q.includes(five[0]) && q[0] === five[3] && progOf(LOCAL).length === 3
+          sweeping && ni >= 0 && qi > ni && !q.includes(five[0]) && q[0] === five[3] && progOf(LOCAL).length === items.length - 2
           && !progRows.some((p) => p.b.button('rm').dataset.busy), JSON.stringify({ sweeping, ni, qi, q }));
         d.assert('NEGATIVE CONTROL: the cross on a file that is not playing does not move on', quiet);
         shuffle = realShuffle;
@@ -1066,19 +1101,12 @@
     // the three states, from a stubbed /live and a stubbed status
     const UNTIL = new Date(2026, 9, 17, 21, 7).getTime();
     take('preview', { target: 'preview', onAir: true, playing: true, until: UNTIL, now: { id: 'x', title: 'a file', at: 61 }, lines: [] });
-    d.assert('on air the open station shows when it stops, and its card shows the file, how far in, and the stop time',
-      !stopsRow.hidden && stopsAt.textContent === '21:07' && cards.preview.stops.textContent === 'stops 21:07'
-      && nowOf('preview') === 'a file' && cards.preview.at.textContent === '1:01', `${stopsAt.textContent} ${cards.preview.stops.textContent} ${cards.preview.at.textContent}`);
-    await tick(); const beforeX = sent.length;
-    extendBtns.button('4 h').click(); await tick();
-    const xm = sent.slice(beforeX);
-    d.assert('EXTEND 4 h sends extend to the open station with 4 hours in ms, and nothing else',
-      xm.length === 1 && xm[0][0] === 'preview' && xm[0][1].cmd === 'extend' && xm[0][1].ms === 4 * 3600_000, JSON.stringify(xm));
+    d.assert('on air the open station\'s card shows the file and how far in, and no stop time anywhere',
+      nowOf('preview') === 'a file' && cards.preview.at.textContent === '1:01' && !cards.preview.stops.textContent && !/stops|extend/i.test(detail.textContent),
+      `${cards.preview.at.textContent} ${cards.preview.stops.textContent}`);
     takeLive({ channels: { radio1965: { vain: true, title: 'Evening on radio1965' }, user1: { vain: false } } });
     take('user1', { target: 'user1', onAir: false, playing: false, lines: [] });
     await tick(300);
-    d.assert('NEGATIVE CONTROL: off air there is no stop time and no EXTEND, in the row or the detail',
-      cards.user1.stops.textContent === '' && (() => { rowOf('user1').click(); const off = stopsRow.hidden && !stopsAt.textContent; rowOf('preview').click(); return off; })());
     const state = (t) => [badges[t].el.dataset.state, badges[t].el.dataset.busy || ''].join(' ');
     d.assert('three states in words: positron on preview, Väin on radio1965 with their title, off on user1',
       word('preview') === 'positron' && word('radio1965') === 'Väin' && word('user1') === 'off'
