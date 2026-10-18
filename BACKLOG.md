@@ -1,5 +1,6 @@
 ## Open
 
+- **/radio/cast/: naked speech** (2026-10-18). Asked: *"backlock. long text sentences naked nonprocesses speech only"*. A kind of scene where long spoken passages play as they are: no granulator, no layers, no tuner colour; speech files only.
 - **/radio/cast/: transitions without the wind noise; alternatives and variations** (2026-10-18). Asked: *"channel changig still too winds noise, cartoonish. think sometjing else, alternatives, varaiatons"*. Every interlude still passes through the tuner's noise sweep; propose other kinds of hand-over.
 - **/radio/cast/: the ghosts are a bit lame** (2026-10-18). Asked: *"ghsot voices a bit lame"* about a scene with ghosts through resonators. Make a visit more of an event: louder, longer, transformed (slowed or shifted, stretched, wide, into a big room), not a faint band-pass.
 - **/radio/cast/: the scene footer in sans, equal padding** (2026-10-18). Asked: *"equal padding. sans serif"* with a screenshot of the footer text.
