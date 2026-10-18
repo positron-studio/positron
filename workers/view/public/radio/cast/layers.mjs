@@ -147,8 +147,8 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
       if (!L) { for (const n of Object.keys(PROGRAMS)) set(n, { amp: 0 }); return; }
       const dz = droneHz(key, L.droneOct ?? -1), ch = chordHz(key, L.res === 'none' ? 'fifths' : L.res, { octaves: 3, from: 1 }), rt = harmRatios(L.harm, L.harmSpread);
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
-      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.5 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
-      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
+      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.8 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
+      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 8 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
       set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
       set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
