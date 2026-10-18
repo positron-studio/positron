@@ -560,6 +560,8 @@ button.pos-pri[data-busy="1"] {
    gap 0: seams are between rows only. */
 /* why: lessons/css-shell.md#pos-rows-pos-rows-grid */
 .pos-rows.pos-rows-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 0; }
+/* its display beats the UA [hidden]; (0,3,0) so a hidden grid of rows draws nothing */
+.pos-rows.pos-rows-grid[hidden] { display: none; }
 .pos-rows-grid > .pos-rows-r { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; justify-items: start; }
 .pos-rows-grid > .pos-rows-r > :only-child { grid-column: 1 / -1; }
 .pos-rows-grid > .pos-rows-r[hidden] { display: none; }
