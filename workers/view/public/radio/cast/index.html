@@ -24,7 +24,10 @@
   /* the stations: one row of cards that scrolls sideways, the open one lit */
   /* the 2 px pad keeps a focus ring inside the scroller, which clips */
   .vc-cards { display: flex; gap: 10px; overflow-x: auto; min-width: 0; padding: 2px; margin: -2px; }
-  .vc-cards > .pos-card { flex: 0 0 150px; cursor: pointer; }
+  /* one size, taller than wide, so a wrapped title or a blend's second file never moves the row */
+  .vc-cards > .pos-card { flex: 0 0 150px; height: 196px; min-height: 0 !important; cursor: pointer; overflow: hidden; }
+  .vc-cards .pos-card-d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; flex: none; }
+  .vc-cards .pos-card-d.vc-now2 { -webkit-line-clamp: 2; }
   .vc-cards > .pos-card:hover { background: var(--card2); border-color: var(--line2); }
   .vc-cards > .pos-card[aria-pressed="true"] { border-color: var(--hi); }
   .vc-cards > .pos-card[aria-pressed="true"] .pos-card-t { color: var(--hi); }
@@ -58,6 +61,7 @@
   /* a head row keeps its buttons at their own size on a phone, as a video panel slot does */
   .vc-head .pos-bgroup { width: auto; min-width: auto; }
   .vc-head .pos-bgroup-row { min-width: auto; overflow-x: visible; }
+  .vc-head > .pos-sec-h { margin: 0; }
   /* the group's own display beats the UA [hidden] */
   .vc-head .pos-bgroup[hidden] { display: none; }
   /* a program or archive row: number or day, name, its buttons; the name gives way first */
@@ -90,7 +94,7 @@
   import { PATCHES, valuesOf } from '/granulator/grain-ring.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES, fromT } from '/radio/cast/life.mjs';
+  import { createLife, VOTES, fromT, tasteOf, fileWeight } from '/radio/cast/life.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -208,7 +212,11 @@
   let shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   function startIds(t) {
     if (!progOf(t).length && items.length) {
-      progs[t] = shuffle(items.map((x) => x.id)).slice(0, PICK); progTouched[t] = Date.now();
+      // weighted by what the votes said about each file, so a file voted down comes up less, and at -6 not at all
+      const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+      progs[t] = (pool.every((x) => x.w === 1) ? shuffle(pool) : pool.map((x) => ({ ...x, k: Math.random() ** (1 / x.w) })).sort((a, b) => b.k - a.k))
+        .map((x) => x.id).slice(0, PICK);
+      progTouched[t] = Date.now();
       if (t === target) showProgram();
     }
     return progOf(t).slice();
@@ -283,8 +291,11 @@
   const dName = el('span', 'vc-name', target), dCast = presence('the open station'), dLocal = presence(LOCAL);
   let dBadge = dCast;
   const nameBox = el('span', 'vc-ctl'); nameBox.append(dName, dCast.el, dLocal.el);
+  // play on the station's own head; next on the program it steps through
   const castBtns = createButtonGroup({ buttons: [
     { id: 'cast', icon: 'play', label: 'start the cast', onPress: () => cast(target) },
+  ] });
+  const nextBtns = createButtonGroup({ buttons: [
     { id: 'next', icon: 'skip-forward', label: 'next file', onPress: () => send(target, { cmd: 'next' }) },
   ] });
   const listenBtn = createButtonGroup({ buttons: [
@@ -618,7 +629,7 @@
   const localQueue = () => {
     const ids = startIds(LOCAL), held = localOn() ? local.status().slots.map((x) => x.id) : [];
     const last = Math.max(-1, ...held.map((h) => ids.findIndex((x) => String(x) === String(h))));
-    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => ({ id, title: titleOf(id) }));
+    return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => ({ id, title: titleOf(id), gain: items.find((x) => String(x.id) === String(id))?.gain }));
   };
   function localSound() {
     const w = status[LOCAL]?.wanted || {};
@@ -633,7 +644,7 @@
     localFor = LOCAL;
     d.set('listening', LOCAL);
     const sound = localSound(), isLive = MODES[mixUi.mode.get()] === 'live';
-    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
+    if (isLive) { life = createLife({ seed: lifeSeed(), votes }); const s0 = life.scene(0, { kind: items.find((x) => String(x.id) === String(sound.queue?.[0]?.id ?? localQueue()[0]?.id))?.kind }); Object.assign(sound.set, { drift: 1, dwell: s0.dwell, blend: s0.blend }); sound.patch = { name: s0.patch, set: { mix: 0, ...tweaksOf(s0) } }; }
     await local.start({ queue: localQueue(), ...sound });
     if (!localOn()) return;
     if (isLive) startLife(true);
@@ -659,10 +670,11 @@
       L.si = L.land === -1 ? 0 : L.want ?? L.si + 1; L.want = null;
       L.land = st.landings; L.sceneAt = t; L.inst = `${Date.now().toString(36)}-${L.si}`;
       L.file = st.slots[st.from]?.title || '';
+      const kind = items.find((x) => x.title === L.file)?.kind;
       instDef.set(L.inst, { def: life.defOf(life.scene(L.si)), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
-      const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
+      const s = life.scene(L.si, { kind }); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s) } }); L.patch = s.patch;
       paintScene();
@@ -766,7 +778,9 @@
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
   const stations = sec('stations', cardRow);
   const detail = el('div', 'vc-detail');
-  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('program', progEmpty, progHost));
+  // next sits on the program's heading: it steps through the program
+  const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
+  detail.append(sec('', head, playing.el), sec('sound', sound.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
@@ -903,7 +917,7 @@
       const heardAt = calls.find(([c, n]) => c === 'set' && n === 'tune')?.[2];
       mixUi.mode.buttons[2].click();
       mixUi.gdensity.set(12);
-      castBtns.button('next').click();
+      nextBtns.button('next').click();
       await tick(300);
       d.assert('on local a control move is heard at once, next skips, and the sound is kept on the page',
         heardAt === 0.5 && calls.some(([c, p]) => c === 'patch' && p.set?.density === 12) && calls.some(([c, v]) => c === 'mode' && v === 'grains') && calls.some(([c]) => c === 'next')

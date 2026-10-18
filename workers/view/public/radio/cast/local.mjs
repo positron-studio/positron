@@ -16,6 +16,14 @@ export const MODES = ['copy', 'mix', 'grains'];
 // The cast's whistle is WHISTLE_SOFT, and the needle crosses a blend by handTurn. why: lessons/workers-cast.md#whistle
 export const WHISTLE = true;
 const PREFETCH_S = 6;
+// Each file is levelled to one loudness before the tuner by its feed item's `gain`, as the container does.
+// why: lessons/workers-cast.md#level
+export const GAIN_DB = [-14, 12];
+/** The linear factor for an item's `gain`; 1 when it has none. */
+export function levelOf(gain) {
+  const x = Number(gain);
+  return gain == null || !Number.isFinite(x) ? 1 : 10 ** (Math.min(GAIN_DB[1], Math.max(GAIN_DB[0], x)) / 20);
+}
 
 /** One mix control clamped as the container clamps it, or null. */
 export function clampSet(name, v) {
@@ -66,8 +74,12 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     graph.out.connect(gates.mix);
     toGrains = ctx.createGain(); graph.out.connect(toGrains);
     noise = ctx.createBufferSource(); noise.buffer = pinkNoise(ctx); noise.loop = true; noise.connect(graph.noiseIn); noise.start();
-    // each slot: what it plays reaches its tuner leg, and in copy mode the master straight
-    slots.forEach((s, j) => { s.bus = ctx.createGain(); s.bus.connect(graph.legs[j].input); s.copy = ctx.createGain(); s.copy.gain.value = 0; s.bus.connect(s.copy); s.copy.connect(gates.copy); });
+    // each slot: what it plays reaches its tuner leg through its level, and in copy mode the master straight, unlevelled
+    // as the container's frame copier is
+    slots.forEach((s, j) => {
+      s.bus = ctx.createGain(); s.level = ctx.createGain(); s.bus.connect(s.level); s.level.connect(graph.legs[j].input);
+      s.copy = ctx.createGain(); s.copy.gain.value = 0; s.bus.connect(s.copy); s.copy.connect(gates.copy);
+    });
   }
 
   function open(item) {
@@ -84,6 +96,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     close(s); s.item = s.el = s.src = null;
     if (!p) return;
     Object.assign(s, p);
+    s.level.gain.value = levelOf(p.item.gain);
     s.src.connect(s.bus);
     s.el.play().catch(() => { /* the error event says why */ });
     log(`slot ${'ab'[j]}: ${p.item.title}`);
@@ -149,7 +162,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     get analyser() { return analyser; },
     nodes: () => ({ master, tuner: graph?.out, grains: eng?.out ?? null, gates }),
     get playing() { return playing; },
-    /** Plays `queue` (`{ id, title }`) with the station's stored sound; resolves when the first file can play. */
+    /** Plays `queue` (`{ id, title, gain }`, gain in dB from the feed) with the station's stored sound; resolves when the first file can play. */
     async start({ queue = [], mode: md, set = {}, patch } = {}) {
       if (playing) api.stop();
       if (!ctx) build();
@@ -211,7 +224,8 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     status() {
       return { playing, mode, ...ctl, tune: +tune.toFixed(4), phase, k: +k.toFixed(3), from, landings,
         noiseLevel: +(m.noise * ctl.noise).toFixed(3), at: ctx ? +now().toFixed(2) : 0,
-        slots: slots.map((s, j) => ({ id: s.item?.id ?? null, title: s.item?.title ?? null, clear: +m.st[j].clear.toFixed(3),
+        slots: slots.map((s, j) => ({ id: s.item?.id ?? null, title: s.item?.title ?? null,
+          gain: s.item ? +(20 * Math.log10(levelOf(s.item.gain))).toFixed(2) : 0, clear: +m.st[j].clear.toFixed(3),
           at: s.el ? +s.el.currentTime.toFixed(2) : 0, ended: !!s.el?.ended })),
         next: pending?.item?.title ?? peekNext()?.title ?? null,
         grains: { up: !!eng, patch: g.patch, mix: g.mix, values: { ...g.values }, heard: grains } };

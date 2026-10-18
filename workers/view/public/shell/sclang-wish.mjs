@@ -55,8 +55,8 @@ export function sclangContract() {
     `  .range and .exprange map a UGen onto lo to hi. x ! n or x.dup(n) is n copies, n from 1 to ${MAX_DUP}.`,
     'Operators: + - * / % only, read LEFT TO RIGHT WITH NO PRECEDENCE: a + b * c is (a + b) * c, so write a + (b * c).',
     'An array like [1, 1.01] makes one copy per item (two channels). No arrays of arrays.',
-    'Not in the subset: strings, ~variables, #[ ], functions inside the function, if, Pluck, Klank, Splay, FreeVerb,',
-    `MoogFF, LFNoise2, Env.asr, and any UGen not listed above. Keep it under ${SCLANG_MAX} characters.`,
+    'Not in the subset: strings, ~variables, #[ ], functions inside the function, if, Pluck, Klank, Splay, GVerb,',
+    `MoogFF, Env.asr, and any UGen not listed above. Keep it under ${SCLANG_MAX} characters.`,
   ].join('\n');
 }
 
