@@ -121,7 +121,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   }
   function layerTick(st, t) {
     const s = life.scene(L.si), since = t - L.sceneAt;
-    L.level = st.phase === 'blend' ? 0 : layerLevel(since / s.dwell, s.dry) * (0.6 + 0.4 * (s.intensity ?? 1));
+    L.level = st.phase === 'blend' ? (L.now?.bridge?.level ?? 0) : layerLevel(since / s.dwell, s.dry, s.rise, s.hold) * (0.6 + 0.4 * (s.intensity ?? 1));
     layers?.level(L.level);
     if (L.keyDone) return;
     if (since >= KEY_FROM[0] && since < KEY_FROM[1]) chroma.add(last(CHROMA_N));
@@ -135,7 +135,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   function ghostTick(t) {
     if (ghost.stopAt && !ghost.until && t >= ghost.stopAt) closeGhost();
     const Ly = layers?.layers;
-    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry) < 0.5)) return;
+    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry, life.scene(L.si).rise, life.scene(L.si).hold) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 2.5; ghost.next = t + ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
     else if (!ghost.until && t >= ghost.next) {
       const nx = e.nextItem, who = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
@@ -175,7 +175,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         const s = life.scene(L.si, { kind: L.item?.kind || undefined });
         e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE); e.set('path', s.iPath ?? 0);
         // a frozen patch stays open until the scene's dry share is over
-        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch;
+        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
         layersFor(s, t);
         if (first && resume && s.key?.heard) L.keyDone = true;
         say(`scene ${L.si}: ${s.patch}, ${s.param}, ${s.len} on ${L.file}`);
@@ -186,14 +186,14 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
       if (st.phase === 'blend' && L.phase !== 'blend') {
         const s = life.scene(L.si);
         L.blendAt = e.cycleFrom + e.ctl.dwell; e.set('noise', s.iNoise);
-        // a pause lets the drones go too; the next landing sets them again
-        if (s.iKind === 'pause' && layers) layers.apply({ ...s.layers, drone: 'none' }, s.key);
       }
       L.phase = st.phase;
       L.at = st.phase === 'blend' ? t - L.blendAt : t - L.sceneAt;
       const v = st.phase === 'blend' ? life.inInterlude(L.si, L.at) : life.inScene(L.si, L.at);
       if (v.patch !== L.patch) { L.patch = v.patch; g.patch(engPatch(v.patch, { mix: 0 })); }
       g.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
+      // a bridge holds some layers across the blend and retunes them to the next scene's key from halfway
+      if (v.bridge && layers) { const bk = `${L.si}|${v.bridge.key?.root}|${v.bridge.key?.minor}`; if (bk !== L.bridged) { L.bridged = bk; layers.apply(v.bridge.layers, v.bridge.key); } }
       L.now = v;
     } catch (err) { fail(err); }
   }

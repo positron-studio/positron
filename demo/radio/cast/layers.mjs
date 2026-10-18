@@ -47,7 +47,7 @@ export const stepSeconds = (bpm, n) => 60 / bpm / (n === 16 ? 4 : n === 8 ? 2 : 
 const ease = (u) => u * u * (3 - 2 * u);
 /** The layers' level at `x` of a scene (0 to 1): silent to 12 %, rising to 30 %, falling from 80 % to silent at 95 %. */
 /** The layers follow the scene's arc: silent through its dry share, up over 0.18, down from 0.85 to 0.97. */
-export const layerLevel = (x, dry = 0.12) => (x < dry ? 0 : x < dry + 0.18 ? ease((x - dry) / 0.18) : x > 0.85 ? ease(Math.max(0, (0.97 - x) / 0.12)) : 1);
+export const layerLevel = (x, dry = 0.12, rise = 0.18, hold = 0.85) => (x < dry ? 0 : Math.min(ease(Math.min(1, (x - dry) / rise)), ease(Math.min(1, Math.max(0, (0.97 - x) / Math.max(0.01, 0.97 - hold))))));
 /** The key is heard in these seconds of a scene, over these frequencies: a chroma of what the tuner makes. */
 export const KEY_FROM = [1, 5], KEY_HZ = [60, 1000];
 /** A frequency's pitch class, 0 C to 11 B, on BASE_HZ. */

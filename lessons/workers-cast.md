@@ -710,3 +710,18 @@ second fetch of our own stream, cuts it at MP3 frame headers and decodes ~0.5 s 
 still comes from the `<audio>`. Costs: a second connection per WebKit listener (counted twice in our preview
 Icecast's stats); the wave is not sample aligned with what is heard. Never for somebody else's mount.
 `?tap=1` forces the path in Chrome.
+
+## grammar-2
+
+`demo/radio/cast/life.mjs` `createLife({ grammar })`, 2026-10-18. Grammar 2 is plans/plan-cast-patches-scenes.md
+steps 4 to 8: 54 patches in seven families, nine scene types in six sections, an hour-long tide, and the
+bridges (echo wash, tape stop, frozen bridge, drone bridge, chord hand-over). Grammar 1 is the life before it,
+kept bit for bit by `life-g1.json` (40 scenes, two seeds).
+
+MEASURED 2026-10-18 in the browser ring, each patch fully wet on a voice-like source at -23.2 dB rms: the 38 new
+patches sit 3.0 to 8.5 dB under the dry source, inside the 16 old ones' 2.1 to 9.9, and no peak passes -7.4
+dBFS. Breath bed read -7.3 and its amp went from 1.4 to 1.7.
+
+No naked speech in grammar 2. Asked: *"I am sating i do jot want naked speech"*, *"Too much of it in prev
+versions"*. A bypass of the tuner for naked scenes was built and measured (within 0.2 dB of the tuner at
+`BARE_GAIN` 0.5 on a voice-like source) and removed the same minute, unshipped.

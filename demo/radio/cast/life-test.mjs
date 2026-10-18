@@ -1,8 +1,11 @@
 // node demo/radio/cast/life-test.mjs: the living sound's planner, no browser. Most of these are
 // negative controls: a life that repeats, reuses a control, leaves the granulator on at a seam, or
 // ignores a vote fails.
-import { createLife, tasteOf, fileWeight, CAST_PATCHES, patchFor, sceneId, coreId, envelope, swell, MOVABLE, FRESH, guardT, movableFor, ducks, familyOf, FAMILIES, NOT_LEN, freezesAfterDry, patchValues, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
+import { createLife as createLife0, tasteOf, fileWeight, CAST_PATCHES, patchFor, sceneId, coreId, envelope, swell, MOVABLE, FRESH, guardT, movableFor, ducks, familyOf, FAMILIES, NOT_LEN, freezesAfterDry, patchValues, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
 
+// most of this file grades grammar 1, the life before sections and types; grammar 2 has its own part at the end
+const createLife = (o = {}) => createLife0({ grammar: 1, ...o });
+const G1KINDS = Object.keys(IKINDS).filter((k) => IKINDS[k].odds > 0);
 let ok = 0, bad = 0;
 const check = (name, pass, detail = '') => { if (pass) ok++; else { bad++; console.log(`FAIL ${name}${detail ? `\n  ${detail}` : ''}`); } };
 const N = 300, many = (life, n = N) => Array.from({ length: n }, (_, i) => life.scene(i));
@@ -93,8 +96,8 @@ check('a liked KIND comes up more on new scenes, not copies: long scenes rise an
   `long ${share(Z, (x) => x.len === 'long').toFixed(2)} to ${share(newOnes, (x) => x.len === 'long').toFixed(2)}, short ${share(Z, (x) => x.len === 'short').toFixed(2)} to ${share(newOnes, (x) => x.len === 'short').toFixed(2)}`);
 check('and more granulator: the mean peak of new scenes rises', mean(newOnes, (x) => x.peak) > mean(Z, (x) => x.peak) + 0.02, `${mean(Z, (x) => x.peak).toFixed(3)} to ${mean(newOnes, (x) => x.peak).toFixed(3)}`);
 check('it still explores: every patch and every control still play, and most scenes are new, not variations',
-  new Set(K.map((x) => x.patch)).size === 10 + CAST_PATCHES.length && MOVING.every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
-check('all four kinds of interlude play, never the same kind twice in a row', Object.keys(IKINDS).every((k) => S.some((x) => x.iKind === k)) && S.every((x, i) => !i || x.iKind !== S[i - 1].iKind));
+  new Set(K.map((x) => x.patch)).size === 16 && MOVING.every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
+check('every kind of interlude grammar 1 picks plays, never the same kind twice in a row', G1KINDS.every((k) => S.some((x) => x.iKind === k)) && S.every((x, i) => !i || x.iKind !== S[i - 1].iKind));
 check('a smear freezes the outgoing sound through its swell and lets go at the end, the other kinds never freeze',
   S.slice(0, 40).every((x, i) => { const mid = life.inInterlude(i, x.blend / 2).extra, end = life.inInterlude(i, x.blend).extra; return x.iKind === 'smear' ? mid.freeze > 0.9 && end.freeze === 0 : !('freeze' in mid); }));
 // radio is rare (its odds), so the transition's learning is read over several lives, not one
@@ -128,7 +131,7 @@ const nakedOk = (x) => x.peak === 0 && x.len === 'long' && x.iKind === 'clean' &
 check('on talk a tenth to under a third of scenes are naked (within the length and interlude rules): long, no granulator, no layers, no noise, never two in a row',
   share(NK, (x) => x.naked) > 0.1 && share(NK, (x) => x.naked) < 0.3 && NK.filter((x) => x.naked).every(nakedOk) && NK.every((x, i) => !i || !(x.naked && NK[i - 1].naked)), share(NK, (x) => x.naked).toFixed(2));
 check('NEGATIVE CONTROL: on music naked scenes are rare', share(MU, (x) => x.naked) < 0.1, share(MU, (x) => x.naked).toFixed(2));
-check('every cast patch is built on a page patch and plays', CAST_PATCHES.length === 6 && CAST_PATCHES.every((c) => patchFor(c.name).name === c.base && NK.concat(S).some((x) => x.patch === c.name)));
+check('every cast patch is built on a page patch, and grammar 1 plays its first six', CAST_PATCHES.length === 44 && CAST_PATCHES.every((c) => patchFor(c.name).name === c.base) && CAST_PATCHES.slice(0, 6).every((c) => NK.concat(S).some((x) => x.patch === c.name)) && !NK.concat(S).some((x) => CAST_PATCHES.slice(6).some((c) => c.name === x.patch)));
 const arcs = S.slice(0, 50);
 check('every scene starts dry for 12 to 30 % and its granulator is up by half way and still up at 80 %', arcs.filter((x) => !x.naked).every((x, i) => {
   const at = (f) => life.inScene(S.indexOf(x), f * x.dwell).wet; return x.dry >= 0.12 && x.dry <= 0.3 && at(x.dry * 0.5) === 0 && at(0.5) > 0.3 && at(0.8) > 0.3; }));
@@ -155,7 +158,7 @@ const frozen = S.slice(0, 200).map((x, i) => [x, i]).filter(([x]) => freezesAfte
 check('a frozen patch is open through its dry share and freezes after it', frozen.length > 3 && frozen.every(([x, i]) => life.inScene(i, x.dwell * x.dry * 0.5).extra.freeze === 0 && life.inScene(i, x.dwell * Math.min(0.95, x.dry + 0.1)).extra.freeze === 1), `${frozen.length} frozen scenes`);
 check('NEGATIVE CONTROL: a patch that does not freeze is never frozen by its scene', !freezesAfterDry('Cloud') && S.slice(0, 60).every((x, i) => freezesAfterDry(x.patch) || !('freeze' in life.inScene(i, x.dwell / 2).extra)));
 // ── the transitions: rare radio, a path per kind ──
-const kinds = (L) => Object.fromEntries(Object.keys(IKINDS).map((k) => [k, share(L, (x) => x.iKind === k)]));
+const kinds = (L) => Object.fromEntries(G1KINDS.map((k) => [k, share(L, (x) => x.iKind === k)]));
 const ks = kinds(Z);
 check('the dial\'s hiss is rare: radio and drift together under 15 % of interludes, every other kind plays', ks.radio + ks.drift < 0.15 && Object.values(ks).every((v) => v > 0), JSON.stringify(ks));
 check('every interlude carries its path, and only radio, drift and smear sweep the dial', Z.every((x) => x.iPath === IKINDS[x.iKind].path) && Object.entries(IKINDS).every(([k, v]) => (v.path === 0) === ['radio', 'drift', 'smear'].includes(k)));
@@ -172,5 +175,62 @@ check('a gap is silence in its middle, and no noise', [0.4, 0.5, 0.6].every((k) 
 const mix = createMix(SLOTS, WHISTLE_SOFT), m0 = mix(SLOTS[0].at);
 check('NEGATIVE CONTROL: on the dial the waiting file leaks in as an echo while the scene plays', m0.st[1].echo > 0.2, m0.st[1].echo.toFixed(3));
 check('and dwellMix keeps the waiting file silent, the playing one untouched', dwellMix(m0, 0).st[1].echo === 0 && dwellMix(m0, 0).st[1].clear === 0 && dwellMix(m0, 0).st[0] === m0.st[0]);
+
+// ── grammar 2: patches, types, sections, the tide (plans/plan-cast-patches-scenes.md 5.3) ──
+const { readFileSync } = await import('node:fs');
+const { clampPatch } = await import('./local.mjs');
+const L2 = await import('./life.mjs');
+const g1 = JSON.parse(readFileSync(new URL('./life-g1.json', import.meta.url)));
+const g1ids = (seed) => { const l = createLife0({ seed, grammar: 1 }); return Array.from({ length: 40 }, (_, i) => { const x = l.scene(i, { kind: ['speech', 'field', 'music'][i % 3] }); return `${x.id}|${x.iKind}|${x.dwell}|${x.blend}|${x.dry}|${x.intensity}`; }); };
+check('grammar 1 rebuilds the life it played before grammar 2, scene for scene (40 scenes, two seeds)', [1, 7].every((seed) => JSON.stringify(g1ids(seed)) === JSON.stringify(g1[seed])));
+const kindAt = (i) => ['speech', 'field', 'music', 'speech'][i % 4];
+const life2 = (o) => { const l = createLife0({ grammar: 2, ...o }); return { l, S: Array.from({ length: o.n ?? 600 }, (_, i) => l.scene(i, { kind: kindAt(i) })) }; };
+const { l: G, S: S2 } = life2({ seed: 11, n: 2000 });
+rules('grammar 2', S2.slice(0, 600));
+check('grammar 2 plays every one of the 54 patches in 2000 scenes', new Set(S2.map((x) => x.patch)).size === 54, `${new Set(S2.map((x) => x.patch)).size}`);
+const all54 = [...new Set([...(await import('../../granulator/grain-ring.mjs')).PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)])];
+check('every patch is inside PATCH_LIMITS: the engines refuse nothing and change no value', CAST_PATCHES.every((c) => { const k = clampPatch({ name: c.base, set: c.set }); return !k.refused.length && Object.entries(c.set).every(([n, v]) => k.values[n] === (n === 'dir' ? (v < 0 ? -1 : 1) : v)); }));
+const sig = (n) => { const v = patchValues(n); return ['size', 'density', 'pitch', 'speed', 'freeze', 'dir', 'lock', 'scatter'].map((k) => Math.round((v[k] ?? 0) * 100) / 100).join(); };
+check('no two patches are the same sound on size, density, pitch, speed, freeze, direction, lock and scatter', new Set(all54.map(sig)).size === 54);
+check('NEGATIVE CONTROL: a copied patch is caught', new Set([...all54, 'Cloud'].map(sig)).size < all54.length + 1);
+check('no patch has more than 24 grains sounding at once', all54.every((n) => L2.overlapOf(n) <= L2.OVERLAP_CAP), JSON.stringify(all54.filter((n) => L2.overlapOf(n) > 24)));
+check('NEGATIVE CONTROL: density 64 with 4 s grains would be over the cap', 64 * 4 > L2.OVERLAP_CAP);
+check('no grammar 2 scene reaches the ducks', !S2.some(ducks), JSON.stringify(S2.find(ducks)));
+const near15 = (x) => Object.entries(x.tweak || {}).every(([k, t]) => { const g = guardT(x.patch, k); const c = Math.min(g[1], Math.max(g[0], toT(k, patchValues(x.patch)[k] ?? 0))); return Math.abs(t - c) <= 0.15 + 0.011; });
+check('every new scene\'s tweaks sit inside the guard and within 0.15 of the patch\'s own value', S2.filter((x) => !x.from && !x.naked).every((x) => inGuard(x) && near15(x)), JSON.stringify(S2.find((x) => !x.from && !x.naked && !(inGuard(x) && near15(x)))));
+const fz = S2.slice(0, 400).map((x, i) => [x, i]).filter(([x]) => freezesAfterDry(x.patch) && !x.naked);
+check('grammar 2: a frozen patch is open through its dry share and frozen after it', fz.length > 5 && fz.every(([x, i]) => G.inScene(i, x.dwell * x.dry * 0.5).extra.freeze === 0 && G.inScene(i, x.dwell * Math.min(0.97, x.dry + 0.05)).extra.freeze === 1), `${fz.length}`);
+const locked = S2.filter((x) => L2.patchInfo(x.patch)?.sub);
+check('a locked patch plays on the scene\'s tempo: density is bpm / 60 times its grains a beat, its echo so many beats', locked.length > 20 && locked.every((x) => { const f = L2.patchInfo(x.patch); return Math.abs(x.set.density - (x.layers.bpm / 60) * f.sub) < 1e-3 && Math.abs(x.set.time - (f.beats * 60) / x.layers.bpm) < 1e-3 && x.layers.bpm >= 60; }), `${locked.length}`);
+check('NEGATIVE CONTROL: Stutter\'s fixed 8 grains a second is not a whole number a beat at 72 bpm', Math.abs((8 * 60 / 72) % 1) > 0.1);
+// sections and the tide
+const runs = []; for (const x of S2) { if (!runs.length || runs.at(-1).section !== x.section || x.type === S2[S2.indexOf(x) - 1]?.type && false) runs.push({ section: x.section, n: 0 }); runs.at(-1).n++; }
+const starts = S2.map((x, i) => [x, i]).filter(([x, i]) => i === 0 || L2.SECTIONS[x.section] && (S2[i - 1].secLast));
+check('never the same section twice in a row', starts.every(([x, i], j) => !j || x.section !== starts[j - 1][0].section), starts.slice(0, 12).map(([x]) => x.section).join());
+check('every section and every scene type occurs', Object.keys(L2.SECTIONS).every((n) => S2.some((x) => x.section === n)) && Object.keys(L2.TYPES).every((t) => S2.some((x) => x.type === t)), JSON.stringify(Object.keys(L2.TYPES).filter((t) => !S2.some((x) => x.type === t))));
+check('storms only in the high half of the tide', S2.filter((x) => x.type === 'storm').every((x) => x.section === 'weather') && starts.filter(([x]) => x.section === 'weather').every(([x]) => x.tide > 0.5 - 0.06));
+const hi = S2.filter((x) => !x.naked && x.tide >= 0.5), lo = S2.filter((x) => !x.naked && x.tide < 0.5), mI = (L) => L.reduce((a, x) => a + x.intensity, 0) / L.length;
+check('over the hour the piece swells: the high tide\'s scenes are more intense than the low tide\'s by 0.2', mI(hi) - mI(lo) > 0.2, `${mI(lo).toFixed(2)} to ${mI(hi).toFixed(2)}`);
+check('a section opens on something you can recognise: a dry intro, Night on its deep drone', starts.every(([x]) => x.type === 'intro' || x.section === 'night'));
+check('grammar 2 plays no naked speech, on talk or anywhere (asked 2026-10-18)', !S2.some((x) => x.naked) && S2.some((x, i) => kindAt(i) === 'speech'));
+// the bridges
+const db = S2.map((x, i) => [x, i]).find(([x]) => x.iKind === 'dronebridge'), [dbx, dbi] = db;
+const b0 = G.inInterlude(dbi, dbx.blend * 0.25).bridge, b1 = G.inInterlude(dbi, dbx.blend * 0.75).bridge;
+check('a drone bridge holds the drones across the gap and glides them to the next scene\'s key from halfway', b0.layers.drone !== 'none' && b0.layers.droneLevel === 0.5 && b0.key === dbx.key && b1.key === dbx.nextKey && JSON.stringify(S2[dbi + 1].key) === JSON.stringify(dbx.nextKey));
+const ts = S2.map((x, i) => [x, i]).find(([x]) => x.iKind === 'tapestop');
+check('a tape stop winds the pitch and the speed down and holds what is left', G.inInterlude(ts[1], ts[0].blend * 0.4).extra.speed === 0 && G.inInterlude(ts[1], ts[0].blend * 0.4).extra.pitch === 0.25 && G.inInterlude(ts[1], ts[0].blend * 0.05).extra.speed > 0.9);
+check('every grammar 2 interlude is a way out its type names (a dissolve when none is free), radio only at a section\'s end', S2.every((x) => x.naked || [...L2.TYPES[x.type].outs, 'radio', 'dissolve'].includes(x.iKind)) && S2.filter((x) => x.iKind === 'radio').every((x) => x.secLast));
+check('the generalised envelope is today\'s at its defaults', Array.from({ length: 101 }, (_, j) => j / 100).every((x) => Math.abs(envelope(x, 0.2) - (x <= 0.2 || x >= 1 ? 0 : x < 0.38 ? ((u) => u * u * (3 - 2 * u))((x - 0.2) / 0.18) : x > 0.85 ? ((u) => u * u * (3 - 2 * u))((1 - x) / 0.15) : 1)) < 1e-9));
+// votes under grammar 2
+const real = JSON.parse(readFileSync(new URL('./votes-2026-10-18.json', import.meta.url)));
+check('the 11 votes of 2026-10-18 still count under both grammars: Backwards scores positive', tasteOf(real).patch.Backwards > 0 && createLife0({ grammar: 2, votes: real }).taste.patch.Backwards > 0, JSON.stringify(tasteOf(real).patch));
+const likeFam = S2.slice(0, 300).filter((x) => familyOf(x.patch) === 'choir' && !x.naked).slice(0, 8).map((x) => ({ def: G.defOf(x), vote: 4 }));
+const likeSec = S2.slice(0, 300).filter((x) => x.section === 'ritual').slice(0, 8).map((x) => ({ def: G.defOf(x), vote: 4 }));
+const { S: SF } = life2({ seed: 11, n: 600, votes: likeFam }), { S: SS } = life2({ seed: 11, n: 600, votes: likeSec });
+const base600 = S2.slice(0, 600);
+check('votes learn the family: liked choirs come up more, and every family still plays', share(SF, (x) => familyOf(x.patch) === 'choir') > share(base600, (x) => familyOf(x.patch) === 'choir') * 1.2 && Object.keys(FAMILIES).every((f) => SF.some((x) => familyOf(x.patch) === f)),
+  `${share(base600, (x) => familyOf(x.patch) === 'choir').toFixed(2)} to ${share(SF, (x) => familyOf(x.patch) === 'choir').toFixed(2)}`);
+check('votes learn the section: a liked ritual comes up more, and never twice in a row', share(SS, (x) => x.section === 'ritual') > share(base600, (x) => x.section === 'ritual') * 1.2,
+  `${share(base600, (x) => x.section === 'ritual').toFixed(2)} to ${share(SS, (x) => x.section === 'ritual').toFixed(2)}`);
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);
