@@ -1,5 +1,8 @@
 ## Open
 
+- **/radio/cast/: many more patches and kinds of scene; a plan first** (2026-10-18). Asked: *"We need way more payvhes and scenes. Plan first"*.
+- **/radio/cast/: a dynamic piece: dry to recognise, then deep into drones and grains** (2026-10-18). Asked: *"I want dynamicness. I want, it's okay to listen by try signal for a while to identify original, but then I really want to go to into with Strony stuff and granular stuff, etc. So it has to be a dynamic musical installation piece."* Each scene dry at first (a varying share), then rising deep and holding, released only near the end; intensity rising and falling over every four to six scenes; naked scenes rarer.
+- **/radio/cast/: the lock-screen artwork** (2026-10-18). Asked: *"Fix icon."* with an iPhone lock-screen player showing the p.s icon cropped with light corners. A square full-bleed artwork icon from the build, handed to the Media Session with the station and scene as title.
 - **/radio/cast/: a refresh with no gap, by handing over to a second container** (2026-10-18). Asked: *"11swc seems long"*, then *"4."* (option 4: start the new container beside the old, switch the stream, stop the old). Today 11 s: about 9 s image fetch on the first boot after a deploy, 1.5 s pause.
 - **/radio/cast/: no scope on iOS** (2026-10-18). Asked: *"No scope on ios??"* with a phone screenshot (Messenger's in-app browser, listening to preview, waveform empty). Likely WebKit's MediaElementSource giving silence for a streamed source.
 - **/radio/cast/: the footer one height for every description** (2026-10-18). Asked: *"Kee footer h same between differenecr descs"*.

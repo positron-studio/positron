@@ -452,6 +452,8 @@ const PS_ICON_SPECS = {
   'apple-touch': [180, 'ios', 0.62, 'p.s'],
   android: [192, 'circle', 0.56, 'p.s'],
   store: [512, 'ios', 0.62, 'p.s'],
+  // a lock-screen player's artwork: square to the edge, the mark small enough that no crop reaches it
+  artwork: [512, 'square', 0.42, 'p.s'],
 };
 
 async function psIconSvg(S, shape, fill, text) {
@@ -503,10 +505,11 @@ async function psIcons() {
   const manifestPath = `/icons/manifest-${fnv(manifest)}.webmanifest`;
   return {
     ico,
-    files: [...['apple-touch', 'android', 'store'].map((n) => [out[n].path, out[n].png, `${out[n].px}x${out[n].px}`]),
+    files: [...['apple-touch', 'android', 'store', 'artwork'].map((n) => [out[n].path, out[n].png, `${out[n].px}x${out[n].px}`]),
       [manifestPath, manifest, 'manifest']],
     links: [`<link rel="apple-touch-icon" sizes="180x180" href="${out['apple-touch'].path}">`,
-      `<link rel="manifest" href="${manifestPath}">`],
+      `<link rel="manifest" href="${manifestPath}">`,
+      `<meta name="ps-artwork" content="${out.artwork.path}">`],
   };
 }
 

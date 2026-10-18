@@ -1,7 +1,7 @@
 // node demo/radio/cast/life-test.mjs: the living sound's planner, no browser. Most of these are
 // negative controls: a life that repeats, reuses a control, leaves the granulator on at a seam, or
 // ignores a vote fails.
-import { createLife, tasteOf, fileWeight, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
+import { createLife, tasteOf, fileWeight, CAST_PATCHES, patchFor, sceneId, coreId, envelope, swell, MOVABLE, FRESH, LENGTHS, INTERLUDE, IKINDS, LAYERS, ODDS, toT } from './life.mjs';
 
 let ok = 0, bad = 0;
 const check = (name, pass, detail = '') => { if (pass) ok++; else { bad++; console.log(`FAIL ${name}${detail ? `\n  ${detail}` : ''}`); } };
@@ -23,7 +23,7 @@ rules('no votes', S);
 check('NEGATIVE CONTROL: the freshness check catches a control moved twice in a row', reused(['size', 'pitch', 'pitch']) === 2);
 check('NEGATIVE CONTROL: the period check finds a loop of 3', period(Array.from({ length: 200 }, (_, i) => String(i % 3))) === 3);
 check('every length kind, every control and all ten patches are used', Object.keys(LENGTHS).every((k) => S.some((s) => s.len === k))
-  && Object.keys(MOVABLE).every((k) => S.some((s) => s.param === k)) && new Set(S.map((s) => s.patch)).size === 10);
+  && Object.keys(MOVABLE).every((k) => S.some((s) => s.param === k)) && new Set(S.map((s) => s.patch)).size === 16);
 check('the clock can carry every scene: dwell within 5..600 s, blend within the interlude range',
   S.every((s) => s.dwell >= 5 && s.dwell <= 600 && s.blend >= INTERLUDE[0] && s.blend <= INTERLUDE[1]));
 
@@ -85,13 +85,13 @@ check('great counts twice a good, and meh leans away: no vote sits in the middle
 // learning a kind: great on long scenes heavy with granulator, bad on short ones, across patches
 const Z = many(createLife({ seed: 5 }), 600), longHeavy = Z.filter((x) => x.len === 'long' && x.peak > 0.75).slice(0, 8), short = Z.filter((x) => x.len === 'short').slice(0, 8);
 const K = many(createLife({ seed: 5, votes: [...longHeavy.map((x) => ({ def: life.defOf(x), vote: 4 })), ...short.map((x) => ({ def: life.defOf(x), vote: 1 }))] }), 600);
-const newOnes = K.filter((x) => !x.from), mean = (L, f) => L.reduce((a, x) => a + f(x), 0) / L.length;
+const newOnes = K.filter((x) => !x.from && !x.naked), mean = (L, f) => L.reduce((a, x) => a + f(x), 0) / L.length;
 check('a liked KIND comes up more on new scenes, not copies: long scenes rise and short ones fall',
-  share(newOnes, (x) => x.len === 'long') > share(Z, (x) => x.len === 'long') + 0.1 && share(newOnes, (x) => x.len === 'short') < share(Z, (x) => x.len === 'short') - 0.1,
+  share(newOnes, (x) => x.len === 'long') > share(Z.filter((x) => !x.naked), (x) => x.len === 'long') + 0.1 && share(newOnes, (x) => x.len === 'short') < share(Z.filter((x) => !x.naked), (x) => x.len === 'short') - 0.1,
   `long ${share(Z, (x) => x.len === 'long').toFixed(2)} to ${share(newOnes, (x) => x.len === 'long').toFixed(2)}, short ${share(Z, (x) => x.len === 'short').toFixed(2)} to ${share(newOnes, (x) => x.len === 'short').toFixed(2)}`);
 check('and more granulator: the mean peak of new scenes rises', mean(newOnes, (x) => x.peak) > mean(Z, (x) => x.peak) + 0.02, `${mean(Z, (x) => x.peak).toFixed(3)} to ${mean(newOnes, (x) => x.peak).toFixed(3)}`);
-check('it still explores: all ten patches and every control still play, and most scenes are new, not variations',
-  new Set(K.map((x) => x.patch)).size === 10 && Object.keys(MOVABLE).every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
+check('it still explores: every patch and every control still play, and most scenes are new, not variations',
+  new Set(K.map((x) => x.patch)).size === 10 + CAST_PATCHES.length && Object.keys(MOVABLE).every((k) => K.some((x) => x.param === k)) && newOnes.length > K.length / 2, `${newOnes.length} new of ${K.length}`);
 check('all four kinds of interlude play, never the same kind twice in a row', Object.keys(IKINDS).every((k) => S.some((x) => x.iKind === k)) && S.every((x, i) => !i || x.iKind !== S[i - 1].iKind));
 check('a smear freezes the outgoing sound through its swell and lets go at the end, the other kinds never freeze',
   S.slice(0, 40).every((x, i) => { const mid = life.inInterlude(i, x.blend / 2).extra, end = life.inInterlude(i, x.blend).extra; return x.iKind === 'smear' ? mid.freeze > 0.9 && end.freeze === 0 : !('freeze' in mid); }));
@@ -121,6 +121,17 @@ check('votes learn the layers: liked key drones come up more, disliked silence u
 const ft = tasteOf([{ def: life.defOf(liked), vote: 1, file: 'Kalle' }, { def: life.defOf(hated), vote: 1, file: 'Kalle' }, { def: life.defOf(liked), vote: 1, file: 'Kalle' }, { def: life.defOf(liked), vote: 4, file: 'Dub hour' }]);
 check('votes count against the file they played on: three bads sink Kalle out of the picks, a great lifts another',
   ft.file.Kalle === -6 && fileWeight(ft.file.Kalle) === 0 && fileWeight(ft.file['Dub hour']) > 1 && fileWeight(undefined) === 1 && fileWeight(-2) === 0.5);
+const NK = (() => { const l = createLife({ seed: 11 }); return Array.from({ length: 600 }, (_, i) => l.scene(i, { kind: 'speech' })); })();
+const nakedOk = (x) => x.peak === 0 && x.len === 'long' && x.iKind === 'clean' && x.iNoise === 0 && ['drone', 'res', 'harm', 'ghost'].every((k) => x.layers[k] === 'none') && !x.layers.bpm;
+check('on talk a tenth to under a third of scenes are naked (within the length and interlude rules): long, no granulator, no layers, no noise, never two in a row',
+  share(NK, (x) => x.naked) > 0.1 && share(NK, (x) => x.naked) < 0.3 && NK.filter((x) => x.naked).every(nakedOk) && NK.every((x, i) => !i || !(x.naked && NK[i - 1].naked)), share(NK, (x) => x.naked).toFixed(2));
+check('NEGATIVE CONTROL: on music naked scenes are rare', share(MU, (x) => x.naked) < 0.1, share(MU, (x) => x.naked).toFixed(2));
+check('every cast patch is built on a page patch and plays', CAST_PATCHES.length === 6 && CAST_PATCHES.every((c) => patchFor(c.name).name === c.base && NK.concat(S).some((x) => x.patch === c.name)));
+const arcs = S.slice(0, 50);
+check('every scene starts dry for 12 to 30 % and its granulator is up by half way and still up at 80 %', arcs.filter((x) => !x.naked).every((x, i) => {
+  const at = (f) => life.inScene(S.indexOf(x), f * x.dwell).wet; return x.dry >= 0.12 && x.dry <= 0.3 && at(x.dry * 0.5) === 0 && at(0.5) > 0.3 && at(0.8) > 0.3; }));
+const ints = arcs.filter((x) => !x.naked).map((x) => x.intensity);
+check('intensity rises and falls over the scenes: some near 1, some near 0.55', Math.max(...ints) > 0.9 && Math.min(...ints) < 0.65, `${Math.min(...ints)} to ${Math.max(...ints)}`);
 check('NEGATIVE CONTROL: with no votes nothing is a variation', S.every((s) => !s.from));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);

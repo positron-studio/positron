@@ -4,7 +4,9 @@
 import { startGrains } from './grains.mjs';
 import { openDecoder } from './decode.mjs';
 import { levelOf, SR } from './mixer.mjs';
-import { createLife, fromT, DWELL_NOISE } from './sc/radio/cast/life.mjs';
+import { createLife, fromT, DWELL_NOISE, patchFor } from './sc/radio/cast/life.mjs';
+/** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
+const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
 import { createLayerEngine, euclid, stepSeconds, layerLevel, pitchClass, KEY_FROM, KEY_HZ } from './sc/radio/cast/layers.mjs';
 import { createSoften } from './sc/radio/cast/soften.mjs';
 
@@ -78,7 +80,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
     return x;
   }
   const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE },
-    patch: { name: s0.patch, set: { mix: 0, ...tweaksOf(s0), lock: lockOf(s0) } } },
+    patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0) }) },
   { openSink, say, fail, onMp3, inputs: 4, ghost: readGhost,
     onBlock(mono) { for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; } },
     async onChain(chain) {
@@ -114,7 +116,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
   }
   function layerTick(st, t) {
     const s = life.scene(L.si), since = t - L.sceneAt;
-    L.level = st.phase === 'blend' ? 0 : layerLevel(since / s.dwell);
+    L.level = st.phase === 'blend' ? 0 : layerLevel(since / s.dwell, s.dry) * (0.6 + 0.4 * (s.intensity ?? 1));
     layers?.level(L.level);
     if (L.keyDone) return;
     if (since >= KEY_FROM[0] && since < KEY_FROM[1]) chroma.add(last(CHROMA_N));
@@ -128,7 +130,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
   function ghostTick(t) {
     if (ghost.stopAt && !ghost.until && t >= ghost.stopAt) closeGhost();
     const Ly = layers?.layers;
-    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1)) < 0.5)) return;
+    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 2.5; ghost.next = t + Ly.ghostEvery * (0.7 + 0.6 * rand()); }
     else if (!ghost.until && t >= ghost.next) {
       const nx = e.nextItem, who = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
@@ -164,7 +166,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
         const s = life.scene(L.si, { kind: L.item?.kind || undefined });
         e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE);
-        g.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s), lock: lockOf(s) } }); L.patch = s.patch;
+        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s) })); L.patch = s.patch;
         layersFor(s, t);
         say(`scene ${L.si}: ${s.patch}, ${s.param}, ${s.len} on ${L.file}`);
       }
@@ -173,7 +175,7 @@ export function startLive({ queue, target, life: lo = {}, set = {} }, { openSink
       L.phase = st.phase;
       L.at = st.phase === 'blend' ? t - L.blendAt : t - L.sceneAt;
       const v = st.phase === 'blend' ? life.inInterlude(L.si, L.at) : life.inScene(L.si, L.at);
-      if (v.patch !== L.patch) { L.patch = v.patch; g.patch({ name: v.patch, set: { mix: 0 } }); }
+      if (v.patch !== L.patch) { L.patch = v.patch; g.patch(engPatch(v.patch, { mix: 0 })); }
       g.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
       L.now = v;
     } catch (err) { fail(err); }

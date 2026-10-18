@@ -36,10 +36,12 @@ async function pure() {
 
   // ── the page's driver, read out of its source, against the container's ──
   const page = readFileSync(`${HERE}../../demo/radio/cast/index.html`, 'utf8');
-  const pageLevel = (() => { const m = /const ease = \(u\) => u \* u \* \(3 - 2 \* u\), heard = [^;]*;\s*const layerLevel = ([^;]*);/.exec(page); return m && new Function('ease', `return ${m[1]}`)((u) => u * u * (3 - 2 * u)); })();
-  ok('the layers\' fade is the page\'s, at 201 points of a scene', !!pageLevel && Array.from({ length: 201 }, (_, i) => i / 200).every((x) => Math.abs(layerLevel(x) - pageLevel(x)) < 1e-12));
-  const early = (x) => (x < 0.1 ? 0 : layerLevel(Math.max(0.12, x)) || 0.01);
-  ok('NEGATIVE CONTROL: a fade rising from 10 % would not compare equal', !!pageLevel && Array.from({ length: 201 }, (_, i) => i / 200).some((x) => Math.abs(early(x) - pageLevel(x)) > 1e-6));
+  // the page imports the fade from layers.mjs, the file the container copies: one curve, not two
+  const pageImports = /import \{[^}]*\blayerLevel\b[^}]*\} from '\/radio\/cast\/layers\.mjs'/.test(page) && !/const layerLevel = /.test(page);
+  ok('the layers\' fade is the page\'s: the page imports layerLevel from the layers.mjs the container runs, and defines none of its own', pageImports);
+  const sample = "import { layerLevel } from '/radio/cast/layers.mjs';\nconst layerLevel = (x) => x;";
+  ok('NEGATIVE CONTROL: a page that imports the curve but defines its own as well does not pass',
+    !(/import \{[^}]*\blayerLevel\b[^}]*\} from '\/radio\/cast\/layers\.mjs'/.test(sample) && !/const layerLevel = /.test(sample)));
   ok('the key is heard in the page\'s seconds and band', page.includes(`since >= ${KEY_FROM[0]} && since < ${KEY_FROM[1]}`) && page.includes(`Math.ceil(${KEY_HZ[0]} / hzPer)`) && page.includes(`${KEY_HZ[1]} / hzPer`), `${KEY_FROM} s, ${KEY_HZ} Hz`);
   ok('the analyser it copies is 8192 points on the tuner', /tunerAnalyser\.fftSize = 8192/.test(readFileSync(`${HERE}../../demo/radio/cast/local.mjs`, 'utf8')));
   const pageTweaks = /const tweaksOf = \(s\) => ([^;]*);/.exec(page)?.[1];
