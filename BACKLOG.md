@@ -1,5 +1,9 @@
 ## Open
 
+- **/radio/cast/: what the votes said** (2026-10-18, from https://cast.positron.studio/votes, 8 rows): *"bg sounds interesting but soooo noisy too long"*, *"like rythmic aspect"*, *"sometimes good, choir like..then stupid bunch of ducks."*, *"interesting drone but bit nervous elements here and there"*, *"drone is fine but seems thematically disconnected to text"*. Acted on: the key drone and resonators tune to the file's own strongest note, scenes shorter (mid 80 s, long 150 s), the radio hiss quieter.
+- ~~**/radio/cast/: read the feedback**~~ (2026-10-18, DONE: 8 rows, see the next line). Asked: *"read feedback"*. The votes and comments at https://cast.positron.studio/votes.
+- ~~**/radio/cast/: layers come in too suddenly**~~ (2026-10-18, DONE: layers rise from 12 to 30 % of a scene and fall from 80 to 95 %, set in silence). Asked: *"addnng more transitions are too sudden"*. Fade the layers in over the start of a scene and out before its end, so a new chord or drone never jumps in.
+- ~~**/radio/cast/: hide copy, mix and grains**~~ (2026-10-18, DONE on local; the stations keep them until live runs on air). Asked: *"hide/archive copy mix grains"*. live is the one mode on local.
 - ~~**/radio/cast/: no readout cells by the log**~~ (2026-10-18, DONE). Asked: *"rm readouts next to logs"*. The listening / heard / level / prelisten row goes; the log stays.
 - ~~**/radio/cast/: no line under the title**~~ (2026-10-18, DONE: conceptNav takes `say: false`). Asked: *"rm Each station plays Väin's archive with its own program and sound, tried here first and put on air from Cloudflare."*. `what: ''`.
 - ~~**/radio/cast/: the archive date reads as a day and month**~~ (2026-10-18, DONE). Asked: *"15. oct 2026 ?"* about `10-15` on an archive row. It is the upload date, month first. Show `15 Oct`, the full date on hover.
