@@ -11,7 +11,10 @@
   /* the stations: one row of cards that scrolls sideways, the open one lit */
   /* the 2 px pad keeps a focus ring inside the scroller, which clips */
   .vc-cards { display: flex; gap: 10px; overflow-x: auto; min-width: 0; padding: 2px; margin: -2px; }
-  .vc-cards > .pos-card { flex: 0 0 150px; cursor: pointer; }
+  /* one size, taller than wide, so a wrapped title or a blend's second file never moves the row */
+  .vc-cards > .pos-card { flex: 0 0 150px; height: 196px; min-height: 0 !important; cursor: pointer; overflow: hidden; }
+  .vc-cards .pos-card-d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; flex: none; }
+  .vc-cards .pos-card-d.vc-now2 { -webkit-line-clamp: 2; }
   .vc-cards > .pos-card:hover { background: var(--card2); border-color: var(--line2); }
   .vc-cards > .pos-card[aria-pressed="true"] { border-color: var(--hi); }
   .vc-cards > .pos-card[aria-pressed="true"] .pos-card-t { color: var(--hi); }
