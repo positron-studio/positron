@@ -662,7 +662,7 @@
       instDef.set(L.inst, { def: life.defOf(life.scene(L.si)), file: L.file });
       if (commentTimer) { clearTimeout(commentTimer); commentTimer = 0; keep(commentFor, { comment: comment.value() }); }
       commentFor = ''; comment.set('');
-      const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend);
+      const s = life.scene(L.si); local.set('dwell', s.dwell); local.set('blend', s.blend); local.set('noise', s.iNoise);
       // the patch with the scene's own controls set aside it, dry, before the granulator rises
       local.patch({ name: s.patch, set: { mix: 0, ...tweaksOf(s) } }); L.patch = s.patch;
       paintScene();
@@ -671,7 +671,7 @@
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch({ name: v.patch, set: { mix: 0 } }); }
-    local.patch({ set: { [v.param]: v.value, mix: v.wet } });
+    local.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
     lifeNow = v;
   }
   /** `keep` keeps the life startLocal just made; a switch into live mid-play starts a new one. */
@@ -684,7 +684,7 @@
   }
   function stopLife(restore = false) {
     clearInterval(lifeTimer); lifeTimer = 0; lifeNow = null; lifeState.want = null; paintScene();
-    if (restore && localOn()) { local.set('dwell', mixUi.dwell.get()); local.set('blend', mixUi.blend.get()); local.patch({ name: NAMES[patchAt()], set: { mix: mixUi.gmix.get() } }); }
+    if (restore && localOn()) { local.set('dwell', mixUi.dwell.get()); local.set('blend', mixUi.blend.get()); local.set('noise', 1); local.patch({ name: NAMES[patchAt()], set: { mix: mixUi.gmix.get() } }); }
   }
   // previous and next ask for a scene and start the transition at once; the press sweeps until it lands
   function step(by) {
@@ -746,7 +746,7 @@
     const v = lifeNow;
     const tw = v && life ? Object.entries(tweaksOf(life.scene(lifeState.si))).map(([n, x]) => `${n} ${fmt(x)}`).join(', ') : '';
     lPatch.textContent = v ? `${v.patch}${tw ? ` with ${tw}` : ''}` : '';
-    lMove.textContent = v ? `${v.param} ${fmt(v.value)}, ${v.kind === 'interlude' ? 'interlude' : `${v.len} scene`}` : '';
+    lMove.textContent = v ? `${v.param} ${fmt(v.value)}, ${v.kind === 'interlude' ? v.len : `${v.len} scene`}` : '';
     lWet.textContent = v ? `${Math.round(v.wet * 100)} %` : '';
   }
   const localBuf = new Float32Array(2048);
@@ -937,10 +937,11 @@
       calls.length = 0; needle = { ...needle, phase: 'blend' }; await tick(400);
       d.assert('in the blend the interlude moves another control, and the local card shows both files and the time',
         has(([c, p]) => c === 'patch' && p.set && S0.iParam in p.set) && !has(([c, p]) => c === 'patch' && p.name)
+        && (S0.iFreeze ? has(([c, p]) => c === 'patch' && p.set?.freeze > 0) : !has(([c, p]) => c === 'patch' && 'freeze' in (p.set || {})))
         && cards[LOCAL].now2.textContent === 'file B' && !cards[LOCAL].now2.hidden && nowOf(LOCAL) === 'file A' && cards[LOCAL].at.textContent === '0:03' && lMove.textContent.endsWith('interlude'), JSON.stringify({ now: nowOf(LOCAL), now2: cards[LOCAL].now2.textContent, at: cards[LOCAL].at.textContent, m: lMove.textContent }));
       calls.length = 0; needle = { ...needle, phase: 'dwell', landings: 1, from: 1 }; await tick(400);
       d.assert('the next landing is scene 1: its own dwell, blend and patch, and one file on the card again',
-        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
+        has(([c, n, v]) => c === 'set' && n === 'dwell' && v === S1.dwell) && has(([c, n, v]) => c === 'set' && n === 'noise' && v === S1.iNoise) && has(([c, p]) => c === 'patch' && p.name === S1.patch)
         && has(([c, p]) => c === 'patch' && p.set && S1.param in p.set) && cards[LOCAL].now2.hidden
         && Object.keys(S1.tweak).length === 2 && has(([c, p]) => c === 'patch' && p.name === S1.patch && Object.keys(S1.tweak).every((n) => n in p.set)) && nowOf(LOCAL) === 'file B', JSON.stringify(calls.slice(0, 6)));
       // stepping: next and previous ask for a scene and start the transition; the press sweeps until it lands

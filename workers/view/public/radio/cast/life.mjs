@@ -9,7 +9,19 @@ import { PATCHES, valuesOf } from '../../granulator/grain-ring.mjs';
 /** How long the needle stays on a file, by kind, in seconds (the clock's dwell, at most 600). */
 export const LENGTHS = { short: 45, mid: 100, long: 200 };
 /** An interlude is the blend between two files, in seconds (the clock's blend, at most 120). */
-export const INTERLUDE = [8, 20];
+export const INTERLUDE = [4, 20];
+/**
+ * What an interlude sounds like, by kind: the tuning noise (the clock's `noise`, 0 to 2), how far the
+ * granulator swells, how long the blend is, and whether the granulator freezes the outgoing file.
+ * radio is the dial's hiss, smear carries a frozen grain cloud across, clean is a plain short fade,
+ * drift a little of both.
+ */
+export const IKINDS = {
+  radio: { noise: [0.7, 1.4], wet: [0.08, 0.2], blend: [10, 20], freeze: false },
+  smear: { noise: [0, 0.12], wet: [0.45, 0.75], blend: [8, 18], freeze: true },
+  clean: { noise: [0, 0.05], wet: [0, 0.08], blend: [4, 8], freeze: false },
+  drift: { noise: [0.25, 0.5], wet: [0.2, 0.4], blend: [8, 16], freeze: false },
+};
 /** The controls a hand may move: range, and whether it reads on a log scale. */
 export const MOVABLE = {
   density: [2, 48, true], size: [0.03, 1.2, true], pitch: [0.5, 2, true], speed: [0.25, 2, true],
@@ -20,7 +32,7 @@ export const FRESH = 4;
 /** Each scene is picked from this many new candidates plus up to VARIATIONS of liked scenes. */
 export const CANDIDATES = 12, VARIATIONS = 4;
 /** How hard the pick leans toward what the votes liked: the best candidate at most e^LEAN times the worst. */
-export const LEAN = 8;
+export const LEAN = 10;
 /** Controls set aside the patch in each scene, so there is more than the patch to learn about. */
 export const TWEAKS = 2;
 const NAMES = PATCHES.map((p) => p.name), PARAMS = Object.keys(MOVABLE), KINDS = Object.keys(LENGTHS);
@@ -73,8 +85,9 @@ export const FEATURES = [
   [1.5, (a, b) => (a.param === b.param ? 1 : 0)],
   [1, (a, b) => (a.len === b.len ? 1 : 0)],
   [0.8, (a, b) => (a.param === b.param ? kern(mid(a), mid(b)) : 0)],
-  [1, (a, b) => kern(peakT(a), peakT(b), 0.25)],
+  [1.5, (a, b) => kern(peakT(a), peakT(b), 0.25)],
   [0.4, (a, b) => (a.iParam === b.iParam ? 1 : 0)],
+  [0.8, (a, b) => (a.iKind && a.iKind === b.iKind ? 1 : 0)],
   ...Object.keys(MOVABLE).map((k) => [0.3, (a, b) => (a.tweak?.[k] != null && b.tweak?.[k] != null ? kern(a.tweak[k], b.tweak[k], 0.2) : 0)]),
 ];
 const FEATURE_W = FEATURES.reduce((a, [w]) => a + w, 0);
@@ -118,25 +131,31 @@ export function createLife({ seed = 1, votes = [] } = {}) {
   function vary(base, r, prev, recent, i) {
     if (base.patch === prev?.patch || recent.includes(base.param) || !LENGTHS[base.len]) return null;
     const same = i >= 2 && prev.len === scenes[i - 2].len;
-    const d = { patch: base.patch, param: base.param, len: base.len, lo: base.lo, width: base.width ?? WIDTH[base.len], tweak: { ...(base.tweak || {}) }, peak: base.peak };
+    const d = { patch: base.patch, param: base.param, len: base.len, lo: base.lo, width: base.width ?? WIDTH[base.len], tweak: { ...(base.tweak || {}) }, peak: base.peak, iKind: IKINDS[base.iKind] ? base.iKind : undefined };
     const what = same && base.len === prev.len ? 0 : r();
     if (what < 1 / 3) { d.len = pickOne(KINDS.filter((k) => k !== base.len && !(same && k === prev.len)), r); d.width = WIDTH[d.len]; d.lo = r2(clamp(d.lo, 0, 1 - d.width)); }
     else if (what < 2 / 3) {
       const step = (r() < 0.5 ? -1 : 1) * (0.08 + 0.1 * r());
       d.lo = r2(clamp(d.lo + step, 0, 1 - d.width));
       if (d.lo === base.lo) d.lo = r2(clamp(base.lo - step, 0, 1 - d.width));
-    } else d.notI = base.iParam;
+    } else { d.notI = base.iParam; d.notKind = base.iKind; delete d.iKind; }
     d.from = sceneId(base);
     return d;
   }
   /** The rest of a scene: its time, its granulator, its interlude, and two other controls set aside the patch. */
-  function complete(d, r, recent) {
+  function complete(d, r, recent, prev) {
     d.dwell = Math.round(LENGTHS[d.len] * (0.8 + 0.4 * r()));
     d.peak ??= r2(0.55 + 0.35 * r());
     d.iParam = pickOne(PARAMS.filter((p) => ![...recent, d.param, d.notI].includes(p)), r);
     delete d.notI;
-    d.blend = Math.round(INTERLUDE[0] + r() * (INTERLUDE[1] - INTERLUDE[0]));
-    d.iWet = r2(0.15 + 0.2 * r());
+    // never the same kind of interlude twice in a row
+    if (!d.iKind || d.iKind === prev?.iKind) d.iKind = pickOne(Object.keys(IKINDS).filter((k) => k !== prev?.iKind && k !== d.notKind), r);
+    delete d.notKind;
+    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a);
+    d.blend = Math.round(within(K.blend));
+    d.iNoise = r2(within(K.noise));
+    d.iWet = r2(within(K.wet));
+    d.iFreeze = K.freeze;
     d.ilo = r2(0.4 * r()); d.iw = 0.25;
     d.up = r() < 0.5;
     if (!d.tweak || !Object.keys(d.tweak).length) {
@@ -153,7 +172,7 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     const cands = [];
     for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i));
     for (let k = 0; taste.liked.length && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i); if (v) cands.push(v); }
-    const ok = cands.map((d) => complete(d, r, recent)).filter((d) => !taste.disliked.includes(coreId(d)));
+    const ok = cands.map((d) => complete(d, r, recent, prev)).filter((d) => !taste.disliked.includes(coreId(d)));
     // lean toward what was liked, never only toward it: the best is at most e^LEAN times the worst
     return weighted(ok.length ? ok : cands, (d) => Math.exp(LEAN * learned(d)), r);
   }
@@ -179,8 +198,8 @@ export function createLife({ seed = 1, votes = [] } = {}) {
     /** The interlude after scene i, `t` seconds into its blend. */
     inInterlude(i, t) {
       const s = scene(i), x = t / s.blend;
-      return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: 'interlude', wet: s.iWet * swell(x),
-        value: fromT(s.iParam, positionAt(s.iMove, t * 1000)) };
+      return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: `${s.iKind} interlude`, wet: s.iWet * swell(x),
+        value: fromT(s.iParam, positionAt(s.iMove, t * 1000)), extra: s.iFreeze ? { freeze: swell(x) } : {} };
     },
   };
 }
