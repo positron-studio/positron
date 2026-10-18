@@ -1,5 +1,6 @@
 ## Open
 
+- **Can Väin's app play the positron cast?** (2026-10-18). Asked: *"can v2in play https://cast.positron.studio/listen/preview in their app if they want to?"*, then *"check their app code could they play positron cast. use m1?"*. Read their app (~/personal/radio1965), and try it on the M1 if that settles it.
 - **/radio/cast/: live only, everywhere; copy, mix and grains archived** (2026-10-18). Asked: *"rm copy mix and grains, arvhice. keep live only"*. Every station plays live (needs the server version); the old page with the three modes kept in archive/.
 - **/radio/cast/: fix what the votes said** (2026-10-18). Asked: *"fix feeback issues"*. The ducks (*"choir like..then stupid bunch of ducks"*: Shimmer's octave-up grains scattering) and the nervous elements (*"bit nervous elements here and there"*).
 - **/radio/cast/: live on the server** (2026-10-18). Asked: *"do server version"*. The life, the layers, the ghosts, the pulse and the heard key in the container, so a station plays live on air with the page closed; the page votes on a station's scenes as on local's.
