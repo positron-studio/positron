@@ -422,3 +422,12 @@ included), `/sync/` 50 against 29. Left behind in these files, found on the way:
 "shared clock" assert could not fail; `replay`'s headline "cues land within
 250 ms" never ran in the suite; `take` ran 6 of its 14 checks; `cues` and `jam`
 joined the relay on every visit. No redirects; all seven slugs 404.
+
+## radio-cast-modes-index.html
+
+`/radio/cast/` as it was on 2026-10-18 before *"rm copy mix and grains, arvhice. keep live only"*: the
+station page with the three older modes (copy plays files whole, mix tunes an AM dial between two
+files, grains puts the mix through the grain ring) and their controls (the clock toggle, tune, dwell,
+blend, the patch picker and four grain sliders) beside `live`. The engines keep copy, mix and grains
+internally; only the page and the stations stopped offering them. The page is still served at
+https://positron.studio/radio/cast/ in its live-only form.
