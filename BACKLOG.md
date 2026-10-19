@@ -1,4 +1,5 @@
 ## Open
+- **cast: a UI to prelisten and scrub a render** (2026-10-19). Asked: *"Note inneed ui to prelisten / scrib etc"*. A page that plays a rendered 15 min MP3 with its timeline from the gate (scenes, hand-overs, gaps, loudness), click to seek, versions side by side to choose from.
 - **cast: a quality gate before any sound goes on air** (2026-10-19). Asked: *"What next"*, then *"Save to handoff. Maybe 15min is ok?"*. Render 15 min in Docker, measure loudness, peaks, gaps, scene lengths and hand-overs, hand the owner the MP3; deploy only on their yes. HANDOFF.md has the order.
 - **cast: a hand-over lined up 103 s off** (2026-10-19). 17:36:51Z b to a: alignErrMs -102964.9, settled -230699.6, -101658.6, -102964.9 (three reads, never within 10 ms), 0 listeners moved. The twin started far from the station's position and was handed over anyway.
 - **cast: the owner's stream is cut on every second switch unless it comes through shout** (2026-10-19). shout.positron.studio/preview showed 0 listeners at 17:46Z, so the owner's player was on cast.positron.studio/listen/preview directly.
