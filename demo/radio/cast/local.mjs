@@ -59,7 +59,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
   const ctl = { ...DEFAULTS };
   const g = { patch: PATCHES[0].name, values: { ...RING_DEFAULTS, ...valuesOf(PATCHES[0]) }, mix: 1 };
   const mix = createMix(SLOTS, WHISTLE_SOFT);
-  let mode = 'mix', ctx = null, graph = null, master = null, analyser = null, gates = null, toGrains = null, noise = null;
+  let mode = 'mix', wetAmt = 1, ctx = null, graph = null, master = null, analyser = null, gates = null, toGrains = null, noise = null;
   let ghostOut = null, ghostP = null, sc = null, tunerAnalyser = null, onGrain = null;
   let engine = null, eng = null, booting = null, grains = 0, softenReady = null, softenOk = false;
   let items = [], nextIdx = 0, pending = null, playing = false, timer = 0;
@@ -174,8 +174,10 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     if (!ctx) return;
     const t = now(), on = (x) => (playing ? x : 0);
     gates.copy.gain.setTargetAtTime(on(mode === 'copy' ? 1 : 0), t, 0.005);
-    gates.mix.gain.setTargetAtTime(on(mode === 'mix' || (mode === 'grains' && !eng) ? 1 : 0), t, 0.005);
-    gates.grains.gain.setTargetAtTime(on(mode === 'grains' && eng ? 1 : 0), t, 0.005);
+    // in grains the page's wet and dry crossfades the tuner straight against the ring and its layers, linearly,
+    // because the two carry the same file and an equal-power curve would lift the middle by 3 dB
+    gates.mix.gain.setTargetAtTime(on(mode === 'mix' || (mode === 'grains' && !eng) ? 1 : mode === 'grains' ? 1 - wetAmt : 0), t, 0.02);
+    gates.grains.gain.setTargetAtTime(on(mode === 'grains' && eng ? wetAmt : 0), t, 0.02);
     slots.forEach((s, j) => s.copy.gain.setTargetAtTime(j === from ? 1 : 0, t, 0.005));
     if (eng) engine.run(playing && mode === 'grains');
     if (playing && mode === 'grains' && !eng) bootGrains();
@@ -194,6 +196,8 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     get ctx() { return ctx; },
     get analyser() { return analyser; },
     get tunerAnalyser() { return tunerAnalyser; },
+    /** The ghost player's own output, before the layers: what a visiting file sounds like as it arrives. */
+    get ghostOut() { return ghostOut; },
     /** Called with every grain the ring fires (`{ pos, ago, dur, rate }`), for a picture. */
     set onGrain(fn) { onGrain = fn; },
     /** The scsynth the ring runs in, once grains has booted: the layers run beside it. */
@@ -249,6 +253,8 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
       route();
       ctx.suspend().catch(() => { /* already */ });
     },
+    /** In grains, how much is the ring and its layers (1) against the tuner straight (0); clamped. */
+    wet(v) { if (v === undefined) return wetAmt; wetAmt = Math.max(0, Math.min(1, Number(v) || 0)); if (playing) route(); return wetAmt; },
     /** copy, mix or grains; heard on the next render quantum (grains boots once, about a second). */
     mode(md) { if (!MODES.includes(md)) return null; mode = md; if (playing) { tick(); route(); } return mode; },
     /** tune, drift, dwell, blend, noise: clamped; a hand on tune holds the dial, as on the container. */
