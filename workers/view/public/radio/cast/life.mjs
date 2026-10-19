@@ -271,14 +271,18 @@ export const MAX_DROP = 0.06;
 /** Echo repeats got repetitive fast (2026-10-19): no echo above ECHO_CAP, the hand never moves it, and the patches made of it are out. */
 export const ECHO_CAP = 0.35, ECHOEY = ['Fog', 'Cathedral', 'Tide', 'Dub', 'Long dub', 'Reverse dub'];
 /** The ways out grammar 2 no longer takes: an echo wash, and a tape stop that drops the voice in pitch. */
-export const NOT_OUTS = ['echowash', 'tapestop'];
+export const NOT_OUTS = ['echowash', 'tapestop', 'smear'];
+/** The room never past these: a big room was the wash (*"Wash sound so anmoying"*, 2026-10-19). */
+export const ROOM_MAX = 0.35, ROOM_SIZE_MAX = 0.7;
 /** No chopped voices (*"So many stuttering vocals"*, 2026-10-19, on Rain at 0.12 s): grains at least MIN_GRAIN long, at least
  *  MIN_OVERLAP sounding at once, and the hand never moves the controls that chop (NO_MOVE). */
 export const MIN_GRAIN = 0.35, MIN_OVERLAP = 2, NO_MOVE = ['echo', 'size', 'density'];
 /** Seconds a scene stays dry before its effect, so the listener hears the original first. */
 export const DRY_S = [8, 20];
 /** A scene's dwell by what its file is: music and concerts longer, home, field and test recordings shorter. */
-export const KIND_DWELL = { music: 1.6, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
+export const KIND_DWELL = { music: 1.2, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
+/** No scene longer than this (*"Going forever"*, a 3.5 min Reverse swell, 2026-10-19). */
+export const MAX_DWELL = 150;
 /** A test recording (its title says test) is a short visit. */
 /** The choir (layers.mjs lvoc) on a file that is not music, this often: speech sung on a chord in the scene's key. */
 export const VOC_ODDS = 0.6, VOCS = ['fifths', 'minor7', 'major'];
@@ -565,7 +569,9 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // a file with clicks in it (`soft`, the soften stage's files: Kalle, Kalle 2, Driving along) gets long
     // smooth grains only: echoes, chops and glitches repeat its clicks. why: lessons/workers-cast.md#soft-files
     if (ctx.soft && SHARP_TYPES[type]) type = SHARP_TYPES[type];
-    const T = ctx.soft ? { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] } : TYPES[type];
+    // every file plays the smooth families only, as a clicking file always did: tape, cloud and reverse textures rattled
+    // (*"Messy now like kettle rattling"*, 2026-10-19)
+    const T = { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] };
     const cands = [];
     for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i, T));
     for (let k = 0; taste.liked.length && !prev?.from && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i, T); if (v) cands.push(v); }
@@ -578,7 +584,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (ctx.test) d.test = true;
     d.dwell = ctx.test ? TEST_DWELL : Math.min(600, Math.round(d.dwell * (KIND_DWELL[kind] ?? 1)));
     // never past the file: at its end the effects fell away and the bare recording played (*"effects just dropped off"*)
-    if (!ctx.test) d.dwell = Math.max(MIN_DWELL, d.dwell);
+    if (!ctx.test) d.dwell = Math.min(MAX_DWELL, Math.max(MIN_DWELL, d.dwell));
     if (Number(ctx.seconds) > 0) d.dwell = Math.max(15, Math.min(d.dwell, Math.round(Number(ctx.seconds) - FILE_TAIL_S)));
     // the file dry first, DRY_S seconds, so the listener knows the original before the effect arrives
     // a clicking file is never heard bare (*"this original glitching ... is pretty bad"*)
@@ -600,7 +606,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (kind !== 'music') d.layers = { ...d.layers, harm: 'none' };
     // the choir on talk and field recordings: it is the scene's effect, so no harmonizer or ghost beside it
     { const vr = rng(seed * 4513 + i * 23); d.layers = { ...d.layers, voc: kind !== 'music' && !ctx.test && vr() < VOC_ODDS ? pickOne(VOCS, vr) : 'none' };
-      if (d.layers.voc !== 'none') d.layers = { ...d.layers, harm: 'none', ghost: 'none', room: Math.max(d.layers.room ?? 0.3, 0.55), roomSize: Math.max(d.layers.roomSize ?? 0.7, 0.9) }; }
+      if (d.layers.voc !== 'none') d.layers = { ...d.layers, harm: 'none', ghost: 'none' }; }
     // one effect at a time over the granulator, so it can be named: of the drone, harmonizer and ghost, one stays
     { const on = ['drone', 'harm', 'ghost'].filter((k) => d.layers[k] && d.layers[k] !== 'none');
       // the section's drone is the trick it holds across its scenes, so a drone stays when there is one
@@ -616,6 +622,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       if (!d.layers.bpm) d.layers = { ...d.layers, bpm: Math.round(70 + 40 * a()), pulseOn: 'grains' };
       d.set = { density: r2((d.layers.bpm / 60) * f.sub * 1000) / 1000, time: Math.round((f.beats * 60 / d.layers.bpm) * 1000) / 1000 };
     }
+    // a small room, never a wash
+    d.layers = { ...d.layers, room: Math.min(d.layers.room ?? 0.3, ROOM_MAX), roomSize: Math.min(d.layers.roomSize ?? 0.7, ROOM_SIZE_MAX), droneLevel: d.layers.drone === 'freeze' || d.layers.drone === 'both' ? r2((d.layers.droneLevel ?? 0.4) * 0.5) : d.layers.droneLevel };
     // a voice at its own pitch, and no long echo
     { const pv = patchValues(d.patch); if (pv.pitch < 1 || pv.echo > ECHO_CAP) d.set = { ...(d.set || {}), ...(pv.pitch < 1 ? { pitch: 1 } : {}), ...(pv.echo > ECHO_CAP ? { echo: ECHO_CAP } : {}) }; }
     // a brighter floor outside the low scene types
