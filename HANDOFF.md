@@ -1,3 +1,52 @@
+# Handoff, 2026-10-19, session 84: the cast's sound reworked by ear on LOCAL, stations run 7 days, new archive files play next
+
+## Where it is right now
+
+- **Site: BUILD `3cbe32eb-123246-2412`**, confirmed on the edge. **Cast worker `e2a72e3d`.** Last commit `bc72255d`. GitHub: not pushed (179 commits ahead; the personal account switch in CLAUDE.md). Counted 12:40Z: 63 demo rows, 62 built; 138 plans.
+- **Nothing is casting.** All six stations read `playing:false` at 12:40Z. No station was on air during any of today's deploys.
+- **Every start stops 7 days on**, one constant on every station (`CAP_MS`, was 2 h); `node workers/cast/extend.mjs <station> <hours>` moves an on-air stop (up to 14 days). MEASURED on preview: a start read `until` 7.000 days out, but only from about 6 min after the deploy (two starts 22 s and 56 s after it still got 2 h: Durable Objects take a deploy eventually).
+- The owner listens on LOCAL at http://127.0.0.1:8890/radio/cast/ (dev server, the working tree) and on https://positron.studio/radio/cast/. A deploy is asked for in words ("deploy"); several were stopped mid-command today, and a stopped command had sometimes already committed: check `git log` before redoing one.
+
+## The owner's rules for the sound now (read before touching life.mjs or layers.mjs; BACKLOG has the words)
+
+- Never a voice pitched up (*"duck voices...not good, not respectful for authors"*): `MAX_PITCH` 1, harmonizer voicings all under the voice.
+- No stuttering: no rhythm scenes (they play as tape builds), no rhythmic or glitch patches, no pulse. Owner after: *"not hearitng , stuter is fine"*.
+- Not metallic: **no resonators at all** in grammar 2 (three complaints); the harmonizer smeared and low-passed.
+- Not muddy: grains under 0.74 only in deep, breath and coda scenes; elsewhere tone at least 1.8 kHz, dark 1.2 kHz.
+- The composition sounds as the page slider did at 0.4 (*"on 0.4 its more toreable"*): granulator at most 0.8 of the voice (`WET_CAP`), layers at 0.8 (`LAYER_SCALE`).
+- Effects do not vanish at a scene change but do breathe out: layer floor `CARRY` 0.2 (0.45 was *"tiring"*).
+- Drones are a trick: in 30 % of sections, 3 dB down (`DRONE_TRIM`), half following the scene level (`dgain`).
+- Pitch moves glide like a voice: three Lags in a row (`glide`), drone 8 s a stage.
+- Ghosts: audible over the bed (own path past the room, the room ducks), an octave down or as they are (no fourth: *"key conflict"*), band-pass colour only, start in the middle half of the visiting file, stay 16 to 30 s, swell in and out on S curves (about 7 s).
+- No clipping: the layers' room limited at 0.4 (0.25 while a ghost visits), the ghost at 0.3, local has a limiter last. The ring alone peaks near 0.43.
+- Wet, but not too much: scene soak -0.7 to 0.9 (one scene in seven drier), dry openings halved; a push lifts the layers toward 0.75 with no boost.
+
+## What landed (all deployed)
+
+- **/radio/cast/ page**: the station head is the header of the wave panel; local has play, previous and next scene as icons and a three-point mix slider (dry, as composed, processing only); the wave is in over out, the out half cut into bands by each part's share; a visiting ghost file drawn in the in half with its title; the wave fed from the audio thread (no holes when the tab is in the background). Drone pitch dots built then removed on request.
+- **Playlist on air** (`Caster.freshTick`, `lessons/workers-cast.md#fresh`, `workers/cast/fresh-test.mjs` 10/10): the feed every 30 s while playing (edge cache 30 s); new files play next, newest first; gone files leave the queue and the program (the one playing finishes; a broken download ends it early and the blend starts); a quiet hour brings a recent arrival round every 30 min; test recordings play (*"let the team handle it"*).
+- **Variety step 1** (`plans/plan-cast-variety.md`): four spectral patches (Vapour, Ash, Glow, Sand), a patch and family memory (16 scenes), a layer-combination memory, pan and detune moved a third as often. With stutter and resonators gone: top patch about 4.3 %, p10 gap 8, gaps of 2 under 1 %.
+- Plans written and relayed in full: `plans/plan-cast-cheaper.md` (a week on Cloudflare about $9.30; pre-render plus a `lite` playout $0.6 to $7 a week; the eccm HLS station cannot be Väin's source), `plans/plan-cast-variety.md` (what repeats, fourteen effect ideas, a bass section, next steps).
+- Tests at the end: life 101/101, layers 16/16, live 27/27, local 26/26, fresh 10/10, page selfcheck 36/36 (it was 32/36 for months because of the test-recording filter).
+
+## Learned the hard way today
+
+- **A cast deploy reaches a station's Durable Object minutes later**: check a change to how a station starts about 6 minutes after the deploy, not at once.
+- **A stopped command may have run**: twice a commit or an edit landed before the stop; once a half-applied python edit left a drier-scene fix unapplied for hours (it could drive the layer level negative). Read `git log` and grep the file before redoing.
+- **A diagnosis needs a check before it ships**: the "nervous siren" was blamed on a 14 s hand loop; life-test's one-movement check proved the hand makes one slow movement per scene, and the change was reverted. The likelier source, the drone's wandering saw, is quieter now; the siren is open until heard.
+- **The jack-stdout tap delivers s16**: clipping inside scsynth cannot be undone in node; limits belong in the SuperCollider programs.
+- **LOCAL does not read the feed while it plays** (asked the owner; not built).
+
+## Open (BACKLOG.md has the words)
+
+- The four new patches' levels are not measured (amps a first guess).
+- The siren: listen for it again.
+- LOCAL checking the feed while it plays.
+- Variety plan next steps: a different start point per visit, a reshuffle each loop, a final limiter on the whole sum (P1), the breathing filters to replace the resonators, bass (`lsub`).
+- Units on the right of the wave (a fixed dB scale); the wave rescaling.
+- The scene in the ICY title; the ice-name is `positron cast` and the description the first file's title, set once per connection (the Väin app reads `server_name` and `server_description` into its live event; read from ~/personal/radio1965/server/icecast_on_connect.sh).
+- Push to GitHub.
+
 # Handoff, 2026-10-18, session 83: the Väin cast becomes a living piece, goes on air on radio1965 with the Väin team listening
 
 ## Where it is right now
