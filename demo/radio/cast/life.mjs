@@ -46,8 +46,8 @@ export const MOVABLE = {
 };
 /** A control is not moved again until this many others have been (scenes and interludes count). */
 export const FRESH = 4;
-/** Grammar 2's: echo is no longer a control the hand moves, which leaves too few to hold four apart. */
-export const FRESH2 = 3;
+/** Grammar 2's: echo, size and density are not moved (NO_MOVE), which leaves a choir patch three controls. */
+export const FRESH2 = 2;
 /**
  * The layers a scene may carry over the file (plans/plan-cast-reinterpret.md section 2): a drone bed, a
  * resonator bank in the scene's key, harmonizer voices in the ring, ghosts of the next or previous file,
@@ -271,6 +271,9 @@ export const MAX_DROP = 0.06;
 export const ECHO_CAP = 0.35, ECHOEY = ['Fog', 'Cathedral', 'Tide', 'Dub', 'Long dub', 'Reverse dub'];
 /** The ways out grammar 2 no longer takes: an echo wash, and a tape stop that drops the voice in pitch. */
 export const NOT_OUTS = ['echowash', 'tapestop'];
+/** No chopped voices (*"So many stuttering vocals"*, 2026-10-19, on Rain at 0.12 s): grains at least MIN_GRAIN long, at least
+ *  MIN_OVERLAP sounding at once, and the hand never moves the controls that chop (NO_MOVE). */
+export const MIN_GRAIN = 0.35, MIN_OVERLAP = 2, NO_MOVE = ['echo', 'size', 'density'];
 /** Seconds a scene stays dry before its effect, so the listener hears the original first. */
 export const DRY_S = [8, 20];
 /** A scene's dwell by what its file is: music and concerts longer, home, field and test recordings shorter. */
@@ -398,7 +401,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   /** The patches a scene type may play: its families, the patch's own types and lengths, under the overlap cap. */
   const poolFor = (T) => NAMES.filter((n) => { const f = patchInfo(n); return T.fam.includes(familyOf(n)) && (!f?.types || f.types.includes(T.name))
     && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP && patchValues(n).pitch <= MAX_PITCH
-    && patchValues(n).drop <= MAX_DROP && !ECHOEY.includes(n); });
+    && patchValues(n).drop <= MAX_DROP && !ECHOEY.includes(n) && patchValues(n).size >= MIN_GRAIN && overlapOf(n) >= MIN_OVERLAP; });
   const lensOf = (T, patch, notLen) => {
     const f = patchInfo(patch), ok = (k) => k !== notLen && !NOT_LEN[familyOf(patch)]?.includes(k) && (!f?.lens || f.lens.includes(k));
     const ks = T.lens.filter(ok);
@@ -407,7 +410,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   };
   function fresh(r, prev, recent, i, T) {
     // a patch with at least two controls not moved lately, one for the scene and one for its interlude
-    const free = (n) => movableFor(n).filter((p) => !recent.includes(p) && !(T && p === 'echo')).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
+    const free = (n) => movableFor(n).filter((p) => !recent.includes(p) && !(T && NO_MOVE.includes(p))).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
     const P0 = pool.filter(free).length ? pool.filter(free) : pool;
     // grammar 2 remembers: a patch heard g scenes ago weighs 1 - e^(-g/16), its family a quarter one scene back and
     // 0.6 two back, shared over the family's members; grammar 1 keeps its plain draw (life-g1.json)
@@ -416,7 +419,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       return (1 - Math.exp(-agoOf((x) => x.patch === n) / 16)) * (fa <= 1 ? 0.25 : fa <= 2 ? 0.6 : 1) / P0.filter((m) => familyOf(m) === f).length; };
     const patch = T ? weighted(P0, memo, r) : pickOne(P0, r), can = movableFor(patch);
     // and moves pan and detune, which are barely heard, a third as often as the rest
-    const can2 = T ? can.filter((p) => p !== 'echo') : can, canP = can2.filter((p) => !recent.includes(p)).length ? can2.filter((p) => !recent.includes(p)) : can2;
+    const can2 = T ? can.filter((p) => !NO_MOVE.includes(p)) : can, canP = can2.filter((p) => !recent.includes(p)).length ? can2.filter((p) => !recent.includes(p)) : can2;
     const param = T ? weighted(canP, (p) => (p === 'pan' || p === 'detune' ? 1 / 3 : 1), r) : pickOne(canP, r);
     const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(T ? lensOf(T, patch, same ? prev.len : null) : lensFor(patch, same ? prev.len : null), r);
     const centre = toT(param, patchValues(patch)[param] ?? fromT(param, 0.5));
@@ -457,9 +460,11 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       d.iKind = can.length ? weighted(can, odds, r) : 'dissolve';
     }
     delete d.notKind;
-    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch).filter((p) => !T || p !== 'echo');
+    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch).filter((p) => !T || !NO_MOVE.includes(p));
     const iCan = can.filter((p) => ![...recent, d.param, d.notI].includes(p)), iAny = can.filter((p) => p !== d.param);
-    d.iParam = K.param ?? pickOne(iCan.length ? iCan : iAny.length ? iAny : PARAMS.filter((p) => p !== d.param), r);
+    // grammar 2 has fewer controls to move: with none fresh, at least not the one moved last
+    const iNear = T ? iAny.filter((p) => p !== recent.at(-1)) : [];
+    d.iParam = K.param ?? pickOne(iCan.length ? iCan : iNear.length ? iNear : iAny.length ? iAny : PARAMS.filter((p) => p !== d.param), r);
     delete d.notI;
     d.blend = Math.round(within(K.blend));
     d.iNoise = r2(within(K.noise));
