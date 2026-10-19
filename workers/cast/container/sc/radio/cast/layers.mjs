@@ -49,6 +49,12 @@ const ease = (u) => u * u * (3 - 2 * u);
 /** The layers' level at `x` of a scene (0 to 1): silent to 12 %, rising to 30 %, falling from 80 % to silent at 95 %. */
 /** The layers follow the scene's arc: silent through its dry share, up over 0.18, down from 0.85 to 0.97. */
 export const layerLevel = (x, dry = 0.12, rise = 0.18, hold = 0.85) => (x < dry ? 0 : Math.min(ease(Math.min(1, (x - dry) / rise)), ease(Math.min(1, Math.max(0, (0.97 - x) / Math.max(0.01, 0.97 - hold))))));
+/** The layers' level at `x` of scene `s`: its arc and intensity, pushed toward full by its soak (and by `more`, the
+ *  page's own slider), and up to about 8 dB louder at full: the drivers on the page and in the container call this. */
+export const sceneLevel = (x, s, more = 0) => {
+  const p = 1 - (1 - (s?.soak ?? 0)) * (1 - more), lv = layerLevel(x, s.dry, s.rise, s.hold) * (0.6 + 0.4 * (s.intensity ?? 1));
+  return (lv + (1 - lv) * p) * (1 + 1.5 * p);
+};
 /** The key is heard in these seconds of a scene, over these frequencies: a chroma of what the tuner makes. */
 export const KEY_FROM = [1, 5], KEY_HZ = [60, 1000];
 /** A frequency's pitch class, 0 C to 11 B, on BASE_HZ. */

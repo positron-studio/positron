@@ -248,6 +248,15 @@ export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) /
 /** Grammar 2 plays no patch pitched above this. Asked: "annoying hipitch", then no grain plays a voice above where it was spoken,
  *  *"duck voices...not good, not respectful for authors"* (2026-10-19, was 1.5). */
 export const MAX_PITCH = 1;
+/** How wet a grammar 2 scene is drawn on the range the page's slider covers from "as composed" to "processing only",
+ *  leaning wet: *"use this range for you scenes we have in dry/wet. prefer more wetter"* (2026-10-19). */
+export const SOAK = [0.25, 0.9];
+/** A scene's layers at full soak: every layer made from the file sounds (the held file, resonators, the harmonizer on
+ *  the low triad), in a bigger room; `drone: false` keeps a scene that plays without one without one. */
+export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
+  ...(drone ? { drone: L.drone === 'key' || L.drone === 'both' ? 'both' : 'freeze', droneLevel: Math.max(L.droneLevel ?? 0.3, 0.5) } : {}),
+  res: L.res === 'none' ? 'fifths' : L.res, resWet: Math.max(L.resWet ?? 0, 0.5), harm: L.harm === 'none' ? 'triad' : L.harm,
+  room: Math.max(L.room ?? 0.3, 0.6), roomSize: Math.max(L.roomSize ?? 0.7, 0.9) } : L);
 /** The share of sections that carry a drone. */
 export const DRONE_SHARE = 0.4;
 /** The families that smooth a clicking file, and what its sharp scene types become. */
@@ -512,6 +521,10 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.layers = typeLayers(d.layers, Tt, rng(seed * 2741 + i * 59));
     // the section's drone, or none; a storm and a rhythmic scene play without one
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone) };
+    // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
+    // its drone stays the section's, because a drone is one trick
+    d.soak = r2(SOAK[0] + (SOAK[1] - SOAK[0]) * (1 - (1 - rng(seed * 7919 + i * 13)()) ** 2));
+    if (d.soak >= 0.5) d.layers = soakLayers(d.layers, { drone: false });
     // a locked patch plays on the scene's tempo: so many grains a beat, its echo so many beats
     const f = patchInfo(d.patch);
     if (f?.sub) {
@@ -586,8 +599,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     scene, defOf, taste,
     /** Scene i, `t` seconds after its file landed: what the granulator does and the hand holds. */
     inScene(i, t) {
-      const s = scene(i), x = t / s.dwell;
-      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2, s.rise, s.hold),
+      const s = scene(i), x = t / s.dwell, w = s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2, s.rise, s.hold);
+      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.soak ? w + (1 - w) * s.soak : w,
         value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)), extra: freezesAfterDry(s.patch) ? { freeze: x > (s.dry ?? 0.2) ? 1 : 0 } : {} };
     },
     /** The interlude after scene i, `t` seconds into its blend. */
