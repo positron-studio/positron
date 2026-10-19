@@ -123,7 +123,7 @@
   const STATIONS = ['local', 'preview', 'radio1965', 'user1', 'user2', 'user3', 'user4'];
   const LOCAL = 'local';
   // preview through shout, which redials across a cast deploy instead of ending the stream
-  const LISTEN = { preview: `${SHOUT}/cast-preview`, radio1965: `${SHOUT}/radio1965` };
+  const LISTEN = { preview: `${SHOUT}/preview`, radio1965: `${SHOUT}/radio1965` };
   const listenUrl = (t) => LISTEN[t] || null;
   // per channel, whether Väin's own stream is on it (GET /live, their livestream events)
   let live = {};

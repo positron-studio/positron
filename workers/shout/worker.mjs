@@ -31,11 +31,13 @@ const STATIONS = {
   'ida-helsinki': `${IDA}/helsinki/stream`,
   // Our own cast's preview, held here so a cast deploy (which restarts the cast's objects and swaps its container)
   // never ends a listener: when the cast's stream ends, the tee dials again and the listener stays connected.
-  'cast-preview': 'https://cast.positron.studio/listen/preview',
+  preview: 'https://cast.positron.studio/listen/preview',
 };
 /** Origins that are ours and come back after a deploy: the tee redials them for REDIAL_S rather than dropping listeners. */
 const REDIAL = new Set(['https://cast.positron.studio/listen/preview']);
 const REDIAL_S = 90;
+/** Older names for a mount, served by the same object. */
+const ALIAS = { 'cast-preview': 'preview' };
 
 // Everything a client needs to read about the stream, including the ICY fields
 // that only exist on this protocol. Without expose-headers a browser sees the
@@ -175,14 +177,14 @@ export default {
     // `GET /tee/<id>`: listeners served and connections held upstream, which must be 1.
     // why: lessons/workers-shout.md#tee
     if (url.pathname.startsWith('/tee/')) {
-      const who = url.pathname.slice(5).replace(/\.mp3$/, '');
+      const who0 = url.pathname.slice(5).replace(/\.mp3$/, ''), who = ALIAS[who0] || who0;
       if (!STATIONS[who]) return new Response('no such station', { status: 404, headers: cors() });
       const room = env.MOUNT.get(env.MOUNT.idFromName(who));
       const r = await room.fetch('https://mount/stats');
       return new Response(r.body, { headers: cors({ 'content-type': 'application/json' }) });
     }
 
-    const id = url.pathname.replace(/^\/+/, '').replace(/\.mp3$/, '');
+    const raw = url.pathname.replace(/^\/+/, '').replace(/\.mp3$/, ''), id = ALIAS[raw] || raw;
     const upstream = STATIONS[id];
     if (!upstream) return new Response('no such station', { status: 404, headers: cors() });
 
