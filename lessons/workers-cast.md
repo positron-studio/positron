@@ -18,7 +18,8 @@ Then "Yed" to a 2 h self-stop per station shown on the page with a way to extend
   measured from `startedAt + 2 h`. The alarm is set at `min(now + 30 s, until)`, never in the past.
 - `{cmd:'extend', ms}` sets `until = now + ms`, clamped to 15 min .. 14 days; off air it is refused. 14 days since
   2026-10-19, asked for a 3 to 4 day run on radio1965 (*"i need to run for 3-4 days"*, *"it can be more days"*), was 12 h; the page has no
-  extend, `node workers/cast/extend.mjs <station> <hours>` sends it. A start still stops at 2 h unless extended.
+  extend, `node workers/cast/extend.mjs <station> <hours>` sends it. A start stops at 2 h unless extended, except radio1965, which stops 7 days after a start since 2026-10-19
+  (`RADIO1965_CAP_MS`), asked as *"i can not do it at that time. i need it fixed now"*: nobody is there to extend it.
 - `play` takes `capMs` (60 s .. 14 days) through the keyed socket only, so a check can start a station that ends
   itself in a minute without a lower floor on `extend`.
 - An alarm that finds a wanted session for a target that no longer exists stops it, so removing a target
