@@ -108,6 +108,8 @@ export const PROGRAMS = {
   var b = PitchShift.ar(x, 0.3, ${glide('\\r1.kr(1.5)', 5)}, 0.01, 0.12);
   var c = PitchShift.ar(x, 0.3, ${glide('\\r2.kr(2)', 5)}, 0.01, 0.12);
   LPF.ar(Pan2.ar(a, sp * -1) + Pan2.ar(b, 0) + Pan2.ar(c, sp), 3500) * amp * 0.5 }`,
+  // a visit is heard as a voice from elsewhere, not a tint: its own voice whole, the colour under it, a drier room,
+  // near the middle (*"cpuld not hear oriental"*, 2026-10-19)
   // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
   // on the root or four resonators, into a big room of its own, drifting wide
   lghost: `{ var amp = Lag.kr(\\amp.kr(0), 1.5);
@@ -116,23 +118,25 @@ export const PROGRAMS = {
   var bp = BPF.ar(sh, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.5) * 3;
   var cb = CombC.ar(sh * 0.3, 0.1, 1 / \\root.kr(110), 3);
   var rs = Mix([${fs(GHOST_N).map((f) => `Ringz.ar(sh * 0.03, ${f}, 1.5)`).join(', ')}]);
-  var s = (sh * 0.5) + (bp * \\wb.kr(1)) + (cb * \\wc.kr(0) * 0.5) + (rs * \\wr.kr(0) * 0.12);
-  var w = FreeVerb.ar(LeakDC.ar(s), 0.55, 0.92, 0.4);
-  Pan2.ar(Limiter.ar(w, 0.5, 0.01) * amp, LFNoise2.kr(0.15) * 0.9) }`,
+  var s = sh + (bp * \\wb.kr(1)) + (cb * \\wc.kr(0) * 0.25) + (rs * \\wr.kr(0) * 0.06);
+  var w = FreeVerb.ar(LeakDC.ar(s), 0.35, 0.92, 0.4);
+  Pan2.ar(Limiter.ar(w * amp, 0.3, 0.01), LFNoise2.kr(0.15) * 0.6) }`,
 };
 // The room's ceiling is 0.4: the ring adds its own output beside it on the same bus with no limiter after the sum,
 // and the ring peaks near 0.43 (-7.4 dBFS), so the two stay under full scale. At 0.9 a soaked scene clipped:
-// *"too loud, clips"* (2026-10-19).
-export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2);
+// *"too loud, clips"* (2026-10-19). A ghost goes straight to the output under its own 0.3, and while it visits the
+// room ducks (`duck`) and its ceiling drops to 0.25 (`ceil`), so a visit is heard over the bed and the sum holds:
+// *"can not hear ghost"* (2026-10-19).
+export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * Lag.kr(\\duck.kr(1), 1.5);
   var l = (In.ar(${LAYER_BUS}, 1) * g) + In.ar(${DRONE_BUS}, 1);
   var r = (In.ar(${LAYER_BUS + 1}, 1) * g) + In.ar(${DRONE_BUS + 1}, 1);
   var w = FreeVerb2.ar(l, r, \\mix.kr(0.3), \\size.kr(0.7), 0.5);
-  Limiter.ar(w, 0.4, 0.01) }`;
+  Limiter.ar(w, Lag.kr(\\ceil.kr(0.4), 1.5), 0.01) }`;
 
 /** Compile every program; `bad` lists any the compiler refused, with why. */
 export function compileLayers() {
   const out = {}, bad = [];
-  for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: DRONES.includes(name) ? DRONE_BUS : LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
+  for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: name === 'lghost' ? 0 : DRONES.includes(name) ? DRONE_BUS : LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
   const room = compile(ROOM, { name: 'lroom', bus: 0 });
   if (room.ok) out.lroom = room.bytes; else bad.push(`lroom: ${room.message}`);
   return { bytes: out, bad };
@@ -176,7 +180,9 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
     },
     /** A ghost rising (`on`) or fading; its level is the scene's, its pitch picked per visit (GHOST_SHIFTS). */
     ghost(on, shift = GHOST_SHIFTS[Math.floor(Math.random() * GHOST_SHIFTS.length)]) {
-      set('lghost', on && now?.ghost !== 'none' ? { amp: now.ghostLevel * 4.5, shift } : { amp: 0 });
+      const visit = on && now?.ghost !== 'none';
+      set('lghost', visit ? { amp: now.ghostLevel * 9, shift } : { amp: 0 });
+      set('lroom', visit ? { duck: 0.45, ceil: 0.25 } : { duck: 1, ceil: 0.4 });
     },
     /** One pulse hit on the resonators: opens them for `len` seconds. */
     hit(len = 0.3) { set('lres', { hit: 1, hitlen: len }); setTimeout(() => set('lres', { hit: 0 }), 20); },

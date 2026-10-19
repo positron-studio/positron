@@ -64,6 +64,10 @@ const CHANNELS = ['radio1965', 'user1', 'user2', 'user3', 'user4'];
 // Their events API, asked only when a page or a command needs it: one answer per colo per EVENTS_S,
 // and one request per isolate however many viewers ask at once. why: lessons/workers-cast.md#live
 const EVENTS_S = 15, FEED_S = 60;
+// On air the feed is read every FRESH_EVERY_MS: a file new to it plays next (newest first, a burst all of them), one
+// gone from it leaves the queue and the program (the one playing finishes first). After QUIET_MS with nothing new, an
+// arrival of the last RECENT_MS comes round again every REVISIT_MS. why: lessons/workers-cast.md#fresh
+const FRESH_EVERY_MS = 2 * 60_000, QUIET_MS = 60 * 60_000, RECENT_MS = 12 * 3600_000, REVISIT_MS = 30 * 60_000;
 let eventsInFlight = null;
 async function events(ctx) {
   const cache = caches.default, key = new Request('https://cast.positron.studio/__events');
@@ -162,11 +166,9 @@ export default {
  * Feed ids for a program of `n`: each file weighted by fileWeight of its votes (keyed by title, as the page's
  * tasteOf is), none at weight 0, a plain shuffle when no file has a vote. The page's startIds, here.
  */
-/** A title that is one of Väin's test recordings. */
-export const TEST_FILE = /\btest\b/i;
 export function pickFiles(items, votes, n, rand = Math.random) {
-  // Väin's test recordings (Audio test, Clip test) are short or silent: a hole on air, never in a program
-  const fs = tasteOf(votes).file, pool = items.filter((x) => !TEST_FILE.test(x.title || '')).map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+  // test recordings play like any other file: *"test recordings are fine, let the team handle it"* (2026-10-19)
+  const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
   if (pool.every((x) => x.w === 1)) { for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; } return pool.map((x) => x.id).slice(0, n); }
   return pool.map((x) => ({ ...x, k: rand() ** (1 / x.w) })).sort((a, b) => b.k - a.k).map((x) => x.id).slice(0, n);
 }
@@ -452,6 +454,44 @@ export class Caster {
     this.say(`step ${by > 0 ? 'next' : 'previous'} scene`); this.push();
   }
 
+  /**
+   * What arrived in their archive since the last look plays next, newest first; what left it leaves the queue and the
+   * program; a quiet hour brings a recent arrival round again. `cur` is the id playing, which is never cut.
+   */
+  async freshTick(want, cur) {
+    if (Date.now() - (this.freshAt || 0) < FRESH_EVERY_MS) return;
+    this.freshAt = Date.now();
+    const items = await feed(this.ctx), ids = new Set(items.map((x) => String(x.id))), now = Date.now();
+    let st = await this.st.get('fresh');
+    // the first look of a session is the baseline: what is in the feed at the start is not new
+    if (!st || st.startedAt !== want.startedAt) { await this.st.put('fresh', { startedAt: want.startedAt, known: [...ids], revisitAt: now + QUIET_MS, heard: {} }); return; }
+    const known = new Set(st.known), at = (x) => Date.parse(x.at || 0) || 0;
+    const fresh = items.filter((x) => !known.has(String(x.id))).sort((a, b) => at(b) - at(a));
+    let add = fresh, why = fresh.length ? `${fresh.length} new in the archive, next` : '';
+    if (fresh.length) st.revisitAt = now + QUIET_MS;
+    else if (now >= st.revisitAt) {
+      const pick = items.filter((x) => now - at(x) < RECENT_MS && String(x.id) !== String(cur) && now - (st.heard[x.id] || 0) > QUIET_MS).sort((a, b) => at(b) - at(a))[0];
+      if (pick) { add = [pick]; st.heard[pick.id] = now; why = 'quiet: a recent arrival again'; }
+      st.revisitAt = now + REVISIT_MS;
+    }
+    st.known = [...ids];
+    await this.st.put('fresh', st);
+    const queue0 = want.queue || [], gone = queue0.filter((x) => !ids.has(String(x.id)));
+    if (!add.length && !gone.length) return;
+    const q = await this.resolve(add.map((x) => x.id)), addIds = new Set(q.map((x) => String(x.id)));
+    const rest = queue0.filter((x) => ids.has(String(x.id)) && !addIds.has(String(x.id)));
+    const i = rest.findIndex((x) => String(x.id) === String(cur));
+    const queue = [...q, ...(i < 0 ? rest : [...rest.slice(i + 1), ...rest.slice(0, i + 1)])];
+    if (!queue.length) return;
+    await this.cpost('/queue', { queue });
+    await this.st.put('want', { ...want, queue });
+    const prog = await this.st.get('program');
+    if (prog?.length && prog.some((x) => !ids.has(String(x.id)))) await this.st.put('program', prog.filter((x) => ids.has(String(x.id))));
+    if (q.length) this.say(`${why}: ${q.map((x) => x.title).join(', ')}`);
+    if (gone.length) this.say(`left the archive, out of the queue: ${gone.map((x) => x.title).join(', ')}`);
+    this.push();
+  }
+
   /** Moves the stop to now + ms, 15 min to 14 days; only while wanted. */
   async extend(ms) {
     const want = await this.st.get('want');
@@ -677,6 +717,7 @@ export class Caster {
           await this.st.put('progress', { at: iso(Date.now()), t: Date.now(), onAir: s.onAir, seconds: s.seconds, wall: s.wall,
             sessionS: Math.round((Date.now() - want.startedAt) / 1000), files: s.files, lag: s.lag, down: s.down,
             sinkDeaths: s.sinkDeaths, index: s.index, now: s.now, bytes: s.bytes, rss: s.rss, handoff: s.handoff || null });
+          await this.freshTick(want, s.now?.id).catch((e) => this.say(`feed check: ${e.message}`));
         }
       }
     } catch (e) { this.say(`sweep: ${e.message}`); }

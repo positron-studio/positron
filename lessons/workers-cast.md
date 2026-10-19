@@ -738,3 +738,27 @@ clicks at 2 to 6 kHz, see #drive) play only drone, choir and spectral patches, a
 one becomes a deep drone or a choir. Asked: *"current kalle is uninspiring and glitchy"*: it was Long dub, an
 echo of 0.8 on half-second grains, which repeats every click. Both drivers pass `soft` from the feed's `soften`,
 and the container's history carries it so a twin rebuilds the same scenes.
+
+### fresh
+
+`Caster.freshTick`, from the alarm while a station plays. Asked 2026-10-19: *"re playlist: how ofthen you check new
+files? druing radop65 run there are lot of new files coming in. we want to prefer them and be addet to the 'next
+playing'. figure out when many arrive and when incoming files not compoing for a while"*, then *"test recordings are
+fine, let the team handle it"*, *"if files go, rm also from playlist"*, *"what if file plays and its gone in the same
+time?"*. Before it, a running station never read the feed again: a file published during a run played only after a
+restart or a program edit.
+
+- Every 2 min (FRESH_EVERY_MS) on air: the feed (edge-cached 60 s, so at most one request a minute per colo to their
+  events API whatever the stations do). The first look of a session is the baseline: what was there at the start is
+  not new.
+- New ids play next through `/queue`, newest first by `at` (their publish time), a burst all of them; then the queue
+  after the playing file, the playing one last.
+- Ids gone from the feed leave the queue and the stored program. The file playing is never cut: it finishes and is not
+  queued again. If their host stops serving it mid-play, the decoder ends and the station moves on as on any file
+  that fails.
+- After an hour with nothing new (QUIET_MS), the newest arrival of the last 12 h (RECENT_MS), not the one playing and
+  not brought round in the last hour, plays next, then again every 30 min (REVISIT_MS) while it stays quiet.
+- Test recordings are not filtered any more, here or in pickFiles: Väin's team handles them.
+- `node workers/cast/fresh-test.mjs`: 10 checks against a fake feed and clock, one a negative control. MEASURED: sorting
+  oldest first turns three red (7/10).
+
