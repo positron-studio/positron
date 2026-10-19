@@ -551,7 +551,9 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       const seen = scenes.slice(-5).map((x) => cmb(x.layers));
       for (let k = 0; k < 8; k++) { d.layers = typeLayers(base, Tt, rng(seed * 2741 + i * 59 + k * 7777)); if (!seen.includes(cmb(d.layers))) break; } }
     // the section's drone, or none; a storm and a rhythmic scene play without one
-    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0 };
+    // no resonators: called metallic three times, darkened once and still metallic (*"metallicness"*, 2026-10-19);
+    // plans/plan-cast-variety.md 2.2's breathing filters are the replacement
+    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0, res: 'none' };
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
     const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;

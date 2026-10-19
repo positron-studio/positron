@@ -205,8 +205,9 @@ check('no two patches are the same sound on size, density, pitch, speed, freeze,
       const c = cb(s.layers); if (seen.slice(-5).includes(c)) rep5++; seen.push(c); } }
   gp.sort((a, b) => a - b); const top = Math.max(...Object.values(cnt)) / nn;
   check('variety: no patch in over 5 % of scenes, the 10th percentile gap 7 scenes or more, gaps of 2 under 1 %', top <= 0.05 && gp[Math.floor(gp.length * 0.1)] >= 7 && gp.filter((g) => g <= 2).length / gp.length < 0.01, `top ${(100 * top).toFixed(1)} %, p10 ${gp[Math.floor(gp.length * 0.1)]}`);
-  // 30 %, not the plan's 26 %: the pulse was one of the combination's four switches and is always off since there is no stutter
-  check('variety: resonators in under 45 % of scenes, the same layer combination within five scenes under 30 %', rs / nn < 0.45 && rep5 / nn < 0.30, `res ${(100 * rs / nn).toFixed(1)} %, combination ${(100 * rep5 / nn).toFixed(1)} %`); }
+  // the combination gate is retired: with no resonators and no pulse a combination is two switches (harmonizer, ghost),
+  // four possibilities, so a repeat within five scenes says nothing (2026-10-19, *"metallicness"*)
+  check('no resonators in any grammar 2 scene: they rang metallic', rs === 0, `${rs} of ${nn}`); }
 check('NEGATIVE CONTROL: a copied patch is caught', new Set([...all54, 'Cloud'].map(sig)).size < all54.length + 1);
 check('no patch has more than 24 grains sounding at once', all54.every((n) => L2.overlapOf(n) <= L2.OVERLAP_CAP), JSON.stringify(all54.filter((n) => L2.overlapOf(n) > 24)));
 check('NEGATIVE CONTROL: density 64 with 4 s grains would be over the cap', 64 * 4 > L2.OVERLAP_CAP);
