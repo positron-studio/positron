@@ -4,6 +4,11 @@
 - **Committed, NOT deployed:** `7dae37d5` the load feature (`workers/cast/load.mjs`, a composer loaded at the next scene, crash guard 2 min) and the hand-over only on a new image hash (`newCode` in worker.mjs, `CAST_IMAGE` from deploy.mjs). load-test 16/16, all cast tests green. Its next deploy is one container switch.
 - **The owner listens on https://shout.positron.studio/preview** (shout redials the cast for 90 s at a switch). MEASURED 18:16 to 18:41Z: through shout and direct to the cast, both connections 1500 s unbroken, 23,982,915 and 24,057,312 bytes. The stops the owner heard then were on the phone side (mobile data or iOS); the relay saw the phone's connections close at 17:54Z. A recorder of mine stopping at 7.6 min was ffmpeg, not the stream.
 - **Open, in BACKLOG:** a hand-over lined up 103 s off (17:36:51Z); the relay's counters reset when nobody listens; the phasing on frozen choir patches (detune moved by the hand, fix written and reverted unshipped: NO_MOVE detune, DETUNE_CAP 0.002); the 7.6 min recording of 17:54Z read -17.4 LUFS, peak -3.5, no silence over 0.7 s.
+- **Next, in order (agreed with the owner 2026-10-19 evening):**
+  1. The quality gate: render 15 min of the station in Docker (grains-local, the same code and files as on air), measure loudness, peaks, gaps, scene lengths and every hand-over, hand the owner the MP3. Nothing goes on air without it. 15 min, as the owner asked (*"Maybe 15min is ok?"*).
+  2. Choose one direction from two or three rendered versions (tonight's smooth palette, this morning's, the Hymn held choir the owner liked), by listening to files, not the live stream.
+  3. Fix what is left on the chosen one in one batch (the phasing, any stops or abrupt changes the gate finds): one render, the owner's listen, one deploy, which also brings in the load feature.
+  4. Then the 103 s hand-over and keeping the relay's counters.
 - **What went wrong today:** about 15 live sound deploys in five hours, each on one complaint, none listened to first; several introduced the next defect (chopping after WET_CAP 0.95, going forever after KIND_DWELL 1.6, the wash after the big room). Next: the render-and-measure gate in Docker (grains-local), then one decided direction.
 
 # Handoff, 2026-10-19, session 85: the cast made listenable on a commute
