@@ -51,9 +51,20 @@ const ease = (u) => u * u * (3 - 2 * u);
 export const layerLevel = (x, dry = 0.12, rise = 0.18, hold = 0.85) => (x < dry ? 0 : Math.min(ease(Math.min(1, (x - dry) / rise)), ease(Math.min(1, Math.max(0, (0.97 - x) / Math.max(0.01, 0.97 - hold))))));
 /** The layers' level at `x` of scene `s`: its arc and intensity, pushed toward full by its soak (and by `more`, the
  *  page's own slider), and up to about 3.5 dB louder at full: the drivers on the page and in the container call this. */
+// the layers never fall below CARRY, at a scene's end, through the blend or in the next one's opening, so a scene change
+// does not drop the effects: *"when i push next scene ... do you drop fx?"* (2026-10-19); the pitches glide meanwhile
+export const CARRY = 0.45, PUSH_TO = 0.75;
+/** Every level the drivers set is this much of it: with the granulator's WET_CAP, the composition sounds as the page's
+ *  slider did at 0.4 (*"on 0.4 its more toreable"*, 2026-10-19). */
+export const LAYER_SCALE = 0.8;
+/** The layers' level through a blend: the bridge's, never under CARRY. Both drivers call this. */
+export const blendLevel = (bridge) => Math.max(bridge?.level ?? 0, CARRY) * LAYER_SCALE;
 export const sceneLevel = (x, s, more = 0) => {
-  const p = 1 - (1 - (s?.soak ?? 0)) * (1 - more), lv = layerLevel(x, s.dry, s.rise, s.hold) * (0.6 + 0.4 * (s.intensity ?? 1));
-  return (lv + (1 - lv) * p) * (1 + 0.5 * p);
+  // a drier scene (soak under 0) keeps its layers down by as much and is never pushed; a wetter one is pushed toward full
+  const sk = s?.soak ?? 0, p = 1 - (1 - Math.max(0, sk)) * (1 - more);
+  const lv = Math.max(CARRY, layerLevel(x, s.dry, s.rise, s.hold)) * (0.6 + 0.4 * (s.intensity ?? 1)) * (1 + Math.min(0, sk));
+  // a push lifts toward 0.75 and never past it, with no boost: at full it was too much (*"again too much"*, 2026-10-19)
+  return (lv < PUSH_TO ? lv + (PUSH_TO - lv) * p : lv) * LAYER_SCALE;
 };
 /** The key is heard in these seconds of a scene, over these frequencies: a chroma of what the tuner makes. */
 export const KEY_FROM = [1, 5], KEY_HZ = [60, 1000];

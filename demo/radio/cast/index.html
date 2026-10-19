@@ -102,7 +102,7 @@
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
   import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor, freezesAfterDry, soakLayers } from '/radio/cast/life.mjs';
-  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap, sceneLevel } from '/radio/cast/layers.mjs';
+  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap, sceneLevel, blendLevel } from '/radio/cast/layers.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -752,7 +752,6 @@
   function setWet(v) {
     wetAmt = v;
     local?.wet?.(gateOf());
-    if (layerEng && rawLayers && (pushOf() >= 0.5) !== soaked) applyLayers(rawLayers, layerKey);
     if (localOn()) scope.grainAlpha(lifeNow ? Math.max(0.25, lifeNow.wet) * v : 0);
   }
   async function startLocal() {
@@ -854,7 +853,7 @@
     if (!layerEng || !life) return;
     const s = life.scene(lifeState.si), since = t - lifeState.sceneAt;
     // the scene's own soak, and the slider's right half on top of it
-    const level = st.phase === 'blend' ? pushed(lifeNow?.bridge?.level ?? 0) : sceneLevel(since / s.dwell, s, pushOf());
+    const level = st.phase === 'blend' ? pushed(blendLevel(lifeNow?.bridge)) : sceneLevel(since / s.dwell, s, pushOf());
     layerLv = Math.min(1, level);
     layerEng.level(level);
     if (heard.done || !local.tunerAnalyser) return;
@@ -876,8 +875,10 @@
   let layerLv = 0, layerKey = null;
   // past three quarters of local's slider every layer made from the file sounds, whatever the scene left out
   let rawLayers = null, soaked = false;
-  const soak = (L) => soakLayers(L);
-  const applyLayers = (L, key) => { layerKey = key; rawLayers = L; soaked = pushOf() >= 0.5; layerEng.apply(soaked ? soak(L) : L, key); };
+  // without the held file: the far end is more processing, not another bed (*"biit overwhelming here"*, 2026-10-19)
+  const soak = (L) => soakLayers(L, { drone: false });
+  // the slider pushes what the scene has and adds no layer of its own (*"again too much"*, 2026-10-19)
+  const applyLayers = (L, key) => { layerKey = key; rawLayers = L; soaked = false; layerEng.apply(L, key); };
   function shareTick() {
     if (scopeName !== LOCAL) return;
     const g = gateOf(), lv = layerLv, L = g > 0 ? layerEng?.layers : null, dl = Math.min(1, (L?.droneLevel ?? 0.3) / 0.6), lw = pushed(lifeNow?.wet ?? 0), LW = 0.6 * g;

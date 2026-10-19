@@ -7,7 +7,7 @@ import { levelOf, SR } from './mixer.mjs';
 import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry } from './sc/radio/cast/life.mjs';
 /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
 const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
-import { createLayerEngine, euclid, stepSeconds, layerLevel, sceneLevel, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
+import { createLayerEngine, euclid, stepSeconds, layerLevel, sceneLevel, blendLevel, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
 import { createSoften } from './sc/radio/cast/soften.mjs';
 
 export const TICK_MS = 50, CHROMA_N = 8192, ONSET_N = 1024, RING_NODE = 4000;
@@ -121,7 +121,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   }
   function layerTick(st, t) {
     const s = life.scene(L.si), since = t - L.sceneAt;
-    L.level = st.phase === 'blend' ? (L.now?.bridge?.level ?? 0) : sceneLevel(since / s.dwell, s);
+    L.level = st.phase === 'blend' ? blendLevel(L.now?.bridge) : sceneLevel(since / s.dwell, s);
     layers?.level(L.level);
     if (L.keyDone) return;
     if (since >= KEY_FROM[0] && since < KEY_FROM[1]) chroma.add(last(CHROMA_N));
