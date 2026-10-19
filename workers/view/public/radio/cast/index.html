@@ -116,7 +116,7 @@
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
   import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor, freezesAfterDry, soakLayers } from '/radio/cast/life.mjs';
-  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap, droneHz, pitchClass, sceneLevel } from '/radio/cast/layers.mjs';
+  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap, sceneLevel } from '/radio/cast/layers.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -244,7 +244,7 @@
     if (!progOf(t).length && items.length) {
       // weighted by what the votes said about each file, so a file voted down comes up less, and at -6 not at all
       // Väin's test recordings (Audio test, Clip test) are short or silent: never in a program
-      const fs = tasteOf(votes).file, pool = items.filter((x) => !/\btest\b/i.test(x.title || '')).map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
+      const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
       progs[t] = (pool.every((x) => x.w === 1) ? shuffle(pool) : pool.map((x) => ({ ...x, k: Math.random() ** (1 / x.w) })).sort((a, b) => b.k - a.k))
         .map((x) => x.id).slice(0, PICK);
       progTouched[t] = Date.now();
@@ -677,7 +677,7 @@
     ['harm', 'harmonizer', MEDIUM_COLOURS.audio], ['ghost', 'ghost', MEDIUM_COLOURS.program], ['freeze', 'freeze', MEDIUM_COLOURS.state],
     ['drone', 'drone', MEDIUM_COLOURS.file]];
   const scope = createGrainScope(scopeHost, { seconds: 10, height: 120, grainSeconds: RING_SECONDS,
-    shares: SHARES.map(([key, label, colour]) => ({ key, label, colour })), pitch: { colour: MEDIUM_COLOURS.file, lo: 30, hi: 130 }, split: true, visitor: { colour: MEDIUM_COLOURS.program } });
+    shares: SHARES.map(([key, label, colour]) => ({ key, label, colour })), split: true, visitor: { colour: MEDIUM_COLOURS.program } });
   const sceneLine = el('span', 'vc-scene');
   const scopePanel = createVideoPanel({ media: scopeHost, left: false, right: false, centre: sceneLine, aspect: 'auto', fullMode: 'bare' });
   /** The kinds of moment drawn on the scope: a new file and its blend in greys, so no effect's colour means a file; pulse and onset as ticks at the foot. */
@@ -888,12 +888,10 @@
   // each part's share as the layer engine sets it (layers.mjs apply), weighed against the file and the granulator;
   // the drones sit outside the room's level, the rest are scaled by it; all of it by the page's wet and dry.
   let layerLv = 0, layerKey = null;
-  const drawnHz = [0, 0, 0];
   // past three quarters of local's slider every layer made from the file sounds, whatever the scene left out
   let rawLayers = null, soaked = false;
   const soak = (L) => soakLayers(L);
   const applyLayers = (L, key) => { layerKey = key; rawLayers = L; soaked = pushOf() >= 0.5; layerEng.apply(soaked ? soak(L) : L, key); };
-  const NOTE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   function shareTick() {
     if (scopeName !== LOCAL) return;
     const g = gateOf(), lv = layerLv, L = g > 0 ? layerEng?.layers : null, dl = Math.min(1, (L?.droneLevel ?? 0.3) / 0.6), lw = pushed(lifeNow?.wet ?? 0), LW = 0.6 * g;
@@ -905,12 +903,6 @@
     scope.share('ghost', L && ghost.until ? LW * Math.min(1, (L.ghostLevel ?? 0.3) / 0.4) * lv : 0);
     scope.share('freeze', L && ['freeze', 'both'].includes(L.drone) ? LW * dl : 0);
     scope.share('drone', drone ? LW * dl : 0);
-    // drawn as the drone sounds it: three Lags of 8 s in a row (layers.mjs glide), each 60 dB in 8 s, every 50 ms tick
-    const target = drone ? droneHz(layerKey, L.droneOct ?? -1)[0] : 0, a = Math.exp((-0.05 * 6.9) / 8);
-    if (!target) drawnHz.fill(0);
-    else if (!drawnHz[2]) drawnHz.fill(target);
-    else { let x = target; for (let j = 0; j < 3; j++) { drawnHz[j] = x + (drawnHz[j] - x) * a; x = drawnHz[j]; } }
-    scope.pitch(drawnHz[2], target ? `${NOTE[pitchClass(target)]}${Math.floor(Math.log2(target / 16.352))}` : '');
   }
   function layersOff() {
     clearTimeout(pulseTimer); pulseTimer = 0; local?.ghostStop?.();
