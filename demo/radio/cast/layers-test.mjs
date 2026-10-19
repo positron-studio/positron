@@ -15,9 +15,10 @@ check('three octaves of fifths, low to high, every note a power of two away from
   && f3.every((f) => [0, 7].includes(Math.round(12 * Math.log2(f / hz(0))) % 12)));
 const d = droneHz({ root: 2 }, -2);
 check('the drone two octaves down in D: D0 near 18 Hz is too low, so it sits on D1 and its fifth', near(d[0], hz(2), 0.01) && near(d[1] / d[0], 1.4983, 0.001) && near(d[2] / d[0], 2, 1e-9), d.map((f) => f.toFixed(2)).join());
-check('octave and fifth voicing: ratios 0.5, 1.498, 2', harmRatios('octfifth').map((x) => x.toFixed(3)).join() === '0.500,1.498,2.000');
+check('octave and fifth voicing, all under the voice: ratios 0.5, 0.749, 0.334', harmRatios('octfifth').map((x) => x.toFixed(3)).join() === '0.500,0.749,0.334');
+check('no voicing moves a voice up: every ratio of every voicing at every spread is under 1', ['octfifth', 'triad', 'quartal', 'cluster'].every((v) => [0, 0.5, 1].every((sp) => harmRatios(v, sp).every((x) => x < 1))));
 const tight = harmRatios('cluster', 0), wide = harmRatios('cluster', 1);
-check('a cluster is a few tens of cents at no spread and whole semitones at full spread', tight.every((x) => Math.abs(1200 * Math.log2(x)) < 61) && near(1200 * Math.log2(wide[2]), 200, 0.01));
+check('a cluster is a few tens of cents at no spread and whole semitones at full spread', tight.every((x) => Math.abs(1200 * Math.log2(x)) < 91) && near(1200 * Math.log2(wide[2]), -300, 0.01));
 check('NEGATIVE CONTROL: an unknown voicing gives no voices', harmRatios('nope').length === 0);
 check('every chord and voicing is defined and small', Object.values(CHORDS).every((c) => c.length === 4) && Object.values(VOICINGS).every((v) => v.length === 3));
 check('euclid 3 of 8 is the tresillo, 5 of 8 the cinquillo shape', euclid(3, 8).map(Number).join('') === '00100101' || euclid(3, 8).filter(Boolean).length === 3);

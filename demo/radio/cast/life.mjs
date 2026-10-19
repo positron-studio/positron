@@ -245,8 +245,9 @@ export const SECTIONS = {
 /** The tide: the piece's intensity over this many planned seconds, low to high and back. */
 export const TIDE_S = 3600;
 export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / TIDE_S + phase);
-/** Grammar 2 plays no patch pitched above this: a fifth up at most. Asked: "annoying hipitch". */
-export const MAX_PITCH = 1.5;
+/** Grammar 2 plays no patch pitched above this. Asked: "annoying hipitch", then no grain plays a voice above where it was spoken,
+ *  *"duck voices...not good, not respectful for authors"* (2026-10-19, was 1.5). */
+export const MAX_PITCH = 1;
 /** The share of sections that carry a drone. */
 export const DRONE_SHARE = 0.4;
 /** The families that smooth a clicking file, and what its sharp scene types become. */

@@ -11,12 +11,13 @@ export const CHORDS = {
   major: [0, 4, 7, 11],
   cluster: [0, 1, 2, 5],
 };
-/** Semitones each harmonizer voice is moved by, by voicing; the dry voice is not one of them. */
+/** Semitones each harmonizer voice is moved by, by voicing; the dry voice is not one of them. Every voice is under the
+ *  speaker, never above: a voice pitched up is a duck, and not respectful to whoever spoke (2026-10-19). */
 export const VOICINGS = {
-  octfifth: [-12, 7, 12],
-  triad: [-12, 3, 7],
-  quartal: [5, 10, 15],
-  cluster: [-1, 1, 2],
+  octfifth: [-12, -5, -19],
+  triad: [-12, -8, -5],
+  quartal: [-5, -10, -15],
+  cluster: [-1, -2, -3],
 };
 /** The lowest note the drone and resonators are built on: C2, 65.41 Hz. */
 export const BASE_HZ = 65.406;
