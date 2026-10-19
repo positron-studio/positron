@@ -71,6 +71,7 @@ somebody broke it.
 | `positron-streaming` | anything under `workers/` or `src/` (and `workers/cast/` loads `positron-cast` too), any page that plays a stream or adds an audio, video, file or state link that leaves the machine (a heavy link and its transport), quoting a latency or a bill |
 | `positron-xr` | any `gl: true` or headset page, `verify-gl.mjs`, `verify-quest.mjs`, a full screen button on any page or full screen on a phone |
 | `positron-cast` | changing anything under `demo/radio/cast/` or `workers/cast/` (the Väin cast, both engines), judging or describing how the cast sounds, and a cast deploy |
+| `positron-git` | any commit, stage, rename or history rewrite, a scripted edit across files, or redoing a command that was stopped |
 | `positron-hardware` | anything under `rig/`, a page that plays real hardware (the remote concepts, the Pi as site `pi-1`), any claim about an instrument |
 | `positron-history` | following a link, slug or path out of an older file (a numbered or dashed concept address, `/rhythm/`, `/stations/`, an archived demo, a retired worker), or repeating a claim about a rename |
 | `positron-slides` | writing or revising any slide text, deck outline, speaker notes or playable lesson, including a deck in `demo/shell/decks.mjs`. It is the words half; drawing a slide is `positron-ui` |
@@ -257,6 +258,7 @@ measurements beside them.
 ```sh
 pgrep -fl Endpoint_Security_VPN; route -n get 8.8.8.8 | grep interface   # utun4 means the tunnel is up
 ```
+⚠️ **`en0` does not prove the tunnel is down**: on 2026-09-30 the route read `en0` with five `utun` up and UDP dropped. A STUN probe to `stun.cloudflare.com:3478` is the test that cannot be fooled (`positron-streaming`).
 
 🔴 **IT BREAKS A SECOND THING, AND THIS ONE IS INSIDE ONE PAGE.** MEASURED
 2026-10-05: with no capture permission, headless Chrome offers a peer
@@ -402,6 +404,18 @@ fetched a newsreel and a day's radio on **every visit** for a first frame nobody
 had asked to see. A visit, a step and a scrub must open nothing.
 
 ## How a session is run
+
+These four, the owner's, 2026-10-19 (from the session transcripts):
+- **Answer every question in the next reply**, and keep open questions in `BACKLOG.md` like requests (*"4th time askong"*).
+- **Never hand the owner a timed chore**; automate it (*"i can not do it at that time. i need it fixed now"*).
+- **A defect you notice gets fixed, not listed** (*"Noticed, not changed: - fix"*).
+- **Work and push on `main`**, no session branches (*"just go to main"*).
+
+And from the handoffs:
+- **A stopped command may already have run**: read `git log` and grep the file before redoing it. More in `positron-git`.
+- **An agent brief has a time box** (the pages, the run count, a stop-and-report point), and each agent gets its own scratchpad directory and dev-server port.
+- **Confirm a format or numbering change on one example** before touching many files.
+- **Ask when a two-word reply could answer more than one open question.**
 
 🔴 **EVERY HEADLESS CHROME A SCRIPT OR AN AGENT STARTS IS CLOSED BY IT, AND
 THE SESSION SWEEPS WHAT IS LEFT. Asked 2026-10-11:** *"i need to close all
