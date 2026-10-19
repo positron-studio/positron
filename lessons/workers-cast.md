@@ -748,8 +748,8 @@ fine, let the team handle it"*, *"if files go, rm also from playlist"*, *"what i
 time?"*. Before it, a running station never read the feed again: a file published during a run played only after a
 restart or a program edit.
 
-- Every 2 min (FRESH_EVERY_MS) on air: the feed (edge-cached 60 s, so at most one request a minute per colo to their
-  events API whatever the stations do). The first look of a session is the baseline: what was there at the start is
+- Every 30 s (FRESH_EVERY_MS, was 2 min, asked *"30 sec"* 2026-10-19) on air: the feed, edge-cached 30 s (FEED_S, was
+  60), so at most two requests a minute per colo to their events API whatever the stations do. The first look of a session is the baseline: what was there at the start is
   not new.
 - New ids play next through `/queue`, newest first by `at` (their publish time), a burst all of them; then the queue
   after the playing file, the playing one last.

@@ -63,11 +63,11 @@ const NAME = /^[a-z0-9]{1,16}$/;
 const CHANNELS = ['radio1965', 'user1', 'user2', 'user3', 'user4'];
 // Their events API, asked only when a page or a command needs it: one answer per colo per EVENTS_S,
 // and one request per isolate however many viewers ask at once. why: lessons/workers-cast.md#live
-const EVENTS_S = 15, FEED_S = 60;
-// On air the feed is read every FRESH_EVERY_MS: a file new to it plays next (newest first, a burst all of them), one
+const EVENTS_S = 15, FEED_S = 30;
+// On air the feed is read every FRESH_EVERY_MS (30 s, asked *"30 sec"*; the feed's edge cache is 30 s to match): a file new to it plays next (newest first, a burst all of them), one
 // gone from it leaves the queue and the program (the one playing finishes first). After QUIET_MS with nothing new, an
 // arrival of the last RECENT_MS comes round again every REVISIT_MS. why: lessons/workers-cast.md#fresh
-const FRESH_EVERY_MS = 2 * 60_000, QUIET_MS = 60 * 60_000, RECENT_MS = 12 * 3600_000, REVISIT_MS = 30 * 60_000;
+const FRESH_EVERY_MS = 30_000, QUIET_MS = 60 * 60_000, RECENT_MS = 12 * 3600_000, REVISIT_MS = 30 * 60_000;
 let eventsInFlight = null;
 async function events(ctx) {
   const cache = caches.default, key = new Request('https://cast.positron.studio/__events');
