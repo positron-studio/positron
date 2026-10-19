@@ -189,7 +189,9 @@ const { l: G, S: S2 } = life2({ seed: 11, n: 2000 });
 rules('grammar 2', S2.slice(0, 600));
 // glitch plays only in storms, and storms only at high tide, so it may miss one of its four in 2000 scenes
 const seen2 = new Set(S2.map((x) => x.patch));
-check('grammar 2 plays every patch at or under a MAX_PITCH in 2000 scenes, none above it, and glitch in storms', CAST_PATCHES.every((c) => familyOf(c.name) === 'glitch' || patchValues(c.name).pitch > L2.MAX_PITCH || seen2.has(c.name)) && [...seen2].filter((n) => familyOf(n) === 'glitch').length >= 2 && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
+const STUTTER = ['rhythmic', 'glitch'];
+check('grammar 2 plays every patch at or under MAX_PITCH in 2000 scenes, none above it, and nothing that stutters', CAST_PATCHES.every((c) => STUTTER.includes(familyOf(c.name)) || patchValues(c.name).pitch > L2.MAX_PITCH || seen2.has(c.name)) && ![...seen2].some((n) => STUTTER.includes(familyOf(n))) && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
+check('no stuttering: no grammar 2 scene is a rhythm scene or carries a pulse', !S2.some((x) => x.type === 'rhythm' || x.layers.bpm), JSON.stringify(S2.find((x) => x.type === 'rhythm' || x.layers.bpm)?.type));
 const all54 = [...new Set([...(await import('../../granulator/grain-ring.mjs')).PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)])];
 check('every patch is inside PATCH_LIMITS: the engines refuse nothing and change no value', CAST_PATCHES.every((c) => { const k = clampPatch({ name: c.base, set: c.set }); return !k.refused.length && Object.entries(c.set).every(([n, v]) => k.values[n] === (n === 'dir' ? (v < 0 ? -1 : 1) : v)); }));
 const sig = (n) => { const v = patchValues(n); return ['size', 'density', 'pitch', 'speed', 'freeze', 'dir', 'lock', 'scatter'].map((k) => Math.round((v[k] ?? 0) * 100) / 100).join(); };
@@ -203,7 +205,8 @@ check('no two patches are the same sound on size, density, pitch, speed, freeze,
       const c = cb(s.layers); if (seen.slice(-5).includes(c)) rep5++; seen.push(c); } }
   gp.sort((a, b) => a - b); const top = Math.max(...Object.values(cnt)) / nn;
   check('variety: no patch in over 5 % of scenes, the 10th percentile gap 7 scenes or more, gaps of 2 under 1 %', top <= 0.05 && gp[Math.floor(gp.length * 0.1)] >= 7 && gp.filter((g) => g <= 2).length / gp.length < 0.01, `top ${(100 * top).toFixed(1)} %, p10 ${gp[Math.floor(gp.length * 0.1)]}`);
-  check('variety: resonators in under 45 % of scenes, the same layer combination within five scenes under 26 %', rs / nn < 0.45 && rep5 / nn < 0.26, `res ${(100 * rs / nn).toFixed(1)} %, combination ${(100 * rep5 / nn).toFixed(1)} %`); }
+  // 30 %, not the plan's 26 %: the pulse was one of the combination's four switches and is always off since there is no stutter
+  check('variety: resonators in under 45 % of scenes, the same layer combination within five scenes under 30 %', rs / nn < 0.45 && rep5 / nn < 0.30, `res ${(100 * rs / nn).toFixed(1)} %, combination ${(100 * rep5 / nn).toFixed(1)} %`); }
 check('NEGATIVE CONTROL: a copied patch is caught', new Set([...all54, 'Cloud'].map(sig)).size < all54.length + 1);
 check('no patch has more than 24 grains sounding at once', all54.every((n) => L2.overlapOf(n) <= L2.OVERLAP_CAP), JSON.stringify(all54.filter((n) => L2.overlapOf(n) > 24)));
 check('NEGATIVE CONTROL: density 64 with 4 s grains would be over the cap', 64 * 4 > L2.OVERLAP_CAP);
@@ -213,13 +216,13 @@ check('every new scene\'s tweaks sit inside the guard and within 0.15 of the pat
 const fz = S2.slice(0, 400).map((x, i) => [x, i]).filter(([x]) => freezesAfterDry(x.patch) && !x.naked);
 check('grammar 2: a frozen patch is open through its dry share and frozen after it', fz.length > 5 && fz.every(([x, i]) => G.inScene(i, x.dwell * x.dry * 0.5).extra.freeze === 0 && G.inScene(i, x.dwell * Math.min(0.97, x.dry + 0.05)).extra.freeze === 1), `${fz.length}`);
 const locked = S2.filter((x) => L2.patchInfo(x.patch)?.sub);
-check('a locked patch plays on the scene\'s tempo: density is bpm / 60 times its grains a beat, its echo so many beats', locked.length > 20 && locked.every((x) => { const f = L2.patchInfo(x.patch); return Math.abs(x.set.density - (x.layers.bpm / 60) * f.sub) < 1e-3 && Math.abs(x.set.time - (f.beats * 60) / x.layers.bpm) < 1e-3 && x.layers.bpm >= 60; }), `${locked.length}`);
+check('no locked patch plays in grammar 2: a patch on the tempo stutters', !locked.length, `${locked.length}`);
 check('NEGATIVE CONTROL: Stutter\'s fixed 8 grains a second is not a whole number a beat at 72 bpm', Math.abs((8 * 60 / 72) % 1) > 0.1);
 // sections and the tide
 const runs = []; for (const x of S2) { if (!runs.length || runs.at(-1).section !== x.section || x.type === S2[S2.indexOf(x) - 1]?.type && false) runs.push({ section: x.section, n: 0 }); runs.at(-1).n++; }
 const starts = S2.map((x, i) => [x, i]).filter(([x, i]) => i === 0 || L2.SECTIONS[x.section] && (S2[i - 1].secLast));
 check('never the same section twice in a row', starts.every(([x, i], j) => !j || x.section !== starts[j - 1][0].section), starts.slice(0, 12).map(([x]) => x.section).join());
-check('every section and every scene type occurs', Object.keys(L2.SECTIONS).every((n) => S2.some((x) => x.section === n)) && Object.keys(L2.TYPES).every((t) => S2.some((x) => x.type === t)), JSON.stringify(Object.keys(L2.TYPES).filter((t) => !S2.some((x) => x.type === t))));
+check('every section and every scene type but rhythm (no stutter) occurs', Object.keys(L2.SECTIONS).every((n) => S2.some((x) => x.section === n)) && Object.keys(L2.TYPES).filter((t) => t !== 'rhythm').every((t) => S2.some((x) => x.type === t)), JSON.stringify(Object.keys(L2.TYPES).filter((t) => t !== 'rhythm' && !S2.some((x) => x.type === t))));
 check('storms only in the high half of the tide', S2.filter((x) => x.type === 'storm').every((x) => x.section === 'weather') && starts.filter(([x]) => x.section === 'weather').every(([x]) => x.tide > 0.5 - 0.06));
 const hi = S2.filter((x) => !x.naked && x.tide >= 0.5), lo = S2.filter((x) => !x.naked && x.tide < 0.5), mI = (L) => L.reduce((a, x) => a + x.intensity, 0) / L.length;
 check('over the hour the piece swells: the high tide\'s scenes are more intense than the low tide\'s by 0.2', mI(hi) - mI(lo) > 0.2, `${mI(lo).toFixed(2)} to ${mI(hi).toFixed(2)}`);
@@ -240,7 +243,7 @@ const likeFam = S2.slice(0, 300).filter((x) => familyOf(x.patch) === 'choir' && 
 const likeSec = S2.slice(0, 300).filter((x) => x.section === 'ritual').slice(0, 8).map((x) => ({ def: G.defOf(x), vote: 4 }));
 const { S: SF } = life2({ seed: 11, n: 600, votes: likeFam }), { S: SS } = life2({ seed: 11, n: 600, votes: likeSec });
 const base600 = S2.slice(0, 600);
-check('votes learn the family: liked choirs come up more, and every family still plays (glitch is storms only)', share(SF, (x) => familyOf(x.patch) === 'choir') > share(base600, (x) => familyOf(x.patch) === 'choir') * 1.2 && Object.keys(FAMILIES).filter((f) => f !== 'glitch').every((f) => SF.some((x) => familyOf(x.patch) === f)),
+check('votes learn the family: liked choirs come up more, and every family that does not stutter still plays', share(SF, (x) => familyOf(x.patch) === 'choir') > share(base600, (x) => familyOf(x.patch) === 'choir') * 1.2 && Object.keys(FAMILIES).filter((f) => !STUTTER.includes(f)).every((f) => SF.some((x) => familyOf(x.patch) === f)),
   `${share(base600, (x) => familyOf(x.patch) === 'choir').toFixed(2)} to ${share(SF, (x) => familyOf(x.patch) === 'choir').toFixed(2)}`);
 check('votes learn the section: a liked ritual comes up more, and never twice in a row', share(SS, (x) => x.section === 'ritual') > share(base600, (x) => x.section === 'ritual') * 1.2,
   `${share(base600, (x) => x.section === 'ritual').toFixed(2)} to ${share(SS, (x) => x.section === 'ritual').toFixed(2)}`);
