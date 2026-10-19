@@ -1,3 +1,11 @@
+# Handoff, 2026-10-19, session 85: the cast made listenable on a commute
+
+- **Site BUILD `415429b3-145225-cbbc`**, confirmed. **Cast worker `a80fde53`.** Commits `339be179`, `415429b3` (+ two builds). Not pushed. Nothing casting (all six `playing:false` at 15:11Z).
+- Why: the owner listened to preview for 20 min while commuting: boring, effects inaudible apart from repeating echoes, no telling the dry signal, Darth Vader voices, far quieter than any podcast. `plans/plan-cast-listenable.md`, all of it built on *"do all and measure"*.
+- **Loudness**: `demo/radio/cast/master.mjs` on the sum in both engines (container `lmaster` on `MASTER_BUS` 12; LOCAL the `cast-master` worklet). MEASURED on preview, 10 min each: before -28.6 LUFS, LRA 16.1 LU; after -15.1 LUFS, LRA 5.2 LU, peak -1.8 dBFS.
+- **No transposed voices** either way (patches at pitch 1, ghosts as they are, lfreeze unshifted, harmonizer on music only, no tape stop), **no echo repeats** (echo patches out, echo capped 0.35), **a dry opening of 8 to 20 s then one effect**, **visits by kind** (music 1.6x, talk and field 0.7x, tests 25 s).
+- New skill `positron-cast`. Open: the owner has not heard it yet; LOCAL's worklet is the same arithmetic but not measured in a browser.
+
 # Handoff, 2026-10-19, session 84: the cast's sound reworked by ear on LOCAL, stations run 7 days, new archive files play next
 
 ## Where it is right now

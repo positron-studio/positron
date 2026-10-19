@@ -169,8 +169,11 @@ with no leveller on the sum, so on a train only the echoes survived.
 **WHAT `plans/plan-cast-listenable.md` LANDED (2026-10-19)**, asked *"do all
 and measure. downplay tests for how. new upcoming files shoul be preferred"*:
 - **A master on the sum, both engines** (`demo/radio/cast/master.mjs`): a slow
-  leveller (3 s mean square, gain up to 5x towards `TARGET` 0.13 RMS of the mono
-  sum), a soft-knee squeeze over 0.15 s (`KNEE` 0.22), a peak limit at 0.85. The
+  leveller (6 s mean square, gain up to 16x towards `TARGET` 0.16 RMS of the mono
+  sum), a soft-knee squeeze over 0.15 s (`KNEE` 0.28), a peak limit at 0.85.
+  MEASURED on preview, 10 min each: before -28.6 LUFS, LRA 16.1 LU, peak -9.1
+  dBFS; with GMAX 5 -20.5 LUFS and LRA unchanged; with 16x **-15.1 LUFS, LRA
+  5.2 LU, peak -1.8 dBFS**. The
   container's ring, the room and the ghost write `MASTER_BUS` 12 and `lmaster`
   (node 4100, after the ring; the room is added before it) writes the output.
   LOCAL runs the same arithmetic as the `cast-master` worklet before its
