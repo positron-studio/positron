@@ -15,7 +15,7 @@ const HEAD_PX = 1;
  */
 export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520,
                                         fullScale = null, grainSeconds = 0,
-                                        freezeOnLoop = true } = {}) {
+                                        freezeOnLoop = true, shares = [], pitch = null, split = false, visitor = null } = {}) {
   if (grainSeconds && grainSeconds > seconds) {
     throw new Error(`a ${seconds} s window cannot draw grains from a ${grainSeconds} s buffer`
       + `. The oldest ${Math.round((1 - seconds / grainSeconds) * 100)}% of them would land off the left edge`);
@@ -52,6 +52,21 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
     dim: tok('--dim', '#9aa7bd'),
   };
 
+  // `shares` ([{ key, label, colour }], centre outwards): the scrolling wave keeps its height, what is heard,
+  // and is split from the centre out into one band per share, each as wide as its part of the sum of
+  // `share(key, v)` readings at that moment. A null colour is the wave's own grey. Nothing reported: one grey wave.
+  const shareData = new Map(shares.map((l) => [l.key, []]));
+  // `pitch` ({ colour, lo, hi } in Hz): dots across the wave at a held tone's pitch, log scaled from lo at
+  // the foot to hi at the top, `pitch(hz, name)`; 0 Hz is no tone.
+  const pitchData = [];
+  // `split`: once `feedIn()` has fed it, the top half is what goes in, the bottom half what comes out (with the
+  // shares), both on one scale, so the difference between them is the processing
+  const scrollIn = [];
+  let inAcc = 0, inN = 0;
+  // `visitor` ({ colour }): a second input on the top half, drawn over the first while it arrives (`feedVisitor()`),
+  // named by `visitorName()`
+  const scrollV = [];
+  let vAcc = 0, vN = 0, vName = '';
   let dpr = 1, W = 0, H = 0;
   function size() {
     dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -142,16 +157,39 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
       // Columns keep their own times; freezing only stops the right edge, so a running maximum
       // would draw a spike at the seam.
       // why: lessons/kit-grain-scope.md#feed-frozen
-      const t = now();
+      // each column at its own moment, the last sample now: a late batch lays out as the seconds it covers
+      const t = now(), n = pcm.length;
       const win = Math.max(1, Math.round(rate * 0.004));
-      for (let i = 0; i < pcm.length; i++) {
+      for (let i = 0; i < n; i++) {
         const v = pcm[i]; envAcc = Math.max(envAcc, v < 0 ? -v : v); envN++;
-        if (envN >= win) { scroll.push({ t, v: envAcc, tone }); envAcc = 0; envN = 0; }
+        if (envN >= win) { scroll.push({ t: t - (n - 1 - i) / rate, v: envAcc, tone }); envAcc = 0; envN = 0; }
       }
       counts.inferred++;
       const cut = t - seconds - 0.3;
       while (scroll.length && scroll[0].t < cut) scroll.shift();
     },
+
+    /** What goes in, for a `split` scope: drawn on the top half, on the same seconds and scale as `feed()`. */
+    feedIn(pcm, rate = 48000) {
+      const t = now(), n = pcm.length, win = Math.max(1, Math.round(rate * 0.004));
+      for (let i = 0; i < n; i++) {
+        const v = pcm[i]; inAcc = Math.max(inAcc, v < 0 ? -v : v); inN++;
+        if (inN >= win) { scrollIn.push({ t: t - (n - 1 - i) / rate, v: inAcc }); inAcc = 0; inN = 0; }
+      }
+      while (scrollIn.length && scrollIn[0].t < t - seconds - 0.3) scrollIn.shift();
+    },
+
+    /** A second input, for a `split` scope with a `visitor`: its wave over the first on the top half. */
+    feedVisitor(pcm, rate = 48000) {
+      const t = now(), n = pcm.length, win = Math.max(1, Math.round(rate * 0.004));
+      for (let i = 0; i < n; i++) {
+        const v = pcm[i]; vAcc = Math.max(vAcc, v < 0 ? -v : v); vN++;
+        if (vN >= win) { scrollV.push({ t: t - (n - 1 - i) / rate, v: vAcc }); vAcc = 0; vN = 0; }
+      }
+      while (scrollV.length && scrollV[0].t < t - seconds - 0.3) scrollV.shift();
+    },
+    /** What the second input is, beside `in`; '' when none is arriving. */
+    visitorName(name = '') { vName = name; },
 
     /**
      * 0..1, how much of what the listener hears is the granulator. Clamped, not refused,
@@ -212,7 +250,20 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
     },
 
     source(name) { sourceName = name; },
+    /** One reading of a share declared in `shares`, 0 or more, at this moment. */
+    share(key, v) {
+      const a = shareData.get(key); if (!a) return;
+      const t = now(); a.push({ t, v: Math.max(0, Number(v) || 0) });
+      while (a.length && a[0].t < t - seconds - 0.3) a.shift();
+    },
+    /** The held tone's pitch now, in Hz (0 for none), and its name, drawn at the line's right end. */
+    pitch(hz, name = '') {
+      const t = now(); pitchData.push({ t, hz: Number(hz) || 0, name });
+      while (pitchData.length && pitchData[0].t < t - seconds - 0.3) pitchData.shift();
+    },
     clear() {
+      pitchData.length = 0; scrollIn.length = 0; scrollV.length = 0; vName = '';
+      for (const a of shareData.values()) a.length = 0;
       live.length = 0; scroll.length = 0; wraps.length = 0; peaks = null;
       head = null; frozenAt = null; held = null; loopA = null; loopB = null;
       counts = { measured: 0, inferred: 0 };
@@ -230,6 +281,61 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
       frozenCols: held ? held.length : null,
       loopFrom: loopA, loopTo: loopB, marks: (loopA != null) + (loopB != null) }),
   };
+
+  // ── the shares: the wave cut into bands from the centre out, each its part of what is heard ──
+  function paintShares(cols, X, mid, k, sides = [-1, 1]) {
+    const n = cols.length, m = shares.length, at = new Array(m).fill(0), cum = new Float32Array((m + 1) * n);
+    for (let i = 0; i < n; i++) {
+      const t = cols[i].t; let sum = 0; const v = [];
+      for (let j = 0; j < m; j++) {
+        const a = shareData.get(shares[j].key);
+        while (at[j] + 1 < a.length && a[at[j] + 1].t <= t) at[j]++;
+        const x = a.length && a[at[j]].t <= t + 0.3 ? a[at[j]].v : 0; v.push(x); sum += x;
+      }
+      let c = 0;
+      for (let j = 0; j < m; j++) { c += sum > 0 ? v[j] / sum : j === 0 ? 1 : 0; cum[(j + 1) * n + i] = c; }
+    }
+    for (let j = 0; j < m; j++) {
+      ctx.beginPath();
+      for (const side of sides) {
+        ctx.moveTo(X(cols[0].t), mid + side * cum[j * n] * cols[0].v * k);
+        for (let i = 0; i < n; i++) ctx.lineTo(X(cols[i].t), mid + side * cum[(j + 1) * n + i] * cols[i].v * k);
+        for (let i = n - 1; i >= 0; i--) ctx.lineTo(X(cols[i].t), mid + side * cum[j * n + i] * cols[i].v * k);
+        ctx.closePath();
+      }
+      // coloured bands a shade under full, so the grain ticks and marks over them still read
+      ctx.globalAlpha = shares[j].colour ? 0.8 : 1; ctx.fillStyle = shares[j].colour || C.line2; ctx.fill(); ctx.globalAlpha = 1;
+    }
+  }
+  // the held tone's pitch as dots over the wave, none where there is no tone, its name at the newest end
+  function paintPitch(X) {
+    if (!pitch || pitchData.length < 2) return;
+    const Y = (hz) => H * 0.9 - (Math.log(hz / pitch.lo) / Math.log(pitch.hi / pitch.lo)) * H * 0.8;
+    // dots a few pixels apart, not a line: the tone is held, so a dot every so often says where it sits
+    ctx.fillStyle = pitch.colour;
+    let lastX = -1e9;
+    for (const p of pitchData) {
+      if (!(p.hz > 0)) continue;
+      const x = X(p.t);
+      if (x - lastX < 7) continue;
+      lastX = x; ctx.beginPath(); ctx.arc(x, Y(p.hz), 1.6, 0, 2 * Math.PI); ctx.fill();
+    }
+    const last = pitchData[pitchData.length - 1];
+    if (last.hz > 0 && last.name) {
+      ctx.font = `11px ${getComputedStyle(canvas).fontFamily || 'monospace'}`; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = pitch.colour; const w = ctx.measureText(last.name).width;
+      ctx.fillText(last.name, Math.min(W - w - 6, X(last.t) - w - 6), Y(last.hz) - 3);
+    }
+  }
+  // the names of the shares sounding now, in their colours, after the source line
+  function paintShareNames(x0) {
+    let x = x0;
+    for (const l of shares) {
+      const a = shareData.get(l.key), v = a.length ? a[a.length - 1].v : 0;
+      if (!(v > 0.02)) continue;
+      ctx.fillStyle = l.colour || C.dim; ctx.fillText(l.label, x, H - 7); x += ctx.measureText(l.label).width + 12;
+    }
+  }
 
   // ── paint ────────────────────────────────────────────────────────────────
   function paint() {
@@ -336,9 +442,10 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
         // why: lessons/kit-grain-scope.md#frozen-clock
         const t = frozenAt ?? now(), x0 = t - seconds;
         const X = (tt) => ((tt - x0) / seconds) * W;
+        const halves = split && scrollIn.length > 1;
         let mx = fullScale ?? 0;
-        if (!fullScale) for (const s of cols) if (s.v > mx) mx = s.v;
-        const k = mx > 0 ? (H * 0.44) / mx : 0;
+        if (!fullScale) { for (const s of cols) if (s.v > mx) mx = s.v; if (halves) for (const s of scrollIn) if (s.v > mx) mx = s.v; }
+        const k = mx > 0 ? (H * (halves ? 0.46 : 0.44)) / mx : 0;
         // One grey wave. Colour, if it returns, needs a flag the page sets by name, not a data field.
         // The tint from the first loop mark to the live edge is the only sign recording is happening;
         // drawn before the wave so the wave stays brightest.
@@ -352,12 +459,43 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
             ctx.globalAlpha = 1;
           }
         }
-        ctx.beginPath();
-        ctx.moveTo(X(cols[0].t), mid);
-        for (const s of cols) ctx.lineTo(X(s.t), mid - s.v * k);
-        for (let i = cols.length - 1; i >= 0; i--) ctx.lineTo(X(cols[i].t), mid + cols[i].v * k);
-        ctx.closePath();
-        ctx.fillStyle = C.line2; ctx.fill();
+        if (halves) {
+          // in, above the line: the file as it reaches the effects
+          const ins = scrollIn;
+          ctx.beginPath(); ctx.moveTo(X(ins[0].t), mid);
+          for (const s of ins) ctx.lineTo(X(s.t), mid - s.v * k);
+          ctx.lineTo(X(ins[ins.length - 1].t), mid); ctx.closePath();
+          ctx.fillStyle = C.line2; ctx.fill();
+          // a visitor over it, where it carries sound
+          if (visitor && scrollV.length > 1 && scrollV.some((s) => s.v > 0.002)) {
+            ctx.beginPath(); ctx.moveTo(X(scrollV[0].t), mid);
+            for (const s of scrollV) ctx.lineTo(X(s.t), mid - s.v * k);
+            ctx.lineTo(X(scrollV[scrollV.length - 1].t), mid); ctx.closePath();
+            ctx.globalAlpha = 0.7; ctx.fillStyle = visitor.colour; ctx.fill(); ctx.globalAlpha = 1;
+          }
+          // out, below it, cut into its shares
+          if (shares.length) paintShares(cols, X, mid, k, [1]);
+          else {
+            ctx.beginPath(); ctx.moveTo(X(cols[0].t), mid);
+            for (const s of cols) ctx.lineTo(X(s.t), mid + s.v * k);
+            ctx.lineTo(X(cols[cols.length - 1].t), mid); ctx.closePath();
+            ctx.fillStyle = C.line2; ctx.fill();
+          }
+          ctx.fillStyle = C.line; ctx.fillRect(0, mid - 0.5, W, 1);
+          ctx.fillStyle = C.dim; ctx.font = `11px ${getComputedStyle(canvas).fontFamily || 'monospace'}`; ctx.textBaseline = 'top';
+          ctx.fillText('in', 8, 6);
+          if (visitor && vName) { ctx.fillStyle = visitor.colour; ctx.fillText(vName, 8 + ctx.measureText('in').width + 12, 6); ctx.fillStyle = C.dim; }
+          ctx.textBaseline = 'bottom'; ctx.fillText('out', 8, mid + 18);
+        } else if (shares.length) paintShares(cols, X, mid, k);
+        else {
+          ctx.beginPath();
+          ctx.moveTo(X(cols[0].t), mid);
+          for (const s of cols) ctx.lineTo(X(s.t), mid - s.v * k);
+          for (let i = cols.length - 1; i >= 0; i--) ctx.lineTo(X(cols[i].t), mid + cols[i].v * k);
+          ctx.closePath();
+          ctx.fillStyle = C.line2; ctx.fill();
+        }
+        paintPitch(X);
         // ── the loop coming round ──────────────────────────────────────────
         // One hairline where each wrap happened, ageing off the left with the
         // audio it belongs to. Drawn OVER the wave and under the grains: it is
@@ -432,6 +570,7 @@ export function createGrainScope(host, { seconds = 4, height = 150, fadeMs = 520
       ctx.font = `11px ${getComputedStyle(canvas).fontFamily || 'monospace'}`;
       ctx.textBaseline = 'bottom';
       ctx.fillText(sourceName, 8, H - 7);
+      if (shares.length) paintShareNames(8 + ctx.measureText(sourceName).width + 16);
       ctx.restore();
     }
 

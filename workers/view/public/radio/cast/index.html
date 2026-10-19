@@ -55,6 +55,7 @@
   .vc-name { font: 600 14px var(--mono); }
   .vc-note { color: var(--warn); font: 12px var(--mono); }
   .vc-ctl { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; }
+  .vc-top > .vc-head { flex: 1; min-width: 0; }
   .vc-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
   .vc-head > .vc-ctl { flex-wrap: nowrap; gap: 12px; align-items: center; }
   /* a head row keeps its buttons at their own size on a phone, as a video panel slot does */
@@ -101,9 +102,10 @@
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
-  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createPatchbay, useMediumColours, MEDIUM_COLOURS } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createIconButton } from '/shell/icon-button.mjs';
+  import { createSlider } from '/shell/slider.mjs';
   import { createGrainScope } from '/shell/grain-scope.mjs';
   import { RING_SECONDS } from '/granulator/grain-ring.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
@@ -113,8 +115,8 @@
   import { createPresence } from '/shell/presence.mjs';
   import { createCard } from '/shell/card.mjs';
   import { createLocal } from '/radio/cast/local.mjs';
-  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor, freezesAfterDry } from '/radio/cast/life.mjs';
-  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap } from '/radio/cast/layers.mjs';
+  import { createLife, VOTES, fromT, tasteOf, fileWeight, DWELL_NOISE, patchFor, freezesAfterDry, soakLayers } from '/radio/cast/life.mjs';
+  import { createLayerEngine, euclid, stepSeconds, layerLevel, ghostGap, droneHz, pitchClass, sceneLevel } from '/radio/cast/layers.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -334,7 +336,20 @@
     onPress: () => (listening() && listenTarget === target ? stopListening() : startListening(target)) });
   const listenLink = el('a', 'vc-url'); listenLink.target = '_blank'; listenLink.rel = 'noopener';
   const inApp = el('span', 'vc-dim', 'in the Väin app');
-  const headCtl = el('span', 'vc-ctl'); headCtl.append(castBtns.el, listenBtn.el, inApp);
+  // local: play here and the previous and next scene, as icons
+  const playBtns = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play here', onPress: () => cast(LOCAL) }] });
+  const sceneBtns = createButtonGroup({ buttons: [
+    { id: 'prev', icon: 'chevron-left', label: 'the previous scene', onPress: () => step(-1) },
+    { id: 'next', icon: 'chevron-right', label: 'the next scene', onPress: () => step(1) },
+  ] });
+  // local: how much of what is heard is the processing, the files straight at dry
+  // three points: 0 the files straight, 0.5 (where it starts) as the scene composes it, 1 the processing only
+  let wetAmt = 0.5, wetRow = null;
+  const wetSld = createSlider({ label: 'mix', aria: 'dry, as composed, processing only', min: 0, max: 1, step: 0.01, value: 0.5, digits: 2, ends: ['dry', 'wet'], onInput: (v) => setWet(v) });
+  /** The dry tuner's fade (left half), and how far the right half pushes the patch mix and the layers to full. */
+  const gateOf = () => Math.min(1, wetAmt * 2), pushOf = () => Math.max(0, wetAmt * 2 - 1);
+  const pushed = (x) => x + (1 - x) * pushOf();
+  const headCtl = el('span', 'vc-ctl'); headCtl.append(playBtns.el, sceneBtns.el, castBtns.el, listenBtn.el, inApp);
   head.append(nameBox, headCtl);
   const note = el('span', 'vc-note');
   const k = (w) => el('span', 'vc-k', w);
@@ -349,15 +364,10 @@
   // live: what the life is doing, in place of the controls it is moving
   const lifeRows = createGlueRows({ grid: true, align: 'start', full: true });
   const lPatch = el('span', 'vc-v vc-wrap'), lMove = el('span', 'vc-v'), lWet = el('span', 'vc-v');
-  const sceneBtns = createButtonGroup({ buttons: [
-    { id: 'prev', icon: 'skip-back', label: 'the previous scene', onPress: () => step(-1) },
-    { id: 'next', icon: 'skip-forward', label: 'the next scene', onPress: () => step(1) },
-  ] });
   // the vote on the scene playing: bad, ok, good (keys 1 to 3); the lit one again takes it back
   const voteBtns = Object.fromEntries(Object.entries(VOTES).map(([n, w]) => [n, createToggle({ label: w, title: `key ${n}`, onChange: () => vote(Number(n)) })]));
   const lScene = el('span', 'vc-v'), sceneCtl = el('span', 'vc-ctl vc-vote'), votePair = el('span', 'pos-seg vc-votes');
-  votePair.append(...Object.values(voteBtns).map((t) => t.el)); sceneCtl.append(sceneBtns.el);
-  lifeRows.row([sceneCtl]);
+  votePair.append(...Object.values(voteBtns).map((t) => t.el));
   lifeRows.row([k('scene'), lScene]);
   const lLayers = el('span', 'vc-v vc-wrap');
   lifeRows.row([k('patch'), lPatch]); lifeRows.row([k('moving'), lMove]); lifeRows.row([k('grains'), lWet]); lifeRows.row([k('layers'), lLayers]);
@@ -483,14 +493,18 @@
     dBadge.set(here ? (on ? 'online' : 'offline') : st.onAir || them ? 'online' : st.playing ? 'coming' : status[t] ? 'offline' : 'unknown');
     dBadge.busy(them ? 'page' : null);
     playing.el.hidden = noteRow.hidden;
-    const cb = castBtns.button('cast');
-    cb.textContent = here ? (on ? 'stop here' : 'play here') : on ? 'stop stream' : 'start stream';
+    const cb = castBtns.button('cast'), pb = playBtns.button('play');
+    cb.textContent = on ? 'stop stream' : 'start stream';
+    playBtns.setIcon('play', on ? 'stop' : 'play', on ? 'stop here' : 'play here');
+    playBtns.el.hidden = !here; if (wetRow) wetRow.hidden = !here;
+    sceneBtns.el.hidden = !(here ? on : st.playing && key);
     // a start sweeps until the station is on air (or local plays), as every pending press here does
     if (starting[t] && (here ? on : st.onAir || Date.now() - starting[t] > 90_000)) delete starting[t];
-    if (starting[t]) cb.dataset.busy = '1'; else delete cb.dataset.busy;
+    for (const b of [cb, pb]) { if (starting[t]) b.dataset.busy = '1'; else delete b.dataset.busy; }
     // a station's stream button needs the key; without it a visitor can look and play local, not start a station
-    castBtns.el.hidden = !here && !key;
-    cb.title = here ? (on ? 'stop playing here' : 'play here: free, nothing goes on air') : on ? `stop the stream on ${t}` : `start the stream on ${t}`;
+    castBtns.el.hidden = here || !key;
+    pb.title = on ? 'stop playing here' : 'play here: free, nothing goes on air';
+    cb.title = on ? `stop the stream on ${t}` : `start the stream on ${t}`;
     listenBtn.el.hidden = !listenUrl(t); inApp.hidden = here || !!listenUrl(t);
     const lon = listening() && listenTarget === t;
     listenBtn.pressed(lon); listenBtn.set('headphones', lon ? `stop listening to ${t}` : `listen to ${t}`);
@@ -657,15 +671,50 @@
   // the last ten seconds heard as a scrolling waveform, a line per grain the ring fires, and the scene's
   // events in colour; in a video panel whose footer says the scene. why: lessons/workers-cast.md#scope
   const scopeHost = el('div', 'vc-scope');
-  const scope = createGrainScope(scopeHost, { seconds: 10, height: 120, grainSeconds: RING_SECONDS });
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  // on local the wave is cut into what it is made of, centre outwards: the file straight, the granulator, the layers
+  const SHARES = [['dry', 'file', null], ['grains', 'grains', css('--hi')], ['res', 'resonators', MEDIUM_COLOURS.value],
+    ['harm', 'harmonizer', MEDIUM_COLOURS.audio], ['ghost', 'ghost', MEDIUM_COLOURS.program], ['freeze', 'freeze', MEDIUM_COLOURS.state],
+    ['drone', 'drone', MEDIUM_COLOURS.file]];
+  const scope = createGrainScope(scopeHost, { seconds: 10, height: 120, grainSeconds: RING_SECONDS,
+    shares: SHARES.map(([key, label, colour]) => ({ key, label, colour })), pitch: { colour: MEDIUM_COLOURS.file, lo: 30, hi: 130 }, split: true, visitor: { colour: MEDIUM_COLOURS.program } });
   const sceneLine = el('span', 'vc-scene');
   const scopePanel = createVideoPanel({ media: scopeHost, left: false, right: false, centre: sceneLine, aspect: 'auto', fullMode: 'bare' });
-  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-  /** The kinds of moment drawn on the scope, each in a medium's colour; pulse and onset as ticks at the foot. */
-  const EVENTS = { landing: ['--md-program', false], interlude: ['--md-file', false], ghost: ['--md-video', false], pulse: ['--md-midi', true], onset: ['--md-value', true] };
+  /** The kinds of moment drawn on the scope: a new file and its blend in greys, so no effect's colour means a file; pulse and onset as ticks at the foot. */
+  const EVENTS = { landing: ['--fg', false], interlude: ['--dim2', false], ghost: ['--md-program', false], pulse: ['--md-midi', true], onset: ['--md-value', true] };
   const scopeEvent = (kind) => { const [c, short] = EVENTS[kind]; if (scopeName) scope.wrap({ colour: css(c), short }); };
   let feedRaf = 0, lastFeed = 0, feedBuf = null, scopeName = '';
+  // local's output reaches the scope from the audio thread, every sample, so a tab in the background or a
+  // window over it leaves no hole: the frame loop takes one analyser buffer a frame and drops the rest
+  const TAP_SRC = `registerProcessor('cast-scope-tap', class extends AudioWorkletProcessor {
+    constructor() { super(); this.b = new Float32Array(2048); this.n = 0; }
+    process(ins) { const x = ins[0] && ins[0][0]; if (x) for (let k = 0; k < x.length; k++) { this.b[this.n++] = x[k];
+      if (this.n === this.b.length) { this.port.postMessage(this.b.slice()); this.n = 0; } } return true; } });`;
+  let localTap = null, localTapIn = null, localTapGhost = null;
+  async function tapLocal() {
+    if (localTap || !local?.ctx || !local.analyser) return;
+    const c = local.ctx;
+    try {
+      await c.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP_SRC], { type: 'text/javascript' })));
+      localTap = new AudioWorkletNode(c, 'cast-scope-tap', { numberOfInputs: 1, numberOfOutputs: 0 });
+      local.analyser.connect(localTap);
+      localTap.port.onmessage = (e) => { if (scopeName === LOCAL && !listening()) scope.feed(e.data, c.sampleRate); };
+      // what goes in: the tuner's output, before the granulator and the layers
+      if (local.tunerAnalyser) {
+        localTapIn = new AudioWorkletNode(c, 'cast-scope-tap', { numberOfInputs: 1, numberOfOutputs: 0 });
+        local.tunerAnalyser.connect(localTapIn);
+        localTapIn.port.onmessage = (e) => { if (scopeName === LOCAL && !listening()) scope.feedIn(e.data, c.sampleRate); };
+      }
+      // the visiting file, as it arrives at the layers
+      if (local.ghostOut) {
+        localTapGhost = new AudioWorkletNode(c, 'cast-scope-tap', { numberOfInputs: 1, numberOfOutputs: 0 });
+        local.ghostOut.connect(localTapGhost);
+        localTapGhost.port.onmessage = (e) => { if (scopeName === LOCAL && !listening()) scope.feedVisitor(e.data, c.sampleRate); };
+      }
+    } catch (e) { d.log(`the scope tap did not come up, the wave falls back to frames: ${e.message}`, 'warn'); }
+  }
   function feedLoop() {
+    if (!listening() && localOn() && localTap) { feedRaf = 0; return; }
     if (listening() && player?.tap) {
       const t = performance.now(), rate = player.tap.rate || 44100, n = Math.round(((t - (lastFeed || t)) / 1000) * rate); lastFeed = t;
       const x = n > 0 ? tapTake(n) : null; if (x?.length) scope.feed(x, rate);
@@ -684,7 +733,7 @@
     if (name !== scopeName) { scopeName = name; scope.clear(); scope.source(name); }
     if (!feedRaf) { lastFeed = 0; feedRaf = requestAnimationFrame(feedLoop); }
     paintFooter();
-    scope.grainAlpha(name === LOCAL && lifeNow ? Math.max(0.25, lifeNow.wet) : 0);
+    scope.grainAlpha(name === LOCAL && lifeNow ? Math.max(0.25, pushed(lifeNow.wet)) * gateOf() : 0);
   };
   // the panel stays: an empty wave when nothing is heard, and a footer for the open station either way
   const scopeOff = () => { cancelAnimationFrame(feedRaf); feedRaf = 0; scope.clear(); scope.source(''); scopeName = ''; paintFooter(); };
@@ -713,6 +762,13 @@
     const last = Math.max(-1, ...held.map((h) => ids.findIndex((x) => String(x) === String(h))));
     return [...ids.slice(last + 1), ...ids.slice(0, last + 1)].map((id) => { const it = items.find((x) => String(x.id) === String(id)); return { id, title: titleOf(id), gain: it?.gain, soften: !!it?.soften, seconds: it?.seconds }; });
   };
+  /** Local's wet and dry: 0 the files through the tuner alone, 1 the granulator and the layers as the life sets them. */
+  function setWet(v) {
+    wetAmt = v;
+    local?.wet?.(gateOf());
+    if (layerEng && rawLayers && (pushOf() >= 0.5) !== soaked) applyLayers(rawLayers, layerKey);
+    if (localOn()) scope.grainAlpha(lifeNow ? Math.max(0.25, lifeNow.wet) * v : 0);
+  }
   async function startLocal() {
     if (!items.length) { d.log('the archive has not loaded, so there is nothing to play here', 'warn'); return; }
     stopListening(); stopPrelisten();
@@ -725,8 +781,10 @@
     const q = localQueue();
     life = createLife({ seed: lifeSeed(), votes });
     const it0 = items.find((x) => String(x.id) === String(q[0]?.id)), s0 = life.scene(0, { kind: it0?.kind, soft: !!it0?.soften });
+    local.wet?.(gateOf());
     await local.start({ queue: q, mode: 'grains', set: { drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE }, patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0) }) });
     if (!localOn()) return;
+    tapLocal();
     startLife(true);
     clearInterval(levelTimer); levelTimer = setInterval(readLocal, 250);
     paintRow(LOCAL); paintDetail(); pb.refresh();
@@ -763,7 +821,7 @@
       announce(LOCAL, L.si, life.defOf(s), L.file); scopeEvent('landing');
       paintScene();
     }
-    ghostTick(t); onsetTick(); layerTick(st, t);
+    ghostTick(t); onsetTick(); layerTick(st, t); shareTick();
     if (st.phase === 'blend' && L.phase !== 'blend') {
       const s = life.scene(L.si);
       L.blendAt = t; local.set('noise', s.iNoise); scopeEvent('interlude');
@@ -771,9 +829,9 @@
     L.phase = st.phase;
     const v = st.phase === 'blend' ? life.inInterlude(L.si, t - L.blendAt) : life.inScene(L.si, t - L.sceneAt);
     if (v.patch !== L.patch) { L.patch = v.patch; local.patch(engPatch(v.patch, { mix: 0 })); }
-    local.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
+    local.patch({ set: { [v.param]: v.value, mix: pushed(v.wet), ...v.extra } });
     // a bridge holds some layers across the blend and retunes them to the next scene's key from halfway
-    if (v.bridge && layerEng) { const bk = `${L.si}|${v.bridge.key?.root}|${v.bridge.key?.minor}`; if (bk !== L.bridged) { L.bridged = bk; layerEng.apply(v.bridge.layers, v.bridge.key); } }
+    if (v.bridge && layerEng) { const bk = `${L.si}|${v.bridge.key?.root}|${v.bridge.key?.minor}`; if (bk !== L.bridged) { L.bridged = bk; applyLayers(v.bridge.layers, v.bridge.key); } }
     lifeNow = v;
   }
   /** `keep` keeps the life startLocal just made; a switch into live mid-play starts a new one. */
@@ -797,9 +855,9 @@
         .then((e) => { layerEng = e; if (lifeTimer) layersFor(life.scene(lifeState.si)); }, (e) => d.log(`the layers did not come up: ${e.message}`, 'warn'));
     }
     if (!layerEng) return;
-    layerEng.apply(s.layers, s.key); layerEng.level(0);
+    applyLayers(s.layers, s.key); layerEng.level(0);
     heard.acc = new Float64Array(12); heard.done = false;
-    ghost.next = secs() + ghostGap(s.layers, lifeState.item?.seconds) * 0.5; ghost.until = 0; local.ghostStop(); layerEng.ghost(false);
+    ghost.next = secs() + ghostGap(s.layers, lifeState.item?.seconds) * 0.5; ghost.until = 0; local.ghostStop(); layerEng.ghost(false); scope.visitorName('');
     pulse(s.layers);
   }
   // the layers rise after the file has started and fall away before it ends, so a new chord is set in
@@ -809,7 +867,10 @@
   function layerTick(st, t) {
     if (!layerEng || !life) return;
     const s = life.scene(lifeState.si), since = t - lifeState.sceneAt;
-    layerEng.level(st.phase === 'blend' ? (lifeNow?.bridge?.level ?? 0) : layerLevel(since / s.dwell, s.dry, s.rise, s.hold) * (0.6 + 0.4 * (s.intensity ?? 1)));
+    // the scene's own soak, and the slider's right half on top of it
+    const level = st.phase === 'blend' ? pushed(lifeNow?.bridge?.level ?? 0) : sceneLevel(since / s.dwell, s, pushOf());
+    layerLv = Math.min(1, level);
+    layerEng.level(level);
     if (heard.done || !local.tunerAnalyser) return;
     if (since >= 1 && since < 5) {
       const a = local.tunerAnalyser; chromaBuf ||= new Float32Array(a.frequencyBinCount); a.getFloatFrequencyData(chromaBuf);
@@ -821,8 +882,35 @@
     } else if (since >= 5) {
       heard.done = true;
       const root = heard.acc.indexOf(Math.max(...heard.acc));
-      if (heard.acc[root] > 0) { s.key = { ...s.key, root, heard: true }; layerEng.apply(s.layers, s.key); paintLife(); }
+      if (heard.acc[root] > 0) { s.key = { ...s.key, root, heard: true }; applyLayers(s.layers, s.key); paintLife(); }
     }
+  }
+  // each part's share as the layer engine sets it (layers.mjs apply), weighed against the file and the granulator;
+  // the drones sit outside the room's level, the rest are scaled by it; all of it by the page's wet and dry.
+  let layerLv = 0, layerKey = null;
+  const drawnHz = [0, 0, 0];
+  // past three quarters of local's slider every layer made from the file sounds, whatever the scene left out
+  let rawLayers = null, soaked = false;
+  const soak = (L) => soakLayers(L);
+  const applyLayers = (L, key) => { layerKey = key; rawLayers = L; soaked = pushOf() >= 0.5; layerEng.apply(soaked ? soak(L) : L, key); };
+  const NOTE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  function shareTick() {
+    if (scopeName !== LOCAL) return;
+    const g = gateOf(), lv = layerLv, L = g > 0 ? layerEng?.layers : null, dl = Math.min(1, (L?.droneLevel ?? 0.3) / 0.6), lw = pushed(lifeNow?.wet ?? 0), LW = 0.6 * g;
+    const drone = L && ['key', 'both'].includes(L.drone);
+    scope.share('dry', 1 - g * lw);
+    scope.share('grains', g * lw);
+    scope.share('res', L && L.res !== 'none' ? LW * Math.min(1, (L.resWet ?? 0) / 0.5) * lv : 0);
+    scope.share('harm', L && L.harm !== 'none' ? LW * lv : 0);
+    scope.share('ghost', L && ghost.until ? LW * Math.min(1, (L.ghostLevel ?? 0.3) / 0.4) * lv : 0);
+    scope.share('freeze', L && ['freeze', 'both'].includes(L.drone) ? LW * dl : 0);
+    scope.share('drone', drone ? LW * dl : 0);
+    // drawn as the drone sounds it: three Lags of 8 s in a row (layers.mjs glide), each 60 dB in 8 s, every 50 ms tick
+    const target = drone ? droneHz(layerKey, L.droneOct ?? -1)[0] : 0, a = Math.exp((-0.05 * 6.9) / 8);
+    if (!target) drawnHz.fill(0);
+    else if (!drawnHz[2]) drawnHz.fill(target);
+    else { let x = target; for (let j = 0; j < 3; j++) { drawnHz[j] = x + (drawnHz[j] - x) * a; x = drawnHz[j]; } }
+    scope.pitch(drawnHz[2], target ? `${NOTE[pitchClass(target)]}${Math.floor(Math.log2(target / 16.352))}` : '');
   }
   function layersOff() {
     clearTimeout(pulseTimer); pulseTimer = 0; local?.ghostStop?.();
@@ -832,11 +920,11 @@
   function ghostTick(t) {
     const Ly = layerEng?.layers;
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1), life?.scene(lifeState.si).dry, life?.scene(lifeState.si).rise, life?.scene(lifeState.si).hold) < 0.5)) return;
-    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + ghostGap(Ly, lifeState.item?.seconds) * (0.7 + 0.6 * Math.random()); }
+    if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); scope.visitorName(''); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 2500); ghost.next = t + ghostGap(Ly, lifeState.item?.seconds) * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
       const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
       if (!who) { ghost.next = t + 10; return; }
-      local.ghost({ ...who, gain: who.gain }, 20 + Math.random() * 180); layerEng.ghost(true); ghost.until = t + Ly.ghostLen; scopeEvent('ghost');
+      local.ghost({ ...who, gain: who.gain }, 20 + Math.random() * 180); layerEng.ghost(true); ghost.until = t + Ly.ghostLen; scopeEvent('ghost'); scope.visitorName(`ghost: ${who.title}`);
       d.log(`a ghost: ${who.title}`);
     }
   }
@@ -1008,7 +1096,10 @@
   const progHead = el('div', 'vc-head'); progHead.append(el('h3', 'pos-sec-h', 'program'), nextBtns.el);
   const soundSec = sec('sound', sound.el);
   // the scene box is not on the page: its painters, the votes, the station step and the Votes store are kept for later
-  detail.append(sec('', head, scopePanel.el, listenLink, playing.el), sec('', progHead, progEmpty, progHost));
+  const stationCard = createGlueRows({ full: true }); stationCard.row([head], { cls: 'vc-top' });
+  wetRow = stationCard.row([wetSld.el], { cls: 'vc-wet' }); wetRow.hidden = target !== LOCAL;
+  stationCard.row([scopePanel.el], { pad: false });
+  detail.append(sec('', stationCard.el, listenLink, playing.el), sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
@@ -1043,7 +1134,7 @@
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, detail.contains(soundSec) ? 'box' : 'none', detail.querySelectorAll('.pos-choice, .sld-lane, .vc-votes, textarea').length, isOn(t)]);
+      seen.push([t, dName.textContent, detail.contains(soundSec) ? 'box' : 'none', detail.querySelectorAll('.pos-choice, .sld-lane:not(.vc-wet .sld-lane), .vc-votes, textarea').length, isOn(t)]);
     }
     d.assert('selecting a station opens it, live only: no copy, mix or grains controls, and no scene box or vote box on the page',
       seen.every(([t, n, disp, ctl, on]) => n === t && disp === 'none' && ctl === 0 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
@@ -1116,14 +1207,14 @@
       const realSeed = lifeSeed; lifeSeed = () => 42;
       const L42 = createLife({ seed: 42 }), S0 = L42.scene(0, { kind: items[1].kind }), S1 = L42.scene(1);
       needle = { tune: 0.46, drift: 1, phase: 'dwell', landings: 0, from: 0, slots: [{ at: 3, title: 'file A' }, { at: 0, title: 'file B' }] };
-      castBtns.button('cast').click(); await tick(400);
+      playBtns.button('play').click(); await tick(400);
       const has = (f) => calls.some(f), st0 = calls.find(([c]) => c === 'start')?.[1];
       const logged = (re) => d.logs?.some?.((l) => re.test(l.msg)) ?? window.__demo.logs.some((l) => re.test(l.msg));
       const seen0 = { shown: logged(new RegExp(`^local scene 1[,:].*: .*${S0.patch}.*moving ${S0.param}`)) && !detail.contains(soundSec), moving: lMove.textContent };
       d.assert('START on local plays live: its program here on the grains path with the clock on, scene 0\'s dwell, blend and patch, one control moving, the scene announced in the log (its box hidden)',
         localOn() && localFor === LOCAL && st0?.queue.map((x) => x.id).join() === String(items[1].id) && st0.mode === 'grains' && st0.set.drift === 1
         && st0.set.dwell === S0.dwell && st0.set.blend === S0.blend && st0.patch.name === patchFor(S0.patch).name && localFile(items[0]) === `${BASE}/file/${items[0].id}`
-        && castBtns.button('cast').textContent === 'stop here' && word(LOCAL) === 'here' && seen0.shown
+        && playBtns.button('play').getAttribute('aria-label') === 'stop here' && word(LOCAL) === 'here' && seen0.shown
         && has(([c, p]) => c === 'patch' && p.set && S0.param in p.set && 'mix' in p.set) && seen0.moving.startsWith(`${S0.param} `),
         JSON.stringify({ st0: st0 && { mode: st0.mode, set: st0.set, patch: st0.patch?.name }, S0: [S0.patch, S0.param, S0.dwell], seen0, word: word(LOCAL) }));
       d.assert('NEGATIVE CONTROL: local sends nothing to any station and opens no control socket',
@@ -1202,7 +1293,7 @@
       if (items.length >= 6) {
         stopLocal(); rowOf(LOCAL).click(); delete progs[LOCAL];
         const realShuffle = shuffle; shuffle = (a) => a;
-        calls.length = 0; castBtns.button('cast').click(); await tick(300);
+        calls.length = 0; playBtns.button('play').click(); await tick(300);
         const q0 = calls.find(([c]) => c === 'start')?.[1].queue.map((x) => x.id) || [], five = items.slice(0, 5).map((x) => x.id), all = items.map((x) => x.id);
         d.assert('START with an empty program takes the whole archive and shows it as the program',
           q0.join() === all.join() && progOf(LOCAL).join() === all.join() && progRows.length === items.length && progEmpty.hidden, JSON.stringify(q0));
