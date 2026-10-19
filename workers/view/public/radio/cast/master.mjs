@@ -5,7 +5,8 @@
 // why: plans/plan-cast-listenable.md section 1
 
 /** The numbers, linear: TARGET is the leveller's RMS of the mono sum, KNEE where the squeeze starts, CEIL the peak. */
-export const MASTER = { TARGET: 0.13, GMAX: 5, SLOW: 3, GLIDE: 1, FAST: 0.15, KNEE: 0.22, CEIL: 0.85, LOOK: 0.005, FLOOR: 0.0003 };
+export const MASTER = { TARGET: 0.16, GMAX: 16, SLOW: 6, GLIDE: 3, FAST: 0.15, KNEE: 0.28, CEIL: 0.85, LOOK: 0.005, FLOOR: 0.0003 };
+// GMAX 5 left the quiet stretches at -30 to -42 LUFS short-term (measured on preview 2026-10-19, -20.5 integrated)
 /** The private stereo pair everything writes to in the container; the master reads it and writes the output. */
 export const MASTER_BUS = 12;
 
