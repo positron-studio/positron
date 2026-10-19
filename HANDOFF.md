@@ -1,3 +1,11 @@
+# Handoff, 2026-10-19 evening, session 85 continued: the sound frozen after a bad evening of live patching
+
+- **Frozen.** No cast sound deploy until a rendered 20 min sample is measured and the owner says yes (memory `no-live-sound-patching`). Last cast deploy 17:36Z (`0084743e`): smooth families only, scenes 60 to 150 s, files under 40 s skipped, no smear, room at most 0.35. Site `b838fb34-171151-4fdc`.
+- **Committed, NOT deployed:** `7dae37d5` the load feature (`workers/cast/load.mjs`, a composer loaded at the next scene, crash guard 2 min) and the hand-over only on a new image hash (`newCode` in worker.mjs, `CAST_IMAGE` from deploy.mjs). load-test 16/16, all cast tests green. Its next deploy is one container switch.
+- **The owner listens on https://shout.positron.studio/preview** (shout redials the cast for 90 s at a switch). MEASURED 18:16 to 18:41Z: through shout and direct to the cast, both connections 1500 s unbroken, 23,982,915 and 24,057,312 bytes. The stops the owner heard then were on the phone side (mobile data or iOS); the relay saw the phone's connections close at 17:54Z. A recorder of mine stopping at 7.6 min was ffmpeg, not the stream.
+- **Open, in BACKLOG:** a hand-over lined up 103 s off (17:36:51Z); the relay's counters reset when nobody listens; the phasing on frozen choir patches (detune moved by the hand, fix written and reverted unshipped: NO_MOVE detune, DETUNE_CAP 0.002); the 7.6 min recording of 17:54Z read -17.4 LUFS, peak -3.5, no silence over 0.7 s.
+- **What went wrong today:** about 15 live sound deploys in five hours, each on one complaint, none listened to first; several introduced the next defect (chopping after WET_CAP 0.95, going forever after KIND_DWELL 1.6, the wash after the big room). Next: the render-and-measure gate in Docker (grains-local), then one decided direction.
+
 # Handoff, 2026-10-19, session 85: the cast made listenable on a commute
 
 - **Site BUILD `415429b3-145225-cbbc`**, confirmed. **Cast worker `a80fde53`.** Commits `339be179`, `415429b3` (+ two builds). Not pushed. Nothing casting (all six `playing:false` at 15:11Z).
