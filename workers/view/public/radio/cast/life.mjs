@@ -271,7 +271,8 @@ export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
  *  is not muddy: *"sounds are now muddy"* (2026-10-19), when 34 % of scenes sat under 0.9 and a quarter low-passed at 2 kHz. */
 export const LOW_PITCH = 0.74, LOW_TYPES = ['deep', 'sdeep', 'breath', 'coda'], TONE_FLOOR = 1800, DARK_FLOOR = 1200;
 /** The share of sections that carry a drone. */
-export const DRONE_SHARE = 0.4;
+// 0.3, was 0.4: a drone through a whole section tired (*"tiring drone"*, 2026-10-19)
+export const DRONE_SHARE = 0.3;
 /** The families that smooth a clicking file, and what its sharp scene types become. */
 export const SMOOTH = ['drone', 'choir', 'spectral'];
 export const SHARP_TYPES = { storm: 'deep', rhythm: 'choir', tapebuild: 'build', cloudbuild: 'build' };
@@ -476,7 +477,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     return { drone, droneLevel: r2(G2 ? 0.45 + 0.25 * r() : 0.3 + 0.3 * r()), droneOct: r() < 0.5 ? -1 : -2,
       res: some('res'), resDecay: r2(0.5 + 3.5 * r()), resWet: r2(0.15 + 0.35 * r()),
       harm: some('harm'), harmSpread: r2(r()),
-      ghost: some('ghost'), ghostEvery: Math.round(20 + 40 * r()), ghostLen: Math.round(8 + 7 * r()), ghostSide: r() < 0.5 ? 'next' : 'prev', ghostLevel: r2(0.15 + 0.15 * r()),
+      ghost: some('ghost'), ghostEvery: Math.round(20 + 40 * r()), ghostLen: Math.round(G2 ? 16 + 14 * r() : 8 + 7 * r()), ghostSide: r() < 0.5 ? 'next' : 'prev', ghostLevel: r2(0.15 + 0.15 * r()),
       bpm: pulse ? Math.round(60 + 60 * r()) : 0, pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(kind === 'speech' ? LAYERS.pulseOn : LAYERS.pulseOn.slice(0, 2), r),
       room: r2(0.1 + 0.3 * r()), roomSize: r2(0.4 + 0.5 * r()) };
   }
@@ -550,7 +551,11 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       const seen = scenes.slice(-5).map((x) => cmb(x.layers));
       for (let k = 0; k < 8; k++) { d.layers = typeLayers(base, Tt, rng(seed * 2741 + i * 59 + k * 7777)); if (!seen.includes(cmb(d.layers))) break; } }
     // the section's drone, or none; a storm and a rhythmic scene play without one
-    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0 };
+    // no resonators: called metallic three times, darkened once and still metallic (*"metallicness"*, 2026-10-19);
+    // plans/plan-cast-variety.md 2.2's breathing filters are the replacement
+    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0, res: 'none' };
+    // a ghost is coloured by the band-pass only: the comb and resonators ring on the scene's root, against the visitor's key
+    if (d.layers.ghost && d.layers.ghost !== 'none') d.layers = { ...d.layers, ghost: 'bpf' };
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
     const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;
@@ -572,7 +577,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   }
   /** A type's layers over the drawn ones: what each type keeps, adds and leaves out. */
   function typeLayers(L, T, r) {
-    const n = T.name.replace(/^(tape|cloud)build$/, 'build').replace(/^sdeep$/, 'deep'), ghost = () => pickOne(['res', 'comb', 'bpf'], r);
+    const n = T.name.replace(/^(tape|cloud)build$/, 'build').replace(/^sdeep$/, 'deep'), ghost = () => (r(), 'bpf');
     const none = { res: 'none', harm: 'none', ghost: 'none', bpm: 0 };
     switch (n) {
       // speech as an instrument from the start: sung through resonators over a full drone, never plain talk

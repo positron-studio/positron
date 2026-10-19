@@ -52,11 +52,12 @@ export const layerLevel = (x, dry = 0.12, rise = 0.18, hold = 0.85) => (x < dry 
 /** The layers' level at `x` of scene `s`: its arc and intensity, pushed toward full by its soak (and by `more`, the
  *  page's own slider), and up to about 3.5 dB louder at full: the drivers on the page and in the container call this. */
 // the layers never fall below CARRY, at a scene's end, through the blend or in the next one's opening, so a scene change
-// does not drop the effects: *"when i push next scene ... do you drop fx?"* (2026-10-19); the pitches glide meanwhile
-export const CARRY = 0.45, PUSH_TO = 0.75;
+// does not drop the effects: *"when i push next scene ... do you drop fx?"* (2026-10-19); the pitches glide meanwhile.
+// 0.2, not 0.45: at 0.45 the effects never breathed out and the stream tired (*"lower the floor?"*, same day)
+export const CARRY = 0.2, PUSH_TO = 0.75;
 /** Every level the drivers set is this much of it: with the granulator's WET_CAP, the composition sounds as the page's
  *  slider did at 0.4 (*"on 0.4 its more toreable"*, 2026-10-19). */
-export const LAYER_SCALE = 0.8;
+export const LAYER_SCALE = 0.8, DRONE_TRIM = 0.7;
 /** The layers' level through a blend: the bridge's, never under CARRY. Both drivers call this. */
 export const blendLevel = (bridge) => Math.max(bridge?.level ?? 0, CARRY) * LAYER_SCALE;
 export const sceneLevel = (x, s, more = 0) => {
@@ -79,7 +80,12 @@ export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12)
 export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
 /** A ghost arrives an octave down, a fourth down, as it is, or a fifth up. */
 // a visit is mostly slowed, an octave or a fourth down, now and then as it was or a fifth up
-export const GHOST_SHIFTS = [0.5, 0.75, 0.5, 0.75, 1];
+// an octave down or as it is, never a fourth: a fourth down put the visiting file in a key against the scene's
+// (*"key conflict"*, 2026-10-19)
+export const GHOST_SHIFTS = [0.5, 0.5, 1];
+/** Where in the visiting file a ghost starts: in its middle half, at least 20 s before its end; 20 to 200 s in when its
+ *  length is unknown. Both engines (*"does ghosts tart from beginning. maybe in middle?"*, 2026-10-19). */
+export const ghostFrom = (seconds, rnd) => (Number(seconds) > 40 ? Math.min(Number(seconds) * (0.25 + 0.5 * rnd), Number(seconds) - 20) : Number(seconds) > 0 ? 0 : 20 + 180 * rnd);
 /** Seconds between ghost visits: the scene's own gap, shorter on a long file (300 s is as drawn), 0.5 to 1.5 times. */
 export const ghostGap = (L, seconds) => (L?.ghostEvery ?? 40) * (Number(seconds) > 0 ? Math.min(1.5, Math.max(0.5, 300 / Number(seconds))) : 1);
 /** The drones stay up across scenes and glide to the next key; the other layers fade with each scene. */
@@ -123,7 +129,9 @@ export const PROGRAMS = {
   // near the middle (*"cpuld not hear oriental"*, 2026-10-19)
   // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
   // on the root or four resonators, into a big room of its own, drifting wide
-  lghost: `{ var amp = Lag.kr(\\amp.kr(0), 1.5);
+  // a ghost swells in and out on an S curve over about 7 s (glide), and the bed ducks the same way:
+  // *"they seems too sudden"*, *"they come and go too harsly"* (2026-10-19)
+  lghost: `{ var amp = ${glide('\\amp.kr(0)', 2.5)};
   var x = Mix(In.ar(4, 2)) * 0.5;
   var sh = PitchShift.ar(x, 0.25, Lag.kr(\\shift.kr(1), 0.5), 0.01, 0.05);
   var bp = BPF.ar(sh, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.5) * 3;
@@ -138,11 +146,13 @@ export const PROGRAMS = {
 // *"too loud, clips"* (2026-10-19). A ghost goes straight to the output under its own 0.3, and while it visits the
 // room ducks (`duck`) and its ceiling drops to 0.25 (`ceil`), so a visit is heard over the bed and the sum holds:
 // *"can not hear ghost"* (2026-10-19).
-export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * Lag.kr(\\duck.kr(1), 1.5);
-  var l = (In.ar(${LAYER_BUS}, 1) * g) + In.ar(${DRONE_BUS}, 1);
-  var r = (In.ar(${LAYER_BUS + 1}, 1) * g) + In.ar(${DRONE_BUS + 1}, 1);
+export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * ${glide('\\duck.kr(1)', 2.5)};
+  // the drones half fixed and half following the scene's level, so they swell and recede rather than hold flat
+  var dg = Lag.kr(\\dgain.kr(1), 3);
+  var l = (In.ar(${LAYER_BUS}, 1) * g) + (In.ar(${DRONE_BUS}, 1) * dg);
+  var r = (In.ar(${LAYER_BUS + 1}, 1) * g) + (In.ar(${DRONE_BUS + 1}, 1) * dg);
   var w = FreeVerb2.ar(l, r, \\mix.kr(0.3), \\size.kr(0.7), 0.5);
-  Limiter.ar(w, Lag.kr(\\ceil.kr(0.4), 1.5), 0.01) }`;
+  Limiter.ar(w, ${glide('\\ceil.kr(0.4)', 2.5)}, 0.01) }`;
 
 /** Compile every program; `bad` lists any the compiler refused, with why. */
 export function compileLayers() {
@@ -179,8 +189,9 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
       if (!L) { for (const n of Object.keys(PROGRAMS)) set(n, { amp: 0 }); return; }
       const dz = droneHz(key, L.droneOct ?? -1), ch = chordHz(key, L.res === 'none' ? 'fifths' : L.res, { octaves: 2, from: 1 }), rt = harmRatios(L.harm, L.harmSpread);
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
-      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.55 : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
-      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
+      // DRONE_TRIM: the drones about 3 dB under where they were, which tired over a section (*"tiring drone"*, 2026-10-19)
+      set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.55 * DRONE_TRIM : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
+      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 * DRONE_TRIM : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
       set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
       set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
@@ -198,7 +209,7 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
     /** One pulse hit on the resonators: opens them for `len` seconds. */
     hit(len = 0.3) { set('lres', { hit: 1, hitlen: len }); setTimeout(() => set('lres', { hit: 0 }), 20); },
     /** Everything the layers make, 0 to 1, for a fade with the scene. */
-    level(v) { set('lroom', { gain: v }); },
+    level(v) { set('lroom', { gain: v, dgain: 0.5 + 0.5 * Math.min(1, v) }); },
     stop() { for (const id of Object.values(NODES)) sc.send('/n_free', id); },
   };
 }
