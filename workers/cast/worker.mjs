@@ -173,6 +173,8 @@ export function pickFiles(items, votes, n, rand = Math.random) {
   return pool.map((x) => ({ ...x, k: rand() ** (1 / x.w) })).sort((a, b) => b.k - a.k).map((x) => x.id).slice(0, n);
 }
 
+/** Seconds under which a file is left out of what plays (the clip tests are 15 s). */
+export const MIN_FILE_S = 40;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = (t) => new Date(t).toISOString().slice(0, 19) + 'Z';
 
@@ -263,6 +265,8 @@ export class Caster {
   async cpost(path, body, k) {
     // every queue carries each file's gain from the table, a stored one too. why: lessons/workers-cast.md#level
     if (Array.isArray(body?.queue)) body = { ...body, queue: body.queue.map((x) => ({ ...x, ...levelFor(x.id) })) };
+    // a file under MIN_FILE_S is a blip between scenes, so it does not play while longer ones can (*"Same feeds go back and forth, with quite abrupt change"*, 2026-10-19)
+    if (Array.isArray(body?.queue)) { const long = body.queue.filter((x) => !(Number(x.seconds) > 0 && Number(x.seconds) < MIN_FILE_S)); if (long.length) body = { ...body, queue: long }; }
     const r = await this.slot(k ?? await this.key()).fetch(8080, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `the container answered ${r.status}`);

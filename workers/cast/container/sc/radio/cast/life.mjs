@@ -283,6 +283,9 @@ export const KIND_DWELL = { music: 1.6, ambiguous: 0.8, field: 0.7, speech: 0.7,
 export const VOC_ODDS = 0.6, VOCS = ['fifths', 'minor7', 'major'];
 /** A scene ends this many seconds before its file does, so the effects never fall off with the file. */
 export const FILE_TAIL_S = 20;
+/** Grammar 2: a hand-over of at least MIN_BLEND s, a scene of at least MIN_DWELL s, and a ghost (another file swelling
+ *  in, heard as the feed going back and forth) only in deep and coda scenes, GHOST_ODDS of them. */
+export const MIN_BLEND = 10, MIN_DWELL = 60, GHOST_TYPES = ['deep', 'sdeep', 'coda'], GHOST_ODDS = 0.35;
 export const TEST_DWELL = 25, isTest = (title) => /\btest\b/i.test(String(title || ''));
 /** A scene's layers at full soak: the layers it has, in a bigger room, and with `drone` the held file as well. It no
  *  longer adds resonators or the harmonizer, which rang metallic in four scenes of five: *"very mettallic"* (2026-10-19). */
@@ -471,6 +474,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.iParam = K.param ?? pickOne(iCan.length ? iCan : iNear.length ? iNear : iAny.length ? iAny : PARAMS.filter((p) => p !== d.param), r);
     delete d.notI;
     d.blend = Math.round(within(K.blend));
+    // grammar 2 never hands over in under MIN_BLEND seconds: a clean cut read as the feed jumping
+    if (T) d.blend = Math.max(MIN_BLEND, d.blend);
     d.iNoise = r2(within(K.noise));
     d.iWet = r2(within(K.wet));
     d.iFreeze = K.freeze;
@@ -570,6 +575,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (ctx.test) d.test = true;
     d.dwell = ctx.test ? TEST_DWELL : Math.min(600, Math.round(d.dwell * (KIND_DWELL[kind] ?? 1)));
     // never past the file: at its end the effects fell away and the bare recording played (*"effects just dropped off"*)
+    if (!ctx.test) d.dwell = Math.max(MIN_DWELL, d.dwell);
     if (Number(ctx.seconds) > 0) d.dwell = Math.max(15, Math.min(d.dwell, Math.round(Number(ctx.seconds) - FILE_TAIL_S)));
     // the file dry first, DRY_S seconds, so the listener knows the original before the effect arrives
     // a clicking file is never heard bare (*"this original glitching ... is pretty bad"*)
@@ -586,6 +592,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0, res: 'none' };
     // a ghost is coloured by the band-pass only: the comb and resonators ring on the scene's root, against the visitor's key
     if (d.layers.ghost && d.layers.ghost !== 'none') d.layers = { ...d.layers, ghost: 'bpf' };
+    { const gr = rng(seed * 6007 + i * 41); if (!GHOST_TYPES.includes(d.type) || gr() >= GHOST_ODDS) d.layers = { ...d.layers, ghost: 'none' }; }
     // the harmonizer moves a voice's pitch, so it plays on music only
     if (kind !== 'music') d.layers = { ...d.layers, harm: 'none' };
     // the choir on talk and field recordings: it is the scene's effect, so no harmonizer or ghost beside it
