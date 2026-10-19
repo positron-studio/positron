@@ -248,14 +248,14 @@ export const tideOf = (t, phase = 0) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) /
 /** Grammar 2 plays no patch pitched above this. Asked: "annoying hipitch", then no grain plays a voice above where it was spoken,
  *  *"duck voices...not good, not respectful for authors"* (2026-10-19, was 1.5). */
 export const MAX_PITCH = 1;
-/** How wet a grammar 2 scene is drawn on the range the page's slider covers from "as composed" to "processing only",
- *  leaning wet: *"use this range for you scenes we have in dry/wet. prefer more wetter"* (2026-10-19). */
-export const SOAK = [0.25, 0.9];
-/** A scene's layers at full soak: every layer made from the file sounds (the held file, resonators, the harmonizer on
- *  the low triad), in a bigger room; `drone: false` keeps a scene that plays without one without one. */
+/** How wet a grammar 2 scene is drawn, on the range the page's slider covers: -1 the file straight, 0 as composed,
+ *  1 processing only. Most scenes lean wet (SOAK); one in DRIER_SHARE leans dry (DRIER) and keeps a floor of grains so
+ *  no speech is naked: *"prefer more wetter"*, then *"use full wet dry range for composition but minimal time in dry"*. */
+export const SOAK = [0.25, 0.9], DRIER = [-0.7, -0.2], DRIER_SHARE = 0.15, DRIER_FLOOR = 0.15;
+/** A scene's layers at full soak: the layers it has, in a bigger room, and with `drone` the held file as well. It no
+ *  longer adds resonators or the harmonizer, which rang metallic in four scenes of five: *"very mettallic"* (2026-10-19). */
 export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
   ...(drone ? { drone: L.drone === 'key' || L.drone === 'both' ? 'both' : 'freeze', droneLevel: Math.max(L.droneLevel ?? 0.3, 0.5) } : {}),
-  res: L.res === 'none' ? 'fifths' : L.res, resWet: Math.max(L.resWet ?? 0, 0.5), harm: L.harm === 'none' ? 'triad' : L.harm,
   room: Math.max(L.room ?? 0.3, 0.6), roomSize: Math.max(L.roomSize ?? 0.7, 0.9) } : L);
 /** The share of sections that carry a drone. */
 export const DRONE_SHARE = 0.4;
@@ -515,7 +515,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const d = weighted(ok.length ? ok : cands, (x) => Math.exp(LEAN * learned(x)), r);
     const a = rng(seed * 977 + i * 31), within = ([lo, hi]) => lo + (hi - lo) * a();
     const Tt = TYPES[d.type];
-    d.dry = r2(within(Tt.dry)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
+    // the dry opening half its type's: as little time dry as lets a listener know the file
+    d.dry = r2(within(Tt.dry) * 0.5); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
     // inside its type's band by the tide, and the whole band a little lower at low tide
     d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
     d.layers = typeLayers(d.layers, Tt, rng(seed * 2741 + i * 59));
@@ -523,7 +524,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone) };
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
-    d.soak = r2(SOAK[0] + (SOAK[1] - SOAK[0]) * (1 - (1 - rng(seed * 7919 + i * 13)()) ** 2));
+    const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;
+    d.soak = r2(drier ? DRIER[0] + (DRIER[1] - DRIER[0]) * sr() : SOAK[0] + (SOAK[1] - SOAK[0]) * (1 - (1 - sr()) ** 2));
     if (d.soak >= 0.5) d.layers = soakLayers(d.layers, { drone: false });
     // a locked patch plays on the scene's tempo: so many grains a beat, its echo so many beats
     const f = patchInfo(d.patch);
@@ -600,7 +602,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     /** Scene i, `t` seconds after its file landed: what the granulator does and the hand holds. */
     inScene(i, t) {
       const s = scene(i), x = t / s.dwell, w = s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2, s.rise, s.hold);
-      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.soak ? w + (1 - w) * s.soak : w,
+      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.soak > 0 ? w + (1 - w) * s.soak : s.soak < 0 ? Math.max(DRIER_FLOOR, w * (1 + s.soak)) : w,
         value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)), extra: freezesAfterDry(s.patch) ? { freeze: x > (s.dry ?? 0.2) ? 1 : 0 } : {} };
     },
     /** The interlude after scene i, `t` seconds into its blend. */

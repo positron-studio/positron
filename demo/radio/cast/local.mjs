@@ -72,7 +72,11 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     graph = createTunerGraph(ctx, SLOTS);
     master = ctx.createGain();
     analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
-    master.connect(analyser); analyser.connect(ctx.destination);
+    // a limiter last, so whatever the slider and a soaked scene add up to never clips here
+    const limit = ctx.createDynamicsCompressor?.();
+    if (limit) for (const [k, v] of Object.entries({ threshold: -2, knee: 0, ratio: 20, attack: 0.002, release: 0.2 })) limit[k].value = v;
+    if (limit) { master.connect(limit); limit.connect(analyser); } else master.connect(analyser);
+    analyser.connect(ctx.destination);
     // three gates into the master, one open per mode; the tuner always feeds the ring's input
     gates = { copy: ctx.createGain(), mix: ctx.createGain(), grains: ctx.createGain() };
     for (const x of Object.values(gates)) { x.gain.value = 0; x.connect(master); }
