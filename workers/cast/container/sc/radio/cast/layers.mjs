@@ -73,19 +73,22 @@ export const GHOST_SHIFTS = [0.5, 0.75, 0.5, 0.75, 1];
 export const ghostGap = (L, seconds) => (L?.ghostEvery ?? 40) * (Number(seconds) > 0 ? Math.min(1.5, Math.max(0.5, 300 / Number(seconds))) : 1);
 /** The drones stay up across scenes and glide to the next key; the other layers fade with each scene. */
 export const DRONES = ['ldrone', 'lfreeze'];
-const fs = (n, from = 0) => Array.from({ length: n }, (_, i) => `\\f${from + i}.kr(${110 * (i + 1)})`);
+// a pitch the layers move glides like a voice sliding to a note: three Lags in a row start slowly, move and settle (Lag3,
+// which sclang-lite does not have); one Lag alone does half its move in the first tenth of its time
+const glide = (x, t) => `Lag.kr(Lag.kr(Lag.kr(${x}, ${t}), ${t}), ${t})`;
+const fs = (n, from = 0) => Array.from({ length: n }, (_, i) => glide(`\\f${from + i}.kr(${110 * (i + 1)})`, 2));
 export const PROGRAMS = {
   // three saws on root, fifth and octave, never still: the low-pass sweeps slowly over three octaves, each
   // saw's shape drifts, and the octave wanders up to a semitone either side, so the drone changes over a minute
   ldrone: `{ var amp = Lag.kr(\\amp.kr(0), 4);
   var cut = \\cut.kr(500) * (1 + (LFNoise2.kr(0.02) * 0.85)) * (1 + (LFNoise2.kr(0.11) * 0.2));
   var w = (LFNoise2.kr(0.04) * 0.35) + 0.5;
-  var s = (VarSaw.ar(Lag.kr(\\f0.kr(55), 6), 0, w * 0.6) + (VarSaw.ar(Lag.kr(\\f1.kr(82), 6) * (1 + (LFNoise2.kr(0.015) * 0.012)), 0, w) * 0.7) + (VarSaw.ar(Lag.kr(\\f2.kr(110), 6) * (1.003 + (LFNoise2.kr(0.02) * 0.06)), 0, 1 - w) * 0.5)) * 0.25;
+  var s = (VarSaw.ar(${glide('\\f0.kr(55)', 8)}, 0, w * 0.6) + (VarSaw.ar(${glide('\\f1.kr(82)', 8)} * (1 + (LFNoise2.kr(0.015) * 0.012)), 0, w) * 0.7) + (VarSaw.ar(${glide('\\f2.kr(110)', 8)} * (1.003 + (LFNoise2.kr(0.02) * 0.06)), 0, 1 - w) * 0.5)) * 0.25;
   Pan2.ar(RLPF.ar(s, cut, 0.35 + ((LFNoise2.kr(0.03) + 1) * 0.3)) * amp, LFNoise2.kr(0.03) * 0.3) }`,
   // the file itself held and slowed: low-passed (the corner sweeping slowly), an octave down, into a long room
   lfreeze: `{ var amp = Lag.kr(\\amp.kr(0), 4);
   var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 600 * (1 + (LFNoise2.kr(0.025) * 0.7)));
-  var down = PitchShift.ar(low, 0.4, \\ratio.kr(0.5), 0.02, 0.2);
+  var down = PitchShift.ar(low, 0.4, ${glide('\\ratio.kr(0.5)', 8)}, 0.02, 0.2);
   Pan2.ar(LeakDC.ar(FreeVerb.ar(down, 1, 0.97, 0.6)) * amp, 0) }`,
   // a bank of resonators at the scene's chord; on a pulse only the hits open it
   lres: `{ var amp = Lag.kr(\\amp.kr(0), 1);
@@ -99,9 +102,9 @@ export const PROGRAMS = {
   lharm: `{ var amp = Lag.kr(\\amp.kr(0), 1);
   var x = Mix(In.ar(2, 2)) * 0.5;
   var sp = \\spread.kr(0.6);
-  var a = PitchShift.ar(x, 0.2, \\r0.kr(0.5), 0.005, 0.02);
-  var b = PitchShift.ar(x, 0.2, \\r1.kr(1.5), 0.005, 0.02);
-  var c = PitchShift.ar(x, 0.2, \\r2.kr(2), 0.005, 0.02);
+  var a = PitchShift.ar(x, 0.2, ${glide('\\r0.kr(0.5)', 5)}, 0.005, 0.02);
+  var b = PitchShift.ar(x, 0.2, ${glide('\\r1.kr(1.5)', 5)}, 0.005, 0.02);
+  var c = PitchShift.ar(x, 0.2, ${glide('\\r2.kr(2)', 5)}, 0.005, 0.02);
   (Pan2.ar(a, sp * -1) + Pan2.ar(b, 0) + Pan2.ar(c, sp)) * amp * 0.5 }`,
   // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
   // on the root or four resonators, into a big room of its own, drifting wide
