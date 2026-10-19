@@ -3,7 +3,7 @@
 //                              gain (dB to -23 LUFS), kind (speech | field | music | ambiguous), kindConf, soften (the input
 //                              stage for clicks, soften.mjs) and seconds from gains.mjs
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
-//                              extend ({ms}: stop at now + ms, 15 min to 12 h); every start stops itself at `until`, 2 h on;
+//                              extend ({ms}: stop at now + ms, 15 min to 14 days, workers/cast/extend.mjs); every start stops itself at `until`, 2 h on;
 //                              program (the station's stored list, kept while off air, START plays it);
 //                              every station plays live (life.mjs and layers.mjs in the container); step ({by: 1 | -1}:
 //                              the next or previous scene); mode, set and patch are refused since 2026-10-18
@@ -42,7 +42,7 @@ const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 
 const HANDOVER_SAFE_S = 25, HANDOVER_MIN_S = 10, HANDOVER_RETRY_MS = 3000, HANDOVER_TRIES = 3;
 const other = (k) => (k === 'b' ? 'a' : 'b'), twinOf = (name) => `${name}~b`;
 // Every start stops itself at `until`, kept in the wanted session. why: lessons/workers-cast.md#cap
-const CAP_MS = 2 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 12 * 3600_000, PLAY_CAP_MIN = 60_000;
+const CAP_MS = 2 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 14 * 24 * 3600_000, PLAY_CAP_MIN = 60_000;
 const clampMs = (ms, lo) => (Number.isFinite(+ms) ? Math.min(CAP_MAX, Math.max(lo, Math.round(+ms))) : null);
 
 /**
@@ -452,7 +452,7 @@ export class Caster {
     this.say(`step ${by > 0 ? 'next' : 'previous'} scene`); this.push();
   }
 
-  /** Moves the stop to now + ms, 15 min to 12 h; only while wanted. */
+  /** Moves the stop to now + ms, 15 min to 14 days; only while wanted. */
   async extend(ms) {
     const want = await this.st.get('want');
     if (!want) throw new Error('not on air: nothing to extend');

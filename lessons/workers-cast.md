@@ -16,8 +16,10 @@ Then "Yed" to a 2 h self-stop per station shown on the page with a way to extend
 - `until` lives in storage, so a restarted object and a restarted container keep it: a death goes through
   `died()` and `bring()`, which never touch `want.until`. A session from before the cap has none and is
   measured from `startedAt + 2 h`. The alarm is set at `min(now + 30 s, until)`, never in the past.
-- `{cmd:'extend', ms}` sets `until = now + ms`, clamped to 15 min .. 12 h; off air it is refused.
-- `play` takes `capMs` (60 s .. 12 h) through the keyed socket only, so a check can start a station that ends
+- `{cmd:'extend', ms}` sets `until = now + ms`, clamped to 15 min .. 14 days; off air it is refused. 14 days since
+  2026-10-19, asked for a 3 to 4 day run on radio1965 (*"i need to run for 3-4 days"*, *"it can be more days"*), was 12 h; the page has no
+  extend, `node workers/cast/extend.mjs <station> <hours>` sends it. A start still stops at 2 h unless extended.
+- `play` takes `capMs` (60 s .. 14 days) through the keyed socket only, so a check can start a station that ends
   itself in a minute without a lower floor on `extend`.
 - An alarm that finds a wanted session for a target that no longer exists stops it, so removing a target
   cannot leave a container restarting itself.
