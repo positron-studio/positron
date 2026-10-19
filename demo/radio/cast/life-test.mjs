@@ -190,7 +190,7 @@ rules('grammar 2', S2.slice(0, 600), L2.FRESH2);
 // glitch plays only in storms, and storms only at high tide, so it may miss one of its four in 2000 scenes
 const seen2 = new Set(S2.map((x) => x.patch));
 const STUTTER = ['rhythmic', 'glitch'];
-check('grammar 2 plays every patch at or under MAX_PITCH in 2000 scenes, none above it, and nothing that stutters', CAST_PATCHES.every((c) => STUTTER.includes(familyOf(c.name)) || patchValues(c.name).pitch > L2.MAX_PITCH || patchValues(c.name).drop > L2.MAX_DROP || L2.ECHOEY.includes(c.name) || patchValues(c.name).size < L2.MIN_GRAIN || seen2.has(c.name)) && ![...seen2].some((n) => STUTTER.includes(familyOf(n))) && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
+check('grammar 2 plays every patch at or under MAX_PITCH in 2000 scenes, none above it, and nothing that stutters', CAST_PATCHES.every((c) => STUTTER.includes(familyOf(c.name)) || patchValues(c.name).pitch > L2.MAX_PITCH || patchValues(c.name).drop > L2.MAX_DROP || L2.ECHOEY.includes(c.name) || patchValues(c.name).size < L2.MIN_GRAIN || !L2.SMOOTH.includes(familyOf(c.name)) || seen2.has(c.name)) && ![...seen2].some((n) => STUTTER.includes(familyOf(n))) && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
 check('no stuttering: no grammar 2 scene is a rhythm scene or carries a pulse', !S2.some((x) => x.type === 'rhythm' || x.layers.bpm), JSON.stringify(S2.find((x) => x.type === 'rhythm' || x.layers.bpm)?.type));
 const all54 = [...new Set([...(await import('../../granulator/grain-ring.mjs')).PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)])];
 check('every patch is inside PATCH_LIMITS: the engines refuse nothing and change no value', CAST_PATCHES.every((c) => { const k = clampPatch({ name: c.base, set: c.set }); return !k.refused.length && Object.entries(c.set).every(([n, v]) => k.values[n] === (n === 'dir' ? (v < 0 ? -1 : 1) : v)); }));
@@ -204,7 +204,7 @@ check('no two patches are the same sound on size, density, pitch, speed, freeze,
       if (last[s.patch] != null) gp.push(i - last[s.patch]); last[s.patch] = i; if (s.layers.res !== 'none') rs++;
       const c = cb(s.layers); if (seen.slice(-5).includes(c)) rep5++; seen.push(c); } }
   gp.sort((a, b) => a - b); const top = Math.max(...Object.values(cnt)) / nn;
-  check('variety: no patch in over 6.5 % of scenes (26 patches since the grain floor), the 10th percentile gap 7 scenes or more, gaps of 2 under 1 %', top <= 0.065 && gp[Math.floor(gp.length * 0.1)] >= 7 && gp.filter((g) => g <= 2).length / gp.length < 0.01, `top ${(100 * top).toFixed(1)} %, p10 ${gp[Math.floor(gp.length * 0.1)]}`);
+  check('variety: no patch in over 6.5 % of scenes (26 patches since the grain floor), the 10th percentile gap 6 scenes or more (19 smooth patches), gaps of 2 under 1 %', top <= 0.065 && gp[Math.floor(gp.length * 0.1)] >= 6 && gp.filter((g) => g <= 2).length / gp.length < 0.01, `top ${(100 * top).toFixed(1)} %, p10 ${gp[Math.floor(gp.length * 0.1)]}`);
   // the combination gate is retired: with no resonators and no pulse a combination is two switches (harmonizer, ghost),
   // four possibilities, so a repeat within five scenes says nothing (2026-10-19, *"metallicness"*)
   check('no resonators in any grammar 2 scene: they rang metallic', rs === 0, `${rs} of ${nn}`); }
@@ -244,7 +244,7 @@ check('grammar 2: no chopped voices: every grain at least MIN_GRAIN, at least MI
 check('grammar 2: the harmonizer plays on music only, and at most one of drone, harmonizer and ghost in a scene', S2.every((x) => (x.kind === 'music' || x.layers.harm === 'none') && ['drone', 'harm', 'ghost'].filter((k) => x.layers[k] !== 'none').length <= 1));
 check('grammar 2: every scene opens dry for 8 to 20 s (or 40 % of a short one)', S2.every((x) => (x.dry * x.dwell >= 7 || x.dry === 0.4) && x.dry * x.dwell <= 23 && x.dry <= 0.4));
 { const mean = (k) => { const d = S2.filter((x) => x.kind === k).map((x) => x.dwell); return d.reduce((a, b) => a + b, 0) / d.length; };
-  check('grammar 2: a music file is visited longer than talk or a field recording', mean('music') > 1.5 * mean('speech') && mean('music') > 1.5 * mean('field'), `${mean('music').toFixed(0)} ${mean('speech').toFixed(0)} ${mean('field').toFixed(0)}`); }
+  check('grammar 2: a music file is visited longer than talk or a field recording', mean('music') > 1.25 * mean('speech') && mean('music') > 1.25 * mean('field'), `${mean('music').toFixed(0)} ${mean('speech').toFixed(0)} ${mean('field').toFixed(0)}`); }
 { const t = createLife0({ grammar: 2, seed: 5 }), ok = Array.from({ length: 40 }, (_, i) => t.scene(i, { kind: 'speech', test: i % 2 === 0 })).every((x, i) => (i % 2 ? x.dwell !== L2.TEST_DWELL || true : x.dwell === L2.TEST_DWELL && x.test));
   check('grammar 2: a test recording is a short visit', ok && L2.isTest('Clip test on user2') && L2.isTest('Audio test') && !L2.isTest('Testament')); }
 check('every grammar 2 interlude is a way out its type names (a dissolve when none is free), radio only at a section\'s end', S2.every((x) => x.naked || [...L2.TYPES[x.type].outs, 'radio', 'dissolve'].includes(x.iKind)) && S2.filter((x) => x.iKind === 'radio').every((x) => x.secLast));
@@ -256,7 +256,7 @@ const likeFam = S2.slice(0, 300).filter((x) => familyOf(x.patch) === 'choir' && 
 const likeSec = S2.slice(0, 300).filter((x) => x.section === 'ritual').slice(0, 8).map((x) => ({ def: G.defOf(x), vote: 4 }));
 const { S: SF } = life2({ seed: 11, n: 600, votes: likeFam }), { S: SS } = life2({ seed: 11, n: 600, votes: likeSec });
 const base600 = S2.slice(0, 600);
-check('votes learn the family: liked choirs come up more, and every family that does not stutter still plays', share(SF, (x) => familyOf(x.patch) === 'choir') > share(base600, (x) => familyOf(x.patch) === 'choir') * 1.2 && Object.keys(FAMILIES).filter((f) => !STUTTER.includes(f)).every((f) => SF.some((x) => familyOf(x.patch) === f)),
+check('votes learn the family: liked choirs come up more, and every smooth family still plays', share(SF, (x) => familyOf(x.patch) === 'choir') > share(base600, (x) => familyOf(x.patch) === 'choir') * 1.2 && L2.SMOOTH.every((f) => SF.some((x) => familyOf(x.patch) === f)),
   `${share(base600, (x) => familyOf(x.patch) === 'choir').toFixed(2)} to ${share(SF, (x) => familyOf(x.patch) === 'choir').toFixed(2)}`);
 check('votes learn the section: a liked ritual comes up more, and never twice in a row', share(SS, (x) => x.section === 'ritual') > share(base600, (x) => x.section === 'ritual') * 1.2,
   `${share(base600, (x) => x.section === 'ritual').toFixed(2)} to ${share(SS, (x) => x.section === 'ritual').toFixed(2)}`);
@@ -266,6 +266,7 @@ check('drones are one trick: most scenes carry none, and a section keeps one dro
   && S2.every((x, i) => !i || x.section !== S2[i - 1].section || S2[i - 1].secLast || ['storm', 'rhythm'].includes(x.type) || ['storm', 'rhythm'].includes(S2[i - 1].type) || x.layers.drone === S2[i - 1].layers.drone), share(S2, (x) => x.layers.drone === 'none').toFixed(2));
 const softOk = SO.filter((x, i) => i % 3 === 0).every((x) => L2.SMOOTH.includes(familyOf(x.patch)) && !['storm', 'rhythm', 'tapebuild', 'cloudbuild'].includes(x.type));
 check('a clicking file plays only drone, choir and spectral patches, never a storm or a rhythmic scene', softOk);
-check('NEGATIVE CONTROL: the same scenes without the flag play tape, rhythmic or glitch patches', S2.slice(0, 400).filter((x, i) => i % 3 === 0).some((x) => !L2.SMOOTH.includes(familyOf(x.patch))));
+check('every grammar 2 scene plays a smooth family only, no tape, cloud or reverse texture (*"kettle rattling"*)', S2.every((x) => L2.SMOOTH.includes(familyOf(x.patch))));
+check('NEGATIVE CONTROL: grammar 1 still plays other families, so the check can see one', S.some((x) => !L2.SMOOTH.includes(familyOf(x.patch))));
 console.log(`life-test: ${ok}/${ok + bad}`);
 process.exit(bad ? 1 : 0);

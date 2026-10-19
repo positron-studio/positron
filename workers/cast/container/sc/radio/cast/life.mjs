@@ -280,7 +280,9 @@ export const MIN_GRAIN = 0.35, MIN_OVERLAP = 2, NO_MOVE = ['echo', 'size', 'dens
 /** Seconds a scene stays dry before its effect, so the listener hears the original first. */
 export const DRY_S = [8, 20];
 /** A scene's dwell by what its file is: music and concerts longer, home, field and test recordings shorter. */
-export const KIND_DWELL = { music: 1.6, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
+export const KIND_DWELL = { music: 1.2, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
+/** No scene longer than this (*"Going forever"*, a 3.5 min Reverse swell, 2026-10-19). */
+export const MAX_DWELL = 150;
 /** A test recording (its title says test) is a short visit. */
 /** The choir (layers.mjs lvoc) on a file that is not music, this often: speech sung on a chord in the scene's key. */
 export const VOC_ODDS = 0.6, VOCS = ['fifths', 'minor7', 'major'];
@@ -567,7 +569,9 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // a file with clicks in it (`soft`, the soften stage's files: Kalle, Kalle 2, Driving along) gets long
     // smooth grains only: echoes, chops and glitches repeat its clicks. why: lessons/workers-cast.md#soft-files
     if (ctx.soft && SHARP_TYPES[type]) type = SHARP_TYPES[type];
-    const T = ctx.soft ? { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] } : TYPES[type];
+    // every file plays the smooth families only, as a clicking file always did: tape, cloud and reverse textures rattled
+    // (*"Messy now like kettle rattling"*, 2026-10-19)
+    const T = { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] };
     const cands = [];
     for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i, T));
     for (let k = 0; taste.liked.length && !prev?.from && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i, T); if (v) cands.push(v); }
@@ -580,7 +584,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (ctx.test) d.test = true;
     d.dwell = ctx.test ? TEST_DWELL : Math.min(600, Math.round(d.dwell * (KIND_DWELL[kind] ?? 1)));
     // never past the file: at its end the effects fell away and the bare recording played (*"effects just dropped off"*)
-    if (!ctx.test) d.dwell = Math.max(MIN_DWELL, d.dwell);
+    if (!ctx.test) d.dwell = Math.min(MAX_DWELL, Math.max(MIN_DWELL, d.dwell));
     if (Number(ctx.seconds) > 0) d.dwell = Math.max(15, Math.min(d.dwell, Math.round(Number(ctx.seconds) - FILE_TAIL_S)));
     // the file dry first, DRY_S seconds, so the listener knows the original before the effect arrives
     // a clicking file is never heard bare (*"this original glitching ... is pretty bad"*)
