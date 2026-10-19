@@ -915,7 +915,7 @@
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - lifeState.sceneAt) / (life?.scene(lifeState.si).dwell || 1), life?.scene(lifeState.si).dry, life?.scene(lifeState.si).rise, life?.scene(lifeState.si).hold) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layerEng.ghost(false); scopeEvent('ghost'); scope.visitorName(''); ghost.until = 0; setTimeout(() => { if (!ghost.until) local.ghostStop(); }, 9000); ghost.next = t + ghostGap(Ly, lifeState.item?.seconds) * (0.7 + 0.6 * Math.random()); }
     else if (!ghost.until && t >= ghost.next) {
-      const q = localQueue(), who = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem;
+      const q = localQueue(), pick = Ly.ghostSide === 'prev' && lifeState.prevItem ? lifeState.prevItem : items.find((x) => String(x.id) === String(q[0]?.id) && x.title !== lifeState.file) || lifeState.prevItem, who = pick && !isTest(pick.title) ? pick : null;
       if (!who) { ghost.next = t + 10; return; }
       local.ghost({ ...who, gain: who.gain }, ghostFrom(who.seconds, Math.random())); layerEng.ghost(true); ghost.until = t + Ly.ghostLen; scopeEvent('ghost'); scope.visitorName(`ghost: ${who.title}`);
       d.log(`a ghost: ${who.title}`);
