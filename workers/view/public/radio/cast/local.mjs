@@ -5,6 +5,7 @@ import { createMix, createTunerGraph, pinkNoise, handTurn, WHISTLE_SOFT } from '
 import { createRingEngine, PATCHES, valuesOf, DEFAULTS as RING_DEFAULTS, RING_SECONDS } from '../../granulator/grain-ring.mjs';
 import { inputPairs } from '../../shell/scsynth.mjs';
 import { WORKLET as SOFTEN_WORKLET } from './soften.mjs';
+import { WORKLET as MASTER_WORKLET } from './master.mjs';
 import { crossfade, dwellMix } from './crossfade.mjs';
 
 // The container's numbers (workers/cast/container/mixer.mjs, grain-patch.mjs); workers/cast/local-test.mjs goes red if they differ.
@@ -76,6 +77,7 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
     const limit = ctx.createDynamicsCompressor?.();
     if (limit) for (const [k, v] of Object.entries({ threshold: -2, knee: 0, ratio: 20, attack: 0.002, release: 0.2 })) limit[k].value = v;
     if (limit) { master.connect(limit); limit.connect(analyser); } else master.connect(analyser);
+    graph.tail = limit || analyser;
     analyser.connect(ctx.destination);
     // three gates into the master, one open per mode; the tuner always feeds the ring's input
     gates = { copy: ctx.createGain(), mix: ctx.createGain(), grains: ctx.createGain() };
@@ -232,6 +234,14 @@ export function createLocal({ fileUrl, log = () => {} } = {}) {
           .then(() => (softenOk = true), (e) => { log(`the soften stage did not load: ${e?.message || e}`, 'warn'); return false; })
         : Promise.resolve(false);
       await softenReady;
+      // the container's master (master.mjs) between the master gain and the limiter, once its worklet loads
+      if (!graph.leveller && ctx.audioWorklet) {
+        graph.leveller = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([MASTER_WORKLET], { type: 'text/javascript' }))).then(() => {
+          const lev = new AudioWorkletNode(ctx, 'cast-master', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit' });
+          master.disconnect(); master.connect(lev); lev.connect(graph.tail);
+        }, (e) => log(`the master stage did not load: ${e?.message || e}`, 'warn'));
+        await graph.leveller;
+      }
       if (MODES.includes(md)) mode = md;
       for (const [n, v] of Object.entries(set || {})) { const c = clampSet(n, v); if (c !== null) ctl[n] = c; }
       if (patch) api.patch(patch);
