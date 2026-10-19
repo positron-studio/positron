@@ -139,7 +139,9 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry, life.scene(L.si).rise, life.scene(L.si).hold) < 0.5)) return;
     if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 9; ghost.next = t + ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
     else if (!ghost.until && t >= ghost.next) {
-      const nx = e.nextItem, who = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
+      const nx = e.nextItem, pick = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
+      // a test recording never visits as a ghost
+      const who = pick && !isTest(pick.title) ? pick : null;
       if (!who) { ghost.next = t + 10; return; }
       const from = ghostFrom(who.seconds, rand());
       closeGhost();
