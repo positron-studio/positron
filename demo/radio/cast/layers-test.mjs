@@ -58,7 +58,7 @@ if (process.argv.includes('--browser')) {
     eng.send('/s_new', 'probe', 4900, 0, 0); const src = await rms(); eng.send('/n_free', 4900); await eng.sleep(300);
     const E = await L.createLayerEngine(eng), key = { root: 2, minor: true }, out = { src };
     const base = { drone: 'none', droneLevel: 0.3, droneOct: -1, res: 'none', resWet: 0.3, resDecay: 1.5, harm: 'none', harmSpread: 0.6, ghost: 'none', ghostLevel: 0.17, bpm: 0, room: 0, roomSize: 0.7 };
-    const cases = { drone: { drone: 'key' }, freeze: { drone: 'freeze' }, res: { res: 'minor7' }, harm: { harm: 'octfifth' }, ghostbpf: { ghost: 'bpf' }, ghostcomb: { ghost: 'comb' }, ghostres: { ghost: 'res' } };
+    const cases = { drone: { drone: 'key' }, freeze: { drone: 'freeze' }, res: { res: 'minor7' }, harm: { harm: 'octfifth' }, voc: { voc: 'fifths' }, ghostbpf: { ghost: 'bpf' }, ghostcomb: { ghost: 'comb' }, ghostres: { ghost: 'res' } };
     for (const [k, c] of Object.entries(cases)) { E.apply({ ...base, ...c }, key); if (k.startsWith('ghost')) E.ghost(true); out[k] = await rms(); E.apply({ ...base }, key); E.ghost(false); await eng.sleep(4500); }
     E.apply(base, key); out.silent = await rms();
     E.stop();
@@ -79,7 +79,8 @@ if (process.argv.includes('--browser')) {
     const rel = Object.fromEntries(Object.keys(got).filter((k) => !['src', 'silent', 'error'].includes(k)).map((k) => [k, db(got[k]) - db(got.src)]));
     check('every layer is heard through the real controller: above -24 dB of the file', Object.values(rel).every((v) => v > -24), JSON.stringify(rel));
     // drones at the test's level 0.3 sit 3 dB under the file; grammar 2 plays them at 0.45 to 0.7, about level with the processed voice
-    check('no layer drowns the file at the test level: drones at least 3 dB under it, the rest 6, ghosts 8', Object.entries(rel).every(([k, v]) => v < (k.startsWith('ghost') ? -8 : ['drone', 'freeze'].includes(k) ? -3 : -6)), JSON.stringify(rel));
+    // ghosts are heard over the bed since *"can not hear ghost"*, and the choir is the scene's one effect: both at least 3 dB under
+check('no layer drowns the file at the test level: drones, the choir and ghosts at least 3 dB under it, the rest 6', Object.entries(rel).every(([k, v]) => v < (k.startsWith('ghost') || ['drone', 'freeze', 'voc'].includes(k) ? -3 : -6)), JSON.stringify(rel));
     check('NEGATIVE CONTROL: every layer off is silent, so the level checks can fail', db(got.silent) < -80, db(got.silent).toFixed(1));
   } finally { await b.close(); }
 }

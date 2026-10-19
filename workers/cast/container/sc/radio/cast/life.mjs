@@ -279,6 +279,10 @@ export const DRY_S = [8, 20];
 /** A scene's dwell by what its file is: music and concerts longer, home, field and test recordings shorter. */
 export const KIND_DWELL = { music: 1.6, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
 /** A test recording (its title says test) is a short visit. */
+/** The choir (layers.mjs lvoc) on a file that is not music, this often: speech sung on a chord in the scene's key. */
+export const VOC_ODDS = 0.6, VOCS = ['fifths', 'minor7', 'major'];
+/** A scene ends this many seconds before its file does, so the effects never fall off with the file. */
+export const FILE_TAIL_S = 20;
 export const TEST_DWELL = 25, isTest = (title) => /\btest\b/i.test(String(title || ''));
 /** A scene's layers at full soak: the layers it has, in a bigger room, and with `drone` the held file as well. It no
  *  longer adds resonators or the harmonizer, which rang metallic in four scenes of five: *"very mettallic"* (2026-10-19). */
@@ -565,8 +569,11 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // a visit's length by what the file is: music longer, a test recording short
     if (ctx.test) d.test = true;
     d.dwell = ctx.test ? TEST_DWELL : Math.min(600, Math.round(d.dwell * (KIND_DWELL[kind] ?? 1)));
+    // never past the file: at its end the effects fell away and the bare recording played (*"effects just dropped off"*)
+    if (Number(ctx.seconds) > 0) d.dwell = Math.max(15, Math.min(d.dwell, Math.round(Number(ctx.seconds) - FILE_TAIL_S)));
     // the file dry first, DRY_S seconds, so the listener knows the original before the effect arrives
-    d.dry = r2(Math.min(0.4, within(DRY_S) / d.dwell)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
+    // a clicking file is never heard bare (*"this original glitching ... is pretty bad"*)
+    d.dry = ctx.soft ? 0.02 : r2(Math.min(0.4, within(DRY_S) / d.dwell)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
     // inside its type's band by the tide, and the whole band a little lower at low tide
     d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
     // a combination of layers heard in the last five scenes is drawn again, up to eight tries
@@ -581,6 +588,9 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (d.layers.ghost && d.layers.ghost !== 'none') d.layers = { ...d.layers, ghost: 'bpf' };
     // the harmonizer moves a voice's pitch, so it plays on music only
     if (kind !== 'music') d.layers = { ...d.layers, harm: 'none' };
+    // the choir on talk and field recordings: it is the scene's effect, so no harmonizer or ghost beside it
+    { const vr = rng(seed * 4513 + i * 23); d.layers = { ...d.layers, voc: kind !== 'music' && !ctx.test && vr() < VOC_ODDS ? pickOne(VOCS, vr) : 'none' };
+      if (d.layers.voc !== 'none') d.layers = { ...d.layers, harm: 'none', ghost: 'none', room: Math.max(d.layers.room ?? 0.3, 0.55), roomSize: Math.max(d.layers.roomSize ?? 0.7, 0.9) }; }
     // one effect at a time over the granulator, so it can be named: of the drone, harmonizer and ghost, one stays
     { const on = ['drone', 'harm', 'ghost'].filter((k) => d.layers[k] && d.layers[k] !== 'none');
       // the section's drone is the trick it holds across its scenes, so a drone stays when there is one

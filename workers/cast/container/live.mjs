@@ -70,7 +70,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   const hist = Array.isArray(resume?.hist) ? resume.hist : [];
   for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined, soft: !!hist[k]?.soft, test: !!hist[k]?.test }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
   const si0 = resume && Number.isInteger(resume.si) && resume.si >= 0 ? resume.si : 0;
-  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften, test: isTest(queue[0]?.title) });
+  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften, test: isTest(queue[0]?.title), seconds: queue[0]?.seconds });
   const L = { land: -1, si: si0, sceneAt: 0, blendAt: 0, phase: '', patch: '', inst: '', file: '', item: null, prevItem: null, want: null, now: null, level: 0 };
   const ghost = { next: 0, until: 0, stopAt: 0, src: null, item: null, level: 1, soften: null };
   const counts = { pulses: 0, onsets: 0, ghosts: 0, keys: 0, chains: 0 };
@@ -175,7 +175,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         L.si = first ? si0 : L.want ?? L.si + 1; L.want = null;
         L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = first && resume?.inst ? resume.inst : `${Date.now().toString(36)}-${L.si}`;
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
-        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften, test: isTest(L.item?.title) });
+        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften, test: isTest(L.item?.title), seconds: L.item?.seconds });
         e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE); e.set('path', s.iPath ?? 0);
         // a frozen patch stays open until the scene's dry share is over
         g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
