@@ -29,7 +29,13 @@ const STATIONS = {
   // why: lessons/workers-shout.md#ida
   'ida-tallinn': `${IDA}/tallinn/stream`,
   'ida-helsinki': `${IDA}/helsinki/stream`,
+  // Our own cast's preview, held here so a cast deploy (which restarts the cast's objects and swaps its container)
+  // never ends a listener: when the cast's stream ends, the tee dials again and the listener stays connected.
+  'cast-preview': 'https://cast.positron.studio/listen/preview',
 };
+/** Origins that are ours and come back after a deploy: the tee redials them for REDIAL_S rather than dropping listeners. */
+const REDIAL = new Set(['https://cast.positron.studio/listen/preview']);
+const REDIAL_S = 90;
 
 // Everything a client needs to read about the stream, including the ICY fields
 // that only exist on this protocol. Without expose-headers a browser sees the
@@ -297,7 +303,7 @@ export class Mount {
       return new Response(JSON.stringify({
         listeners: this.subs.size, peak: this.peak, upstream: !!this.reader,
         title: this.title, pulled: this.pulled, served: this.served,
-        dropped: this.dropped,
+        dropped: this.dropped, redials: this.redials || 0,
         // Must be 1 with listeners on; counted per dial and per pump end, so a duplicate dial reads
         // 2.
         // why: lessons/workers-shout.md#upstreams
@@ -343,6 +349,7 @@ export class Mount {
   }
 
   async dial(origin) {
+    this.origin = origin;
     const up = await fetch(origin, {
       method: 'GET',
       headers: {
@@ -413,6 +420,14 @@ export class Mount {
     // connection a later listener opened in its place.
     if (this.reader !== reader) return;
     this.reader = null;
+    // our cast's stream ends at a hand-over or a deploy and is back within seconds: keep the listeners and dial again
+    if (REDIAL.has(this.origin)) {
+      for (let k = 0; k < REDIAL_S && this.subs.size; k++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (this.reader) return;
+        if (await this.open(this.origin)) { this.redials = (this.redials || 0) + 1; return; }
+      }
+    }
     for (const s of [...this.subs]) this.drop(s);
   }
 
