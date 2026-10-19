@@ -131,7 +131,7 @@ const nakedOk = (x) => x.peak === 0 && x.len === 'long' && x.iKind === 'clean' &
 check('on talk a tenth to under a third of scenes are naked (within the length and interlude rules): long, no granulator, no layers, no noise, never two in a row',
   share(NK, (x) => x.naked) > 0.1 && share(NK, (x) => x.naked) < 0.3 && NK.filter((x) => x.naked).every(nakedOk) && NK.every((x, i) => !i || !(x.naked && NK[i - 1].naked)), share(NK, (x) => x.naked).toFixed(2));
 check('NEGATIVE CONTROL: on music naked scenes are rare', share(MU, (x) => x.naked) < 0.1, share(MU, (x) => x.naked).toFixed(2));
-check('every cast patch is built on a page patch, and grammar 1 plays its first six', CAST_PATCHES.length === 44 && CAST_PATCHES.every((c) => patchFor(c.name).name === c.base) && CAST_PATCHES.slice(0, 6).every((c) => NK.concat(S).some((x) => x.patch === c.name)) && !NK.concat(S).some((x) => CAST_PATCHES.slice(6).some((c) => c.name === x.patch)));
+check('every cast patch is built on a page patch, and grammar 1 plays its first six', CAST_PATCHES.length === 48 && CAST_PATCHES.every((c) => patchFor(c.name).name === c.base) && CAST_PATCHES.slice(0, 6).every((c) => NK.concat(S).some((x) => x.patch === c.name)) && !NK.concat(S).some((x) => CAST_PATCHES.slice(6).some((c) => c.name === x.patch)));
 const arcs = S.slice(0, 50);
 check('every scene starts dry for 12 to 30 % and its granulator is up by half way and still up at 80 %', arcs.filter((x) => !x.naked).every((x, i) => {
   const at = (f) => life.inScene(S.indexOf(x), f * x.dwell).wet; return x.dry >= 0.12 && x.dry <= 0.3 && at(x.dry * 0.5) === 0 && at(0.5) > 0.3 && at(0.8) > 0.3; }));
@@ -193,7 +193,17 @@ check('grammar 2 plays every patch at or under a MAX_PITCH in 2000 scenes, none 
 const all54 = [...new Set([...(await import('../../granulator/grain-ring.mjs')).PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)])];
 check('every patch is inside PATCH_LIMITS: the engines refuse nothing and change no value', CAST_PATCHES.every((c) => { const k = clampPatch({ name: c.base, set: c.set }); return !k.refused.length && Object.entries(c.set).every(([n, v]) => k.values[n] === (n === 'dir' ? (v < 0 ? -1 : 1) : v)); }));
 const sig = (n) => { const v = patchValues(n); return ['size', 'density', 'pitch', 'speed', 'freeze', 'dir', 'lock', 'scatter'].map((k) => Math.round((v[k] ?? 0) * 100) / 100).join(); };
-check('no two patches are the same sound on size, density, pitch, speed, freeze, direction, lock and scatter', new Set(all54.map(sig)).size === 54);
+check('no two patches are the same sound on size, density, pitch, speed, freeze, direction, lock and scatter', new Set(all54.map(sig)).size === all54.length && all54.length === 58);
+// variety (plans/plan-cast-variety.md step 1), 8 seeds x 300 scenes over a mix of kinds
+{ const KK = [...Array(9).fill('speech'), ...Array(4).fill('field'), 'music', 'music'], cnt = {}, gp = []; let nn = 0, rs = 0, rep5 = 0;
+  const cb = (L) => [L.res !== 'none', L.harm !== 'none', L.ghost !== 'none', !!L.bpm].join();
+  for (let sd = 1; sd <= 8; sd++) { const LL = L2.createLife({ seed: sd }), last = {}, seen = [];
+    for (let i = 0; i < 300; i++) { const s = LL.scene(i, { kind: KK[i % KK.length] }); nn++; cnt[s.patch] = (cnt[s.patch] || 0) + 1;
+      if (last[s.patch] != null) gp.push(i - last[s.patch]); last[s.patch] = i; if (s.layers.res !== 'none') rs++;
+      const c = cb(s.layers); if (seen.slice(-5).includes(c)) rep5++; seen.push(c); } }
+  gp.sort((a, b) => a - b); const top = Math.max(...Object.values(cnt)) / nn;
+  check('variety: no patch in over 5 % of scenes, the 10th percentile gap 7 scenes or more, gaps of 2 under 1 %', top <= 0.05 && gp[Math.floor(gp.length * 0.1)] >= 7 && gp.filter((g) => g <= 2).length / gp.length < 0.01, `top ${(100 * top).toFixed(1)} %, p10 ${gp[Math.floor(gp.length * 0.1)]}`);
+  check('variety: resonators in under 45 % of scenes, the same layer combination within five scenes under 26 %', rs / nn < 0.45 && rep5 / nn < 0.26, `res ${(100 * rs / nn).toFixed(1)} %, combination ${(100 * rep5 / nn).toFixed(1)} %`); }
 check('NEGATIVE CONTROL: a copied patch is caught', new Set([...all54, 'Cloud'].map(sig)).size < all54.length + 1);
 check('no patch has more than 24 grains sounding at once', all54.every((n) => L2.overlapOf(n) <= L2.OVERLAP_CAP), JSON.stringify(all54.filter((n) => L2.overlapOf(n) > 24)));
 check('NEGATIVE CONTROL: density 64 with 4 s grains would be over the cap', 64 * 4 > L2.OVERLAP_CAP);

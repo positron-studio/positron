@@ -131,6 +131,12 @@ const MORE = [
   ['spectral', 'Spectrum', 'Slow motion', { size: 2, density: 10, scatter: 1, jitter: 3.5, pitch: 1, speed: 0.05, back: 4, detune: 0.02, pan: 1, tone: 3500, echo: 0.6, time: 1.4, dark: 1800, amp: 1.4 }],
   ['spectral', 'Prism', 'Frozen choir', { freeze: 1, size: 1.5, density: 12, scatter: 1, jitter: 2, pitch: 1.5, speed: 0, back: 2, detune: 0.002, pan: 1, tone: 5000, echo: 0.45, time: 0.9, dark: 2500, amp: 1.3 }],
   ['spectral', 'Ember', 'Frozen choir', { freeze: 1, size: 2.5, density: 8, scatter: 0.8, jitter: 2, pitch: 0.5, speed: 0, back: 3, detune: 0.004, pan: 0.8, tone: 1200, echo: 0.5, time: 1.1, dark: 800, amp: 1.5 }],
+  // four spectral patches at pitch 1 or under, so the family the most scene types draw from is not three patches
+  // (plans/plan-cast-variety.md V1; amps a first guess, to be measured as the 38 were)
+  ['spectral', 'Vapour', 'Slow motion', { size: 2.5, density: 8, scatter: 1, jitter: 4, pitch: 1, speed: 0.08, back: 4, detune: 0.008, pan: 1, tone: 4500, echo: 0.5, time: 1, dark: 2200, amp: 1.4 }],
+  ['spectral', 'Ash', 'Frozen choir', { freeze: 1, size: 3, density: 7, scatter: 0.9, jitter: 2.5, pitch: 0.75, speed: 0, back: 3, detune: 0.004, pan: 0.9, tone: 2000, echo: 0.55, time: 1.2, dark: 1200, amp: 1.5 }],
+  ['spectral', 'Glow', 'Frozen choir', { freeze: 1, size: 1.8, density: 10, scatter: 1, jitter: 1.5, pitch: 1, speed: 0, back: 2, detune: 0.006, pan: 1, tone: 3500, echo: 0.4, time: 0.8, dark: 2000, amp: 1.4 }],
+  ['spectral', 'Sand', 'Slow motion', { dir: -1, size: 1.5, density: 14, scatter: 1, jitter: 3, pitch: 1, speed: 0.15, back: 3, detune: 0.01, pan: 1, tone: 5000, echo: 0.3, time: 0.9, dark: 2500, amp: 1.4 }],
 ].map(([family, name, base, set, more = {}]) => ({ name, base, family, set: full(set), ...more }));
 const FIRST = CAST_PATCHES.length;
 CAST_PATCHES.push(...MORE.filter((p) => PATCHES.some((q) => q.name === p.base)));
@@ -378,8 +384,16 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   function fresh(r, prev, recent, i, T) {
     // a patch with at least two controls not moved lately, one for the scene and one for its interlude
     const free = (n) => movableFor(n).filter((p) => !recent.includes(p)).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
-    const patch = pickOne(pool.filter(free).length ? pool.filter(free) : pool, r), can = movableFor(patch);
-    const param = pickOne(can.filter((p) => !recent.includes(p)).length ? can.filter((p) => !recent.includes(p)) : can, r);
+    const P0 = pool.filter(free).length ? pool.filter(free) : pool;
+    // grammar 2 remembers: a patch heard g scenes ago weighs 1 - e^(-g/12), its family a quarter one scene back and
+    // 0.6 two back, shared over the family's members; grammar 1 keeps its plain draw (life-g1.json)
+    const agoOf = (test) => { for (let k = scenes.length - 1, g = 1; k >= 0; k--, g++) if (test(scenes[k])) return g; return 99; };
+    const memo = (n) => { const f = familyOf(n), fa = agoOf((x) => familyOf(x.patch) === f);
+      return (1 - Math.exp(-agoOf((x) => x.patch === n) / 12)) * (fa <= 1 ? 0.25 : fa <= 2 ? 0.6 : 1) / P0.filter((m) => familyOf(m) === f).length; };
+    const patch = T ? weighted(P0, memo, r) : pickOne(P0, r), can = movableFor(patch);
+    // and moves pan and detune, which are barely heard, a third as often as the rest
+    const canP = can.filter((p) => !recent.includes(p)).length ? can.filter((p) => !recent.includes(p)) : can;
+    const param = T ? weighted(canP, (p) => (p === 'pan' || p === 'detune' ? 1 / 3 : 1), r) : pickOne(canP, r);
     const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(T ? lensOf(T, patch, same ? prev.len : null) : lensFor(patch, same ? prev.len : null), r);
     const centre = toT(param, patchValues(patch)[param] ?? fromT(param, 0.5));
     // the window sits near where the patch has the control, give or take, inside the family's guard
@@ -519,7 +533,10 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.dry = r2(within(Tt.dry) * 0.5); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
     // inside its type's band by the tide, and the whole band a little lower at low tide
     d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
-    d.layers = typeLayers(d.layers, Tt, rng(seed * 2741 + i * 59));
+    // a combination of layers heard in the last five scenes is drawn again, up to eight tries
+    { const base = d.layers, cmb = (L) => [L.res !== 'none', L.harm !== 'none', L.ghost !== 'none', !!L.bpm].join();
+      const seen = scenes.slice(-5).map((x) => cmb(x.layers));
+      for (let k = 0; k < 8; k++) { d.layers = typeLayers(base, Tt, rng(seed * 2741 + i * 59 + k * 7777)); if (!seen.includes(cmb(d.layers))) break; } }
     // the section's drone, or none; a storm and a rhythmic scene play without one
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone) };
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
@@ -545,17 +562,20 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const none = { res: 'none', harm: 'none', ghost: 'none', bpm: 0 };
     switch (n) {
       // speech as an instrument from the start: sung through resonators over a full drone, never plain talk
-      case 'intro': return { ...L, ...none, drone: r() < 0.5 ? 'key' : 'none', droneLevel: r2(0.35 + 0.15 * r()), res: pickOne(['fifths', 'major', 'minor7'], r), harm: r() < 0.5 ? 'triad' : 'none', room: r2(0.2 + 0.2 * r()) };
+      case 'intro': return { ...L, ...none, drone: r() < 0.5 ? 'key' : 'none', droneLevel: r2(0.35 + 0.15 * r()), res: r() < 0.4 ? pickOne(['fifths', 'major', 'minor7'], r) : 'none', harm: r() < 0.5 ? 'triad' : 'none', room: r2(0.2 + 0.2 * r()) };
       case 'build': return { ...L, drone: r() < 0.3 ? 'none' : L.drone === 'none' ? 'key' : L.drone };
-      case 'deep': return { ...L, drone: 'both', droneLevel: r2(0.4 + 0.2 * r()), res: pickOne(['fifths', 'minor7'], r), harm: pickOne(['none', 'triad'], r), bpm: 0,
-        ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(25 + 20 * r()), room: r2(0.3 + 0.2 * r()) };
+      case 'deep': return { ...L, drone: 'both', droneLevel: r2(0.4 + 0.2 * r()), res: r() < 0.5 ? pickOne(['fifths', 'minor7'], r) : 'none', harm: pickOne(['none', 'triad'], r), bpm: 0,
+        ghost: r() < 0.7 ? ghost() : 'none', ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(25 + 20 * r()), room: r2(0.3 + 0.2 * r()) };
       case 'storm': return { ...L, drone: r() < 0.7 ? 'none' : 'freeze', res: 'none', harm: pickOne(['cluster', 'none'], r), bpm: 0,
         ghost: ghost(), ghostLevel: r2(0.25 + 0.15 * r()), ghostEvery: Math.round(15 + 15 * r()), room: 0.3 };
-      case 'rhythm': return { ...L, drone: r() < 0.6 ? 'none' : 'key', bpm: Math.round(70 + 40 * r()), pattern: pickOne(LAYERS.pulse, r), pulseOn: pickOne(['res', 'grains'], r),
-        res: L.res === 'none' ? pickOne(['fifths', 'minor7', 'major'], r) : L.res };
-      case 'choir': return { ...L, drone: r() < 0.6 ? 'key' : 'none', harm: 'triad', res: pickOne(['major', 'minor7'], r), bpm: 0 };
+      // resonators only where the pulse plays through them, otherwise now and then (plans/plan-cast-variety.md V3)
+      case 'rhythm': { const on = pickOne(['res', 'grains'], r);
+        return { ...L, drone: r() < 0.6 ? 'none' : 'key', bpm: Math.round(70 + 40 * r()), pattern: pickOne(LAYERS.pulse, r), pulseOn: on,
+          res: on === 'res' || r() < 0.4 ? (L.res === 'none' ? pickOne(['fifths', 'minor7', 'major'], r) : L.res) : 'none' }; }
+      case 'choir': return { ...L, drone: r() < 0.6 ? 'key' : 'none', harm: 'triad', res: r() < 0.5 ? pickOne(['major', 'minor7'], r) : 'none', bpm: 0 };
       case 'breath': return { ...L, ...none, drone: L.drone === 'none' ? 'key' : L.drone, droneLevel: r2(0.45 + 0.15 * r()) };
-      case 'coda': return { ...L, ...none, drone: pickOne(['freeze', 'both'], r), room: r2(0.4 + 0.1 * r()) };
+      case 'coda': return { ...L, ...none, drone: pickOne(['freeze', 'both'], r), room: r2(0.4 + 0.1 * r()),
+        ...(r() < 0.4 ? { ghost: ghost(), ghostLevel: r2(0.25 + 0.1 * r()), ghostEvery: Math.round(30 + 20 * r()) } : {}) };
       default: return L;
     }
   }
