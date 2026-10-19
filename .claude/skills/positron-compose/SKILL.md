@@ -903,6 +903,30 @@ served at its URL and listed on `/archive/`, and a page moved to
 | `/plai/` | not found in the tree or in git history under that name; left as quoted |
 | `/kit/` | split into parts at `/kit/<part>/` since 2026-10-06; the glue asserts are on `/kit/devices/` |
 
+## From the handoffs (extracted 2026-10-19)
+
+- **Fix a lost hierarchy with a scale, not one more number.** "Same size as title" and "3x space" each moved one value and the page lost its hierarchy; the front page is now 24, 15, 12.5 and 10.5 type, 12 inside a group and 48 between. (`HANDOFF.md, session 68 (2026-10-07)`)
+- **Find the box that owns the air before editing**: a reported left gutter was all `.panel-case`'s 20 px, not the label's padding. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **A box that spans its row makes `justify-content: center` a no-op**; a nameplate centres once the plate gives up `flex: 1 1 auto`. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **A flex item cannot widen its parent**: a full width button in a cluster needs the cluster widened too. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **Centring a `fit-content` row is a no-op where there is room and a clip where there is not**, and `container-type: inline-size` collapses a `width: fit-content` surface. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **Remove a border with `border: 0`, never by deleting the line**: the base `button, .pos-btn` rule sets a `--line2` border as a shorthand, so deleting leaves a brighter ring. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **An empty named grid area still collects a row gap**: auto place the item instead (`grid-area: auto / 1`). (`HANDOFF.md, session 66 (2026-10-06)`)
+- **Size paired panels off their row, not their own cell loop**: two OLED canvases settled a scale apart and dragged the page 154 px sideways at 756 px. (`HANDOFF.md, session 62 (2026-10-04)`)
+- **A glued part's inset depends on how deep it sits**, because that rule is direct child only. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **`.pos-rows-r > :only-child` takes the row**, inset or not. A `.pos-glue` with every part hidden hides itself. (`HANDOFF.md, session 53 (2026-09-28)`, `session 63 (2026-10-05)`)
+- **`order` moves the paint, not the tab stop.** (`HANDOFF.md, session 55 (2026-09-29)`)
+- **A scrolling tab bar clips its focus ring**: `overflow-x: auto` forces `overflow-y` to `auto`, so the ring loses its top and bottom and two verticals stay. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **A ring on a canvas is paint, not CSS**: `grain-scope.mjs` stroked a 1 px rectangle into its backing store while three reports went to the stylesheet. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **Align an SVG to its ink**: a viewBox holding the source picture's empty margins floated an aligned neighbour 24 px off. (`HANDOFF.md, session 52 (2026-09-26)`)
+- **Measure phone overflow against `clientWidth`**: mobile Chrome widens the layout viewport to the content, so `scrollWidth - innerWidth` read 0 on a page 29 px too wide. (`HANDOFF.md, session 52 (2026-09-26)`)
+- **A real WebKit phone**: `xcrun simctl` has an `iPhone 13 mini`, whose shots wrap like Chrome's emulation. The owner's phone wraps more, from Safari's text size setting. (`HANDOFF.md, session 51 (2026-09-26)`)
+
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- Keyboard and panel content may reach the panel edge (*"general rule of keyb and panels"*).
+
 ## Retired
 
 Nothing in this file was retired on 2026-10-14. Every rule here is about CSS and

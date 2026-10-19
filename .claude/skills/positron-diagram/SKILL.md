@@ -310,6 +310,12 @@ The rules were bought on these pages; the pages moved, the rules did not.
 | `/grains/` | a 404 since 2026-10-13, `archive/demos/grains-index.html` |
 | `items` | archived 2026-10-01, `archive/items/` |
 
+## From the handoffs (extracted 2026-10-19)
+
+- **Grade a how it works diagram against the page**: laid out at its real width, nothing cut, every box something the page really uses (`/flipper/`'s was checked against the requests it made; `/stage/`'s stopped claiming Stream writes to R2). (`HANDOFF.md, session 64 (2026-10-05)`, `session 63 (2026-10-05)`)
+- **At 375 px `diagram.mjs` draws a cross-container label over another** in the gap between stacked containers, and `cuts` does not report it. (`HANDOFF.md, session 56 (2026-09-30)`)
+- **Only top-level box names take a hue**, and a return path into a box that is not the bottom one is drawn behind the box under it. (`HANDOFF.md, session 64 (2026-10-05)`)
+
 ## Retired
 
 Nothing in this skill was retired: every rule is about `diagram.mjs`, which

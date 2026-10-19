@@ -1586,6 +1586,34 @@ one takes red, because a sine drawn either way looks like a sine and the
 difference only shows on a transient one sample wide, which is exactly what a drum
 sample is made of.**
 
+## From the handoffs (extracted 2026-10-19)
+
+- **A red beside another headless Chrome is not a red.** `/sync/` CLOCKS went red twice beside another Chrome and read 81/81 alone. (`HANDOFF.md, session 64 (2026-10-05)`)
+- **A check that reads a value across a move breaks silently.** `code-lang-test.mjs` read a constant out of a page after it moved to `score.mjs`, and was broken for days. (`HANDOFF.md, session 64 (2026-10-05)`)
+- **A count floor goes stale when blocks are removed**; three asserts went red for that alone. (`HANDOFF.md, session 64 (2026-10-05)`)
+- **A stand-in only catches a bug it can represent.** `fake-err.mjs` had no sessions, so `/now/` opening an ERR session every second read green for a month. (`HANDOFF.md, session 64 (2026-10-05)`)
+- **Assert the drawn width, not the declared one**: Chrome draws a 1.54 px border as 1 px on a 1x screen. (`HANDOFF.md, session 64 (2026-10-05)`)
+- **Cap a check's waits under the harness's 2 s of silence.** Past it the harness stops collecting, so two reds silently dropped six asserts. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **Keep tolerances consistent across checks**: half a pixel moved by a new block above flipped a strict visibility test. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **Slow checks run after `d.ready()`**, which is the harness's boot wait; the synths deck's 24 sound checks take about 20 s. (`HANDOFF.md, session 66 (2026-10-06)`)
+- **A page that misses the ready wait reads 0/1 whatever it holds** (`/kit/` 0/1 with 207 asserts). A slow page declares `bootMs` (`/kit/` 12000) instead of the fixed 7.4 s. (`HANDOFF.md, session 50 (2026-09-26)`, `session 51 (2026-09-26)`)
+- **Prove a measurement can run before trusting what it gates.** The typewriter had no room settings, its loudness measure crashed, and no trim was ever applied. (`HANDOFF.md, session 74 (2026-10-11)`)
+- **Run `node demo/check-html.mjs` after every scripted edit.** Python slice edits left a duplicated tail and a clashing name; it caught all three. (`HANDOFF.md, session 71 (2026-10-09)`)
+- **Read the tier from `selfcheck.mjs`, never `selfcheck === '1'`**: seven files did, so a deep run switched their checks off. (`HANDOFF.md, session 62 (2026-10-05)`)
+- **An assert on a detached element passes while nobody sees it.** `textContent = ''` on `panel.stage` took the caption slot with it, and the assert read the same detached slot. (`HANDOFF.md, session 57 (2026-09-30)`)
+- **Sample pixels for anything painted.** `getComputedStyle(canvas).borderTopWidth === 0` stayed green while a ring was stroked into the canvas; a corner pixel sample sees it. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **Shapes of an assert that cannot fail**: an array compared to a string; a box compared to the container it sizes; paddings compared to a token while the letters sit apart; a note struck and released in the same millisecond, which is one onset either way. (`HANDOFF.md, session 50 (2026-09-26)`)
+- **An assert must not encode a page-local decision**: one required the opposite of what the owner had asked and defended it. (`HANDOFF.md, session 50 (2026-09-26)`)
+- **Use the harness's press selector verbatim** (`.pos-controls button, .tbar-x`). An assert reading `!e.closest('.pos-controls')` would have passed a control the suite presses. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **`grep -c "d.assert("` against the run's count shows dead branches**: `/pack/` grep went 65 to 62 while its run read 31 both times. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **A reset can launder an underrun assert**: `{ cmd: 'reset' }` zeroes the worklet's `starved` counter along with its ring. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **A new first tab part changes which part `createTabs` opens**, and rect checks on the shut part go red. (`HANDOFF.md, session 51 (2026-09-26)`)
+- **An existence check on a hand-copied file proves only that a copy once happened** (`rig/audit.mjs`, `test -e`). (`HANDOFF.md, session 50 (2026-09-25)`)
+- **A green on a warm container is not a green**: cold, `/stage/` read 37/49. (`HANDOFF.md, session 49 (2026-09-25)`)
+- **Check the certificate issuer before believing a 000.** positron.studio once answered with a `Fortiguard SDNS Blocked Page` certificate from the network; the `workers.dev` address confirmed the deploy. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **A full-page capture of a very tall page hangs Chrome** (`captureBeyondViewport` at 23,800 px never answered). Clip it in pieces. (`HANDOFF.md, session 52 (2026-09-27)`)
+- **Local green says nothing about hand-listed build copies.** `DEMO_BASE=https://positron.studio node demo/verify.mjs slides/synths` caught two artefacts 404 on the edge, and costs no external source. (`HANDOFF.md, session 67 (2026-10-06)`)
+
 ## Retired
 
 Moved here 2026-10-14, verbatim, when the skill was rewritten around the

@@ -133,3 +133,16 @@ Allow warmth, specificity, actual questions and occasional intentional humor. Pl
 - Rendering is not this skill. A deck on positron.studio is drawn by `slide.mjs` and played by `decks.mjs`; a PPTX or Google Slides file goes through the matching file skill.
 - End a talk with a useful next action where appropriate. Do not add an automatic "Conclusion," "The future," "Thank you," or recap repeating the deck.
 - A deck in `decks.mjs` that changed is finished when it is deployed and handed over as a URL (`CLAUDE.md`, *finished means deployed*).
+
+## From the handoffs (extracted 2026-10-19)
+
+- **Speaker notes go in `notes` and are never drawn**; a title-slide subtitle that spills moves there. (`HANDOFF.md, session 68 (2026-10-07)`)
+- **Front page deck order is the manifest rows' order**; reordering `DECKS` alone moves nothing. (`HANDOFF.md, session 68 (2026-10-07)`)
+- **Decks of words only were refused**: *"rm new slides. not useful"*. (`HANDOFF.md, session 68 (2026-10-07)`)
+- **A synth tutorial runs source, filter, envelope, modulation.** The saw comes before the filter because it has every overtone; a square earns its slide later through pulse width. (`HANDOFF.md, session 67 (2026-10-06)`)
+- **The synths deck's code layout**: no comment on the import, a short `//` over each control, a blank line between blocks, `process` the entry point, no extra variable for a `select2`. After the title slide, no titles, one or two sentences, names in backticks. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **A spill check must measure the children, not the region**: a centred evidence region overflowed its headline while `.sl-in` reported nothing. Shoot the densest slide. (`HANDOFF.md, session 68 (2026-10-07)`)
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- No deck the owner did not ask for (*"rm new slides. not useful"*).

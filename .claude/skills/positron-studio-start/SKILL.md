@@ -1236,6 +1236,12 @@ why, so the next person can delete it.
 
 ---
 
+## From the handoffs (extracted 2026-10-19)
+
+- **The `cf` CLI (open beta since 2026-09-28) changes nothing in the setup prompt yet**: Cloudflare's `prompt.md` uses `cf` only where no Wrangler config exists. When the beta ends, redo the Wrangler steps. Step 0's agent list still names Windsurf, which Cloudflare's list replaced. (`HANDOFF.md, session 68 (2026-10-07)`)
+- **A fresh clone lacks `.env`, a worker's `node_modules` and a wrangler login**: `npx wrangler login`, `npm install` in a worker with dependencies (`workers/pub`), and Docker for any container image. Workers Builds would build in the cloud instead. (`HANDOFF.md, session 49 (2026-09-25)`)
+- **A skill hides from `npx skills add` with `internal: true` unquoted**; quoted, it does not hide. (`HANDOFF.md, session 78 (2026-10-14)`)
+
 ## Retired
 
 Facts this file stated that stopped being true, kept here with the date and the

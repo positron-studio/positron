@@ -186,6 +186,57 @@ or checking it tells you nothing about what is running. Compare `md5sum` against
   measuring the wrong device. Resolve by NAME from
   `-list_devices true` every time; `rig/m1/live-check.mjs` does.
 
+## From the handoffs (extracted 2026-10-19)
+
+### The Pi's outputs, measured
+
+- **Sound out**: PWM through `alsa_out` THD 0.18 %, 3 cents flat and drifting, 62 ms round trip; HDMI-A-2 through an audio extractor THD 0.07 %, steady pitch, 38 ms, but 25 dB more 50/150 Hz hum. Leave the extractor's switch on 2.1. (`HANDOFF.md, session 80 (2026-10-16)`)
+- **HDMI (`hdmi-scan`)**: camera 24 to 29.5 fps, the OLED mirror 23.8 fps at 15x, 1.6 % of a core. (`HANDOFF.md, session 80 (2026-10-16)`)
+
+### The Circuit, the Fast Track Pro and the keyboard
+
+- **Record off on the Circuit before any page plays it**: notes into an armed Circuit get recorded. (`HANDOFF.md, session 79 (2026-10-15)`)
+- **The Circuit's MIDI port drops pitch bend and mod wheel; program change passes.** Its MIDI is its own USB card, not through the Fast Track Pro. (`HANDOFF.md, session 79 (2026-10-15)`, `session 71 (2026-10-09)`)
+- **The board reads before it writes SysEx**, or snd-usb-audio drops the reply. (`HANDOFF.md, session 74 (2026-10-11)`)
+- **A raw MIDI fd and an ALSA sequencer subscription cannot share the Circuit**: raw first, `aconnect` is refused; subscription first, a blocking write open hangs (`O_NONBLOCK` gives `EBUSY` in 0 ms). A kernel ALSA route would also bypass the `inputs.mjs` gate, so routes into a gated device run in userspace. (`HANDOFF.md, session 61 (2026-10-03)`, `session 60 (2026-10-03)`)
+- **Fast Track Pro**: Linux switches it to config #2 (card `Pro`, 16 bit stereo capture, no ALSA mixer controls). `arecord -c 1` fails with `Channels count non available`, so open stereo and keep one channel. A power cycle cured 8 bit samples once. (`HANDOFF.md, the Circuit on the Pi thread (2026-09-30)`, `session 74 (2026-10-11)`)
+- **ALSA period 480 frames in a 1920 buffer**; the default 6000 in 24000 delivered 125 ms lumps. (`HANDOFF.md, the Circuit on the Pi thread (2026-09-30)`)
+- **Noise floor**: JACK on the Fast Track Pro about -80 dBFS (the same as arecord); duplex -74 dBFS RMS, 0 xruns. (`HANDOFF.md, session 74 (2026-10-11)`, `session 79 (2026-10-15)`)
+- **Find a USB device by name, never by card number**: the MK-425C moved from card 6 to 7. CoreMIDI names it `MK-425C USB MIDI Keyboard`, so match `/mk-?4\d\dc|evolution/i`. It reads a semitone flat (47 to 71). (`HANDOFF.md, session 79 (2026-10-15)`, `session 54 (2026-09-28)`)
+- **The MK-425C scans its sustain pedal every 65.95 ms; its keys are timed to about 1 ms.** A 150 ms start lookback caught opening chords 13 to 139 ms early. (`HANDOFF.md, session 75 (2026-10-11)`)
+- **A hold-to-clear on a sustain pedal fights how a pianist holds one**: 1 s cleared ten loops by accident; 3 s with no note during the hold cleared none. (`HANDOFF.md, session 75 (2026-10-11)`)
+- **Circuit samples (`circuit-sample.mjs`)**: count frames from the derived block align, never the declared one (a smaller declared one overran the `DataView`); keep `SLOT_DEPTHS` at `[16]`, apart from the decoder's depths, or the slot walker finds tables in noise. (`HANDOFF.md, session 53 (2026-09-28)`)
+
+### The board
+
+- **The board has one audio slot shared by every page**; `audio.start` replaces it. Inputs (`inputs.mjs`) are separate. (`HANDOFF.md, the Circuit on the Pi thread (2026-09-30)`)
+- **The harness cannot drive the board**: `createBoard` refuses every send under `?selfcheck=1`, so frame asserts fire only while somebody else holds the lease. (`HANDOFF.md, the Circuit on the Pi thread (2026-09-30)`)
+- **Mute a board page by disconnecting the playout**; suspending the AudioContext makes `board.mjs` log "tap anywhere". (`HANDOFF.md, the Circuit on the Pi thread (2026-09-30)`)
+- **Pi sequencer**: step times from a bar origin, a late step is skipped and never sent late; timer p50 0.67 ms, worst 1.31 ms. (`HANDOFF.md, session 79 (2026-10-15)`)
+- **Pi piano**: direct round trip 3.3 ms. The same scsynth sampler in the tab costs 1.8 MB and about 1 s more to the first note, and the first key blocks the main thread about 158 ms. (`HANDOFF.md, session 75 (2026-10-11)`)
+- **`rig/board/push.sh` ships only the `demo/shell` files a `rig/board/*.mjs` imports directly**, not imports of imports, and it needs the LAN. (`HANDOFF.md, session 60 (2026-10-03)`)
+- **The VPN routes the LAN into its tunnel**: ping and ssh to the Pi fail even bound to `en0`, while pages still reach it over the relay. (`HANDOFF.md, session 58 (2026-09-30)`)
+- **`pkill -f` over ssh matches its own command**; use `pgrep -x` and `/proc/<pid>/fd`. (`HANDOFF.md, session 61 (2026-10-03)`)
+
+### Native code, routing and the rack Mac
+
+- **Nothing native is compiled on this Mac (ThreatLocker)**: build C in a `gcc:14` container under OrbStack, as `rig/route-core/test.sh` does. (`HANDOFF.md, session 61 (2026-10-03)`)
+- **Route-core velocity**: a float times `Math.round` rounds ties wrong (`45 * 0.7` gives 31); scale in exact thousandths. (`HANDOFF.md, session 61 (2026-10-03)`)
+- **RaspiMIDIHub's 1 to 3 ms times only its own Python call**; nobody publishes wire latency for a Pi MIDI router. (`HANDOFF.md, session 60 (2026-10-03)`)
+- **Do not rebuild `audiotap` for a comment-only change**: its TCC grant is keyed to the absolute path and the cdhash, and a refused tap emits clocked silence that every layer reports as success. (`HANDOFF.md, session 50 (2026-09-25)`)
+
+### The Pico 2 W
+
+- **Every Pico number so far is the RP2040 emulator, a Linux build of the same C, or a link map**; the real board had run nothing as of 2026-10-04. (`HANDOFF.md, session 62 (2026-10-04)`)
+- **Power goes into VBUS (pin 40), not VSYS**, while its only USB socket is a host: 5 V on VBUS also reaches the hub, which many self-powered hubs need. Read from docs, untried. This supersedes session 61's "power on VSYS while the socket is a host". (`HANDOFF.md, session 63 (2026-10-05)`)
+- **Pico to a hub's USB-B socket**: an OTG adapter (micro plug, USB-A socket), then a printer cable A to B. With an MB102 module, set an adjustable brick to 9 V, 5.5x2.1, centre positive, before plugging in. (`HANDOFF.md, session 63 (2026-10-05)`)
+
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- No labels on a device screen (*"no labels on pi sceen"*), and square pixels on the 1-bit screen (*"do not round"*).
+- A parts list holds only what blocks work, cheapest first, solderless (*"I can nit solder"*, *"tight budget"*).
+
 ## Retired
 
 ### Yoshimi's controller map, retired from the board 2026-10-13

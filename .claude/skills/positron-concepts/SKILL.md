@@ -367,6 +367,26 @@ scrollable. no half col scope, scope is always full w"*.
 - **Joining** happens on a press, never on load, and a store or camera wakes
   only on a press too (Join, Start). A concept page opens nothing on a visit.
 
+## From the handoffs (extracted 2026-10-19)
+
+- **A knob port carries only `{ of: 'param' }`**, because a `names` shape must match exactly. (`HANDOFF.md, session 73 (2026-10-10)`)
+- **The bay's loop rule skips nodes of kind `store`.** (`HANDOFF.md, session 73 (2026-10-10)`)
+- **`engine` is read by `openers.mjs`** (note.on against raw MIDI, audio.start against listen), so `kind` cannot simply replace it. (`HANDOFF.md, session 72 (2026-10-10)`)
+- **Swing a filter in octaves (`detune`), not in Hz**: a swing in Hz drove a low cutoff to 0 and flattened the wave. (`HANDOFF.md, session 73 (2026-10-10)`)
+- **A page-local Faust compile is about 1 MB on the first press**; the start button is where it happens, so without one the first note is late. (`HANDOFF.md, session 73 (2026-10-10)`)
+- **An analyser nothing pulls reads silence**: give it a silent `pull` sink. (`HANDOFF.md, session 73 (2026-10-10)`)
+- **scsynth keeps a running synth on its old graph after its def is replaced**, and it still answers `/n_set`; `/collide/` compiles everything under one name. scsynth never gives back an audio output nobody reads (63 unread + 1 loads, 64 + 1 `/fail`s). (`HANDOFF.md, session 58 (2026-09-30)`)
+
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- Examples come only from what positron has built (*"clean all imaginary ones"*, *"bounded to reality"*).
+- Local by default; remote hardware only when the request names it (*"why we go pi when i did not asked"*).
+- An effect variant stays near the original, its amount on its own knob (*"distictivness as sepaate knob"*).
+- Texture patches are long sounds, not bells or drums (*"longer stuff"*).
+- Sampler pages: no metallic, thin or organ-like tone.
+- No full screen button on radio concepts.
+
 ## Retired
 
 - **The camera broadcast concept, removed 2026-10-12** (room/030 Broadcast,

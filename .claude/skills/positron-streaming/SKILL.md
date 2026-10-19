@@ -1549,6 +1549,73 @@ From `workers/view/analytics.mjs` and `workers/wish/src/index.js`.
   above. Fall back rather than throwing: a message in a charset nobody has
   heard of is worth showing imperfectly. (`workers/mail/src/body.mjs`.)
 
+## From the handoffs (extracted 2026-10-19)
+
+### Cloudflare auth, crons and what can read what
+
+- **The wrangler OAuth login expires and does not refresh** (`wrangler whoami` fails). Deploys and analytics fail until the owner runs `! npx wrangler login`. (`HANDOFF.md, session 70 (2026-10-08)`)
+- **`workersInvocationsScheduled` answers only the OAuth token** in `~/Library/Preferences/.wrangler/config/default.toml` and refuses `CF_API_TOKEN`; the observability telemetry API refuses both (code 10000). macOS has no `timeout`, so kill `wrangler tail` from the shell. (`HANDOFF.md, session 70 (2026-10-08)`)
+- **A registered cron is not a firing cron.** The schedules API listed `41 * * * *` for two hours that never ran; a `*/5` deploy missed its first slot 1.5 min later; analytics lags about 5 min. The outcome is the evidence. (`HANDOFF.md, session 70 (2026-10-08)`)
+- **The permission classifier refuses deploys and Stream mass deletes** ("Production Deploy", "Cloud Storage Mass Delete"); the owner runs those with `!` or adds a rule. (`HANDOFF.md, session 69 (2026-10-08)`)
+
+### Containers
+
+- **New runtime: 0.83 s median start to listening; the legacy class answers 503 for about 5 s after a destroy.** pub on `PubNext`: RTMPS publishing 0.95 s, WHIP 1.25 s, boot 0.67 s. (`HANDOFF.md, session 69 (2026-10-08)`, `session 70 (2026-10-08)`)
+- **On the new runtime the WHIP leg needs `-ts_buffer_size 4194304`**, or ffmpeg dies with exit 245 within seconds. Deploy it with wrangler 4.148 from `rig/containers-next/` (the `npx` there is 4.75). (`HANDOFF.md, session 69 (2026-10-08)`)
+- **A deployed image does not replace a running instance**; it switches on the next cold start. Grab a frame before saying the picture changed. (`HANDOFF.md, session 56 (2026-09-30)`)
+- **A Worker var does not reach the container by itself**: set `envVars` in the constructor, and send a word (`testsrc2`), not `""`. (`HANDOFF.md, session 56 (2026-09-30)`)
+- **A container image is built locally and needs Docker** (OrbStack here, `open -a OrbStack`). `--containers-rollout=none` deploys the Worker and leaves the image unchanged. (`HANDOFF.md, session 49 (2026-09-25)`, `session 56 (2026-09-30)`)
+- **`wrangler deployments list` in a worker's directory says when it last shipped**; pub once went five days undeployed unnoticed. (`HANDOFF.md, session 56 (2026-09-30)`)
+- **A deploy or a secret change restarts the Durable Object** and cuts its running session; nothing reconnects it. (`HANDOFF.md, session 57 (2026-09-30)`)
+- **The legacy `Container` class freezes 2026-12-31; observability pricing starts 2026-12-01.** Read the monthly log volume before then. (`HANDOFF.md, session 65 (2026-10-06)`)
+
+### Stream, WebRTC and the network
+
+- **Stream's WebRTC answer is ICE-lite with one UDP candidate**, WHIP and WHEP alike; munged `tcptype passive` candidates do not help. A UDP-dropping network gets WebRTC only through TURN over TCP/TLS, and MoQ not at all. (`HANDOFF.md, session 56 (2026-09-30)`)
+- **The VPN can be up while the default route still reads `en0`**: five `utun` were up and STUN to `stun.cloudflare.com:3478` went unanswered until the VPN went off. A STUN probe is the test that cannot be fooled. (`HANDOFF.md, session 56 (2026-09-30)`)
+- **One input per publisher.** A camera borrowing `/llhls/`'s input by handover made Stream answer 404 on the new video's LL-HLS parts for about 70 s. (`HANDOFF.md, session 57 (2026-09-30)`)
+- **`/lifecycle` on a WebRTC input reads `live: true` with nothing publishing**, and a tab that dies without its DELETE blocks the next WHIP publisher for up to 5 min. (`HANDOFF.md, session 57 (2026-09-30)`)
+- **A cross-origin DELETE preflights**: `OPTIONS /whip/<id>` must answer 204, or WHIP teardown never works from a browser. (`HANDOFF.md, session 49 (2026-09-25)`)
+- **A rotated stream key must be put into the Worker secret too.** The key is not in the repository, so no diff shows it is stale. (`HANDOFF.md, session 49 (2026-09-25)`)
+- **A second `<video>` on one source is a second Stream meter**; move the one element. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **A first-frame timeout near the container's cold wake (about 20 s) races it**; keep looking, bounded, rather than raising the timeout. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **The relay is stateless fan-out and sends a joiner nothing.** A fixed room name is a room strangers share; make it private per load. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **Cloudflare "Always Use HTTPS" is off**, which is why plain `ws` still works. Nobody decided that on purpose. (`HANDOFF.md, session 62 (2026-10-04)`)
+
+### Measured numbers
+
+| what | measured |
+| --- | --- |
+| glass to glass, Chrome's fake camera on /cam/ | WebRTC 65 to 104 ms, MoQ p50 25 to 46 ms, LL-HLS 5.3 to 7.9 s (first frame 14 to 18 s after recording starts) |
+| camera loopbacks | WebRTC 87 ms, LL-HLS 5.3 s settled, MoQ 29 to 32 ms through Cloudflare's public relay |
+| clocks | peer clock agrees to about 3 ms across machines; device wall clocks 10 to 159 ms apart; Cloudflare strips in-band timing |
+| laptop to Pi, one LAN | direct round trip 4 ms against 72 by relay; relay legs about 18 ms each way; 10 ms audio frames beat 20 (20 ratcheted to about 115 ms lag) |
+| Workers AI patch from words | about $0.00045 a press |
+
+(`HANDOFF.md, session 56 (2026-09-30)`, `session 57 (2026-09-30)`, `session 76 (2026-10-13)`, `session 62 (2026-10-04)`, `session 59 (2026-09-30)`, `session 73 (2026-10-10)`)
+
+### Somebody else's server, and R2
+
+- **One ERR session per open, never per poll.** `/now/` re-read ERR's 217 KB master at 1 Hz and opened a new session every second; the cure was one session per open and the playlist every 10 s on a reused variant. (`HANDOFF.md, session 64 (2026-10-05)`)
+- **A hand upload nobody checks did not happen**: the Salamander samples were never uploaded to R2 and the page 404ed every file. (`HANDOFF.md, session 75 (2026-10-11)`)
+- **ffmpeg prints `ABSOLUTE` with six decimals (19 characters).** Compare test frames in RGB: `drawbox` goes through YUV and turns 255 into 254. (`HANDOFF.md, session 56 (2026-09-30)`)
+
+### Deploying the site while agents write
+
+- **Deploy from a clean worktree**: `git worktree add --detach <scratch>/deploy-wt HEAD` once, then every time `git -C <scratch>/deploy-wt reset --hard $(git rev-parse HEAD)`, build and deploy there. `reset --hard`, not `checkout`: checkout aborts once the worktree holds build output, and the old commit ships again. After an interrupted deploy, `git worktree prune` before `add`. (`HANDOFF.md, session 53 (2026-09-28)`, `session 77 (2026-10-14)`)
+- **The worktree's build output does not come back by itself**; commit `public/` there and fast forward, or the checkout's `workers/view/public` goes stale. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **`deploy.mjs` rebuilds before it ships**, so the edge stamp is seconds past `build.mjs`'s and names the commit before the one carrying it. (`HANDOFF.md, session 54 (2026-09-28)`)
+- **Read the edge stamp twice, a minute apart, before calling a deploy failed**: a read seconds after served yesterday's stamp. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **wrangler uploads only changed bytes** (dedup by content hash), so a short upload list is not a failed deploy. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **The build refuses an import of an untracked shell file**: commit a new kit module before deploying a page that imports it. (`HANDOFF.md, session 78 (2026-10-14)`)
+- **The build scans text for imports, comments and code examples included**: a quoted `import(` and an example `import * as arrival from './arrival.mjs'` each refused a deploy. (`HANDOFF.md, session 62 (2026-10-05)`, `session 64 (2026-10-05)`)
+- **Hold one unfinished page out of a deploy**: after the build, `git show HEAD:demo/<path>/index.html > workers/view/public/<path>/index.html`. (`HANDOFF.md, session 73 (2026-10-10)`)
+
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- No service runs on the owner's own machines (*"i can not donate my machines. i am offseite"*).
+
 ## Retired
 
 Rules whose worker, page or route left this repository's live set. Moved here

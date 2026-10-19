@@ -375,6 +375,13 @@ the owner's words in the `DEMO_CARDS` comments in `demo/shell/concept-list.mjs`.
   (`archive/demos/flipper-index.html`), and the typist front page demo
   (`archive/typist.md`).
 
+## From the handoffs (extracted 2026-10-19)
+
+- **A commit hash quoted before 2026-10-14 does not resolve**: the history was scrubbed with `git filter-repo`. The pre-scrub checkout is `~/personal/positron-old-history` and the mirror backup `~/personal/positron-backup-2026-10-14.git`; GitHub may still serve old commits by hash until Support purges them. (`HANDOFF.md, session 78 (2026-10-14)`)
+- **`git filter-repo` in the background hangs** when `.git/filter-repo/already_ran` is over a day old, because it asks on stdin; give it `</dev/null`. (`HANDOFF.md, session 78 (2026-10-14)`)
+- **A later commit date is not a later state**: a commit can carry an older session's working tree, so read its message before trusting the date. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **The working branch was `session-28-station-videoradio` for 184 commits**, until `main` on 2026-09-29. (`HANDOFF.md, session 55 (2026-09-29)`)
+
 # Retired 2026-10-13: workers, inputs, routes and Yoshimi
 
 Recorded here so an old reference resolves. The source is `HANDOFF.md`, *"Retired

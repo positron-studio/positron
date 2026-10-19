@@ -182,3 +182,11 @@ Pages named below that are gone: `scene` (no `demo/scene/`), `/blocks/`
   anyway**, because the linker happened to choose the same slots. A page will
   render a right-looking picture with an error pending, so assert on
   `gl.getError()`.
+
+## From the handoffs (extracted 2026-10-19)
+
+- **A focusable control hidden by full screen drops the focus to the body**, so keys heard only on a panel go nowhere. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **Decide a full screen layout on the player's width AND the window's, plus `data-full`**: keyed on the player alone, a half width desk card (336 px) went tall like a phone (343). iPhone Safari's full screen is the cover, which also sets `data-full`. (`HANDOFF.md, session 66 (2026-10-06)`)
+- **Real browser full screen cannot be triggered by the extension or headless**; only the cover path is tested. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **Headless shots run `--disable-gpu`**, so a GL page reads "no WebGL2"; a copy of `demo/shot.mjs` with `--use-angle=metal` renders it. (`HANDOFF.md, session 71 (2026-10-09)`)
+- **`adb` is the only way to drive the Quest**, and it is not on this managed laptop. (`HANDOFF.md, session 62 (2026-10-04)`)

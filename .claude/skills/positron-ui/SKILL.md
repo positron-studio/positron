@@ -2124,6 +2124,34 @@ constant in the caption the loudest thing in the picture. Asked for
 2026-09-19: "move date field last and lose yellow".**
 
 
+## From the handoffs (extracted 2026-10-19)
+
+- **Secondary buttons are in capitals, the primary keeps its own case.** Asked 2026-09-30 as *"cap: all secondary buttons"*, committed 2026-10-03. (`HANDOFF.md, session 60 (2026-10-03)`)
+- **Disable a kit button with `group.enable(id, false, reason)`**; setting `.disabled` is undone when a press finishes. (`HANDOFF.md, session 74 (2026-10-11)`)
+- **A patchbay hop is one object**: rebuilt on every read it is a new wire each time, and MIDI never pulsed. (`HANDOFF.md, session 74 (2026-10-11)`)
+- **Never decide on `AudioContext.state` while a resume is in flight**: Chrome reports `suspended` for 1.5 to 3 ms after `resume()`, and a `suspend()` in that window leaves it `running` with a frozen clock. `release()` in `audio.mjs` waits. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **Import a module with a top-level `await` after `mount()`**, or it delays mount and the inline favicon (a `/favicon.ico` 404 went red one run in three). (`HANDOFF.md, session 63 (2026-10-05)`)
+- **A default taken one step too far looks broken**: HARDWARE behind Start hid the drawing as well as the CPU. (`HANDOFF.md, session 65 (2026-10-06)`)
+- **`transport-bar.mjs` extras take `onPress ?? onClick`.** Before, `x.onClick?.(b)` made a misspelled handler a silent dead button. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **`presence.mjs` throws on any state but `online, checking, coming, offline, unknown`**; for "starting" use `coming` with a page `says` override. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **`soloFooter` makes a later `glue()` throw** rather than stack a second footer. (`HANDOFF.md, session 50 (2026-09-25)`)
+- **`createTransportBar(parent, ...)` appends to `parent`**: the first argument is a mount point. Repointing a container is not merging its contents. (`HANDOFF.md, session 49 (2026-09-25)`)
+- **`picker.mjs` wires `prev` and `next` to its arrows, and `onPick` belongs to the `<select>`**, so work put only in `onPick` makes an inert control. (`HANDOFF.md, session 51 (2026-09-26)`)
+- **`video-panel.mjs` cannot replace its picture**: emptying `panel.stage` loses the caption slot and the full screen exit (as of 2026-09-30). (`HANDOFF.md, session 57 (2026-09-30)`)
+- **`glue.mjs` must not import from `shell.mjs`** (a cycle in the frame every page mounts); it carries a local `div()`, as `stack.mjs` does. (`HANDOFF.md, session 53 (2026-09-28)`)
+- **iPhone Safari audio**: `wakeAudioOnGesture()` (`audio.mjs`, installed by `createKeyboard`) sounds from the second touch; a second touchend within 350 ms is prevented so a repeated note never zooms; MP3s that start mid frame go through `fromFirstFrame()` (`mp3-frames.mjs`). Not tested on an iPhone. (`HANDOFF.md, session 77 (2026-10-14)`)
+- **Share images use no browser**: `share-card.mjs` writes SVG from `font-metrics.mjs` and vendored resvg-wasm rasterises it at build. Names are hashed (`TEMPLATE_V`), so a change is a new URL. (`HANDOFF.md, session 77 (2026-10-14)`)
+- **JetBrains Mono 600 draws the `?` dot wider than tall**, a pill. (`HANDOFF.md, session 77 (2026-10-14)`)
+
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- One press gives sound at once, with a default that is easy to listen to; no second start, no "play with sound" button.
+- Calm motion: nothing on a page jitters or changes shape while it plays (*"scopes are very nervous"*, *"moving cursor adds stress"*).
+- A control or readout with no visible effect or meaning is removed (*"when no visual impact or absolutely mininak, remove"*).
+- No annotations on a visual: labels go in the panel footer (*"no need for annotations"*).
+- "Lost" means cut controls, never add a switch; something hidden is removed (*"box hidden: just rm box"*).
+
 ## Retired
 
 Rules moved here verbatim, with the date and the reason. Do not apply them to

@@ -291,3 +291,13 @@ https://positron.studio/archive/ (`demo/archive/index.html`), not in
 | weight, partitur, reel, floor, resources, tapes, making, held, stage | archived demos, still served at `/<slug>/` |
 | the stations | the radio concepts, https://positron.studio/radio/blend/ and its group |
 
+## From the handoffs (extracted 2026-10-19)
+
+- **A log line says what happened at this end.** When the message did not leave, it reads "stopped here only"; the word `stopped` alone is for the branch where it did. (`HANDOFF.md, session 55 (2026-09-29)`)
+- **States a visitor need not tell apart can share one word**: `CHECKING` and `STARTING` read the same, and the two states stay in the code. (`HANDOFF.md, session 50 (2026-09-25)`)
+
+## The owner's corrections (from sessions 2026-09-29 to 10-19)
+
+- Copy says what it does, never the engine (*"no ref to faust"*).
+- A name is judged by what it means to a visitor; web words (router, manager, oled) are suspect. Offer options.
+- Examples come only from what positron has built.
