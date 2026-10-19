@@ -554,6 +554,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // no resonators: called metallic three times, darkened once and still metallic (*"metallicness"*, 2026-10-19);
     // plans/plan-cast-variety.md 2.2's breathing filters are the replacement
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0, res: 'none' };
+    // a ghost is coloured by the band-pass only: the comb and resonators ring on the scene's root, against the visitor's key
+    if (d.layers.ghost && d.layers.ghost !== 'none') d.layers = { ...d.layers, ghost: 'bpf' };
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
     const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;
@@ -575,7 +577,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   }
   /** A type's layers over the drawn ones: what each type keeps, adds and leaves out. */
   function typeLayers(L, T, r) {
-    const n = T.name.replace(/^(tape|cloud)build$/, 'build').replace(/^sdeep$/, 'deep'), ghost = () => pickOne(['res', 'comb', 'bpf'], r);
+    const n = T.name.replace(/^(tape|cloud)build$/, 'build').replace(/^sdeep$/, 'deep'), ghost = () => (r(), 'bpf');
     const none = { res: 'none', harm: 'none', ghost: 'none', bpm: 0 };
     switch (n) {
       // speech as an instrument from the start: sung through resonators over a full drone, never plain talk
