@@ -259,11 +259,17 @@ export const MAX_PITCH = 1;
  *  1 processing only. Most scenes lean wet (SOAK); one in DRIER_SHARE leans dry (DRIER) and keeps a floor of grains so
  *  no speech is naked: *"prefer more wetter"*, then *"use full wet dry range for composition but minimal time in dry"*. */
 export const SOAK = [0.25, 0.9], DRIER = [-0.7, -0.2], DRIER_SHARE = 0.15, DRIER_FLOOR = 0.15;
+/** The granulator never takes more than WET_CAP of the voice, so a fifth of it always comes through: the page's slider at
+ *  0.4 was the one that sounded right, *"on 0.4 its more toreable"*, *"fix all"* (2026-10-19). */
+export const WET_CAP = 0.8;
 /** A scene's layers at full soak: the layers it has, in a bigger room, and with `drone` the held file as well. It no
  *  longer adds resonators or the harmonizer, which rang metallic in four scenes of five: *"very mettallic"* (2026-10-19). */
 export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
   ...(drone ? { drone: L.drone === 'key' || L.drone === 'both' ? 'both' : 'freeze', droneLevel: Math.max(L.droneLevel ?? 0.3, 0.5) } : {}),
   room: Math.max(L.room ?? 0.3, 0.6), roomSize: Math.max(L.roomSize ?? 0.7, 0.9) } : L);
+/** Grains pitched under LOW_PITCH (a fourth down passes, an octave down does not) only in LOW_TYPES; outside them the grains' tone and dark keep a floor, so the piece
+ *  is not muddy: *"sounds are now muddy"* (2026-10-19), when 34 % of scenes sat under 0.9 and a quarter low-passed at 2 kHz. */
+export const LOW_PITCH = 0.74, LOW_TYPES = ['deep', 'sdeep', 'breath', 'coda'], TONE_FLOOR = 1800, DARK_FLOOR = 1200;
 /** The share of sections that carry a drone. */
 export const DRONE_SHARE = 0.4;
 /** The families that smooth a clicking file, and what its sharp scene types become. */
@@ -375,7 +381,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   }
   /** The patches a scene type may play: its families, the patch's own types and lengths, under the overlap cap. */
   const poolFor = (T) => NAMES.filter((n) => { const f = patchInfo(n); return T.fam.includes(familyOf(n)) && (!f?.types || f.types.includes(T.name))
-    && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP && patchValues(n).pitch <= MAX_PITCH; });
+    && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP && patchValues(n).pitch <= MAX_PITCH
+    && (patchValues(n).pitch >= LOW_PITCH || LOW_TYPES.includes(T.name)); });
   const lensOf = (T, patch, notLen) => {
     const f = patchInfo(patch), ok = (k) => k !== notLen && !NOT_LEN[familyOf(patch)]?.includes(k) && (!f?.lens || f.lens.includes(k));
     const ks = T.lens.filter(ok);
@@ -555,6 +562,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       if (!d.layers.bpm) d.layers = { ...d.layers, bpm: Math.round(70 + 40 * a()), pulseOn: 'grains' };
       d.set = { density: r2((d.layers.bpm / 60) * f.sub * 1000) / 1000, time: Math.round((f.beats * 60 / d.layers.bpm) * 1000) / 1000 };
     }
+    // a brighter floor outside the low scene types
+    if (!LOW_TYPES.includes(d.type)) { const pv = patchValues(d.patch); if (pv.tone < TONE_FLOOR || pv.dark < DARK_FLOOR) d.set = { ...(d.set || {}), ...(pv.tone < TONE_FLOOR ? { tone: TONE_FLOOR } : {}), ...(pv.dark < DARK_FLOOR ? { dark: DARK_FLOOR } : {}) }; }
     // the key the scene after this one starts in, drawn now so a bridge can glide or pivot to it
     if (prev?.nextKey) d.key = { ...prev.nextKey };
     const kr = rng(seed * 523 + i * 17), move = pickOne([0, 7, 5, 2, 10], kr);
@@ -627,13 +636,13 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     /** Scene i, `t` seconds after its file landed: what the granulator does and the hand holds. */
     inScene(i, t) {
       const s = scene(i), x = t / s.dwell, w = s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2, s.rise, s.hold);
-      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: s.soak > 0 ? w + (1 - w) * s.soak : s.soak < 0 ? Math.max(DRIER_FLOOR, w * (1 + s.soak)) : w,
+      return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: Math.min(WET_CAP, s.soak > 0 ? w + (1 - w) * s.soak : s.soak < 0 ? Math.max(DRIER_FLOOR, w * (1 + s.soak)) : w),
         value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)), extra: freezesAfterDry(s.patch) ? { freeze: x > (s.dry ?? 0.2) ? 1 : 0 } : {} };
     },
     /** The interlude after scene i, `t` seconds into its blend. */
     inInterlude(i, t) {
       const s = scene(i), x = t / s.blend, sh = shapeOf(s, Math.min(1, Math.max(0, x)));
-      return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: `${s.iKind} interlude`, wet: sh.wet,
+      return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: `${s.iKind} interlude`, wet: Math.min(WET_CAP, sh.wet),
         value: fromT(s.iParam, positionAt(s.iMove, t * 1000)), extra: sh.extra, ...(sh.bridge ? { bridge: sh.bridge } : {}) };
     },
   };
