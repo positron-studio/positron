@@ -73,9 +73,9 @@ export const KEY_FROM = [1, 5], KEY_HZ = [60, 1000];
 export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12) + 12) % 12;
 
 // ── the programs that sound them, in the scsynth the grain ring runs in ──────────────────────────────
-// The layers read the tuner on busses 2 and 3 and the ghost player on 4 and 5, write to the private
-// pair 8 and 9, and the room reads that pair and writes the output. sclang-lite has no array controls,
-// so a chord is f0 to f11. why: lessons/workers-cast.md#layers
+// The layers read the tuner on busses 2 and 3 and the ghost player on 4 and 5, write LAYER_BUS (8, 9) and the
+// drones DRONE_BUS (10, 11); the room reads both and writes `to` (the container's master bus, or the output). sclang-lite has no array controls,
+// so a chord is f0 to f11. why: lessons/kit-sclang-lite.md#ugens-layers
 
 export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
 /** A ghost arrives at its own pitch: a person's recording is never transposed, up or down. why: plans/plan-cast-listenable.md */
@@ -137,8 +137,8 @@ export const PROGRAMS = {
   var w = FreeVerb.ar(LeakDC.ar(s), 0.35, 0.92, 0.4);
   Pan2.ar(Limiter.ar(w * amp, 0.3, 0.01), LFNoise2.kr(0.15) * 0.6) }`,
 };
-// The room's ceiling is 0.4: the ring adds its own output beside it on the same bus with no limiter after the sum,
-// and the ring peaks near 0.43 (-7.4 dBFS), so the two stay under full scale. At 0.9 a soaked scene clipped:
+// The room's ceiling is 0.4: the ring adds its own output beside it on the same bus and peaks near 0.43 (-7.4 dBFS),
+// so the two stay under full scale before the master (master.mjs) levels and limits the sum. At 0.9 a soaked scene clipped:
 // *"too loud, clips"* (2026-10-19). A ghost goes straight to the output under its own 0.3, and while it visits the
 // room ducks (`duck`) and its ceiling drops to 0.25 (`ceil`), so a visit is heard over the bed and the sum holds:
 // *"can not hear ghost"* (2026-10-19).
