@@ -175,6 +175,11 @@ export function pickFiles(items, votes, n, rand = Math.random) {
 
 /** Seconds under which a file is left out of what plays (the clip tests are 15 s). */
 export const MIN_FILE_S = 40;
+/**
+ * Whether the container on air runs older code than this deploy: by the image's hash when both sides know it (a Worker
+ * deploy alone changes nothing on air), else by the Worker version as before. why: plans/plan-cast-load.md
+ */
+export const newCode = (boot, env) => (boot.image && env.CAST_IMAGE ? boot.image !== env.CAST_IMAGE : !!env.CF_VERSION_METADATA?.id && boot.version !== env.CF_VERSION_METADATA.id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = (t) => new Date(t).toISOString().slice(0, 19) + 'Z';
 
@@ -363,8 +368,15 @@ export class Caster {
     if (m.cmd === 'mode') return this.mode(m.mode);
     if (m.cmd === 'set' || m.cmd === 'patch') throw new Error(`${m.cmd} is the life's on a live station: it moves the sound itself`);
     // a handover copies the station into a twin: a change now would reach only the one going away
-    if (this.handing && ['step', 'next', 'kill', 'program', 'play', 'queue'].includes(m.cmd)) throw new Error('handing over to the new code: try again in a few seconds');
+    if (this.handing && ['step', 'next', 'kill', 'program', 'play', 'queue', 'load'].includes(m.cmd)) throw new Error('handing over to the new code: try again in a few seconds');
     if (m.cmd === 'step') return this.step(m.by);
+    // a new composer into the running container, no hand-over (workers/cast/load.mjs). why: plans/plan-cast-load.md
+    if (m.cmd === 'load') {
+      if (!(await this.running())) throw new Error('not on air: a load goes into a running station');
+      const r = await this.slot(await this.key()).fetch(8080, '/load', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: m.files, sha: m.sha }) });
+      const j = await r.json().catch(() => ({}));
+      this.say(j.ok ? `load ${j.sha} checked, taken at the next scene` : `load refused: ${j.why || j.error || r.status}`); this.push(); return;
+    }
     if (m.cmd === 'next') { if (await this.running()) await this.cpost('/next'); return; }
     // Owner only, through the keyed control socket: destroys the container and leaves the session wanted.
     if (m.cmd === 'kill') { if (await this.running()) { this.killing = true; this.say('killing the container on purpose'); await this.slot(await this.key()).destroy().catch(() => {}); } return; }
@@ -551,7 +563,7 @@ export class Caster {
         await sleep(2000);
         this.retrying = false;
       }
-      const boot = { id: t0, at: t0, ms: Date.now() - t0, version: this.env.CF_VERSION_METADATA?.id ?? null, slot: k };
+      const boot = { id: t0, at: t0, ms: Date.now() - t0, version: this.env.CF_VERSION_METADATA?.id ?? null, image: this.env.CAST_IMAGE ?? null, slot: k };
       if (!started) return (await this.st.get('boot')) || boot;
       if (k === await this.key()) await this.st.put('boot', boot);
       this.say(`container ${k} up in ${boot.ms} ms`);
@@ -699,7 +711,7 @@ export class Caster {
       if (!(await sl.running())) {
         await this.died('found not running');
         await this.bring('restart');
-      } else if (this.env.CF_VERSION_METADATA?.id && boot && boot.version !== this.env.CF_VERSION_METADATA.id) {
+      } else if (boot && newCode(boot, this.env)) {
         // a deploy since this container booted: a twin on the new code takes over. why: lessons/workers-cast.md#handover
         if ((this.failedHandovers || 0) >= HANDOVER_TRIES) { this.failedHandovers = 0; this.say(`${HANDOVER_TRIES} handovers failed: refreshing the old way`); await this.refresh(); }
         else soon = !(await this.handover());

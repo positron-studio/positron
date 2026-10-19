@@ -5,16 +5,21 @@ import { startGrains, MASTER_NODE } from './grains.mjs';
 import { MASTER_BUS } from './sc/radio/cast/master.mjs';
 import { openDecoder } from './decode.mjs';
 import { levelOf, SR } from './mixer.mjs';
-import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry, isTest } from './sc/radio/cast/life.mjs';
+import * as LIFE from './sc/radio/cast/life.mjs';
+import { prepareLoad } from './load.mjs';
 /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
-const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
-import { createLayerEngine, euclid, stepSeconds, layerLevel, sceneLevel, blendLevel, ghostFrom, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
+const engPatch = (name, set = {}) => { const p = M.life.patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
+import * as LAYERS from './sc/radio/cast/layers.mjs';
+/** The composer in use: the image's modules, or a load's (load.mjs) from the scene it was taken at. */
+const M = { life: LIFE, layers: LAYERS, sha: 'image' };
 import { createSoften } from './sc/radio/cast/soften.mjs';
 
+/** A load that throws within this long of being taken is undone. */
+export const LOAD_GUARD_MS = 120_000;
 export const TICK_MS = 50, CHROMA_N = 8192, ONSET_N = 1024, RING_NODE = 4000;
 
 /** A scene's controls set aside its patch, as values (the page's tweaksOf). */
-export const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, fromT(n, t)]));
+export const tweaksOf = (s) => Object.fromEntries(Object.entries(s.tweak || {}).map(([n, t]) => [n, M.life.fromT(n, t)]));
 /** The ring's grains on the beat when the scene's pulse is on the grains. */
 export const lockOf = (s) => (s.layers?.bpm && s.layers.pulseOn === 'grains' ? 1 : 0);
 
@@ -41,8 +46,8 @@ function fft(re, im) {
 export function createChroma({ sr = SR, n = CHROMA_N } = {}) {
   const win = Float64Array.from({ length: n }, (_, i) => 0.42 - 0.5 * Math.cos(2 * Math.PI * i / n) + 0.08 * Math.cos(4 * Math.PI * i / n));
   const re = new Float64Array(n), im = new Float64Array(n), sm = new Float64Array(n / 2), acc = new Float64Array(12);
-  const hzPer = sr / n, lo = Math.ceil(KEY_HZ[0] / hzPer), hi = Math.min(n / 2, KEY_HZ[1] / hzPer);
-  const pc = Array.from({ length: n / 2 }, (_, i) => (i ? pitchClass(i * hzPer) : 0));
+  const hzPer = sr / n, lo = Math.ceil(M.layers.KEY_HZ[0] / hzPer), hi = Math.min(n / 2, M.layers.KEY_HZ[1] / hzPer);
+  const pc = Array.from({ length: n / 2 }, (_, i) => (i ? M.layers.pitchClass(i * hzPer) : 0));
   return {
     acc,
     reset() { acc.fill(0); sm.fill(0); },
@@ -61,16 +66,20 @@ export function createChroma({ sr = SR, n = CHROMA_N } = {}) {
  * `status().life`. `decoder(item, { from })` opens a file (openDecoder); `rand` moves the ghosts.
  */
 export function startLive({ queue, target, life: lo = {}, set = {}, resume = null, hold = false }, { openSink, say = () => {}, fail = () => {}, onMp3 = null, decoder = null, rand = Math.random } = {}) {
+  // every start is on the image's composer; a load lasts until the session ends
+  Object.assign(M, { life: LIFE, layers: LAYERS, sha: 'image' });
   const seed = Number.isFinite(+lo.seed) ? Math.round(+lo.seed) : (Math.random() * 2 ** 31) | 0;
   const votes = (Array.isArray(lo.votes) ? lo.votes : []).filter((v) => v && v.def && v.vote);
-  const life = createLife({ seed, votes });
+  let life = M.life.createLife({ seed, votes });
+  // a load waits here for the next scene; `back` is what plays if it throws within LOAD_GUARD_MS of being taken
+  let pending = null, back = null, takenAt = 0;
   const open = decoder || ((it, o) => openDecoder(it, { log: say, ...o }));
   // a twin rebuilds the life's scenes as the station made them (each file's kind, each key it heard), so scene `si`
   // is the station's to the bit. why: lessons/workers-cast.md#handover
   const hist = Array.isArray(resume?.hist) ? resume.hist : [];
   for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined, soft: !!hist[k]?.soft, test: !!hist[k]?.test }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
   const si0 = resume && Number.isInteger(resume.si) && resume.si >= 0 ? resume.si : 0;
-  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften, test: isTest(queue[0]?.title), seconds: queue[0]?.seconds });
+  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften, test: M.life.isTest(queue[0]?.title), seconds: queue[0]?.seconds });
   const L = { land: -1, si: si0, sceneAt: 0, blendAt: 0, phase: '', patch: '', inst: '', file: '', item: null, prevItem: null, want: null, now: null, level: 0 };
   const ghost = { next: 0, until: 0, stopAt: 0, src: null, item: null, level: 1, soften: null };
   const counts = { pulses: 0, onsets: 0, ghosts: 0, keys: 0, chains: 0 };
@@ -85,14 +94,14 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     ghost.soften?.process(x);
     return x;
   }
-  const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE },
+  const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: M.life.DWELL_NOISE },
     patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0), ...(s0.set || {}) }), resume, hold },
   { openSink, say, fail, onMp3, inputs: 4, ghost: readGhost,
     onBlock(mono) { for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; } },
     async onChain(chain) {
       layers = null; counts.chains++;
       const sc = { send: chain.send, sendAndWait: (test, ms, address, ...args) => chain.ask((m) => test([m.address, ...m.args]), ms, address, ...args).then((m) => m && [m.address, ...m.args]) };
-      const e = await createLayerEngine(sc, { log: say, to: MASTER_BUS, before: MASTER_NODE });
+      const e = await M.layers.createLayerEngine(sc, { log: say, to: MASTER_BUS, before: MASTER_NODE });
       if (chain.dead || stopped) return;
       layers = e;
       if (L.land >= 0) { const s = life.scene(L.si); layers.apply(s.layers, s.key); layers.level(L.level); }
@@ -106,7 +115,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   function pulse(Ly) {
     clearTimeout(pulseTimer); pulseTimer = 0;
     if (!Ly?.bpm || Ly.pulseOn === 'onsets') return;
-    const [k, n] = Ly.pattern, hits = euclid(k, n), dt = stepSeconds(Ly.bpm, n) * 1000;
+    const [k, n] = Ly.pattern, hits = M.layers.euclid(k, n), dt = M.layers.stepSeconds(Ly.bpm, n) * 1000;
     const go = () => {
       if (stopped) return;
       if (hits[pulseStep++ % n]) { counts.pulses++; if (Ly.pulseOn === 'res') layers?.hit((dt / 1000) * 1.5); else beat(); }
@@ -116,17 +125,17 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   }
   function layersFor(s, t) {
     chroma.reset(); L.keyDone = false;
-    ghost.next = t + ghostGap(s.layers, L.item?.seconds) * 0.5; ghost.until = 0; closeGhost();
+    ghost.next = t + M.layers.ghostGap(s.layers, L.item?.seconds) * 0.5; ghost.until = 0; closeGhost();
     if (layers) { layers.apply(s.layers, s.key); layers.level(0); layers.ghost(false); }
     pulse(s.layers);
   }
   function layerTick(st, t) {
     const s = life.scene(L.si), since = t - L.sceneAt;
-    L.level = st.phase === 'blend' ? blendLevel(L.now?.bridge) : sceneLevel(since / s.dwell, s);
+    L.level = st.phase === 'blend' ? M.layers.blendLevel(L.now?.bridge) : M.layers.sceneLevel(since / s.dwell, s);
     layers?.level(L.level);
     if (L.keyDone) return;
-    if (since >= KEY_FROM[0] && since < KEY_FROM[1]) chroma.add(last(CHROMA_N));
-    else if (since >= KEY_FROM[1]) {
+    if (since >= M.layers.KEY_FROM[0] && since < M.layers.KEY_FROM[1]) chroma.add(last(CHROMA_N));
+    else if (since >= M.layers.KEY_FROM[1]) {
       L.keyDone = true;
       const root = chroma.root();
       if (root != null) { s.key = { ...s.key, root, heard: true }; counts.keys++; layers?.apply(s.layers, s.key); }
@@ -136,14 +145,14 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   function ghostTick(t) {
     if (ghost.stopAt && !ghost.until && t >= ghost.stopAt) closeGhost();
     const Ly = layers?.layers;
-    if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry, life.scene(L.si).rise, life.scene(L.si).hold) < 0.5)) return;
-    if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 9; ghost.next = t + ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
+    if (!Ly || Ly.ghost === 'none' || (!ghost.until && M.layers.layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry, life.scene(L.si).rise, life.scene(L.si).hold) < 0.5)) return;
+    if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 9; ghost.next = t + M.layers.ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
     else if (!ghost.until && t >= ghost.next) {
       const nx = e.nextItem, pick = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
       // a test recording never visits as a ghost
-      const who = pick && !isTest(pick.title) ? pick : null;
+      const who = pick && !M.life.isTest(pick.title) ? pick : null;
       if (!who) { ghost.next = t + 10; return; }
-      const from = ghostFrom(who.seconds, rand());
+      const from = M.layers.ghostFrom(who.seconds, rand());
       closeGhost();
       ghost.src = open(who, { from }); ghost.item = who; ghost.level = levelOf(who.gain); ghost.soften = who.soften ? createSoften(SR) : null;
       layers.ghost(true); ghost.until = t + Ly.ghostLen; counts.ghosts++;
@@ -175,10 +184,14 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         L.si = first ? si0 : L.want ?? L.si + 1; L.want = null;
         L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = first && resume?.inst ? resume.inst : `${Date.now().toString(36)}-${L.si}`;
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
-        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften, test: isTest(L.item?.title), seconds: L.item?.seconds });
-        e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE); e.set('path', s.iPath ?? 0);
+        if (pending && !first) {
+          back = { mods: { life: M.life, layers: M.layers, sha: M.sha }, life }; Object.assign(M, pending.mods, { sha: pending.sha }); life = pending.life; takenAt = Date.now();
+          say(`load ${pending.sha} taken at scene ${L.si}`); pending = null;
+        }
+        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften, test: M.life.isTest(L.item?.title), seconds: L.item?.seconds });
+        e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', M.life.DWELL_NOISE); e.set('path', s.iPath ?? 0);
         // a frozen patch stays open until the scene's dry share is over
-        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
+        g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(M.life.freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
         layersFor(s, t);
         if (first && resume && s.key?.heard) L.keyDone = true;
         say(`scene ${L.si}: ${s.patch}, ${s.param}, ${s.len} on ${L.file}`);
@@ -198,7 +211,11 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
       // a bridge holds some layers across the blend and retunes them to the next scene's key from halfway
       if (v.bridge && layers) { const bk = `${L.si}|${v.bridge.key?.root}|${v.bridge.key?.minor}`; if (bk !== L.bridged) { L.bridged = bk; layers.apply(v.bridge.layers, v.bridge.key); } }
       L.now = v;
-    } catch (err) { fail(err); }
+    } catch (err) {
+      fail(err);
+      // a load that throws soon after it was taken goes back to what played before it
+      if (back && Date.now() - takenAt < LOAD_GUARD_MS) { Object.assign(M, back.mods); life = back.life; say(`load ${M.sha === 'image' ? '' : M.sha + ' '}restored after an error: ${err.message}`); back = null; }
+    }
   }
   const timer = setInterval(tick, TICK_MS);
 
@@ -214,6 +231,18 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     },
     /** For a test: a tick now, rather than on the timer. */
     tick,
+    /** A new composer (load.mjs), checked now and taken at the next scene; `{ sha: 'image' }` goes back to the image's. */
+    async load(body) {
+      if (body?.sha === 'image') {
+        const x = LIFE.createLife({ seed, votes }); for (let k = 0; k <= L.si; k++) { const sc = life.scene(k); const n = x.scene(k, { kind: sc.kind, soft: !!sc.soft, test: !!sc.test }); if (sc.key?.heard) n.key = { ...sc.key }; }
+        pending = { mods: { life: LIFE, layers: LAYERS }, sha: 'image', life: x }; say('load: the image\'s composer at the next scene'); return { ok: true, sha: 'image' };
+      }
+      const made = Array.from({ length: Math.max(0, L.si + 1) }, (_, k) => { const sc = life.scene(k); return { kind: sc.kind, soft: !!sc.soft, test: !!sc.test, key: sc.key }; });
+      const nx = e.nextItem, next = nx ? [{ kind: nx.kind, soft: !!nx.soften, test: M.life.isTest(nx.title), seconds: nx.seconds }] : [];
+      const r = await prepareLoad(body || {}, { now: M, seed, votes, made, next });
+      if (!r.ok) { say(`load refused: ${r.why}`); return { ok: false, why: r.why }; }
+      pending = r; say(`load ${r.sha} checked: taken at the next scene`); return { ok: true, sha: r.sha };
+    },
     stop() { stopped = true; clearInterval(timer); clearTimeout(pulseTimer); closeGhost(); layers?.stop(); g.stop(); },
     /**
      * Where the station is, as what scsynth hears now: the file and second on air, the seconds into its dwell, the
@@ -233,7 +262,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         life: v && s ? { si: L.si, inst: L.inst, def: life.defOf(s), phase: L.phase, kind: v.kind, patch: v.patch, param: v.param,
           value: v.value, wet: v.wet, len: v.len, layers: s.layers, key: s.key, from: s.from ?? null,
           file: L.file, at: L.at, sceneAt: L.sceneAt, dwell: s.dwell, blend: s.blend,
-          level: +L.level.toFixed(3), ghost: ghost.item?.title ?? null, want: L.want, seed, votes: votes.length, layersUp: !!layers, counts: { ...counts } } : null };
+          code: M.sha, pending: pending?.sha ?? null, level: +L.level.toFixed(3), ghost: ghost.item?.title ?? null, want: L.want, seed, votes: votes.length, layersUp: !!layers, counts: { ...counts } } : null };
     },
   };
 }

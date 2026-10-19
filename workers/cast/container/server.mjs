@@ -2,6 +2,7 @@
 // source connection. Control is plain HTTP on :8080 from the Caster Durable Object.
 //   POST /play  { queue: [{id,title,url}], target, resume?: {index, at} }   POST /next   POST /stop
 //   POST /queue { queue }   what plays after the current file, which keeps playing
+//   POST /load { files, sha }   a new composer, checked now and taken at the next scene (load.mjs)
 //   POST /play  { ..., mode: 'mix', set }   the mix instead: two slots on an AM dial (mixcast.mjs)
 //   POST /set   { name, v }   a mix control: tune, drift, dwell, blend, noise
 //   POST /play  { ..., mode: 'grains', set, patch }   the mix through the grain ring (grains.mjs)
@@ -326,6 +327,11 @@ http.createServer(async (req, res) => {
     let raw = '';
     for await (const c of req) raw += c;
     if (req.url === '/play') { start(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
+    if (req.url === '/load') {
+      if (!mx || mxMode !== 'live' || !mx.load) return reply(res, 409, { error: 'a load needs a live station on air' });
+      const r = await mx.load(JSON.parse(raw || '{}'));
+      return reply(res, r.ok ? 200 : 422, r);
+    }
     if (req.url === '/queue') { queue(JSON.parse(raw || '{}')); return reply(res, 200, await status()); }
     if (req.url === '/next') { if (mx) mx.next(); else if (s) s.skip = true; return reply(res, 200, await status()); }
     if (req.url === '/set') {
