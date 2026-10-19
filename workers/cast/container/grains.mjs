@@ -11,10 +11,13 @@ import { createEngine } from './mixer.mjs';
 import { openDecoder } from './decode.mjs';
 import { openEncoder } from './encode.mjs';
 import { usage } from './mixcast.mjs';
+import { program as masterProgram, MASTER_BUS } from './sc/radio/cast/master.mjs';
 
 export { PATCHES, clampPatch, PATCH_LIMITS };
 // 8192 frames (186 ms): at half a vCPU 2048 and 4096 xrun when a file arrives, 8192 did not. why: lessons/workers-cast.md#live-container
 export const SR = 44100, PERIOD = Number(process.env.GRAINS_PERIOD) || 8192, NODE = 4000, BUF = 0, DEF = 'gring', PORT = 57110;
+// the ring and the layers write MASTER_BUS; the master (master.mjs) after them levels the sum to a podcast's loudness
+export const MASTER_NODE = 4100;
 // the stdio rings, in frames: jack-stdin keeps its ring full while node is ahead, so what it has read leads what scsynth
 // hears by the whole ring. MEASURED 0.70 to 0.74 s with the 32768 here. why: lessons/workers-cast.md#handover
 export const RING_SAMPLES = Math.max(8192, PERIOD * 4);
@@ -109,8 +112,10 @@ export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, input
   await lastClose;
   const t0 = Date.now();
   // the compile is the page's: same PROGRAM, same compiler, same name
-  const good = compile(PROGRAM, { name: DEF });
+  const good = compile(PROGRAM, { name: DEF, bus: MASTER_BUS });
   if (!good.ok) throw new Error(`the ring did not compile: ${good.message}`);
+  const mst = compile(masterProgram(MASTER_BUS), { name: 'lmaster' });
+  if (!mst.ok) throw new Error(`the master did not compile: ${mst.message}`);
   ch.timing.compileMs = Date.now() - t0;
   let sock = null;
   try {
@@ -150,6 +155,9 @@ export async function startChain({ values = valuesOf(PATCHES[0]), mix = 1, input
     const go = await ask((m) => (m.address === '/n_go' && m.args[0] === NODE) || (m.address === '/fail' && m.args[0] === '/s_new'), 5000,
       '/s_new', DEF, NODE, 1, 0, 'buf', BUF, 'inbus', 2, 'mix', mix, ...Object.entries(values).flat());
     if (go?.address !== '/n_go') throw new Error('the ring did not start');
+    if ((await ask(done('/d_recv'), 5000, '/d_recv', mst.bytes))?.address !== '/done') throw new Error('scsynth did not take the master');
+    // after the ring (addAfter); the layers' room is added before it
+    send('/s_new', 'lmaster', MASTER_NODE, 3, NODE);
     ch.timing.synthMs = Date.now() - t0;
     // the feed and the tap connect themselves to scsynth's ports; -S is their ring in frames, four periods
     const ringS = String(RING_SAMPLES);

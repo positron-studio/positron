@@ -78,11 +78,8 @@ export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12)
 // so a chord is f0 to f11. why: lessons/workers-cast.md#layers
 
 export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
-/** A ghost arrives an octave down, a fourth down, as it is, or a fifth up. */
-// a visit is mostly slowed, an octave or a fourth down, now and then as it was or a fifth up
-// an octave down or as it is, never a fourth: a fourth down put the visiting file in a key against the scene's
-// (*"key conflict"*, 2026-10-19)
-export const GHOST_SHIFTS = [0.5, 0.5, 1];
+/** A ghost arrives at its own pitch: a person's recording is never transposed, up or down. why: plans/plan-cast-listenable.md */
+export const GHOST_SHIFTS = [1];
 /** Where in the visiting file a ghost starts: in its middle half, at least 20 s before its end; 20 to 200 s in when its
  *  length is unknown. Both engines (*"does ghosts tart from beginning. maybe in middle?"*, 2026-10-19). */
 export const ghostFrom = (seconds, rnd) => (Number(seconds) > 40 ? Math.min(Number(seconds) * (0.25 + 0.5 * rnd), Number(seconds) - 20) : Number(seconds) > 0 ? 0 : 20 + 180 * rnd);
@@ -102,11 +99,10 @@ export const PROGRAMS = {
   var w = (LFNoise2.kr(0.04) * 0.35) + 0.5;
   var s = (VarSaw.ar(${glide('\\f0.kr(55)', 8)}, 0, w * 0.6) + (VarSaw.ar(${glide('\\f1.kr(82)', 8)} * (1 + (LFNoise2.kr(0.015) * 0.012)), 0, w) * 0.7) + (VarSaw.ar(${glide('\\f2.kr(110)', 8)} * (1.003 + (LFNoise2.kr(0.02) * 0.06)), 0, 1 - w) * 0.5)) * 0.25;
   Pan2.ar(RLPF.ar(s, cut, 0.35 + ((LFNoise2.kr(0.03) + 1) * 0.3)) * amp, LFNoise2.kr(0.03) * 0.3) }`,
-  // the file itself held and slowed: low-passed (the corner sweeping slowly), an octave down, into a long room
+  // the file itself into a long room, low-passed (the corner sweeping slowly), at its own pitch
   lfreeze: `{ var amp = Lag.kr(\\amp.kr(0), 4);
-  var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 600 * (1 + (LFNoise2.kr(0.025) * 0.7)));
-  var down = PitchShift.ar(low, 0.4, ${glide('\\ratio.kr(0.5)', 8)}, 0.02, 0.2);
-  Pan2.ar(LeakDC.ar(FreeVerb.ar(down, 1, 0.97, 0.6)) * amp, 0) }`,
+  var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 900 * (1 + (LFNoise2.kr(0.025) * 0.7)));
+  Pan2.ar(LeakDC.ar(FreeVerb.ar(low, 1, 0.97, 0.6)) * amp, 0) }`,
   // a bank of resonators at the scene's chord; on a pulse only the hits open it
   // fed a low-passed file and low-passed after, so speech's hiss does not ping the upper rings: *"very mettallic"*
   lres: `{ var amp = Lag.kr(\\amp.kr(0), 1);
@@ -154,11 +150,11 @@ export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * ${glide('\\duck.kr(1)',
   var w = FreeVerb2.ar(l, r, \\mix.kr(0.3), \\size.kr(0.7), 0.5);
   Limiter.ar(w, ${glide('\\ceil.kr(0.4)', 2.5)}, 0.01) }`;
 
-/** Compile every program; `bad` lists any the compiler refused, with why. */
-export function compileLayers() {
+/** Compile every program; `bad` lists any the compiler refused, with why. The ghost and the room write `to` (the container's master bus). */
+export function compileLayers({ to = 0 } = {}) {
   const out = {}, bad = [];
-  for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: name === 'lghost' ? 0 : DRONES.includes(name) ? DRONE_BUS : LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
-  const room = compile(ROOM, { name: 'lroom', bus: 0 });
+  for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: name === 'lghost' ? to : DRONES.includes(name) ? DRONE_BUS : LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
+  const room = compile(ROOM, { name: 'lroom', bus: to });
   if (room.ok) out.lroom = room.bytes; else bad.push(`lroom: ${room.message}`);
   return { bytes: out, bad };
 }
@@ -169,16 +165,16 @@ const NODES = { ldrone: 5101, lfreeze: 5102, lres: 5103, lharm: 5104, lghost: 51
  * The layers in a booted scsynth (`local.scsynth`). `apply(layers, key)` sets a scene's layers; `ghost(on)`,
  * `hit()` and `level(v)` are what the page's clocks move. Every node starts silent.
  */
-export async function createLayerEngine(sc, { log = () => {} } = {}) {
-  const { bytes, bad } = compileLayers();
+export async function createLayerEngine(sc, { log = () => {}, to = 0, before = null } = {}) {
+  const { bytes, bad } = compileLayers({ to });
   if (bad.length) throw new Error(`the layers did not compile: ${bad.join('; ')}`);
   for (const [name, b] of Object.entries(bytes)) {
     const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', b);
     if (!done || done[0] !== '/done') throw new Error(`${name} was not taken: ${done?.[2] || 'no answer'}`);
   }
-  // the layers at the head, the room at the tail after them and the ring
+  // the layers at the head, the room at the tail after them and the ring, or just before the master (`before`)
   for (const name of Object.keys(PROGRAMS)) sc.send('/s_new', name, NODES[name], 0, 0, 'amp', 0);
-  sc.send('/s_new', 'lroom', NODES.lroom, 1, 0, 'mix', 0.3);
+  if (before != null) sc.send('/s_new', 'lroom', NODES.lroom, 2, before, 'mix', 0.3); else sc.send('/s_new', 'lroom', NODES.lroom, 1, 0, 'mix', 0.3);
   log(`the layers up: ${Object.keys(bytes).length} programs`);
   const set = (name, kv) => sc.send('/n_set', NODES[name], ...Object.entries(kv).flat());
   let now = null;
@@ -191,7 +187,7 @@ export async function createLayerEngine(sc, { log = () => {} } = {}) {
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
       // DRONE_TRIM: the drones about 3 dB under where they were, which tired over a section (*"tiring drone"*, 2026-10-19)
       set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.55 * DRONE_TRIM : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
-      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 * DRONE_TRIM : 0, ratio: L.droneOct === -2 ? 0.25 : 0.5 });
+      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 * DRONE_TRIM : 0 });
       set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
       set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });

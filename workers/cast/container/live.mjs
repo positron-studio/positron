@@ -1,10 +1,11 @@
 // The cast's live mode: the page's life (life.mjs) and layers (layers.mjs) driving the grains chain, on
 // air. The same driver as demo/radio/cast/index.html's lifeTick, on the mix clock (engine seconds) instead
 // of the page's performance.now(). why: lessons/workers-cast.md#live-container
-import { startGrains } from './grains.mjs';
+import { startGrains, MASTER_NODE } from './grains.mjs';
+import { MASTER_BUS } from './sc/radio/cast/master.mjs';
 import { openDecoder } from './decode.mjs';
 import { levelOf, SR } from './mixer.mjs';
-import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry } from './sc/radio/cast/life.mjs';
+import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry, isTest } from './sc/radio/cast/life.mjs';
 /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
 const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
 import { createLayerEngine, euclid, stepSeconds, layerLevel, sceneLevel, blendLevel, ghostFrom, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
@@ -67,9 +68,9 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   // a twin rebuilds the life's scenes as the station made them (each file's kind, each key it heard), so scene `si`
   // is the station's to the bit. why: lessons/workers-cast.md#handover
   const hist = Array.isArray(resume?.hist) ? resume.hist : [];
-  for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined, soft: !!hist[k]?.soft }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
+  for (let k = 0; k < hist.length; k++) { const s = life.scene(k, { kind: hist[k]?.kind || undefined, soft: !!hist[k]?.soft, test: !!hist[k]?.test }); if (hist[k]?.key?.heard) s.key = { ...hist[k].key }; }
   const si0 = resume && Number.isInteger(resume.si) && resume.si >= 0 ? resume.si : 0;
-  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften });
+  const s0 = life.scene(si0, { kind: queue[0]?.kind || undefined, soft: !!queue[0]?.soften, test: isTest(queue[0]?.title) });
   const L = { land: -1, si: si0, sceneAt: 0, blendAt: 0, phase: '', patch: '', inst: '', file: '', item: null, prevItem: null, want: null, now: null, level: 0 };
   const ghost = { next: 0, until: 0, stopAt: 0, src: null, item: null, level: 1, soften: null };
   const counts = { pulses: 0, onsets: 0, ghosts: 0, keys: 0, chains: 0 };
@@ -85,13 +86,13 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     return x;
   }
   const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: DWELL_NOISE },
-    patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0) }), resume, hold },
+    patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0), ...(s0.set || {}) }), resume, hold },
   { openSink, say, fail, onMp3, inputs: 4, ghost: readGhost,
     onBlock(mono) { for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; } },
     async onChain(chain) {
       layers = null; counts.chains++;
       const sc = { send: chain.send, sendAndWait: (test, ms, address, ...args) => chain.ask((m) => test([m.address, ...m.args]), ms, address, ...args).then((m) => m && [m.address, ...m.args]) };
-      const e = await createLayerEngine(sc, { log: say });
+      const e = await createLayerEngine(sc, { log: say, to: MASTER_BUS, before: MASTER_NODE });
       if (chain.dead || stopped) return;
       layers = e;
       if (L.land >= 0) { const s = life.scene(L.si); layers.apply(s.layers, s.key); layers.level(L.level); }
@@ -172,7 +173,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         L.si = first ? si0 : L.want ?? L.si + 1; L.want = null;
         L.land = st.landings; L.sceneAt = e.cycleFrom; L.inst = first && resume?.inst ? resume.inst : `${Date.now().toString(36)}-${L.si}`;
         L.prevItem = L.item; L.item = e.onItem; L.file = L.item?.title || '';
-        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften });
+        const s = life.scene(L.si, { kind: L.item?.kind || undefined, soft: !!L.item?.soften, test: isTest(L.item?.title) });
         e.set('dwell', s.dwell); e.set('blend', s.blend); e.set('noise', DWELL_NOISE); e.set('path', s.iPath ?? 0);
         // a frozen patch stays open until the scene's dry share is over
         g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
@@ -219,7 +220,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     handoff() {
       const x = g.status(), back = Math.max(0, x.clockBacklog ?? x.backlog ?? 0), on = x.slots[x.from], s = L.land >= 0 ? life.scene(L.si) : null;
       if (!s || !on?.id) return null;
-      const made = Array.from({ length: L.si + 1 }, (_, k) => { const sc = life.scene(k); return { kind: sc.kind, soft: !!sc.soft, key: sc.key }; });
+      const made = Array.from({ length: L.si + 1 }, (_, k) => { const sc = life.scene(k); return { kind: sc.kind, soft: !!sc.soft, test: !!sc.test, key: sc.key }; });
       const left = Number.isFinite(on.seconds) ? on.seconds - on.played - x.blend - 1 : Infinity;
       return { id: on.id, title: on.title, pos: +(on.played - back).toFixed(3), cycleT: +(x.cycleT - back).toFixed(3), wall: Date.now(),
         si: L.si, inst: L.inst, hist: made, def: life.defOf(s), phase: x.phase, safeS: x.phase === 'dwell' ? +Math.min(x.dwell - x.cycleT, left).toFixed(1) : 0, seed };

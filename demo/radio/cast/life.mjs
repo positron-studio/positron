@@ -46,6 +46,8 @@ export const MOVABLE = {
 };
 /** A control is not moved again until this many others have been (scenes and interludes count). */
 export const FRESH = 4;
+/** Grammar 2's: echo is no longer a control the hand moves, which leaves too few to hold four apart. */
+export const FRESH2 = 3;
 /**
  * The layers a scene may carry over the file (plans/plan-cast-reinterpret.md section 2): a drone bed, a
  * resonator bank in the scene's key, harmonizer voices in the ring, ghosts of the next or previous file,
@@ -259,9 +261,22 @@ export const MAX_PITCH = 1;
  *  1 processing only. Most scenes lean wet (SOAK); one in DRIER_SHARE leans dry (DRIER) and keeps a floor of grains so
  *  no speech is naked: *"prefer more wetter"*, then *"use full wet dry range for composition but minimal time in dry"*. */
 export const SOAK = [0.25, 0.9], DRIER = [-0.7, -0.2], DRIER_SHARE = 0.15, DRIER_FLOOR = 0.15;
-/** The granulator never takes more than WET_CAP of the voice, so a fifth of it always comes through: the page's slider at
- *  0.4 was the one that sounded right, *"on 0.4 its more toreable"*, *"fix all"* (2026-10-19). */
-export const WET_CAP = 0.8;
+/** The granulator's ceiling. 0.8 (*"on 0.4 its more toreable"*) and the levels under it made a mix where no effect was
+ *  ever clearly on; a scene now opens dry and then plays one effect at strength. why: plans/plan-cast-listenable.md */
+export const WET_CAP = 0.95;
+/** No person's recording plays at any pitch but its own (*"duck or Darth Vader voices, which are insulting"*, 2026-10-19):
+ *  a patch pitched down plays at 1, one above MAX_PITCH or with a tape drop over MAX_DROP never plays. */
+export const MAX_DROP = 0.06;
+/** Echo repeats got repetitive fast (2026-10-19): no echo above ECHO_CAP, the hand never moves it, and the patches made of it are out. */
+export const ECHO_CAP = 0.35, ECHOEY = ['Fog', 'Cathedral', 'Tide', 'Dub', 'Long dub', 'Reverse dub'];
+/** The ways out grammar 2 no longer takes: an echo wash, and a tape stop that drops the voice in pitch. */
+export const NOT_OUTS = ['echowash', 'tapestop'];
+/** Seconds a scene stays dry before its effect, so the listener hears the original first. */
+export const DRY_S = [8, 20];
+/** A scene's dwell by what its file is: music and concerts longer, home, field and test recordings shorter. */
+export const KIND_DWELL = { music: 1.6, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
+/** A test recording (its title says test) is a short visit. */
+export const TEST_DWELL = 25, isTest = (title) => /\btest\b/i.test(String(title || ''));
 /** A scene's layers at full soak: the layers it has, in a bigger room, and with `drone` the held file as well. It no
  *  longer adds resonators or the harmonizer, which rang metallic in four scenes of five: *"very mettallic"* (2026-10-19). */
 export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
@@ -383,7 +398,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   /** The patches a scene type may play: its families, the patch's own types and lengths, under the overlap cap. */
   const poolFor = (T) => NAMES.filter((n) => { const f = patchInfo(n); return T.fam.includes(familyOf(n)) && (!f?.types || f.types.includes(T.name))
     && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP && patchValues(n).pitch <= MAX_PITCH
-    && (patchValues(n).pitch >= LOW_PITCH || LOW_TYPES.includes(T.name)); });
+    && patchValues(n).drop <= MAX_DROP && !ECHOEY.includes(n); });
   const lensOf = (T, patch, notLen) => {
     const f = patchInfo(patch), ok = (k) => k !== notLen && !NOT_LEN[familyOf(patch)]?.includes(k) && (!f?.lens || f.lens.includes(k));
     const ks = T.lens.filter(ok);
@@ -392,7 +407,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   };
   function fresh(r, prev, recent, i, T) {
     // a patch with at least two controls not moved lately, one for the scene and one for its interlude
-    const free = (n) => movableFor(n).filter((p) => !recent.includes(p)).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
+    const free = (n) => movableFor(n).filter((p) => !recent.includes(p) && !(T && p === 'echo')).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
     const P0 = pool.filter(free).length ? pool.filter(free) : pool;
     // grammar 2 remembers: a patch heard g scenes ago weighs 1 - e^(-g/16), its family a quarter one scene back and
     // 0.6 two back, shared over the family's members; grammar 1 keeps its plain draw (life-g1.json)
@@ -401,7 +416,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       return (1 - Math.exp(-agoOf((x) => x.patch === n) / 16)) * (fa <= 1 ? 0.25 : fa <= 2 ? 0.6 : 1) / P0.filter((m) => familyOf(m) === f).length; };
     const patch = T ? weighted(P0, memo, r) : pickOne(P0, r), can = movableFor(patch);
     // and moves pan and detune, which are barely heard, a third as often as the rest
-    const canP = can.filter((p) => !recent.includes(p)).length ? can.filter((p) => !recent.includes(p)) : can;
+    const can2 = T ? can.filter((p) => p !== 'echo') : can, canP = can2.filter((p) => !recent.includes(p)).length ? can2.filter((p) => !recent.includes(p)) : can2;
     const param = T ? weighted(canP, (p) => (p === 'pan' || p === 'detune' ? 1 / 3 : 1), r) : pickOne(canP, r);
     const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(T ? lensOf(T, patch, same ? prev.len : null) : lensFor(patch, same ? prev.len : null), r);
     const centre = toT(param, patchValues(patch)[param] ?? fromT(param, 0.5));
@@ -436,13 +451,13 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // never the same kind of interlude twice in a row; a filter hand-over needs tone free for its hand
     const tone = [d.param, d.notI, ...recent].includes('tone') || !guardT(d.patch, 'tone');
     // grammar 2: the type's own ways out, and the dial's sweep only between sections, rarely
-    const outs = T ? [...T.outs, ...(d.secLast ? ['radio'] : [])] : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
+    const outs = T ? [...T.outs.filter((k) => !NOT_OUTS.includes(k)), ...(d.secLast ? ['radio'] : [])] : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
     if (!d.iKind || d.iKind === prev?.iKind || (tone && IKINDS[d.iKind]?.param) || (T && !outs.includes(d.iKind))) {
       const can = outs.filter((k) => k !== prev?.iKind && k !== d.notKind && !(tone && IKINDS[k].param));
       d.iKind = can.length ? weighted(can, odds, r) : 'dissolve';
     }
     delete d.notKind;
-    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch);
+    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch).filter((p) => !T || p !== 'echo');
     const iCan = can.filter((p) => ![...recent, d.param, d.notI].includes(p)), iAny = can.filter((p) => p !== d.param);
     d.iParam = K.param ?? pickOne(iCan.length ? iCan : iAny.length ? iAny : PARAMS.filter((p) => p !== d.param), r);
     delete d.notI;
@@ -523,7 +538,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   }
   function make2(i, ctx = {}) {
     const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729), kind = ctx.kind || 'unknown', at = sectionAt(i);
-    const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH);
+    const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH2);
     // no naked speech: the owner does not want it (2026-10-18), so a section opens on a dry intro
     // no stuttering: *"stuttering is not nice"*, *"esp with ekkes drony stuff"*, *"soo much stuttering please no"*
     // (2026-10-19). A rhythm scene plays as a tape build, a stormy slot as a storm (its r() still drawn), and below no
@@ -542,8 +557,11 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const d = weighted(ok.length ? ok : cands, (x) => Math.exp(LEAN * learned(x)), r);
     const a = rng(seed * 977 + i * 31), within = ([lo, hi]) => lo + (hi - lo) * a();
     const Tt = TYPES[d.type];
-    // the dry opening half its type's: as little time dry as lets a listener know the file
-    d.dry = r2(within(Tt.dry) * 0.5); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
+    // a visit's length by what the file is: music longer, a test recording short
+    if (ctx.test) d.test = true;
+    d.dwell = ctx.test ? TEST_DWELL : Math.min(600, Math.round(d.dwell * (KIND_DWELL[kind] ?? 1)));
+    // the file dry first, DRY_S seconds, so the listener knows the original before the effect arrives
+    d.dry = r2(Math.min(0.4, within(DRY_S) / d.dwell)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
     // inside its type's band by the tide, and the whole band a little lower at low tide
     d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
     // a combination of layers heard in the last five scenes is drawn again, up to eight tries
@@ -556,6 +574,12 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0, res: 'none' };
     // a ghost is coloured by the band-pass only: the comb and resonators ring on the scene's root, against the visitor's key
     if (d.layers.ghost && d.layers.ghost !== 'none') d.layers = { ...d.layers, ghost: 'bpf' };
+    // the harmonizer moves a voice's pitch, so it plays on music only
+    if (kind !== 'music') d.layers = { ...d.layers, harm: 'none' };
+    // one effect at a time over the granulator, so it can be named: of the drone, harmonizer and ghost, one stays
+    { const on = ['drone', 'harm', 'ghost'].filter((k) => d.layers[k] && d.layers[k] !== 'none');
+      // the section's drone is the trick it holds across its scenes, so a drone stays when there is one
+      if (on.length > 1) { const keep = on.includes('drone') ? (a(), 'drone') : on[Math.floor(a() * on.length)]; for (const k of on) if (k !== keep) d.layers = { ...d.layers, [k]: 'none' }; } }
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
     const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;
@@ -567,6 +591,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       if (!d.layers.bpm) d.layers = { ...d.layers, bpm: Math.round(70 + 40 * a()), pulseOn: 'grains' };
       d.set = { density: r2((d.layers.bpm / 60) * f.sub * 1000) / 1000, time: Math.round((f.beats * 60 / d.layers.bpm) * 1000) / 1000 };
     }
+    // a voice at its own pitch, and no long echo
+    { const pv = patchValues(d.patch); if (pv.pitch < 1 || pv.echo > ECHO_CAP) d.set = { ...(d.set || {}), ...(pv.pitch < 1 ? { pitch: 1 } : {}), ...(pv.echo > ECHO_CAP ? { echo: ECHO_CAP } : {}) }; }
     // a brighter floor outside the low scene types
     if (!LOW_TYPES.includes(d.type)) { const pv = patchValues(d.patch); if (pv.tone < TONE_FLOOR || pv.dark < DARK_FLOOR) d.set = { ...(d.set || {}), ...(pv.tone < TONE_FLOOR ? { tone: TONE_FLOOR } : {}), ...(pv.dark < DARK_FLOOR ? { dark: DARK_FLOOR } : {}) }; }
     // the key the scene after this one starts in, drawn now so a bridge can glide or pivot to it

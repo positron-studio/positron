@@ -68,8 +68,9 @@ somebody broke it.
 | `positron-ui` | building or changing any interface, control (a control is usually a node's port), readout, table, transport bar, the patchbay block on a page, or a stylesheet rule |
 | `positron-diagram` | drawing or editing a hand-written diagram (`diagram.mjs`, a slide's picture). Not part of a new page since 2026-10-14: it lives in `/kit/diagram/` and archived pages, and may come back |
 | `positron-verify` | running or changing a harness, adding or removing a control, believing a red run, reporting a measurement or an absence |
-| `positron-streaming` | anything under `workers/` or `src/`, any page that plays a stream or adds an audio, video, file or state link that leaves the machine (a heavy link and its transport), quoting a latency or a bill |
+| `positron-streaming` | anything under `workers/` or `src/` (and `workers/cast/` loads `positron-cast` too), any page that plays a stream or adds an audio, video, file or state link that leaves the machine (a heavy link and its transport), quoting a latency or a bill |
 | `positron-xr` | any `gl: true` or headset page, `verify-gl.mjs`, `verify-quest.mjs`, a full screen button on any page or full screen on a phone |
+| `positron-cast` | changing anything under `demo/radio/cast/` or `workers/cast/` (the Väin cast, both engines), judging or describing how the cast sounds, and a cast deploy |
 | `positron-hardware` | anything under `rig/`, a page that plays real hardware (the remote concepts, the Pi as site `pi-1`), any claim about an instrument |
 | `positron-history` | following a link, slug or path out of an older file (a numbered or dashed concept address, `/rhythm/`, `/stations/`, an archived demo, a retired worker), or repeating a claim about a rename |
 | `positron-slides` | writing or revising any slide text, deck outline, speaker notes or playable lesson, including a deck in `demo/shell/decks.mjs`. It is the words half; drawing a slide is `positron-ui` |

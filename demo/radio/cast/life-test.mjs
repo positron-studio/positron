@@ -12,13 +12,13 @@ const N = 300, many = (life, n = N) => Array.from({ length: n }, (_, i) => life.
 const life = createLife({ seed: 1 }), S = many(life);
 // the controls some family lets the hand move (pitch is never moved)
 const MOVING = Object.keys(MOVABLE).filter((k) => [...new Set(S.map((s) => s.patch))].some((p) => guardT(p, k)));
-const reused = (list) => list.findIndex((p, i) => list.slice(Math.max(0, i - FRESH), i).includes(p));
+const reused = (list, fresh = FRESH) => list.findIndex((p, i) => list.slice(Math.max(0, i - fresh), i).includes(p));
 const period = (keys) => { for (let p = 1; p <= 40; p++) if (keys.slice(0, 120).every((k, i) => k === keys[i + p])) return p; return 0; };
 const key = (s) => `${s.patch}|${s.param}|${s.len}|${s.iParam}`;
-function rules(name, S) {
+function rules(name, S, fresh = FRESH) {
   check(`${name}: no scene has the patch of the one before it`, S.every((s, i) => !i || s.patch !== S[i - 1].patch));
   const order = S.flatMap((s) => [s.param, s.iParam]);
-  check(`${name}: no control is moved again within ${FRESH} movements`, reused(order) === -1, `at ${reused(order)}`);
+  check(`${name}: no control is moved again within ${fresh} movements`, reused(order, fresh) === -1, `at ${reused(order, fresh)}`);
   check(`${name}: never three scenes of one length in a row`, S.every((s, i) => i < 2 || !(s.len === S[i - 1].len && s.len === S[i - 2].len)));
   check(`${name}: it does not loop, scenes or patches`, period(S.map(key)) === 0 && period(S.map((s) => s.patch)) === 0);
 }
@@ -186,11 +186,11 @@ check('grammar 1 rebuilds the life it played before grammar 2, scene for scene (
 const kindAt = (i) => ['speech', 'field', 'music', 'speech'][i % 4];
 const life2 = (o) => { const l = createLife0({ grammar: 2, ...o }); return { l, S: Array.from({ length: o.n ?? 600 }, (_, i) => l.scene(i, { kind: kindAt(i) })) }; };
 const { l: G, S: S2 } = life2({ seed: 11, n: 2000 });
-rules('grammar 2', S2.slice(0, 600));
+rules('grammar 2', S2.slice(0, 600), L2.FRESH2);
 // glitch plays only in storms, and storms only at high tide, so it may miss one of its four in 2000 scenes
 const seen2 = new Set(S2.map((x) => x.patch));
 const STUTTER = ['rhythmic', 'glitch'];
-check('grammar 2 plays every patch at or under MAX_PITCH in 2000 scenes, none above it, and nothing that stutters', CAST_PATCHES.every((c) => STUTTER.includes(familyOf(c.name)) || patchValues(c.name).pitch > L2.MAX_PITCH || seen2.has(c.name)) && ![...seen2].some((n) => STUTTER.includes(familyOf(n))) && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
+check('grammar 2 plays every patch at or under MAX_PITCH in 2000 scenes, none above it, and nothing that stutters', CAST_PATCHES.every((c) => STUTTER.includes(familyOf(c.name)) || patchValues(c.name).pitch > L2.MAX_PITCH || patchValues(c.name).drop > L2.MAX_DROP || L2.ECHOEY.includes(c.name) || seen2.has(c.name)) && ![...seen2].some((n) => STUTTER.includes(familyOf(n))) && ![...seen2].some((n) => patchValues(n).pitch > L2.MAX_PITCH), `${seen2.size}`);
 check('no stuttering: no grammar 2 scene is a rhythm scene or carries a pulse', !S2.some((x) => x.type === 'rhythm' || x.layers.bpm), JSON.stringify(S2.find((x) => x.type === 'rhythm' || x.layers.bpm)?.type));
 const all54 = [...new Set([...(await import('../../granulator/grain-ring.mjs')).PATCHES.map((p) => p.name), ...CAST_PATCHES.map((p) => p.name)])];
 check('every patch is inside PATCH_LIMITS: the engines refuse nothing and change no value', CAST_PATCHES.every((c) => { const k = clampPatch({ name: c.base, set: c.set }); return !k.refused.length && Object.entries(c.set).every(([n, v]) => k.values[n] === (n === 'dir' ? (v < 0 ? -1 : 1) : v)); }));
@@ -234,7 +234,17 @@ const db = S2.map((x, i) => [x, i]).find(([x]) => x.iKind === 'dronebridge'), [d
 const b0 = G.inInterlude(dbi, dbx.blend * 0.25).bridge, b1 = G.inInterlude(dbi, dbx.blend * 0.75).bridge;
 check('a drone bridge holds the drones across the gap and glides them to the next scene\'s key from halfway', b0.layers.drone !== 'none' && b0.layers.droneLevel === 0.5 && b0.key === dbx.key && b1.key === dbx.nextKey && JSON.stringify(S2[dbi + 1].key) === JSON.stringify(dbx.nextKey));
 const ts = S2.map((x, i) => [x, i]).find(([x]) => x.iKind === 'tapestop');
-check('a tape stop winds the pitch and the speed down and holds what is left', G.inInterlude(ts[1], ts[0].blend * 0.4).extra.speed === 0 && G.inInterlude(ts[1], ts[0].blend * 0.4).extra.pitch === 0.25 && G.inInterlude(ts[1], ts[0].blend * 0.05).extra.speed > 0.9);
+check('grammar 2 never leaves by a tape stop (it drops the voice in pitch) or an echo wash', !ts && !S2.some((x) => L2.NOT_OUTS.includes(x.iKind)));
+// plans/plan-cast-listenable.md: no voice at any pitch but its own, one effect at a time, a dry opening, visits by kind
+const pitchOf = (x) => ({ ...patchValues(x.patch), ...(x.set || {}) });
+check('grammar 2: every scene plays its file at pitch 1, with no tape drop and no echo over ECHO_CAP', S2.every((x) => pitchOf(x).pitch === 1 && pitchOf(x).drop <= L2.MAX_DROP && pitchOf(x).echo <= L2.ECHO_CAP && x.param !== 'echo' && x.iParam !== 'echo' && x.tweak?.echo == null),
+  JSON.stringify(S2.map((x) => [x.patch, pitchOf(x).pitch, pitchOf(x).echo, x.param, x.iParam]).find(([, p, e, a, b]) => p !== 1 || e > L2.ECHO_CAP || a === 'echo' || b === 'echo')));
+check('grammar 2: the harmonizer plays on music only, and at most one of drone, harmonizer and ghost in a scene', S2.every((x) => (x.kind === 'music' || x.layers.harm === 'none') && ['drone', 'harm', 'ghost'].filter((k) => x.layers[k] !== 'none').length <= 1));
+check('grammar 2: every scene opens dry for 8 to 20 s (or 40 % of a short one)', S2.every((x) => (x.dry * x.dwell >= 7 || x.dry === 0.4) && x.dry * x.dwell <= 23 && x.dry <= 0.4));
+{ const mean = (k) => { const d = S2.filter((x) => x.kind === k).map((x) => x.dwell); return d.reduce((a, b) => a + b, 0) / d.length; };
+  check('grammar 2: a music file is visited longer than talk or a field recording', mean('music') > 1.5 * mean('speech') && mean('music') > 1.5 * mean('field'), `${mean('music').toFixed(0)} ${mean('speech').toFixed(0)} ${mean('field').toFixed(0)}`); }
+{ const t = createLife0({ grammar: 2, seed: 5 }), ok = Array.from({ length: 40 }, (_, i) => t.scene(i, { kind: 'speech', test: i % 2 === 0 })).every((x, i) => (i % 2 ? x.dwell !== L2.TEST_DWELL || true : x.dwell === L2.TEST_DWELL && x.test));
+  check('grammar 2: a test recording is a short visit', ok && L2.isTest('Clip test on user2') && L2.isTest('Audio test') && !L2.isTest('Testament')); }
 check('every grammar 2 interlude is a way out its type names (a dissolve when none is free), radio only at a section\'s end', S2.every((x) => x.naked || [...L2.TYPES[x.type].outs, 'radio', 'dissolve'].includes(x.iKind)) && S2.filter((x) => x.iKind === 'radio').every((x) => x.secLast));
 check('the generalised envelope is today\'s at its defaults', Array.from({ length: 101 }, (_, j) => j / 100).every((x) => Math.abs(envelope(x, 0.2) - (x <= 0.2 || x >= 1 ? 0 : x < 0.38 ? ((u) => u * u * (3 - 2 * u))((x - 0.2) / 0.18) : x > 0.85 ? ((u) => u * u * (3 - 2 * u))((1 - x) / 0.15) : 1)) < 1e-9));
 // votes under grammar 2

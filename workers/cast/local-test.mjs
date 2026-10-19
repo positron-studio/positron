@@ -93,9 +93,10 @@ async function wiring(items, { worklet = true } = {}) {
 const soft = await wiring([{ id: 'k', title: 'Kalle', gain: -8.2, soften: true }]);
 ok('LOCAL: a soften file goes level -> the cast-soften worklet -> its tuner leg', soft.after.join() === 'worklet' && soft.worklet.name === 'cast-soften' && soft.toLeg?.join() === 'gain', `${soft.after} then ${soft.toLeg}`);
 ok('the worklet is mono in and out, downmixed as the container decodes (speakers, 0.5 (L + R))', soft.worklet?.o.channelCount === 1 && soft.worklet.o.channelCountMode === 'explicit' && soft.worklet.o.channelInterpretation === 'speakers' && soft.worklet.o.outputChannelCount.join() === '1');
-ok('the worklet module is the soften stage, loaded once', soft.modules.length === 1 && soft.st.slots[0].soften === true);
+ok('two worklet modules, the soften stage and the master (master.mjs), each loaded once', soft.modules.length === 2 && soft.st.slots[0].soften === true);
+ok('LOCAL: the master leveller is one cast-master worklet, stereo', fctx.made.filter((n) => n.name === 'cast-master').length === 1 && fctx.made.find((n) => n.name === 'cast-master').o.outputChannelCount[0] === 2);
 const plain = await wiring([{ id: 'e', title: 'Evening', gain: -1.4 }]);
-ok('NEGATIVE CONTROL: a file without soften is wired level -> leg, no worklet anywhere', plain.after.join() === 'gain' && !fctx.made.some((n) => n.kind === 'worklet') && plain.st.slots[0].soften === false);
+ok('NEGATIVE CONTROL: a file without soften is wired level -> leg, no worklet anywhere', plain.after.join() === 'gain' && !fctx.made.some((n) => n.kind === 'worklet' && n.name === 'cast-soften') && plain.st.slots[0].soften === false);
 const noWk = await wiring([{ id: 'k', title: 'Kalle', soften: true }], { worklet: false });
 ok('NEGATIVE CONTROL: with no AudioWorklet a soften file still plays, unsoftened, and says so', noWk.after.join() === 'gain' && noWk.st.slots[0].soften === false);
 // NEGATIVE CONTROLS: the comparison can fail
