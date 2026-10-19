@@ -3,7 +3,7 @@
 //                              gain (dB to -23 LUFS), kind (speech | field | music | ambiguous), kindConf, soften (the input
 //                              stage for clicks, soften.mjs) and seconds from gains.mjs
 //   GET  /control/<target>     WebSocket, ?key=: play (cuts) / queue (after the current file) / next / stop, status once a second;
-//                              extend ({ms}: stop at now + ms, 15 min to 14 days, workers/cast/extend.mjs); every start stops itself at `until`, 2 h on (Väin's channels 7 days);
+//                              extend ({ms}: stop at now + ms, 15 min to 14 days, workers/cast/extend.mjs); every start stops itself at `until`, 7 days on;
 //                              program (the station's stored list, kept while off air, START plays it);
 //                              every station plays live (life.mjs and layers.mjs in the container); step ({by: 1 | -1}:
 //                              the next or previous scene); mode, set and patch are refused since 2026-10-18
@@ -42,7 +42,7 @@ const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 
 const HANDOVER_SAFE_S = 25, HANDOVER_MIN_S = 10, HANDOVER_RETRY_MS = 3000, HANDOVER_TRIES = 3;
 const other = (k) => (k === 'b' ? 'a' : 'b'), twinOf = (name) => `${name}~b`;
 // Every start stops itself at `until`, kept in the wanted session. why: lessons/workers-cast.md#cap
-const CAP_MS = 2 * 3600_000, VAIN_CAP_MS = 7 * 24 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 14 * 24 * 3600_000, PLAY_CAP_MIN = 60_000;
+const CAP_MS = 7 * 24 * 3600_000, EXTEND_MIN = 15 * 60_000, CAP_MAX = 14 * 24 * 3600_000, PLAY_CAP_MIN = 60_000;
 const clampMs = (ms, lo) => (Number.isFinite(+ms) ? Math.min(CAP_MAX, Math.max(lo, Math.round(+ms))) : null);
 
 /**
@@ -53,8 +53,6 @@ const clampMs = (ms, lo) => (Number.isFinite(+ms) ? Math.min(CAP_MAX, Math.max(l
 function targets(env) {
   const t = { preview: { kind: 'icecast', host: '127.0.0.1', port: 8000, mount: 'preview', label: 'our preview Icecast', pw: env.TEST_PW || '', local: true } };
   for (const m of ['radio1965', 'user1', 'user2', 'user3', 'user4']) t[m] = { kind: 'icecast', host: 'live.uuu.ee', port: 8001, mount: m, label: `Väin ${m}`, pw: env.VAIN_SOURCE_PW || '' };
-  // Väin's channels run a week from a start, with nobody there to extend them; preview stops at CAP_MS
-  for (const m of CHANNELS) t[m].cap = VAIN_CAP_MS;
   return t;
 }
 
@@ -388,7 +386,7 @@ export class Caster {
         this.say(`queue replaced, ${queue.length} files`); return;
       }
       // capMs below the default only through this keyed socket, at least a minute, for a check that must end itself
-      const cap = m.capMs != null ? clampMs(m.capMs, PLAY_CAP_MIN) : t.cap ?? CAP_MS;
+      const cap = m.capMs != null ? clampMs(m.capMs, PLAY_CAP_MIN) : CAP_MS;
       if (cap == null) throw new Error('capMs is a number of ms');
       // a new life on every start; a restart after a death keeps the start's seed
       await this.st.put('want', { queue, target: this.name, startedAt: Date.now(), until: Date.now() + cap, seed: crypto.getRandomValues(new Uint32Array(1))[0] >>> 1 });
