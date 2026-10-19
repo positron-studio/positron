@@ -225,14 +225,15 @@ export const TYPES = {
   intro: TYPE({ dry: [0.12, 0.2], rise: 0.15, hold: 0.92, peak: [0.75, 0.95], band: [0.6, 0.8], fam: ['choir', 'cloud', 'drone'], lens: ['mid'], outs: ['dissolve', 'filter', 'clean'] }),
   build: TYPE({ dry: [0.06, 0.1], rise: 0.35, hold: 0.9, peak: [0.8, 1], band: [0.6, 0.9], fam: ['drone', 'cloud', 'choir'], lens: ['long'], outs: ['echowash', 'dronebridge', 'smear'] }),
   deep: TYPE({ dry: [0.04, 0.08], rise: 0.15, hold: 0.9, peak: [0.9, 1], band: [0.8, 1], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'frozenbridge'] }),
-  storm: TYPE({ dry: [0.05, 0.05], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'glitch', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'smear'] }),
+  storm: TYPE({ dry: [0.05, 0.05], rise: 0.1, hold: 0.85, peak: [1, 1], band: [0.85, 1], fam: ['cloud', 'spectral'], lens: ['short', 'mid'], outs: ['tapestop', 'smear'] }),
   rhythm: TYPE({ dry: [0.06, 0.06], rise: 0.12, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['rhythmic', 'tape'], lens: ['mid'], outs: ['tapestop', 'filter'] }),
   choir: TYPE({ dry: [0.06, 0.1], rise: 0.25, hold: 0.88, peak: [0.8, 1], band: [0.6, 0.9], fam: ['choir', 'spectral'], lens: ['mid', 'long'], outs: ['chordbridge', 'frozenbridge', 'dissolve'] }),
   breath: TYPE({ dry: [0.1, 0.1], rise: 0.2, hold: 0.6, peak: [0.6, 0.8], band: [0.4, 0.6], fam: ['drone', 'cloud'], lens: ['breath'], outs: ['dissolve', 'clean'] }),
   coda: TYPE({ dry: [0.05, 0.05], rise: 0.2, hold: 0.5, peak: [0.9, 0.9], band: [0.5, 0.8], fam: ['drone', 'spectral'], lens: ['long'], outs: ['dronebridge', 'dissolve'] }),
 };
 // the same types narrowed to one family, as a section asks for them
-TYPES.tapebuild = { ...TYPES.build, fam: ['tape'] };
+// mid as well as long, since a tape build also takes the slots rhythm scenes had (no stutter, 2026-10-19)
+TYPES.tapebuild = { ...TYPES.build, fam: ['tape'], lens: ['mid', 'long'] };
 TYPES.cloudbuild = { ...TYPES.build, fam: ['cloud'] };
 TYPES.sdeep = { ...TYPES.deep, fam: ['spectral'] };
 for (const [k, v] of Object.entries(TYPES)) v.name = k;
@@ -385,11 +386,11 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // a patch with at least two controls not moved lately, one for the scene and one for its interlude
     const free = (n) => movableFor(n).filter((p) => !recent.includes(p)).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
     const P0 = pool.filter(free).length ? pool.filter(free) : pool;
-    // grammar 2 remembers: a patch heard g scenes ago weighs 1 - e^(-g/12), its family a quarter one scene back and
+    // grammar 2 remembers: a patch heard g scenes ago weighs 1 - e^(-g/16), its family a quarter one scene back and
     // 0.6 two back, shared over the family's members; grammar 1 keeps its plain draw (life-g1.json)
     const agoOf = (test) => { for (let k = scenes.length - 1, g = 1; k >= 0; k--, g++) if (test(scenes[k])) return g; return 99; };
     const memo = (n) => { const f = familyOf(n), fa = agoOf((x) => familyOf(x.patch) === f);
-      return (1 - Math.exp(-agoOf((x) => x.patch === n) / 12)) * (fa <= 1 ? 0.25 : fa <= 2 ? 0.6 : 1) / P0.filter((m) => familyOf(m) === f).length; };
+      return (1 - Math.exp(-agoOf((x) => x.patch === n) / 16)) * (fa <= 1 ? 0.25 : fa <= 2 ? 0.6 : 1) / P0.filter((m) => familyOf(m) === f).length; };
     const patch = T ? weighted(P0, memo, r) : pickOne(P0, r), can = movableFor(patch);
     // and moves pan and detune, which are barely heard, a third as often as the rest
     const canP = can.filter((p) => !recent.includes(p)).length ? can.filter((p) => !recent.includes(p)) : can;
@@ -516,7 +517,11 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729), kind = ctx.kind || 'unknown', at = sectionAt(i);
     const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH);
     // no naked speech: the owner does not want it (2026-10-18), so a section opens on a dry intro
-    let type = at.type === 'open' ? 'intro' : at.type === 'stormy' ? (r() < 0.5 ? 'storm' : 'rhythm') : at.type;
+    // no stuttering: *"stuttering is not nice"*, *"esp with ekkes drony stuff"*, *"soo much stuttering please no"*
+    // (2026-10-19). A rhythm scene plays as a tape build, a stormy slot as a storm (its r() still drawn), and below no
+    // glitch family in storms and no pulse on the grains or the resonators
+    let type = at.type === 'open' ? 'intro' : at.type === 'stormy' ? (r(), 'storm') : at.type;
+    if (type === 'rhythm') type = 'tapebuild';
     // a file with clicks in it (`soft`, the soften stage's files: Kalle, Kalle 2, Driving along) gets long
     // smooth grains only: echoes, chops and glitches repeat its clicks. why: lessons/workers-cast.md#soft-files
     if (ctx.soft && SHARP_TYPES[type]) type = SHARP_TYPES[type];
@@ -538,7 +543,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       const seen = scenes.slice(-5).map((x) => cmb(x.layers));
       for (let k = 0; k < 8; k++) { d.layers = typeLayers(base, Tt, rng(seed * 2741 + i * 59 + k * 7777)); if (!seen.includes(cmb(d.layers))) break; } }
     // the section's drone, or none; a storm and a rhythmic scene play without one
-    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone) };
+    d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0 };
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
     const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;
