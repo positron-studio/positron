@@ -453,14 +453,15 @@ const PS_ICON_SPECS = {
   android: [192, 'circle', 0.56, 'p.s'],
   store: [512, 'ios', 0.62, 'p.s'],
   // a lock-screen player's artwork: square to the edge, the mark small enough that no crop reaches it
-  artwork: [512, 'square', 0.42, 'p.s'],
+  // `full`: no corner radius and nothing transparent, or iOS fills the corners white and rounds it again
+  artwork: [512, 'full', 0.42, 'p.s'],
 };
 
 async function psIconSvg(S, shape, fill, text) {
   const track = text.includes('.') ? -0.12 : 0;
   const mark = (size, dx = 0, dy = 0) => `<text x="${dx.toFixed(2)}" y="${dy.toFixed(2)}" font-family="'Brand JetBrains Mono', 'JetBrains Mono', monospace" font-weight="600" font-size="${size.toFixed(2)}" letter-spacing="${(track * size).toFixed(2)}" fill="#e6e6e6">${text.replace('.', '<tspan fill="#ffd400">.</tspan>')}</text>`;
   const tile = shape === 'circle' ? `<circle cx="${S / 2}" cy="${S / 2}" r="${S / 2}" fill="#0b0e14"/>`
-    : `<rect width="${S}" height="${S}" rx="${(S * (shape === 'ios' ? 0.225 : 0.18)).toFixed(2)}" fill="#0b0e14"/>`;
+    : `<rect width="${S}" height="${S}" rx="${(S * (shape === 'ios' ? 0.225 : shape === 'full' ? 0 : 0.18)).toFixed(2)}" fill="#0b0e14"/>`;
   const wrap = (body, bg) => `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">${bg ? tile : ''}${body}</svg>`;
   const b0 = await inkBox(wrap(mark(100, 0, 200)));
   const size = 100 * fill * S / b0.width;
