@@ -271,7 +271,8 @@ export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
  *  is not muddy: *"sounds are now muddy"* (2026-10-19), when 34 % of scenes sat under 0.9 and a quarter low-passed at 2 kHz. */
 export const LOW_PITCH = 0.74, LOW_TYPES = ['deep', 'sdeep', 'breath', 'coda'], TONE_FLOOR = 1800, DARK_FLOOR = 1200;
 /** The share of sections that carry a drone. */
-export const DRONE_SHARE = 0.4;
+// 0.3, was 0.4: a drone through a whole section tired (*"tiring drone"*, 2026-10-19)
+export const DRONE_SHARE = 0.3;
 /** The families that smooth a clicking file, and what its sharp scene types become. */
 export const SMOOTH = ['drone', 'choir', 'spectral'];
 export const SHARP_TYPES = { storm: 'deep', rhythm: 'choir', tapebuild: 'build', cloudbuild: 'build' };
