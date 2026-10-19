@@ -77,7 +77,9 @@ export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12)
 // drones DRONE_BUS (10, 11); the room reads both and writes `to` (the container's master bus, or the output). sclang-lite has no array controls,
 // so a chord is f0 to f11. why: lessons/kit-sclang-lite.md#ugens-layers
 
-export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
+export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4, VOC_N = 4;
+/** The vocoder's bands, Hz: the voice's envelope in each shapes the choir's chord in the same band. */
+export const VOC_BANDS = [220, 350, 550, 850, 1300, 2000, 3100, 4800];
 /** A ghost arrives at its own pitch: a person's recording is never transposed, up or down. why: plans/plan-cast-listenable.md */
 export const GHOST_SHIFTS = [1];
 /** Where in the visiting file a ghost starts: in its middle half, at least 20 s before its end; 20 to 200 s in when its
@@ -121,6 +123,13 @@ export const PROGRAMS = {
   var b = PitchShift.ar(x, 0.3, ${glide('\\r1.kr(1.5)', 5)}, 0.01, 0.12);
   var c = PitchShift.ar(x, 0.3, ${glide('\\r2.kr(2)', 5)}, 0.01, 0.12);
   LPF.ar(Pan2.ar(a, sp * -1) + Pan2.ar(b, 0) + Pan2.ar(c, sp), 3500) * amp * 0.5 }`,
+  // the choir: a chord of slowly detuned saws in the scene's key, shaped band by band by the voice's own envelope,
+  // so talk (and a shout) sings as a choir rather than repeating (*"human voice and speech could turn something musical"*)
+  lvoc: `{ var amp = ${glide('\\amp.kr(0)', 1.5)};
+  var x = Mix(In.ar(2, 2)) * 0.5;
+  var c = (${fs(VOC_N).map((f, i) => `VarSaw.ar(${f} * (1 + (LFNoise2.kr(${(0.1 + 0.03 * i).toFixed(2)}) * 0.004)), 0, 0.35)`).join(' + ')}) * 0.25;
+  var v = ${VOC_BANDS.map((b) => `(BPF.ar(c, ${b}, 0.3) * Lag.ar(BPF.ar(x, ${b}, 0.3).abs, 0.08))`).join(' + ')};
+  Pan2.ar(Limiter.ar(LPF.ar(v * 11, 5000), 0.35, 0.01) * amp, 0) }`,
   // a visit is heard as a voice from elsewhere, not a tint: its own voice whole, the colour under it, a drier room,
   // near the middle (*"cpuld not hear oriental"*, 2026-10-19)
   // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
@@ -159,7 +168,7 @@ export function compileLayers({ to = 0 } = {}) {
   return { bytes: out, bad };
 }
 
-const NODES = { ldrone: 5101, lfreeze: 5102, lres: 5103, lharm: 5104, lghost: 5105, lroom: 5199 };
+const NODES = { ldrone: 5101, lfreeze: 5102, lres: 5103, lharm: 5104, lghost: 5105, lvoc: 5106, lroom: 5199 };
 
 /**
  * The layers in a booted scsynth (`local.scsynth`). `apply(layers, key)` sets a scene's layers; `ghost(on)`,
@@ -191,6 +200,8 @@ export async function createLayerEngine(sc, { log = () => {}, to = 0, before = n
       set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
       set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
+      const vc = chordHz(key, L.voc && L.voc !== 'none' ? L.voc : 'fifths', { octaves: 1, from: 1 });
+      set('lvoc', { amp: L.voc && L.voc !== 'none' ? 1 : 0, ...Object.fromEntries(vc.slice(0, VOC_N).map((f, i) => [`f${i}`, f])) });
       const gc = chordHz(key, 'fifths', { octaves: 1, from: 2 });
       set('lghost', { amp: 0, wb: L.ghost === 'bpf' ? 1 : 0, wc: L.ghost === 'comb' ? 1 : 0, wr: L.ghost === 'res' ? 1 : 0, root: hz((key?.root ?? 0) + 24),
         ...Object.fromEntries(gc.slice(0, GHOST_N).map((f, i) => [`f${i}`, f])) });
