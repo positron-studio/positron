@@ -83,6 +83,9 @@ export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
 // an octave down or as it is, never a fourth: a fourth down put the visiting file in a key against the scene's
 // (*"key conflict"*, 2026-10-19)
 export const GHOST_SHIFTS = [0.5, 0.5, 1];
+/** Where in the visiting file a ghost starts: in its middle half, at least 20 s before its end; 20 to 200 s in when its
+ *  length is unknown. Both engines (*"does ghosts tart from beginning. maybe in middle?"*, 2026-10-19). */
+export const ghostFrom = (seconds, rnd) => (Number(seconds) > 40 ? Math.min(Number(seconds) * (0.25 + 0.5 * rnd), Number(seconds) - 20) : Number(seconds) > 0 ? 0 : 20 + 180 * rnd);
 /** Seconds between ghost visits: the scene's own gap, shorter on a long file (300 s is as drawn), 0.5 to 1.5 times. */
 export const ghostGap = (L, seconds) => (L?.ghostEvery ?? 40) * (Number(seconds) > 0 ? Math.min(1.5, Math.max(0.5, 300 / Number(seconds))) : 1);
 /** The drones stay up across scenes and glide to the next key; the other layers fade with each scene. */

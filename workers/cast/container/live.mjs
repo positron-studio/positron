@@ -7,7 +7,7 @@ import { levelOf, SR } from './mixer.mjs';
 import { createLife, fromT, DWELL_NOISE, patchFor, freezesAfterDry } from './sc/radio/cast/life.mjs';
 /** What the engine is handed for a scene's patch: a cast patch becomes its base plus its values; the scene's own set wins, a patch's lock stays. */
 const engPatch = (name, set = {}) => { const p = patchFor(name); return { name: p.name, set: { ...p.set, ...set, ...(p.set.lock ? { lock: 1 } : {}) } }; };
-import { createLayerEngine, euclid, stepSeconds, layerLevel, sceneLevel, blendLevel, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
+import { createLayerEngine, euclid, stepSeconds, layerLevel, sceneLevel, blendLevel, ghostFrom, pitchClass, KEY_FROM, KEY_HZ, ghostGap } from './sc/radio/cast/layers.mjs';
 import { createSoften } from './sc/radio/cast/soften.mjs';
 
 export const TICK_MS = 50, CHROMA_N = 8192, ONSET_N = 1024, RING_NODE = 4000;
@@ -140,7 +140,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     else if (!ghost.until && t >= ghost.next) {
       const nx = e.nextItem, who = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
       if (!who) { ghost.next = t + 10; return; }
-      const at = 20 + rand() * 180, from = Math.min(at, Math.max(0, (who.seconds || at) - 15));
+      const from = ghostFrom(who.seconds, rand());
       closeGhost();
       ghost.src = open(who, { from }); ghost.item = who; ghost.level = levelOf(who.gain); ghost.soften = who.soften ? createSoften(SR) : null;
       layers.ghost(true); ghost.until = t + Ly.ghostLen; counts.ghosts++;
