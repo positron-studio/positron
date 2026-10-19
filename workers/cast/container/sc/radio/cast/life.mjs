@@ -271,7 +271,9 @@ export const MAX_DROP = 0.06;
 /** Echo repeats got repetitive fast (2026-10-19): no echo above ECHO_CAP, the hand never moves it, and the patches made of it are out. */
 export const ECHO_CAP = 0.35, ECHOEY = ['Fog', 'Cathedral', 'Tide', 'Dub', 'Long dub', 'Reverse dub'];
 /** The ways out grammar 2 no longer takes: an echo wash, and a tape stop that drops the voice in pitch. */
-export const NOT_OUTS = ['echowash', 'tapestop'];
+export const NOT_OUTS = ['echowash', 'tapestop', 'smear'];
+/** The room never past these: a big room was the wash (*"Wash sound so anmoying"*, 2026-10-19). */
+export const ROOM_MAX = 0.35, ROOM_SIZE_MAX = 0.7;
 /** No chopped voices (*"So many stuttering vocals"*, 2026-10-19, on Rain at 0.12 s): grains at least MIN_GRAIN long, at least
  *  MIN_OVERLAP sounding at once, and the hand never moves the controls that chop (NO_MOVE). */
 export const MIN_GRAIN = 0.35, MIN_OVERLAP = 2, NO_MOVE = ['echo', 'size', 'density'];
@@ -600,7 +602,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     if (kind !== 'music') d.layers = { ...d.layers, harm: 'none' };
     // the choir on talk and field recordings: it is the scene's effect, so no harmonizer or ghost beside it
     { const vr = rng(seed * 4513 + i * 23); d.layers = { ...d.layers, voc: kind !== 'music' && !ctx.test && vr() < VOC_ODDS ? pickOne(VOCS, vr) : 'none' };
-      if (d.layers.voc !== 'none') d.layers = { ...d.layers, harm: 'none', ghost: 'none', room: Math.max(d.layers.room ?? 0.3, 0.55), roomSize: Math.max(d.layers.roomSize ?? 0.7, 0.9) }; }
+      if (d.layers.voc !== 'none') d.layers = { ...d.layers, harm: 'none', ghost: 'none' }; }
     // one effect at a time over the granulator, so it can be named: of the drone, harmonizer and ghost, one stays
     { const on = ['drone', 'harm', 'ghost'].filter((k) => d.layers[k] && d.layers[k] !== 'none');
       // the section's drone is the trick it holds across its scenes, so a drone stays when there is one
@@ -616,6 +618,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       if (!d.layers.bpm) d.layers = { ...d.layers, bpm: Math.round(70 + 40 * a()), pulseOn: 'grains' };
       d.set = { density: r2((d.layers.bpm / 60) * f.sub * 1000) / 1000, time: Math.round((f.beats * 60 / d.layers.bpm) * 1000) / 1000 };
     }
+    // a small room, never a wash
+    d.layers = { ...d.layers, room: Math.min(d.layers.room ?? 0.3, ROOM_MAX), roomSize: Math.min(d.layers.roomSize ?? 0.7, ROOM_SIZE_MAX), droneLevel: d.layers.drone === 'freeze' || d.layers.drone === 'both' ? r2((d.layers.droneLevel ?? 0.4) * 0.5) : d.layers.droneLevel };
     // a voice at its own pitch, and no long echo
     { const pv = patchValues(d.patch); if (pv.pitch < 1 || pv.echo > ECHO_CAP) d.set = { ...(d.set || {}), ...(pv.pitch < 1 ? { pitch: 1 } : {}), ...(pv.echo > ECHO_CAP ? { echo: ECHO_CAP } : {}) }; }
     // a brighter floor outside the low scene types

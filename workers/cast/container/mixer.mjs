@@ -166,6 +166,8 @@ const db = (x) => (x > 0 ? +(20 * Math.log10(x)).toFixed(1) : null);
  * returns a source `{ read(n) -> Float32Array mono, ended, close(), buffered }`. `block()` renders
  * BLOCK frames of interleaved stereo s16. why: lessons/workers-cast.md#drift
  */
+/** Seconds under which a file is not played while a longer one is queued (the clip tests are 15 s, a stray stream 31 s). */
+export const MIN_FILE_S = 40;
 export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.random, log = () => {}, prefetchS = 6, resume = null } = {}) {
   const ctl = { ...DEFAULTS, ...set };
   const mix = createMix(SLOTS, WHISTLE_SOFT), tuner = createTuner({ sr, rand });
@@ -174,7 +176,10 @@ export function createEngine({ open, queue = [], set = {}, sr = SR, rand = Math.
   let from = 0, cycleFrom = 0, frames = 0, phase = 'dwell', k = 0, tune = ctl.tune, m = mix(tune);
   let underruns = 0, landings = 0, meter = null;
   const tSec = () => frames / sr;
-  const peekNext = () => (items.length ? items[nextIdx % items.length] : null);
+  // a file measured under MIN_FILE_S is a blip that ends a scene abruptly: passed over while a longer one is queued
+  const short = (it) => Number(it?.seconds) > 0 && Number(it.seconds) < MIN_FILE_S;
+  const skipShort = () => { if (!items.some((x) => !short(x))) return; for (let n = 0; n < items.length && short(items[nextIdx % items.length]); n++) nextIdx = (nextIdx + 1) % items.length; };
+  const peekNext = () => { if (!items.length) return null; skipShort(); return items[nextIdx % items.length]; };
   function take() { const it = peekNext(); if (it) nextIdx = (nextIdx + 1) % items.length; return it; }
   function place(j, it, src) {
     const sl = slots[j];
