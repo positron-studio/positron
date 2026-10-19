@@ -235,9 +235,21 @@ async function run(sess) {
 
 // The mix session, when mode is 'mix' or 'grains'; copy (`s`) is the fallback and is untouched by it.
 let mx = null, mxTarget = null, mxMode = null;
+/** A file new to the archive has no measured length: read it with ffprobe, in place, before it lands, so its scene ends
+ *  before the file does (a 31 s recording cut a scene off mid-effect, 2026-10-19). */
+function probeLengths(queue) {
+  for (const it of queue) {
+    if (Number(it.seconds) > 0 || !it.url || it.probing) continue;
+    it.probing = true;
+    const p = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', it.url]);
+    let out = ''; p.stdout.on('data', (b) => { out += b; });
+    p.on('error', () => {}); p.on('exit', () => { const d = Number(out.trim()); if (d > 0) { it.seconds = Math.round(d); say(`${it.title}: ${it.seconds} s (probed)`); } });
+  }
+}
 function start(body) {
   const { queue, target } = body;
   if (!Array.isArray(queue) || !queue.length) throw new Error('an empty queue');
+  probeLengths(queue);
   if (!target?.pw || !target.mount) throw new Error('a target with a mount and a password');
   secrets = [target.pw, Buffer.from(`source:${target.pw}`).toString('base64')];
   if (body.mode === 'mix' || body.mode === 'grains' || body.mode === 'live') {
@@ -266,6 +278,7 @@ function start(body) {
 
 /** Replaces what follows the current file without cutting it: the next file is queue[0]. */
 function queue(body) {
+  if (Array.isArray(body.queue)) probeLengths(body.queue);
   if (mx && Array.isArray(body.queue) && body.queue.length) { mx.queue(body.queue); say(`mix queue set, ${body.queue.length} files`); return; }
   if (!s) throw new Error('nothing is playing: play starts a queue');
   if (!Array.isArray(body.queue) || !body.queue.length) throw new Error('an empty queue');

@@ -14,7 +14,8 @@ export const LENGTHS2 = { ...LENGTHS, breath: 30 };
 export const INTERLUDE = [3, 20];
 /** The tuning noise while a scene sits on its station, as the clock's `noise`; an interlude's own level comes only with its blend.
  * Quiet talk and field recordings were heard as static under 0.04 times a radio interlude's noise held all scene. */
-export const DWELL_NOISE = 0.2;
+export const DWELL_NOISE = 0;
+// 0, was 0.2: under the master leveller the static rose with every quiet stretch (*"Harsh noise trasiion"*, 2026-10-19)
 /**
  * What an interlude sounds like, by kind: the tuning noise (the clock's `noise`, 0 to 2), how far the
  * granulator swells, how long the blend is, whether the granulator freezes the outgoing file, the
@@ -461,7 +462,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // never the same kind of interlude twice in a row; a filter hand-over needs tone free for its hand
     const tone = [d.param, d.notI, ...recent].includes('tone') || !guardT(d.patch, 'tone');
     // grammar 2: the type's own ways out, and the dial's sweep only between sections, rarely
-    const outs = T ? [...T.outs.filter((k) => !NOT_OUTS.includes(k)), ...(d.secLast ? ['radio'] : [])] : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
+    const outs = T ? T.outs.filter((k) => !NOT_OUTS.includes(k)) : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
     if (!d.iKind || d.iKind === prev?.iKind || (tone && IKINDS[d.iKind]?.param) || (T && !outs.includes(d.iKind))) {
       const can = outs.filter((k) => k !== prev?.iKind && k !== d.notKind && !(tone && IKINDS[k].param));
       d.iKind = can.length ? weighted(can, odds, r) : 'dissolve';
@@ -476,6 +477,8 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.blend = Math.round(within(K.blend));
     // grammar 2 never hands over in under MIN_BLEND seconds: a clean cut read as the feed jumping
     if (T) d.blend = Math.max(MIN_BLEND, d.blend);
+    // and never by the dial: its sweep and hiss are lifted by the master into a harsh noise
+    if (T) { d.iNoise = 0; if (d.iPath === 0) d.iPath = 1; }
     d.iNoise = r2(within(K.noise));
     d.iWet = r2(within(K.wet));
     d.iFreeze = K.freeze;
