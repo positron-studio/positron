@@ -136,7 +136,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
     if (ghost.stopAt && !ghost.until && t >= ghost.stopAt) closeGhost();
     const Ly = layers?.layers;
     if (!Ly || Ly.ghost === 'none' || (!ghost.until && layerLevel((t - L.sceneAt) / (life.scene(L.si).dwell || 1), life.scene(L.si).dry, life.scene(L.si).rise, life.scene(L.si).hold) < 0.5)) return;
-    if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 2.5; ghost.next = t + ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
+    if (ghost.until && t >= ghost.until) { layers.ghost(false); ghost.until = 0; ghost.stopAt = t + 9; ghost.next = t + ghostGap(Ly, L.item?.seconds) * (0.7 + 0.6 * rand()); }
     else if (!ghost.until && t >= ghost.next) {
       const nx = e.nextItem, who = Ly.ghostSide === 'prev' && L.prevItem ? L.prevItem : (nx && nx.title !== L.file ? nx : L.prevItem);
       if (!who) { ghost.next = t + 10; return; }

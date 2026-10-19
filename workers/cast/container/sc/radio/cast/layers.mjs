@@ -129,7 +129,9 @@ export const PROGRAMS = {
   // near the middle (*"cpuld not hear oriental"*, 2026-10-19)
   // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
   // on the root or four resonators, into a big room of its own, drifting wide
-  lghost: `{ var amp = Lag.kr(\\amp.kr(0), 1.5);
+  // a ghost swells in and out on an S curve over about 7 s (glide), and the bed ducks the same way:
+  // *"they seems too sudden"*, *"they come and go too harsly"* (2026-10-19)
+  lghost: `{ var amp = ${glide('\\amp.kr(0)', 2.5)};
   var x = Mix(In.ar(4, 2)) * 0.5;
   var sh = PitchShift.ar(x, 0.25, Lag.kr(\\shift.kr(1), 0.5), 0.01, 0.05);
   var bp = BPF.ar(sh, 300 + ((LFNoise2.kr(0.2) + 1) * 900), 0.5) * 3;
@@ -144,13 +146,13 @@ export const PROGRAMS = {
 // *"too loud, clips"* (2026-10-19). A ghost goes straight to the output under its own 0.3, and while it visits the
 // room ducks (`duck`) and its ceiling drops to 0.25 (`ceil`), so a visit is heard over the bed and the sum holds:
 // *"can not hear ghost"* (2026-10-19).
-export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * Lag.kr(\\duck.kr(1), 1.5);
+export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * ${glide('\\duck.kr(1)', 2.5)};
   // the drones half fixed and half following the scene's level, so they swell and recede rather than hold flat
   var dg = Lag.kr(\\dgain.kr(1), 3);
   var l = (In.ar(${LAYER_BUS}, 1) * g) + (In.ar(${DRONE_BUS}, 1) * dg);
   var r = (In.ar(${LAYER_BUS + 1}, 1) * g) + (In.ar(${DRONE_BUS + 1}, 1) * dg);
   var w = FreeVerb2.ar(l, r, \\mix.kr(0.3), \\size.kr(0.7), 0.5);
-  Limiter.ar(w, Lag.kr(\\ceil.kr(0.4), 1.5), 0.01) }`;
+  Limiter.ar(w, ${glide('\\ceil.kr(0.4)', 2.5)}, 0.01) }`;
 
 /** Compile every program; `bad` lists any the compiler refused, with why. */
 export function compileLayers() {
