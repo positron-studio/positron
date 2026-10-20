@@ -7,6 +7,7 @@ import { createWriteStream, existsSync, mkdtempSync, rmSync, statSync, writeFile
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { momentsOf } from './moments.mjs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { GAIN_DB } from './container/mixer.mjs';
@@ -15,7 +16,8 @@ import { KIND_SR, features, classify } from './kind.mjs';
 import { TARGET, GAINS, UNMEASURED } from './gains.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url)), BASE = process.env.CAST_BASE || 'https://cast.positron.studio';
-const all = process.argv.includes('--all'), di = process.argv.indexOf('--dir'), dir = di > 0 ? process.argv[di + 1] : null;
+// --moments: only add each file's moments (moments.mjs) to the rows that lack them, nothing re-measured
+const onlyMoments = process.argv.includes('--moments'), all = process.argv.includes('--all'), di = process.argv.indexOf('--dir'), dir = di > 0 ? process.argv[di + 1] : null;
 const ff = process.env.FFMPEG || 'ffmpeg';
 // what the tuner's mono highpass gets: a mono file at unity, a stereo one 0.5 (L + R)
 const FILTER = `${UPMIX},pan=mono|c0=0.5*FL+0.5*FR,ebur128=peak=true`;
@@ -53,7 +55,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     for (const it of items) {
       const id = String(it.id);
-      if (!all && rows[id]?.kind) continue;
+      if (onlyMoments ? !rows[id] || rows[id].moments : (!all && rows[id]?.kind)) continue;
       let path = dir && join(dir, `${id}.mp3`);
       if (!path || !existsSync(path)) {
         path = join(tmp, `${id}.mp3`);
@@ -61,12 +63,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         if (!r.ok || !r.body) { none[id] = { title: it.title, why: `/file/ answered ${r.status}` }; continue; }
         await pipeline(Readable.fromWeb(r.body), createWriteStream(path));
       }
+      if (onlyMoments) { rows[id] = { ...rows[id], moments: momentsOf(path).map(({ at, kind }) => ({ at, kind })) }; console.log(`${id} ${it.title}: ${rows[id].moments.length} moments`); if (path.startsWith(tmp)) rmSync(path, { force: true }); continue; }
       const m = measure(path);
       if (m.why) { none[id] = { title: it.title, why: m.why }; delete rows[id]; console.log(`${id} ${it.title}: ${m.why}`); continue; }
       const f = features(samplesFor(path, m.seconds)), c = classify(f);
       // soften is set by hand (lessons/workers-cast.md#soften) and kept across a measure
       rows[id] = { ...(GAINS[id]?.soften ? { soften: true } : {}), title: it.title, lufs: m.lufs, tp: m.tp, lra: m.lra, seconds: m.seconds, gain: gainFor(m.lufs),
-        kind: c.kind, kindConf: c.conf, kindLean: c.lean, kindBy: c.by, features: f };
+        kind: c.kind, kindConf: c.conf, kindLean: c.lean, kindBy: c.by, features: f, moments: momentsOf(path).map(({ at, kind }) => ({ at, kind })) };
       console.log(`${id} ${it.title}: ${m.lufs} LUFS, true peak ${m.tp} dBFS, gain ${rows[id].gain} dB, ${c.kind} ${c.conf} (${c.by})`);
       if (path.startsWith(tmp)) rmSync(path, { force: true });
     }
@@ -77,8 +80,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 export const TARGET = ${TARGET};
 export const GAINS = ${JSON.stringify(rows, null, 1)};
 export const UNMEASURED = ${JSON.stringify(none, null, 1)};
-/** What /feed adds to an item: gain in dB (0 when never measured), kind and kindConf (null then), soften, seconds. */
-export const levelFor = (id) => { const g = GAINS[String(id)]; return { gain: g?.gain ?? 0, kind: g?.kind ?? null, kindConf: g?.kindConf ?? null, soften: !!g?.soften, seconds: g?.seconds ?? null }; };
+/** What /feed adds to an item: gain in dB (0 when never measured), kind and kindConf (null then), soften, seconds, moments. */
+export const levelFor = (id) => { const g = GAINS[String(id)]; return { gain: g?.gain ?? 0, kind: g?.kind ?? null, kindConf: g?.kindConf ?? null, soften: !!g?.soften, seconds: g?.seconds ?? null, moments: g?.moments ?? [] }; };
 `;
   writeFileSync(join(HERE, 'gains.mjs'), out);
   console.log(`gains.mjs: ${Object.keys(rows).length} measured, ${Object.keys(none).length} not`);

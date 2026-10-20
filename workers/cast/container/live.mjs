@@ -97,7 +97,9 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
   const g = startGrains({ queue, target, set: { ...set, drift: 1, dwell: s0.dwell, blend: s0.blend, noise: M.life.DWELL_NOISE },
     patch: engPatch(s0.patch, { mix: 0, ...tweaksOf(s0), lock: lockOf(s0), ...(s0.set || {}) }), resume, hold },
   { openSink, say, fail, onMp3, inputs: 4, ghost: readGhost,
-    onBlock(mono) { for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; } },
+    onBlock(mono) { let q = 0; for (let i = 0; i < mono.length; i++) { recent[w] = mono[i]; w = (w + 1) % CHROMA_N; q += mono[i] * mono[i]; }
+      // the tuner's level over about 4 s, for the freeze: the ring it holds is 8 s long
+      const a = Math.exp(-mono.length / (4 * SR)); L.ms4 = a * (L.ms4 ?? 0) + (1 - a) * (q / Math.max(1, mono.length)); },
     async onChain(chain) {
       layers = null; counts.chains++;
       const sc = { send: chain.send, sendAndWait: (test, ms, address, ...args) => chain.ask((m) => test([m.address, ...m.args]), ms, address, ...args).then((m) => m && [m.address, ...m.args]) };
@@ -154,7 +156,7 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
       if (!who) { ghost.next = t + 10; return; }
       const from = M.layers.ghostFrom(who.seconds, rand());
       closeGhost();
-      ghost.src = open(who, { from }); ghost.item = who; ghost.level = levelOf(who.gain); ghost.soften = who.soften ? createSoften(SR) : null;
+      ghost.src = open(who, { from }); ghost.item = who; ghost.level = levelOf(who.gain); ghost.soften = createSoften(SR); // every ghost softened: at its own pitch a kitchen's clinks came through raw (39 of 43 clicks, events5)
       layers.ghost(true); ghost.until = t + Ly.ghostLen; counts.ghosts++;
       say(`a ghost: ${who.title} from ${Math.round(from)} s`);
     }
@@ -193,6 +195,8 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
         // a frozen patch stays open until the scene's dry share is over
         g.patch(engPatch(s.patch, { mix: 0, ...tweaksOf(s), lock: lockOf(s), ...(s.set || {}), ...(M.life.freezesAfterDry(s.patch) ? { freeze: 0 } : {}) })); L.patch = s.patch; L.bridged = '';
         layersFor(s, t);
+        // the scene's effects wait for a moment of its file (moments.mjs) inside their stretch: armed, not yet placed
+        for (const f of [s.fx, s.fx2]) if (f) { f.plan ??= f.at; f.at = Infinity; f.placed = false; }
         if (first && resume && s.key?.heard) L.keyDone = true;
         say(`scene ${L.si}: ${s.patch}, ${s.param}, ${s.len} on ${L.file}`);
       }
@@ -207,10 +211,32 @@ export function startLive({ queue, target, life: lo = {}, set = {}, resume = nul
       L.at = st.phase === 'blend' ? t - L.blendAt : t - L.sceneAt;
       const v = st.phase === 'blend' ? life.inInterlude(L.si, L.at) : life.inScene(L.si, L.at);
       if (v.patch !== L.patch) { L.patch = v.patch; g.patch(engPatch(v.patch, { mix: 0 })); }
+      // a freeze is taken only when the last 4 s are loud enough to carry the scene (-30 dBFS), else it waits
+      if (v.extra?.freeze === 1 && !L.frozeOK) { if (Math.sqrt(L.ms4 ?? 0) > 0.0316) L.frozeOK = true; else v.extra.freeze = 0; }
+      if (v.extra?.freeze === 0 || !('freeze' in (v.extra || {}))) L.frozeOK = false;
       g.patch({ set: { [v.param]: v.value, mix: v.wet, ...v.extra } });
       // a bridge holds some layers across the blend and retunes them to the next scene's key from halfway
       if (v.bridge && layers) { const bk = `${L.si}|${v.bridge.key?.root}|${v.bridge.key?.minor}`; if (bk !== L.bridged) { L.bridged = bk; layers.apply(v.bridge.layers, v.bridge.key); } }
       L.now = v;
+      // an effect lands where the file says something: its dip just before the next phrase or rise 3.3 to 7 s ahead, or at
+      // the planned time plus 15 s when none comes; the next effect only after this one. why: lessons/workers-cast.md#moments
+      if (st.phase !== 'blend') {
+        const sc = life.scene(L.si), since = t - L.sceneAt, p = e.onPlayed, ms = L.item?.moments || [];
+        [sc.fx, sc.fx2].forEach((f, j) => {
+          if (!f || f.placed || since < f.plan - 15) return;
+          const before = j === 1 ? sc.fx : null;
+          if (before && (!before.placed || since < before.at + before.len + 8)) return;
+          const m = ms.find((x) => x.at - p >= 3.3 && x.at - p <= 7);
+          const at = m ? since + (m.at - p) - 0.3 : since >= f.plan + 15 ? since + (M.life.FX_DIP ?? 3) : null;
+          if (at == null) return;
+          f.placed = true; f.len = Math.min(f.len, Math.round(sc.dwell - 5 - at));
+          if (f.len < 10) { f.at = Infinity; say(`fx ${L.si} ${j ? 'fx2' : 'fx'} ${f.kind} none (no room)`); return; }
+          f.at = +at.toFixed(2); f.on = m ? `${m.kind} at ${m.at} s` : 'planned';
+          say(`fx ${L.si} ${j ? 'fx2' : 'fx'} ${f.kind} ${f.at} ${f.len} ${m ? m.kind : 'planned'}`);
+        });
+      }
+      // the wash steps back while an effect is up: the drones, room and ghost to a quarter
+      if (v.duck && layers) layers.level(L.level * (1 - 0.75 * v.duck));
     } catch (err) {
       fail(err);
       // a load that throws soon after it was taken goes back to what played before it

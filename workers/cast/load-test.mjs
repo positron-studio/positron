@@ -36,13 +36,13 @@ try {
   ok('NEGATIVE CONTROL: a file that does not parse is refused', !r1.ok && /did not import/.test(r1.why), r1.why);
   const r2 = await prepareLoad({ files: { 'radio/cast/life.mjs': life0.replace('export const TEST_DWELL = 25, isTest', 'export const TEST_DWELL = 25, isTestX') }, sha: sha() }, ctx);
   ok('NEGATIVE CONTROL: a life without a name live.mjs calls is refused', !r2.ok && /isTest/.test(r2.why), r2.why);
-  const r3 = await prepareLoad({ files: { 'radio/cast/layers.mjs': layers0.replace('LPF.ar(v * 11, 5000)', 'LPF.ar(v * 12, 5000)') }, sha: sha() }, ctx);
+  const r3 = await prepareLoad({ files: { 'radio/cast/layers.mjs': layers0.replace('LPF.ar(Mix(In.ar(2, 2)) * 0.5, 600', 'LPF.ar(Mix(In.ar(2, 2)) * 0.5, 700') }, sha: sha() }, ctx);
   ok('NEGATIVE CONTROL: a change to a running SuperCollider program is refused, it needs a deploy', !r3.ok && /needs a deploy/.test(r3.why), r3.why);
   const r4 = await prepareLoad({ files: { 'radio/cast/master.mjs': 'export const x = 1;' }, sha: sha() }, ctx);
   ok('NEGATIVE CONTROL: a file outside LOADABLE is refused', !r4.ok && /need a deploy/.test(r4.why) && !LOADABLE.includes('radio/cast/master.mjs'), r4.why);
   const r5 = await prepareLoad({ files: { 'radio/cast/life.mjs': life0 }, sha: '../../etc' }, ctx);
   ok('NEGATIVE CONTROL: a sha that is not hex is refused (it names a directory)', !r5.ok && /sha/.test(r5.why), r5.why);
-  const r6 = await prepareLoad({ files: { 'radio/cast/life.mjs': life0.replace('if (!ctx.test) d.dwell = Math.min(MAX_DWELL, Math.max(MIN_DWELL, d.dwell));', 'd.dwell = NaN;') }, sha: sha() }, ctx);
+  const r6 = await prepareLoad({ files: { 'radio/cast/life.mjs': life0.replace('if (ctx.test) d.dwell = TEST_DWELL; else d.dwell = Math.max(MIN_DWELL, d.dwell);', 'd.dwell = NaN;') }, sha: sha() }, ctx);
   ok('NEGATIVE CONTROL: a life that plans a scene with no dwell is refused', !r6.ok && /did not plan/.test(r6.why), r6.why);
   const r7 = await prepareLoad({ files: { 'radio/cast/life.mjs': life0.replace('export function createLife(', 'export function createLife(o) { throw new Error("boom"); }\nfunction createLife0(') }, sha: sha() }, ctx);
   ok('NEGATIVE CONTROL: a life that throws is refused', !r7.ok && /boom/.test(r7.why), r7.why);

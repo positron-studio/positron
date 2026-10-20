@@ -14,8 +14,7 @@ export const LENGTHS2 = { ...LENGTHS, breath: 30 };
 export const INTERLUDE = [3, 20];
 /** The tuning noise while a scene sits on its station, as the clock's `noise`; an interlude's own level comes only with its blend.
  * Quiet talk and field recordings were heard as static under 0.04 times a radio interlude's noise held all scene. */
-export const DWELL_NOISE = 0;
-// 0, was 0.2: under the master leveller the static rose with every quiet stretch (*"Harsh noise trasiion"*, 2026-10-19)
+export const DWELL_NOISE = 0.2;
 /**
  * What an interlude sounds like, by kind: the tuning noise (the clock's `noise`, 0 to 2), how far the
  * granulator swells, how long the blend is, whether the granulator freezes the outgoing file, the
@@ -47,8 +46,6 @@ export const MOVABLE = {
 };
 /** A control is not moved again until this many others have been (scenes and interludes count). */
 export const FRESH = 4;
-/** Grammar 2's: echo, size and density are not moved (NO_MOVE), which leaves a choir patch three controls. */
-export const FRESH2 = 2;
 /**
  * The layers a scene may carry over the file (plans/plan-cast-reinterpret.md section 2): a drone bed, a
  * resonator bank in the scene's key, harmonizer voices in the ring, ghosts of the next or previous file,
@@ -140,7 +137,9 @@ const MORE = [
   ['spectral', 'Ash', 'Frozen choir', { freeze: 1, size: 3, density: 7, scatter: 0.9, jitter: 2.5, pitch: 0.75, speed: 0, back: 3, detune: 0.004, pan: 0.9, tone: 2000, echo: 0.55, time: 1.2, dark: 1200, amp: 1.5 }],
   ['spectral', 'Glow', 'Frozen choir', { freeze: 1, size: 1.8, density: 10, scatter: 1, jitter: 1.5, pitch: 1, speed: 0, back: 2, detune: 0.006, pan: 1, tone: 3500, echo: 0.4, time: 0.8, dark: 2000, amp: 1.4 }],
   ['spectral', 'Sand', 'Slow motion', { dir: -1, size: 1.5, density: 14, scatter: 1, jitter: 3, pitch: 1, speed: 0.15, back: 3, detune: 0.01, pan: 1, tone: 5000, echo: 0.3, time: 0.9, dark: 2500, amp: 1.4 }],
-].map(([family, name, base, set, more = {}]) => ({ name, base, family, set: full(set), ...more }));
+].map(([family, name, base, set, more = {}]) => ({ name, base, family, set: full(set), ...more }))
+  // render only: Organ is a frozen grain with no movement, heard as a wash of noise (2026-10-20)
+  .filter((p) => p.name !== 'Organ');
 const FIRST = CAST_PATCHES.length;
 CAST_PATCHES.push(...MORE.filter((p) => PATCHES.some((q) => q.name === p.base)));
 /**
@@ -261,37 +260,10 @@ export const MAX_PITCH = 1;
 /** How wet a grammar 2 scene is drawn, on the range the page's slider covers: -1 the file straight, 0 as composed,
  *  1 processing only. Most scenes lean wet (SOAK); one in DRIER_SHARE leans dry (DRIER) and keeps a floor of grains so
  *  no speech is naked: *"prefer more wetter"*, then *"use full wet dry range for composition but minimal time in dry"*. */
-export const SOAK = [0.25, 0.9], DRIER = [-0.7, -0.2], DRIER_SHARE = 0.15, DRIER_FLOOR = 0.15;
-/** The granulator's ceiling. 0.8 (*"on 0.4 its more toreable"*) and the levels under it made a mix where no effect was
- *  ever clearly on; a scene now opens dry and then plays one effect at strength. why: plans/plan-cast-listenable.md */
-export const WET_CAP = 0.95;
-/** No person's recording plays at any pitch but its own (*"duck or Darth Vader voices, which are insulting"*, 2026-10-19):
- *  a patch pitched down plays at 1, one above MAX_PITCH or with a tape drop over MAX_DROP never plays. */
-export const MAX_DROP = 0.06;
-/** Echo repeats got repetitive fast (2026-10-19): no echo above ECHO_CAP, the hand never moves it, and the patches made of it are out. */
-export const ECHO_CAP = 0.35, ECHOEY = ['Fog', 'Cathedral', 'Tide', 'Dub', 'Long dub', 'Reverse dub'];
-/** The ways out grammar 2 no longer takes: an echo wash, and a tape stop that drops the voice in pitch. */
-export const NOT_OUTS = ['echowash', 'tapestop', 'smear'];
-/** The room never past these: a big room was the wash (*"Wash sound so anmoying"*, 2026-10-19). */
-export const ROOM_MAX = 0.35, ROOM_SIZE_MAX = 0.7;
-/** No chopped voices (*"So many stuttering vocals"*, 2026-10-19, on Rain at 0.12 s): grains at least MIN_GRAIN long, at least
- *  MIN_OVERLAP sounding at once, and the hand never moves the controls that chop (NO_MOVE). */
-export const MIN_GRAIN = 0.35, MIN_OVERLAP = 2, NO_MOVE = ['echo', 'size', 'density'];
-/** Seconds a scene stays dry before its effect, so the listener hears the original first. */
-export const DRY_S = [8, 20];
-/** A scene's dwell by what its file is: music and concerts longer, home, field and test recordings shorter. */
-export const KIND_DWELL = { music: 1.2, ambiguous: 0.8, field: 0.7, speech: 0.7, unknown: 0.8 };
-/** No scene longer than this (*"Going forever"*, a 3.5 min Reverse swell, 2026-10-19). */
-export const MAX_DWELL = 150;
-/** A test recording (its title says test) is a short visit. */
-/** The choir (layers.mjs lvoc) on a file that is not music, this often: speech sung on a chord in the scene's key. */
-export const VOC_ODDS = 0.6, VOCS = ['fifths', 'minor7', 'major'];
-/** A scene ends this many seconds before its file does, so the effects never fall off with the file. */
-export const FILE_TAIL_S = 20;
-/** Grammar 2: a hand-over of at least MIN_BLEND s, a scene of at least MIN_DWELL s, and a ghost (another file swelling
- *  in, heard as the feed going back and forth) only in deep and coda scenes, GHOST_ODDS of them. */
-export const MIN_BLEND = 10, MIN_DWELL = 60, GHOST_TYPES = ['deep', 'sdeep', 'coda'], GHOST_ODDS = 0.35;
-export const TEST_DWELL = 25, isTest = (title) => /\btest\b/i.test(String(title || ''));
+export const SOAK = [0.3, 0.9], DRIER = [-0.7, -0.2], DRIER_SHARE = 0.12, DRIER_FLOOR = 0.15;
+/** The granulator never takes more than WET_CAP of the voice, so a fifth of it always comes through: the page's slider at
+ *  0.4 was the one that sounded right, *"on 0.4 its more toreable"*, *"fix all"* (2026-10-19). */
+export const WET_CAP = 0.85;
 /** A scene's layers at full soak: the layers it has, in a bigger room, and with `drone` the held file as well. It no
  *  longer adds resonators or the harmonizer, which rang metallic in four scenes of five: *"very mettallic"* (2026-10-19). */
 export const soakLayers = (L, { drone = true } = {}) => (L ? { ...L,
@@ -315,6 +287,83 @@ export const intensityAt = (i, jitter = 0) => Math.min(1, Math.max(0.5, 0.55 + 0
 export const swell = (x) => (x <= 0 || x >= 1 ? 0 : Math.sin(Math.PI * x) ** 2);
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const r2 = (x) => Math.round(x * 100) / 100;
+/**
+ * Surprise effects, render only (2026-10-20): one of these comes and goes inside about one scene in three, never the same
+ * kind twice running, FX_FADE s S-curves in and out. Asked: *"comes and goes, more line one time / some time effect"*.
+ * Keys in FX_STEP switch while the effect is up; the rest glide from the scene's own value (geometric for frequencies and sizes).
+ */
+/** While an effect is up the grains are clean, Long dub's (*"its all wash no suprises as dubby repeat vocal"*): the voice
+ *  stays a voice and the effect does one thing to it. A function value is (env, x): the envelope and the share of the effect gone. */
+const CLEAN = { size: 0.5, density: 3, scatter: 0, jitter: 0.02, speed: 1, detune: 0, freeze: 0 };
+const swing = (lo, hi, cycles) => (env, x) => { const sw = lo * (hi / lo) ** (0.5 - 0.5 * Math.cos(2 * Math.PI * cycles * x)); return sw; };
+// echo feedback at most 0.75 in an effect: higher piled the repeats into the limiter (*"peaking, clipping"*, 2026-10-20)
+/** A test recording (its title says test) is a short visit (*"downplay tests"*, 2026-10-19). */
+/** A hand-over of at least MIN_BLEND s and a scene of at least MIN_DWELL s (from b298544a). */
+export const MIN_BLEND = 10, MIN_DWELL = 60;
+export const TEST_DWELL = 25, isTest = (title) => /\btest\b/i.test(String(title || ''));
+export const FX = {
+  dub: { ...CLEAN, echo: 0.75, time: 0.75, dark: 1000 },
+  slap: { ...CLEAN, echo: 0.7, time: 0.375, dark: 1600 },
+  deepdub: { ...CLEAN, echo: 0.75, time: 1.1, dark: 500, tone: 2400 },
+  reverse: { ...CLEAN, dir: -1, size: 0.9 },
+  // a flanger: the echo 10 to 30 ms, swept once up and back, fed back
+  vortex: { ...CLEAN, density: 8, echo: 0.65, time: (env, x) => 0.01 + 0.02 * (0.5 - 0.5 * Math.cos(2 * Math.PI * x)), dark: 8000 },
+  // grains detuned against each other while dense: the voice beats in and out of phase
+  phasing: { ...CLEAN, density: 12, size: 0.5, detune: 0.012 },
+  // the low pass closing and opening one and a half times, no resonance
+  sweep: { ...CLEAN, tone: swing(350, 14000, 1.5) },
+  // the repeats thrown wide across the field
+  wide: { ...CLEAN, echo: 0.7, time: 0.5, pan: 1, dark: 3000 },
+  // a close double: a second voice a few cents and 30 ms off
+  double: { ...CLEAN, density: 6, detune: 0.004, echo: 0.35, time: 0.03, dark: 9000 },
+  // a phrase backwards, repeating
+  revdub: { ...CLEAN, dir: -1, size: 0.9, echo: 0.75, time: 0.75, dark: 1000 },
+  // more of the backwards phrase repeating (*"revdub is good. more like this stuff"*, 2026-10-20)
+  revslap: { ...CLEAN, dir: -1, size: 0.9, echo: 0.7, time: 0.375, dark: 1600 },
+  revwide: { ...CLEAN, dir: -1, size: 0.9, echo: 0.7, time: 0.5, pan: 1, dark: 3000 },
+  revdeep: { ...CLEAN, dir: -1, size: 1.2, echo: 0.75, time: 1.1, dark: 500, tone: 2400 },
+  revsweep: { ...CLEAN, dir: -1, size: 0.9, echo: 0.7, time: 0.75, tone: swing(500, 12000, 1) },
+};
+/** How often each kind is drawn: the repeats most, the colour effects sometimes. */
+export const FX_WEIGHT = { dub: 1.5, slap: 1.5, deepdub: 1, reverse: 1.5, vortex: 1, phasing: 1, sweep: 1, wide: 1.5, double: 1, revdub: 3, revslap: 2.5, revwide: 2.5, revdeep: 2, revsweep: 2 };
+/** FX_ODDS of scenes get one; a scene of FX2_MIN s or more gets a second one at FX2_ODDS. FX_DIP s before one the mix dips
+ *  to FX_LOW so the voice comes clear, then the effect takes the mix to FX_MIX and lets go to the scene's own. */
+export const FX_ODDS = 0.7, FX2_ODDS = 0.5, FX2_MIN = 100, FX_LEN = [16, 28], FX_FADE = 4, FX_DIP = 3, FX_LOW = 0.35, FX_MIX = 1;
+export const FX_STEP = ['dir', 'freeze'], FX_GEO = ['tone', 'dark', 'size', 'density'];
+const r4 = (x) => Math.round(x * 10000) / 10000;
+/** The hand's value as played: detune at most 0.002 (a held chord in tune), a frozen patch's jitter and scatter at most
+ *  0.2 and 0.25 (still), unless an effect that beats on purpose (phasing, double) is up. (*"hymn is atonal and nervous"*) */
+const CAPS = { detune: 0.002 }, FROZEN_CAPS = { jitter: 0.2, scatter: 0.25 };
+function stillHeld(o, s) {
+  if (['phasing', 'double'].some((k) => o.extra?.detune != null && [s.fx, s.fx2].some((f) => f?.kind === k))) return o;
+  const frozen = !!({ ...patchValues(s.patch), ...(s.set || {}) }.freeze || o.extra?.freeze), cap = { ...CAPS, ...(frozen ? FROZEN_CAPS : {}) };
+  if (cap[o.param] != null && o.value > cap[o.param]) o.value = cap[o.param];
+  return o;
+}
+const smooth = (x) => { const u = Math.min(1, Math.max(0, x)); return u * u * (3 - 2 * u); };
+/** What a scene's effects add to the ring `t` seconds in, with `_mix` (the ring's mix from the wet `w`) when one is near. */
+export function fxAt(s, t, w = 0.8) {
+  const out = {};
+  for (const f of [s.fx, s.fx2].filter(Boolean)) {
+    const u = t - f.at;
+    if (u >= -FX_DIP && u < 0) { out._mix = r4(w + (FX_LOW - w) * smooth((u + FX_DIP) / FX_DIP)); continue; }
+    if (u < 0 || u > f.len) continue;
+    const rise = smooth(u / FX_FADE), fall = smooth((f.len - u) / FX_FADE), env = rise * fall, base = { ...patchValues(s.patch), ...(s.set || {}) };
+    // up from the dip, down to the scene's own wet
+    out._mix = r4(u < f.len / 2 ? FX_LOW + (FX_MIX - FX_LOW) * rise : w + (FX_MIX - w) * fall);
+    out._duck = Math.max(out._duck || 0, r4(env));
+    for (const [k, to0] of Object.entries(FX[f.kind] || {})) {
+      const fn = typeof to0 === 'function', to = fn ? to0(env, u / f.len) : to0;
+      // an effect leaves the hand its control, except a clean one: while it is up the grains are clean, whatever the hand holds
+      if (k === s.param && !(k in CLEAN)) continue;
+      const from = base[k] ?? to;
+      // a swept value is the effect's own from start to end; time steps at the start, under the dip
+      out[k] = fn && k === 'time' ? r4(to) : fn ? r4(from > 0 && to > 0 ? from * (to / from) ** env : to) : (FX_STEP.includes(k) || k === 'time') ? (env > 0.02 ? to : from)
+        : FX_GEO.includes(k) && from > 0 && to > 0 ? r4(from * (to / from) ** env) : r4(from + (to - from) * env);
+    }
+  }
+  return out;
+}
 
 /** A scene's name for a vote: what it plays and moves, not when. */
 export const sceneId = (d) => `${d.patch}|${d.param}|${d.len}|${d.lo}|${d.iParam}`;
@@ -413,7 +462,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   /** The patches a scene type may play: its families, the patch's own types and lengths, under the overlap cap. */
   const poolFor = (T) => NAMES.filter((n) => { const f = patchInfo(n); return T.fam.includes(familyOf(n)) && (!f?.types || f.types.includes(T.name))
     && (!f?.lens || f.lens.some((l) => T.lens.includes(l))) && overlapOf(n) <= OVERLAP_CAP && patchValues(n).pitch <= MAX_PITCH
-    && patchValues(n).drop <= MAX_DROP && !ECHOEY.includes(n) && patchValues(n).size >= MIN_GRAIN && overlapOf(n) >= MIN_OVERLAP; });
+    && (patchValues(n).pitch >= LOW_PITCH || LOW_TYPES.includes(T.name)); });
   const lensOf = (T, patch, notLen) => {
     const f = patchInfo(patch), ok = (k) => k !== notLen && !NOT_LEN[familyOf(patch)]?.includes(k) && (!f?.lens || f.lens.includes(k));
     const ks = T.lens.filter(ok);
@@ -422,7 +471,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   };
   function fresh(r, prev, recent, i, T) {
     // a patch with at least two controls not moved lately, one for the scene and one for its interlude
-    const free = (n) => movableFor(n).filter((p) => !recent.includes(p) && !(T && NO_MOVE.includes(p))).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
+    const free = (n) => movableFor(n).filter((p) => !recent.includes(p)).length >= 2, pool = (T ? poolFor(T) : NAMES1).filter((n) => n !== prev?.patch);
     const P0 = pool.filter(free).length ? pool.filter(free) : pool;
     // grammar 2 remembers: a patch heard g scenes ago weighs 1 - e^(-g/16), its family a quarter one scene back and
     // 0.6 two back, shared over the family's members; grammar 1 keeps its plain draw (life-g1.json)
@@ -431,7 +480,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       return (1 - Math.exp(-agoOf((x) => x.patch === n) / 16)) * (fa <= 1 ? 0.25 : fa <= 2 ? 0.6 : 1) / P0.filter((m) => familyOf(m) === f).length; };
     const patch = T ? weighted(P0, memo, r) : pickOne(P0, r), can = movableFor(patch);
     // and moves pan and detune, which are barely heard, a third as often as the rest
-    const can2 = T ? can.filter((p) => !NO_MOVE.includes(p)) : can, canP = can2.filter((p) => !recent.includes(p)).length ? can2.filter((p) => !recent.includes(p)) : can2;
+    const canP = can.filter((p) => !recent.includes(p)).length ? can.filter((p) => !recent.includes(p)) : can;
     const param = T ? weighted(canP, (p) => (p === 'pan' || p === 'detune' ? 1 / 3 : 1), r) : pickOne(canP, r);
     const same = i >= 2 && prev.len === scenes[i - 2].len, len = pickOne(T ? lensOf(T, patch, same ? prev.len : null) : lensFor(patch, same ? prev.len : null), r);
     const centre = toT(param, patchValues(patch)[param] ?? fromT(param, 0.5));
@@ -466,23 +515,17 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // never the same kind of interlude twice in a row; a filter hand-over needs tone free for its hand
     const tone = [d.param, d.notI, ...recent].includes('tone') || !guardT(d.patch, 'tone');
     // grammar 2: the type's own ways out, and the dial's sweep only between sections, rarely
-    const outs = T ? T.outs.filter((k) => !NOT_OUTS.includes(k)) : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
+    const outs = T ? [...T.outs, ...(d.secLast ? ['radio'] : [])] : Object.keys(IKINDS), odds = (k) => (T ? (k === 'radio' ? 0.15 : 1) : IKINDS[k].odds);
     if (!d.iKind || d.iKind === prev?.iKind || (tone && IKINDS[d.iKind]?.param) || (T && !outs.includes(d.iKind))) {
       const can = outs.filter((k) => k !== prev?.iKind && k !== d.notKind && !(tone && IKINDS[k].param));
       d.iKind = can.length ? weighted(can, odds, r) : 'dissolve';
     }
     delete d.notKind;
-    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch).filter((p) => !T || !NO_MOVE.includes(p));
+    const K = IKINDS[d.iKind], within = ([a, b]) => a + r() * (b - a), can = movableFor(d.patch);
     const iCan = can.filter((p) => ![...recent, d.param, d.notI].includes(p)), iAny = can.filter((p) => p !== d.param);
-    // grammar 2 has fewer controls to move: with none fresh, at least not the one moved last
-    const iNear = T ? iAny.filter((p) => p !== recent.at(-1)) : [];
-    d.iParam = K.param ?? pickOne(iCan.length ? iCan : iNear.length ? iNear : iAny.length ? iAny : PARAMS.filter((p) => p !== d.param), r);
+    d.iParam = K.param ?? pickOne(iCan.length ? iCan : iAny.length ? iAny : PARAMS.filter((p) => p !== d.param), r);
     delete d.notI;
     d.blend = Math.round(within(K.blend));
-    // grammar 2 never hands over in under MIN_BLEND seconds: a clean cut read as the feed jumping
-    if (T) d.blend = Math.max(MIN_BLEND, d.blend);
-    // and never by the dial: its sweep and hiss are lifted by the master into a harsh noise
-    if (T) { d.iNoise = 0; if (d.iPath === 0) d.iPath = 1; }
     d.iNoise = r2(within(K.noise));
     d.iWet = r2(within(K.wet));
     d.iFreeze = K.freeze;
@@ -559,7 +602,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   }
   function make2(i, ctx = {}) {
     const prev = scenes[i - 1], r = rng(seed * 7919 + i * 104729), kind = ctx.kind || 'unknown', at = sectionAt(i);
-    const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH2);
+    const recent = scenes.flatMap((x) => [x.param, x.iParam]).slice(-FRESH);
     // no naked speech: the owner does not want it (2026-10-18), so a section opens on a dry intro
     // no stuttering: *"stuttering is not nice"*, *"esp with ekkes drony stuff"*, *"soo much stuttering please no"*
     // (2026-10-19). A rhythm scene plays as a tape build, a stormy slot as a storm (its r() still drawn), and below no
@@ -569,9 +612,7 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     // a file with clicks in it (`soft`, the soften stage's files: Kalle, Kalle 2, Driving along) gets long
     // smooth grains only: echoes, chops and glitches repeat its clicks. why: lessons/workers-cast.md#soft-files
     if (ctx.soft && SHARP_TYPES[type]) type = SHARP_TYPES[type];
-    // every file plays the smooth families only, as a clicking file always did: tape, cloud and reverse textures rattled
-    // (*"Messy now like kettle rattling"*, 2026-10-19)
-    const T = { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] };
+    const T = ctx.soft ? { ...TYPES[type], fam: TYPES[type].fam.filter((f) => SMOOTH.includes(f)).length ? TYPES[type].fam.filter((f) => SMOOTH.includes(f)) : ['drone', 'choir'] } : TYPES[type];
     const cands = [];
     for (let k = 0; k < CANDIDATES; k++) cands.push(fresh(r, prev, recent, i, T));
     for (let k = 0; taste.liked.length && !prev?.from && k < VARIATIONS; k++) { const v = vary(weighted(taste.liked, (e) => e.score, r).def, r, prev, recent, i, T); if (v) cands.push(v); }
@@ -580,15 +621,13 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     const d = weighted(ok.length ? ok : cands, (x) => Math.exp(LEAN * learned(x)), r);
     const a = rng(seed * 977 + i * 31), within = ([lo, hi]) => lo + (hi - lo) * a();
     const Tt = TYPES[d.type];
-    // a visit's length by what the file is: music longer, a test recording short
-    if (ctx.test) d.test = true;
-    d.dwell = ctx.test ? TEST_DWELL : Math.min(600, Math.round(d.dwell * (KIND_DWELL[kind] ?? 1)));
-    // never past the file: at its end the effects fell away and the bare recording played (*"effects just dropped off"*)
-    if (!ctx.test) d.dwell = Math.min(MAX_DWELL, Math.max(MIN_DWELL, d.dwell));
-    if (Number(ctx.seconds) > 0) d.dwell = Math.max(15, Math.min(d.dwell, Math.round(Number(ctx.seconds) - FILE_TAIL_S)));
-    // the file dry first, DRY_S seconds, so the listener knows the original before the effect arrives
-    // a clicking file is never heard bare (*"this original glitching ... is pretty bad"*)
-    d.dry = ctx.soft ? 0.02 : r2(Math.min(0.4, within(DRY_S) / d.dwell)); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
+    // ported for a render from b298544a and c9150388: a scene of at least 60 s and a hand-over of at least 10 s, and never
+    // past its file (20 s before its end), so the effects do not fall off with the file and leave a hole
+    d.blend = Math.max(MIN_BLEND, d.blend);
+    if (ctx.test) d.dwell = TEST_DWELL; else d.dwell = Math.max(MIN_DWELL, d.dwell);
+    if (Number(ctx.seconds) > 0) d.dwell = Math.max(15, Math.min(d.dwell, Math.round(Number(ctx.seconds) - 20)));
+    // the dry opening half its type's: as little time dry as lets a listener know the file
+    d.dry = r2(within(Tt.dry) * 0.5); d.rise = Tt.rise; d.hold = Tt.hold; d.tide = r2(tideAt(i));
     // inside its type's band by the tide, and the whole band a little lower at low tide
     d.intensity = r2(clamp((Tt.band[0] + (Tt.band[1] - Tt.band[0]) * d.tide) * (0.85 + 0.15 * d.tide) + (a() - 0.5) * 0.15, 0, 1));
     // a combination of layers heard in the last five scenes is drawn again, up to eight tries
@@ -601,16 +640,6 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
     d.layers = { ...d.layers, ...(['storm', 'rhythm'].includes(d.type) ? { drone: 'none' } : at.drone), bpm: 0, res: 'none' };
     // a ghost is coloured by the band-pass only: the comb and resonators ring on the scene's root, against the visitor's key
     if (d.layers.ghost && d.layers.ghost !== 'none') d.layers = { ...d.layers, ghost: 'bpf' };
-    { const gr = rng(seed * 6007 + i * 41); if (!GHOST_TYPES.includes(d.type) || gr() >= GHOST_ODDS) d.layers = { ...d.layers, ghost: 'none' }; }
-    // the harmonizer moves a voice's pitch, so it plays on music only
-    if (kind !== 'music') d.layers = { ...d.layers, harm: 'none' };
-    // the choir on talk and field recordings: it is the scene's effect, so no harmonizer or ghost beside it
-    { const vr = rng(seed * 4513 + i * 23); d.layers = { ...d.layers, voc: kind !== 'music' && !ctx.test && vr() < VOC_ODDS ? pickOne(VOCS, vr) : 'none' };
-      if (d.layers.voc !== 'none') d.layers = { ...d.layers, harm: 'none', ghost: 'none' }; }
-    // one effect at a time over the granulator, so it can be named: of the drone, harmonizer and ghost, one stays
-    { const on = ['drone', 'harm', 'ghost'].filter((k) => d.layers[k] && d.layers[k] !== 'none');
-      // the section's drone is the trick it holds across its scenes, so a drone stays when there is one
-      if (on.length > 1) { const keep = on.includes('drone') ? (a(), 'drone') : on[Math.floor(a() * on.length)]; for (const k of on) if (k !== keep) d.layers = { ...d.layers, [k]: 'none' }; } }
     // how far past its own arc the scene is pushed toward processing only, on its own draw so nothing else moves;
     // its drone stays the section's, because a drone is one trick
     const sr = rng(seed * 7919 + i * 13), drier = sr() < DRIER_SHARE;
@@ -622,16 +651,38 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
       if (!d.layers.bpm) d.layers = { ...d.layers, bpm: Math.round(70 + 40 * a()), pulseOn: 'grains' };
       d.set = { density: r2((d.layers.bpm / 60) * f.sub * 1000) / 1000, time: Math.round((f.beats * 60 / d.layers.bpm) * 1000) / 1000 };
     }
-    // a small room, never a wash
-    d.layers = { ...d.layers, room: Math.min(d.layers.room ?? 0.3, ROOM_MAX), roomSize: Math.min(d.layers.roomSize ?? 0.7, ROOM_SIZE_MAX), droneLevel: d.layers.drone === 'freeze' || d.layers.drone === 'both' ? r2((d.layers.droneLevel ?? 0.4) * 0.5) : d.layers.droneLevel };
-    // a voice at its own pitch, and no long echo
-    { const pv = patchValues(d.patch); if (pv.pitch < 1 || pv.echo > ECHO_CAP) d.set = { ...(d.set || {}), ...(pv.pitch < 1 ? { pitch: 1 } : {}), ...(pv.echo > ECHO_CAP ? { echo: ECHO_CAP } : {}) }; }
     // a brighter floor outside the low scene types
     if (!LOW_TYPES.includes(d.type)) { const pv = patchValues(d.patch); if (pv.tone < TONE_FLOOR || pv.dark < DARK_FLOOR) d.set = { ...(d.set || {}), ...(pv.tone < TONE_FLOOR ? { tone: TONE_FLOOR } : {}), ...(pv.dark < DARK_FLOOR ? { dark: DARK_FLOOR } : {}) }; }
     // the key the scene after this one starts in, drawn now so a bridge can glide or pivot to it
     if (prev?.nextKey) d.key = { ...prev.nextKey };
     const kr = rng(seed * 523 + i * 17), move = pickOne([0, 7, 5, 2, 10], kr);
     d.nextKey = { root: (d.key.root + move) % 12, minor: kr() < 0.6 };
+    // a held chord stays in tune and still: detune at most 0.002 everywhere, a frozen patch's grains barely wander
+    // (*"hymn is atonal and nervous"*, 2026-10-20: Hymn had detune 0.012, jitter 0.5, scatter 0.4)
+    { const pw = { ...patchValues(d.patch), ...(d.set || {}) }, fix = {};
+      if (pw.detune > 0.002) fix.detune = 0.002;
+      if (pw.freeze) { if (pw.jitter > 0.2) fix.jitter = 0.2; if (pw.scatter > 0.25) fix.scatter = 0.25; }
+      if (Object.keys(fix).length) d.set = { ...(d.set || {}), ...fix };
+      // the hand never moves detune (a pitch wobble), nor a frozen patch's jitter or scatter
+    }
+    // no low voice on talk and field recordings (*"reduce low pitches speech. if at all, make it drony musical"*, 2026-10-20)
+    { const pw = { ...patchValues(d.patch), ...(d.set || {}) };
+      // a frozen low patch would hold a voice an octave down, so it plays at 1 like any other; only a moving drone is smeared
+      if (pw.pitch < 1) d.set = familyOf(d.patch) === 'drone' && !pw.freeze
+        ? { ...(d.set || {}), size: Math.max(2.5, pw.size), scatter: Math.max(0.7, pw.scatter), jitter: Math.max(1.5, pw.jitter), density: Math.max(6, pw.density) }
+        : { ...(d.set || {}), pitch: 1 }; }
+    // no harmonizer: it can only move a voice's pitch, down or up (*"dart vader again"*, 2026-10-20)
+    d.layers = { ...d.layers, harm: 'none' };
+    // surprise effects: not one the patch already is, not the last one heard; a long scene can carry two
+    { const fr = rng(seed * 8111 + i * 67), pv = patchValues(d.patch), last = [prev?.fx2?.kind, prev?.fx?.kind].filter(Boolean);
+      const pickFx = () => { const ks = Object.keys(FX).filter((k) => !last.includes(k) && !(k.startsWith('rev') && pv.dir < 0));
+        const tot = ks.reduce((a, k) => a + FX_WEIGHT[k], 0); let x = fr() * tot, k = ks[ks.length - 1]; for (const c of ks) { x -= FX_WEIGHT[c]; if (x <= 0) { k = c; break; } } last.push(k); return k; };
+      const len = (cap) => Math.round(Math.min(FX_LEN[0] + (FX_LEN[1] - FX_LEN[0]) * fr(), cap));
+      if (!ctx.test && fr() < FX_ODDS && d.dwell >= 50) {
+        const two = d.dwell >= FX2_MIN && fr() < FX2_ODDS, k = pickFx();
+        if (k) d.fx = { kind: k, at: r2(d.dwell * (two ? 0.2 + 0.15 * fr() : 0.3 + 0.3 * fr())), len: len(d.dwell * (two ? 0.25 : 0.4)) };
+        if (two) { const k2 = pickFx(); if (k2) d.fx2 = { kind: k2, at: r2(d.dwell * (0.6 + 0.1 * fr())), len: len(d.dwell * 0.22) }; }
+      } }
     return d;
   }
   /** A type's layers over the drawn ones: what each type keeps, adds and leaves out. */
@@ -698,13 +749,20 @@ export function createLife({ seed = 1, votes = [], grammar = 2 } = {}) {
   return {
     scene, defOf, taste,
     /** Scene i, `t` seconds after its file landed: what the granulator does and the hand holds. */
-    inScene(i, t) {
+    inScene(i, t) { const o = this.inScene0(i, t), m = o.extra._mix, dk = o.extra._duck; delete o.extra._mix; delete o.extra._duck; if (m != null) o.extra.mix = m; if (dk) o.duck = dk; return stillHeld(o, scene(i)); },
+    inScene0(i, t) {
       const s = scene(i), x = t / s.dwell, w = s.peak * (0.6 + 0.4 * (s.intensity ?? 1)) * envelope(x, s.dry ?? 0.2, s.rise, s.hold);
       return { kind: 'scene', i, id: s.id, patch: s.patch, param: s.param, len: s.len, wet: Math.min(WET_CAP, s.soak > 0 ? w + (1 - w) * s.soak : s.soak < 0 ? Math.max(DRIER_FLOOR, w * (1 + s.soak)) : w),
-        value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)), extra: freezesAfterDry(s.patch) ? { freeze: x > (s.dry ?? 0.2) ? 1 : 0 } : {} };
+        value: fromT(s.param, positionAt(s.move, (x - 0.15) * s.dwell * 1000)), extra: { ...(freezesAfterDry(s.patch) ? { freeze: x > (s.dry ?? 0.2) ? 1 : 0 } : {}), ...fxAt(s, t, Math.min(WET_CAP, s.soak > 0 ? w + (1 - w) * s.soak : s.soak < 0 ? Math.max(DRIER_FLOOR, w * (1 + s.soak)) : w)) } };
     },
     /** The interlude after scene i, `t` seconds into its blend. */
-    inInterlude(i, t) {
+    /** A hand-over plays its patch fresh, so a low patch is taken to 1 here too, or smeared if it is a drone; no tape stop drop. */
+    inInterlude(i, t) { const o = this.inInterlude0(i, t), pv = patchValues(o.patch);
+      if (o.extra && o.extra.pitch < 1) delete o.extra.pitch;
+      if (pv.pitch < 1) o.extra = { ...(o.extra || {}), ...(familyOf(o.patch) === 'drone' && !pv.freeze
+        ? { size: Math.max(2.5, pv.size), scatter: Math.max(0.7, pv.scatter), jitter: Math.max(1.5, pv.jitter), density: Math.max(6, pv.density) } : { pitch: 1 }) };
+      return stillHeld(o, { ...scene(i), patch: o.patch, set: {} }); },
+    inInterlude0(i, t) {
       const s = scene(i), x = t / s.blend, sh = shapeOf(s, Math.min(1, Math.max(0, x)));
       return { kind: 'interlude', i, id: s.id, patch: s.patch, param: s.iParam, len: `${s.iKind} interlude`, wet: Math.min(WET_CAP, sh.wet),
         value: fromT(s.iParam, positionAt(s.iMove, t * 1000)), extra: sh.extra, ...(sh.bridge ? { bridge: sh.bridge } : {}) };

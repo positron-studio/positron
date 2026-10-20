@@ -57,7 +57,7 @@ export const layerLevel = (x, dry = 0.12, rise = 0.18, hold = 0.85) => (x < dry 
 export const CARRY = 0.2, PUSH_TO = 0.75;
 /** Every level the drivers set is this much of it: with the granulator's WET_CAP, the composition sounds as the page's
  *  slider did at 0.4 (*"on 0.4 its more toreable"*, 2026-10-19). */
-export const LAYER_SCALE = 0.8, DRONE_TRIM = 0.7;
+export const LAYER_SCALE = 0.85, DRONE_TRIM = 0.7;
 /** The layers' level through a blend: the bridge's, never under CARRY. Both drivers call this. */
 export const blendLevel = (bridge) => Math.max(bridge?.level ?? 0, CARRY) * LAYER_SCALE;
 export const sceneLevel = (x, s, more = 0) => {
@@ -73,14 +73,16 @@ export const KEY_FROM = [1, 5], KEY_HZ = [60, 1000];
 export const pitchClass = (f) => ((Math.round(12 * Math.log2(f / BASE_HZ)) % 12) + 12) % 12;
 
 // ── the programs that sound them, in the scsynth the grain ring runs in ──────────────────────────────
-// The layers read the tuner on busses 2 and 3 and the ghost player on 4 and 5, write LAYER_BUS (8, 9) and the
-// drones DRONE_BUS (10, 11); the room reads both and writes `to` (the container's master bus, or the output). sclang-lite has no array controls,
-// so a chord is f0 to f11. why: lessons/kit-sclang-lite.md#ugens-layers
+// The layers read the tuner on busses 2 and 3 and the ghost player on 4 and 5, write to the private
+// pair 8 and 9, and the room reads that pair and writes the output. sclang-lite has no array controls,
+// so a chord is f0 to f11. why: lessons/workers-cast.md#layers
 
-export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4, VOC_N = 4;
-/** The vocoder's bands, Hz: the voice's envelope in each shapes the choir's chord in the same band. */
-export const VOC_BANDS = [220, 350, 550, 850, 1300, 2000, 3100, 4800];
-/** A ghost arrives at its own pitch: a person's recording is never transposed, up or down. why: plans/plan-cast-listenable.md */
+export const LAYER_BUS = 8, DRONE_BUS = 10, RES_N = 12, GHOST_N = 4;
+/** A ghost arrives an octave down, a fourth down, as it is, or a fifth up. */
+// a visit is mostly slowed, an octave or a fourth down, now and then as it was or a fifth up
+// an octave down or as it is, never a fourth: a fourth down put the visiting file in a key against the scene's
+// (*"key conflict"*, 2026-10-19)
+// a visiting voice at its own pitch only (*"no darth plese"*, *"dart vader again"*, 2026-10-20)
 export const GHOST_SHIFTS = [1];
 /** Where in the visiting file a ghost starts: in its middle half, at least 20 s before its end; 20 to 200 s in when its
  *  length is unknown. Both engines (*"does ghosts tart from beginning. maybe in middle?"*, 2026-10-19). */
@@ -101,10 +103,11 @@ export const PROGRAMS = {
   var w = (LFNoise2.kr(0.04) * 0.35) + 0.5;
   var s = (VarSaw.ar(${glide('\\f0.kr(55)', 8)}, 0, w * 0.6) + (VarSaw.ar(${glide('\\f1.kr(82)', 8)} * (1 + (LFNoise2.kr(0.015) * 0.012)), 0, w) * 0.7) + (VarSaw.ar(${glide('\\f2.kr(110)', 8)} * (1.003 + (LFNoise2.kr(0.02) * 0.06)), 0, 1 - w) * 0.5)) * 0.25;
   Pan2.ar(RLPF.ar(s, cut, 0.35 + ((LFNoise2.kr(0.03) + 1) * 0.3)) * amp, LFNoise2.kr(0.03) * 0.3) }`,
-  // the file itself into a long room, low-passed (the corner sweeping slowly), at its own pitch
+  // the file itself held and slowed: low-passed (the corner sweeping slowly), an octave down, into a long room
   lfreeze: `{ var amp = Lag.kr(\\amp.kr(0), 4);
-  var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 900 * (1 + (LFNoise2.kr(0.025) * 0.7)));
-  Pan2.ar(LeakDC.ar(FreeVerb.ar(low, 1, 0.97, 0.6)) * amp, 0) }`,
+  var low = LPF.ar(Mix(In.ar(2, 2)) * 0.5, 600 * (1 + (LFNoise2.kr(0.025) * 0.7)));
+  var down = PitchShift.ar(low, 0.4, ${glide('\\ratio.kr(0.5)', 8)}, 0.02, 0.2);
+  Pan2.ar(LeakDC.ar(FreeVerb.ar(down, 1, 0.97, 0.6)) * amp, 0) }`,
   // a bank of resonators at the scene's chord; on a pulse only the hits open it
   // fed a low-passed file and low-passed after, so speech's hiss does not ping the upper rings: *"very mettallic"*
   lres: `{ var amp = Lag.kr(\\amp.kr(0), 1);
@@ -123,13 +126,6 @@ export const PROGRAMS = {
   var b = PitchShift.ar(x, 0.3, ${glide('\\r1.kr(1.5)', 5)}, 0.01, 0.12);
   var c = PitchShift.ar(x, 0.3, ${glide('\\r2.kr(2)', 5)}, 0.01, 0.12);
   LPF.ar(Pan2.ar(a, sp * -1) + Pan2.ar(b, 0) + Pan2.ar(c, sp), 3500) * amp * 0.5 }`,
-  // the choir: a chord of slowly detuned saws in the scene's key, shaped band by band by the voice's own envelope,
-  // so talk (and a shout) sings as a choir rather than repeating (*"human voice and speech could turn something musical"*)
-  lvoc: `{ var amp = ${glide('\\amp.kr(0)', 1.5)};
-  var x = Mix(In.ar(2, 2)) * 0.5;
-  var c = (${fs(VOC_N).map((f, i) => `VarSaw.ar(${f} * (1 + (LFNoise2.kr(${(0.1 + 0.03 * i).toFixed(2)}) * 0.004)), 0, 0.35)`).join(' + ')}) * 0.25;
-  var v = ${VOC_BANDS.map((b) => `(BPF.ar(c, ${b}, 0.3) * Lag.ar(BPF.ar(x, ${b}, 0.3).abs, 0.08))`).join(' + ')};
-  Pan2.ar(Limiter.ar(LPF.ar(v * 11, 5000), 0.35, 0.01) * amp, 0) }`,
   // a visit is heard as a voice from elsewhere, not a tint: its own voice whole, the colour under it, a drier room,
   // near the middle (*"cpuld not hear oriental"*, 2026-10-19)
   // the other file visiting: transposed per visit, some of its own voice kept, coloured by a band-pass, a comb
@@ -146,8 +142,8 @@ export const PROGRAMS = {
   var w = FreeVerb.ar(LeakDC.ar(s), 0.35, 0.92, 0.4);
   Pan2.ar(Limiter.ar(w * amp, 0.3, 0.01), LFNoise2.kr(0.15) * 0.6) }`,
 };
-// The room's ceiling is 0.4: the ring adds its own output beside it on the same bus and peaks near 0.43 (-7.4 dBFS),
-// so the two stay under full scale before the master (master.mjs) levels and limits the sum. At 0.9 a soaked scene clipped:
+// The room's ceiling is 0.4: the ring adds its own output beside it on the same bus with no limiter after the sum,
+// and the ring peaks near 0.43 (-7.4 dBFS), so the two stay under full scale. At 0.9 a soaked scene clipped:
 // *"too loud, clips"* (2026-10-19). A ghost goes straight to the output under its own 0.3, and while it visits the
 // room ducks (`duck`) and its ceiling drops to 0.25 (`ceil`), so a visit is heard over the bed and the sum holds:
 // *"can not hear ghost"* (2026-10-19).
@@ -159,7 +155,7 @@ export const ROOM = `{ var g = Lag.kr(\\gain.kr(1), 2) * ${glide('\\duck.kr(1)',
   var w = FreeVerb2.ar(l, r, \\mix.kr(0.3), \\size.kr(0.7), 0.5);
   Limiter.ar(w, ${glide('\\ceil.kr(0.4)', 2.5)}, 0.01) }`;
 
-/** Compile every program; `bad` lists any the compiler refused, with why. The ghost and the room write `to` (the container's master bus). */
+/** Compile every program; `bad` lists any the compiler refused, with why. */
 export function compileLayers({ to = 0 } = {}) {
   const out = {}, bad = [];
   for (const [name, src] of Object.entries(PROGRAMS)) { const r = compile(src, { name, bus: name === 'lghost' ? to : DRONES.includes(name) ? DRONE_BUS : LAYER_BUS }); if (r.ok) out[name] = r.bytes; else bad.push(`${name}: ${r.message}`); }
@@ -168,7 +164,7 @@ export function compileLayers({ to = 0 } = {}) {
   return { bytes: out, bad };
 }
 
-const NODES = { ldrone: 5101, lfreeze: 5102, lres: 5103, lharm: 5104, lghost: 5105, lvoc: 5106, lroom: 5199 };
+const NODES = { ldrone: 5101, lfreeze: 5102, lres: 5103, lharm: 5104, lghost: 5105, lroom: 5199 };
 
 /**
  * The layers in a booted scsynth (`local.scsynth`). `apply(layers, key)` sets a scene's layers; `ghost(on)`,
@@ -181,7 +177,7 @@ export async function createLayerEngine(sc, { log = () => {}, to = 0, before = n
     const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', b);
     if (!done || done[0] !== '/done') throw new Error(`${name} was not taken: ${done?.[2] || 'no answer'}`);
   }
-  // the layers at the head, the room at the tail after them and the ring, or just before the master (`before`)
+  // the layers at the head, the room at the tail after them and the ring
   for (const name of Object.keys(PROGRAMS)) sc.send('/s_new', name, NODES[name], 0, 0, 'amp', 0);
   if (before != null) sc.send('/s_new', 'lroom', NODES.lroom, 2, before, 'mix', 0.3); else sc.send('/s_new', 'lroom', NODES.lroom, 1, 0, 'mix', 0.3);
   log(`the layers up: ${Object.keys(bytes).length} programs`);
@@ -196,12 +192,10 @@ export async function createLayerEngine(sc, { log = () => {}, to = 0, before = n
       // the levels put each layer about 8 to 16 dB under a file at -23 LUFS (layers-test --browser)
       // DRONE_TRIM: the drones about 3 dB under where they were, which tired over a section (*"tiring drone"*, 2026-10-19)
       set('ldrone', { amp: ['key', 'both'].includes(L.drone) ? L.droneLevel * 0.55 * DRONE_TRIM : 0, f0: dz[0], f1: dz[1], f2: dz[2], cut: 300 + 600 * (L.droneLevel ?? 0.3) });
-      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 * DRONE_TRIM : 0 });
+      set('lfreeze', { amp: ['freeze', 'both'].includes(L.drone) ? (L.droneLevel ?? 0.3) * 5.5 * DRONE_TRIM : 0, ratio: 1 });
       set('lres', { amp: L.res !== 'none' ? L.resWet * 0.55 : 0, decay: L.resDecay, pulse: L.bpm && L.pulseOn !== 'grains' ? 1 : 0,
         ...Object.fromEntries(ch.slice(0, RES_N).map((f, i) => [`f${i}`, f])) });
       set('lharm', { amp: L.harm !== 'none' ? 1.4 : 0, spread: L.harmSpread, r0: rt[0] ?? 1, r1: rt[1] ?? 1, r2: rt[2] ?? 1 });
-      const vc = chordHz(key, L.voc && L.voc !== 'none' ? L.voc : 'fifths', { octaves: 1, from: 1 });
-      set('lvoc', { amp: L.voc && L.voc !== 'none' ? 1 : 0, ...Object.fromEntries(vc.slice(0, VOC_N).map((f, i) => [`f${i}`, f])) });
       const gc = chordHz(key, 'fifths', { octaves: 1, from: 2 });
       set('lghost', { amp: 0, wb: L.ghost === 'bpf' ? 1 : 0, wc: L.ghost === 'comb' ? 1 : 0, wr: L.ghost === 'res' ? 1 : 0, root: hz((key?.root ?? 0) + 24),
         ...Object.fromEntries(gc.slice(0, GHOST_N).map((f, i) => [`f${i}`, f])) });
