@@ -68,6 +68,7 @@ const votes = ((await getJson(`${API}/votes`)).votes || []).filter((v) => v.vote
 let ids = flag('--ids', '') ? flag('--ids').split(',') : ((await getJson(`${API}/status/${station}`)).program || []).map((x) => x.id);
 if (!ids.length) ids = pickFiles(feed, votes, Infinity);
 let queue = ids.map((id) => byId.get(String(id))).filter(Boolean).map(({ id, title, gain, kind, kindConf, soften, seconds }) => ({ id, title, gain, kind, kindConf, soften, seconds }));
+for (const id of (flag('--soften', '') || '').split(',').filter(Boolean)) { const it = queue.find((x) => x.id === id); if (it) it.soften = true; }
 const long = queue.filter((x) => !(Number(x.seconds) > 0 && Number(x.seconds) < MIN_FILE_S));
 if (long.length) queue = long;
 if (!queue.length) { console.error('no program: nothing in the feed matches'); process.exit(2); }
@@ -116,6 +117,15 @@ const M = [], Sx = [];
 for (const m of eb.matchAll(/t:\s*([\d.]+)\s+TARGET.*?M:\s*(-?[\d.inf]+)\s+S:\s*(-?[\d.inf]+)/g)) { M.push([+m[1], +m[2]]); Sx.push([+m[1], +m[3]]); }
 const lufs = []; for (const [t, s] of Sx) if (Math.abs(t - Math.round(t)) < 0.05) lufs.push(+(Number.isFinite(s) ? Math.max(-70, s) : -70).toFixed(1));
 const sil = ff('-af', 'silencedetect=noise=-50dB:d=0.7');
+// a click: one sample step over 0.25 and 12 times the second's own mean step; hot: a second whose decoded peak is over -1 dBFS
+// each channel on its own: a mono downmix sums them and reads about 3 dB hot
+const pcm = spawnSync('ffmpeg', ['-v', 'error', '-i', mp3, '-ac', '2', '-ar', '44100', '-f', 'f32le', '-'], { maxBuffer: 1 << 30 }).stdout;
+const xs = new Float32Array(pcm.buffer, pcm.byteOffset, pcm.length >> 2), clicks = [], hot = [], SEC = 44100 * 2;
+for (let s0 = 0; s0 + SEC <= xs.length; s0 += SEC) {
+  let sum = 0, pk = 0; for (let i = 0; i < SEC - 2; i++) { sum += Math.abs(xs[s0 + i + 2] - xs[s0 + i]); pk = Math.max(pk, Math.abs(xs[s0 + i])); }
+  const mean = sum / SEC; for (let i = 0; i < SEC - 2; i++) { const d = Math.abs(xs[s0 + i + 2] - xs[s0 + i]); if (d > 0.25 && d > 12 * mean) { clicks.push(+((s0 + i) / SEC).toFixed(2)); i += 400; } }
+  if (pk > 0.891) hot.push(s0 / SEC);
+}
 const gaps = [...sil.matchAll(/silence_start: (-?[\d.]+)[\s\S]*?silence_end: ([\d.]+) \| silence_duration: ([\d.]+)/g)].map((m) => ({ at: +(+m[1]).toFixed(2), s: +(+m[3]).toFixed(2) })).filter((g) => g.at > 3);
 const meanS = (a, b) => { const v = Sx.filter(([t]) => t >= a && t < b).map(([, s]) => s).filter(Number.isFinite); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
 
@@ -145,7 +155,10 @@ const done = scenes.filter((s) => s.real != null);
 const checks = [
   ['integrated loudness -18 to -14 LUFS', I != null && I >= -18 && I <= -14, `${I} LUFS`],
   ['loudness range under 8 LU', LRA != null && LRA < 8, `${LRA} LU`],
-  ['true peak under -1 dBFS', TP != null && TP < -1, `${TP} dBFS`],
+  // a phone's MP3 decoder clips what the encoder overshot: 3 dB of headroom, few hot seconds, no clicks
+  ['true peak under -3 dBFS', TP != null && TP < -3, `${TP} dBFS`],
+  ['at most 10 seconds decoded over -1 dBFS', hot.length <= 10, `${hot.length} s`],
+  ['at most 3 clicks', clicks.length <= 3, clicks.length ? `${clicks.length}: ${clicks.slice(0, 8).join(' ')} s` : 'none'],
   ['no silence over 0.7 s', !gaps.length, gaps.length ? gaps.map((g) => `${g.at} s for ${g.s} s`).join(', ') : 'none'],
   // a concert breathes: a quiet stretch on a music file is listed, not failed (EMA Varssavis is 53 % under -30 LUFS as recorded)
   ['no quiet stretch under -30 LUFS short-term, music files apart', !quietNotMusic.length, quiet.length ? quiet.map((q) => `${q.at} to ${q.end} s${q.music ? ' (music)' : ''}`).join(', ') : 'none'],
@@ -167,7 +180,7 @@ for (const h of handovers) console.log(`  hand-over ${h.at} s (${h.s} s): ${h.fr
 // ── 6. publish: the MP3 to R2 (immutable, so a new name per render), the timeline into the page's index ──
 const report = { name, made: was?.made ?? new Date().toISOString(), measured: new Date().toISOString(), code: sha, ref: REF, dry: DRY, dirty, seed, station: was?.station ?? (flag('--ids', '') ? 'ids' : station), seconds: +dur.toFixed(2), pass,
   url: `${MEDIA}${PREFIX}/${name}.mp3`, I, LRA, TP, checks: checks.map(([what, ok, got]) => ({ what, ok, got })),
-  scenes: scenes.map(({ mixAt, ...s }) => s), handovers, ghosts: run.ghosts.map(({ mixAt, mixEnd, ...g }) => g), gaps, quiet, abrupt, lufs,
+  scenes: scenes.map(({ mixAt, ...s }) => s), handovers, clicks, hot, ghosts: run.ghosts.map(({ mixAt, mixEnd, ...g }) => g), gaps, quiet, abrupt, lufs,
   queue: run.queue, xruns: run.xruns, maxLag: run.maxLag, offset: run.offset };
 writeFileSync(join(OUT, `${name}.json`), JSON.stringify(report, null, 1));
 if (argv.includes('--no-upload')) { console.log(`not uploaded (--no-upload); report ${join(OUT, `${name}.json`)}`); process.exit(pass ? 0 : 1); }
