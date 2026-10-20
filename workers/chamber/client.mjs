@@ -1,5 +1,5 @@
-// node workers/castlab/client.mjs <ws url> <mode full|ring|echo> <frame ms 20|170> <seconds> <out.wav> [file.mp3]
-// Decodes a cached file to 48 kHz stereo s16 with ffmpeg, sends it to castlab in real time, one message per frame
+// node workers/chamber/client.mjs <ws url> <mode full|ring|echo> <frame ms 20|170> <seconds> <out.wav> [file.mp3]
+// Decodes a cached file to 48 kHz stereo s16 with ffmpeg, sends it to the chamber in real time, one message per frame
 // (the adapter's shape: at most 32 KB), writes what comes back to a WAV, and prints the timings as JSON.
 import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';

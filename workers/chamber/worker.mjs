@@ -1,4 +1,4 @@
-// castlab: can the cast's engine (the vendored wasm scsynth, the ring, the layers and the master) run inside a
+// chamber: can the cast's engine (the vendored wasm scsynth, the ring, the layers and the master) run inside a
 // Durable Object, fed 48 kHz stereo s16 PCM over a WebSocket the way the Realtime SFU WebSocket adapter feeds it?
 // An experiment, not on air. GET /ws upgrades; the first text message picks the mode:
 //   {"cmd":"boot","mode":"full"|"ring"|"echo","seed":7}   then binary PCM frames in, each answered with
@@ -71,9 +71,9 @@ async function startChain({ mode, seed, log }) {
   return { w, send, timing: t, scene: { patch: s.patch, layers: layerN, defBytes: good.bytes.length }, get grains() { return grains; } };
 }
 
-export class CastLab extends DurableObject {
+export class Chamber extends DurableObject {
   async fetch(req) {
-    if (req.headers.get('Upgrade') !== 'websocket') return new Response('castlab: WebSocket only', { status: 426 });
+    if (req.headers.get('Upgrade') !== 'websocket') return new Response('chamber: WebSocket only', { status: 426 });
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
     const logs = [];
@@ -143,6 +143,6 @@ export default {
   async fetch(req, env) {
     const u = new URL(req.url);
     if (u.pathname === '/ws') return env.LAB.get(env.LAB.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
-    return new Response('castlab: an experiment; GET /ws with a WebSocket\n');
+    return new Response('chamber: an experiment; GET /ws with a WebSocket\n');
   },
 };
