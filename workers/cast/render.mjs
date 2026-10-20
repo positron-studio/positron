@@ -23,7 +23,7 @@ const L = DRY ? startGrains({ queue, target, set: { drift: 1, dwell: 100, blend:
 
 // one row a quarter second; a scene, a blend, a ghost or a patch change is an event on both clocks
 const rows = [], scenes = [], blends = [], ghosts = [], patches = [], offsets = [];
-let last = { land: -1, phase: '', ghost: null, patch: '' }, xruns = 0, maxBacklog = 0, maxLag = 0;
+let last = { land: -1, inst: null, phase: '', ghost: null, patch: '' }, xruns = 0, maxBacklog = 0, maxLag = 0;
 while ((Date.now() - t0) / 1000 < S) {
   await sleep(250);
   const s = L.status(), l = s.life, ch = s.grains?.chain;
@@ -39,8 +39,9 @@ while ((Date.now() - t0) / 1000 < S) {
   if (mp3 > 1) offsets.push(mix - mp3);
   if ((Date.now() - t0) / 1000 > 10) { maxBacklog = Math.max(maxBacklog, s.backlog); maxLag = Math.max(maxLag, s.lag); }
   rows.push({ mix: +mix.toFixed(2), si: l.si, phase: l.phase, patch: l.patch, wet: +(+l.wet).toFixed(3), level: l.level });
-  if (s.landings !== last.land) {
-    last.land = s.landings;
+  // a scene is new when the life has taken it (its inst), not when the engine landed the file: the two are a tick apart
+  if (l.inst !== last.inst) {
+    last.inst = l.inst;
     scenes.push({ si: l.si, mixAt: +l.sceneAt.toFixed(2), file: l.file, patch: l.patch, param: l.param, len: l.len,
       dwell: +(+l.dwell).toFixed(1), blend: +(+l.blend).toFixed(1), kind: l.def?.kind ?? null, type: l.def?.type ?? null, section: l.def?.section ?? null, bridge: l.def?.iKind ?? null, fx: l.def?.fx ?? null,
       drone: l.layers?.drone, harm: l.layers?.harm, ghost: l.layers?.ghost, key: l.key ? `${l.key.root}${l.key.minor ? 'm' : ''}` : null });
