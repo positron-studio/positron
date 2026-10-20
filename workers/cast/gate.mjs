@@ -133,6 +133,7 @@ const quiet = []; for (const [t, s] of Sx) if (t > 10 && s < -30 && (!quiet.leng
 // ── 5. the gate ──
 const sceneAt = (t) => [...scenes].reverse().find((v) => v.at <= t);
 for (const q of quiet) q.music = sceneAt(q.at)?.kind === 'music';
+for (const a of abrupt) a.music = sceneAt(a.at)?.kind === 'music';
 const quietNotMusic = quiet.filter((q) => !q.music);
 const done = scenes.filter((s) => s.real != null);
 const checks = [
@@ -142,7 +143,8 @@ const checks = [
   ['no silence over 0.7 s', !gaps.length, gaps.length ? gaps.map((g) => `${g.at} s for ${g.s} s`).join(', ') : 'none'],
   // a concert breathes: a quiet stretch on a music file is listed, not failed (EMA Varssavis is 53 % under -30 LUFS as recorded)
   ['no quiet stretch under -30 LUFS short-term, music files apart', !quietNotMusic.length, quiet.length ? quiet.map((q) => `${q.at} to ${q.end} s${q.music ? ' (music)' : ''}`).join(', ') : 'none'],
-  ['no sudden rise of 10 LU in 3 s (short-term)', !abrupt.length, abrupt.length ? abrupt.map((a) => `${a.at} s +${a.rise}`).join(', ') : 'none'],
+  // a concert getting loud again is the music, as in the dry render: listed, not failed
+  ['no sudden rise of 10 LU in 3 s (short-term), music files apart', !abrupt.filter((a) => !a.music).length, abrupt.length ? abrupt.map((a) => `${a.at} s +${a.rise}${a.music ? ' (music)' : ''}`).join(', ') : 'none'],
   ['every hand-over within 6 LU, before against after', handovers.every((h) => h.jump == null || Math.abs(h.jump) <= 6), handovers.map((h) => h.jump).join(' ')],
   ['no hand-over dips 8 LU', handovers.every((h) => h.dip == null || h.dip > -8), handovers.map((h) => h.dip).join(' ')],
   ['every finished scene 40 s or longer', done.every((s) => s.real >= 40), done.map((s) => s.real).join(' ')],
