@@ -51,6 +51,7 @@ export const CONCEPTS = [
   { id: 'radio/live', title: 'Live tempo', say: 'The same tempo detector on Raadio 2, Raadio 4 or Ida live, one station at a time through our relay.' },
   { id: 'radio/key', title: 'Live key', say: 'Hear a live station, see the key a detector finds in it lit on a keyboard, and play along in it.' },
   { id: 'radio/cast', title: 'Väin cast', say: 'Väin\'s archive played live into an Icecast channel from Cloudflare.' },
+  { id: 'radio/chamber', title: 'Echo chamber', say: 'Send a file or your microphone to the cast\'s engine on Cloudflare and hear what comes back.' },
   { id: 'radio/scenery', title: 'Radio landscape', say: 'Live radio, granulated, blends slowly from station to station through tuning noise. The waves rise.' },
   // why: lessons/kit-concept-list.md#clock
   { id: 'video/camera', title: 'Camera', say: 'Turn on your camera and see it on the page while the patchbay holds the link from camera to screen.' },
