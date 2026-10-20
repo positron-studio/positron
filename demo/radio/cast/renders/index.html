@@ -12,6 +12,8 @@
   .cr-line canvas { display: block; width: 100%; height: 100%; }
   .cr-now { font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .cr-key { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 11px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+  .cr-list .pos-tbl-row[aria-current="true"] { color: var(--hi); }
+  .cr-list .pos-tbl-row[aria-current="true"] > * { color: inherit; }
   .cr-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 </style>
 <body>
@@ -51,7 +53,8 @@ const list = createTable({ columns: [
   { key: 'LRA', label: 'lra', width: 48, align: 'right' },
   { key: 'TP', label: 'peak', width: 56, align: 'right' },
   { key: 'n', label: 'scenes', width: 64, align: 'right' },
-], empty: 'no renders yet', onPick: (r) => pick(r._r) });
+], empty: 'no renders yet', onPick: (r, row) => pick(r._r, row) });
+list.el.classList.add('cr-list');
 const checks = createTable({ columns: [
   { key: 'ok', label: 'ok', width: 44 },
   { key: 'what', label: 'check', grow: true },
@@ -64,7 +67,10 @@ const scenes = createTable({ columns: [
 ], empty: 'pick a render', onPick: (r) => seek(r._at) });
 d.stack.add(list.el, panel.el, key, checks.el, scenes.el);
 
-function pick(r) {
+// the loaded render's row is marked, so what is heard is never a guess
+function mark(row) { for (const x of list.el.querySelectorAll('.pos-tbl-row.pick')) x.removeAttribute('aria-current'); row?.setAttribute('aria-current', 'true'); }
+function pick(r, row) {
+  mark(row || list.el.querySelectorAll('.pos-tbl-row.pick')[renders.indexOf(r)]);
   // a version picked while one plays carries on at the same second: that is the A to B
   const t = cur ? audio.currentTime || wantAt : 0, was = !audio.paused;
   cur = r; wantAt = t;
@@ -117,7 +123,13 @@ function draw() {
   const p = audio.src ? audio.currentTime : wantAt;
   g.fillStyle = css('--hi'); g.fillRect(x(p) - 1, 0, 2, H);
   const s = [...cur.scenes].reverse().find((v) => v.at <= p + 0.01);
-  now.textContent = `${mmss(p)} / ${mmss(T)}  ${s ? `${s.patch}  ${s.file}` : ''}`;
+  // what the playhead is inside: the scene's effect, a hand-over, a ghost
+  const fx = s?.fx && p >= s.at + s.fx.at && p <= s.at + s.fx.at + s.fx.len ? s.fx.kind : '';
+  const ho = cur.handovers.some((h) => h.to != null && p >= h.at && p <= h.to) ? 'hand-over' : '';
+  const gh = cur.ghosts.find((v) => p >= v.at && p <= (v.end ?? v.at + 20));
+  const inside = [fx, ho, gh ? `ghost ${gh.title}` : ''].filter(Boolean).join(', ');
+  const who = cur.dry ? `${cur.name} (no processing)` : (LABEL[cur.name] || cur.name);
+  now.textContent = `${who}  ${mmss(p)} / ${mmss(T)}  ${s ? `${s.patch}  ${s.file}` : ''}${inside ? `  ${inside}` : ''}`;
 }
 let drag = false;
 const at = (e) => { const r = host.getBoundingClientRect(); return ((e.clientX - r.left) / r.width) * (cur?.seconds ?? 0); };
@@ -138,8 +150,10 @@ whenFaces(draw);
 
 const { renders: all = [] } = await fetch('./renders.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
 // newest first, the dry references after the versions they are heard against
+// a name that reads as something it is not gets a label
+const LABEL = { 'morning-dry': 'morning-less-wet' };
 const renders = [...all].sort((a, b) => (a.dry - b.dry) || String(b.made).localeCompare(String(a.made)));
-list.set(renders.map((r) => ({ _r: r, name: `${r.name}${r.dry ? ' (dry)' : ''}`, gate: r.pass ? 'PASS' : 'FAIL', I: r.I, LRA: r.LRA, TP: r.TP, n: r.scenes.length })));
+list.set(renders.map((r) => ({ _r: r, name: r.dry ? `${r.name} (no processing)` : (LABEL[r.name] || r.name), gate: r.pass ? 'PASS' : 'FAIL', I: r.I, LRA: r.LRA, TP: r.TP, n: r.scenes.length })));
 if (renders[0]) pick(renders[0]);
 d.api.renders = renders.length;
 if (SELFCHECK) {
