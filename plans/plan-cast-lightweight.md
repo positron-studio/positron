@@ -474,3 +474,54 @@ Cloudflare; a swap leaves no silent block (quietest 20 ms -40 dBFS against -16);
 frame more, about 0.94 against 1.0 ms of CPU per 20 ms on Cloudflare. Checks: chain-test 21/21 (eight negative
 controls), page 10/10, deep 23/23 against the deployed chamber. The planner's numbers as data: not built, the chamber runs
 no planner.
+
+## 12. Edgecast as a station of its own (2026-10-20, workers/edgecast/station*.mjs; option a)
+
+Built: one object, `station-preview` (class `Station`), plays the cast on its own clock and serves listeners itself,
+no Icecast and no container. Routes on https://edgecast.positron.studio: `GET /listen` (MP3 to any number of listeners,
+each given the last 2 s first), `GET /status` (JSON), `POST /start?key=&cap=<minutes>` (default 30, 1 to 1440),
+`POST /stop?key=`. The key is the secret `EDGECAST_KEY` (in `.env`). The browser mode (`/ws`) is unchanged.
+
+The chain, all in one isolate: the program from `cast.positron.studio/feed` (gains, kinds, moments already on it),
+shuffled by the votes as the Caster's `pickFiles`; each file from `cast.positron.studio/file/<id>`; mpg123 in wasm
+(mpg123-decoder 1.0.3, MIT, 99 KB, its runtime compile replaced by the bundled module, one instance shared by every file
+with a handle each, because each instance takes 16 MB); a cubic resampler for the 48 kHz files (a mono file decodes to
+equal channels, so it plays at unity as UPMIX does); the tuner (`mixer.mjs` as it is); the wasm scsynth with the ring,
+the six layers and the master; LAME in wasm (wasm-media-encoders 0.7.0, MIT, 133 KB) at 128 kbit/s and 44.1 kHz. The
+driver is `live.mjs` itself: `gen-live.mjs` rewrites only its imports, its seven timer calls onto audio time
+(`vclock.mjs`, advanced after every 20 ms block) and a load (refused). The alarm is the clock: every 500 ms it renders
+what the wall is owed, 2 s ahead, so every render is its own invocation with its own CPU allowance.
+
+MEASURED on Cloudflare, one start capped at 25 min, one listener for 20 min (node, `listen.mjs`), `wrangler tail`:
+
+| what | value |
+| --- | --- |
+| CPU per alarm (each renders 0.5 s) | median 36 ms, p99 66 ms, worst 388 ms (the first), mean 39 ms over 1,713 alarms the tail caught |
+| CPU per second of audio | about 78 ms, **7.8 % of a core** (the tail sampled the alarms: the object counted 2,998 for 1,501 s) |
+| the same station in node on the M1 | 4.9 to 5.5 % of a core; decode alone 0.09 to 0.16 %, LAME alone 0.84 to 1.36 % |
+| boot, start to sound | 90 ms CPU, 264 to 542 ms wall |
+| the listener's file | 19,229,466 B in 1,200.4 s (128.2 kbit/s), 46,008 frames, 1,201.84 s of frames, 0 bytes outside a frame |
+| breaks, silences over 0.7 s, clicks | 0, 0, 0 |
+| underruns | 0 decoder samples, 0 late renders, 0 skips; the lead held 1.6 to 2.0 s |
+| loudness | -15.2 LUFS, true peak -4.0 dBFS, LRA 11.5 LU (quiet stretches in the files; the cast gate exempts music) |
+| wasm memory | scsynth 73.4 MB, mpg123 17.0 MB, LAME 16.8 MB: 107.2 MB of the 128 MB; no exceededMemory in the tail |
+| stayed up | yes: 25 min, 0 restarts; alarms ok 1,710, canceled 3 |
+| the cap | stopped itself at 25 min (1,501 s of audio), status `the cap of 25 min` |
+
+A deploy, measured twice with a listener on: the same code (17:45:51) and a real change (a `code` field in the status,
+17:50:43). Both times the running object went on with the old code (the status said `station-1` for 3 min after
+`station-2` went out) and the listener had no break: 151.5 s and 202.1 s of frames, 0 silences. So a deploy does not
+reach a station that is playing until the object is evicted. A restart (an eviction, a runtime update) is the next alarm
+booting again: 430 ms in `wrangler dev`, the life back at scene 0 on a new shuffle, every listener's stream ended.
+
+Cost, arithmetic: duration at 128 MB about $0.14 a day; 172,800 alarms a day about $0.03; each alarm reads storage twice
+and writes one `setAlarm`, up to $0.17 a day if those are billed as rows. About $0.35 a day against $1.33 for a container.
+
+Not built: the life, the file and the second into storage, so a restart resumes rather than starts over; a timer loop
+with the alarm only as a watchdog (fewer storage writes); two engines in one isolate (a browser session and the station
+are separate classes of one Worker and may share an isolate; two engines do not fit in 128 MB). For a Väin source:
+`cloudflare:sockets` `connect('live.uuu.ee:8001')`, `PUT /<mount> HTTP/1.0` with Basic `source:<VAIN_SOURCE_PW>` and
+`ice-audio-info`, wait for ` 200`, then write the frames as they are made (paced 2 s ahead as now); a socket keeps the
+object up for 15 min and the alarms do the rest. Their mount takes one source and their players do not reconnect, so an
+eviction would end their listeners: the source wants a small relay object of its own, deployed rarely, holding the mount
+across a station restart. Never tried against their server.

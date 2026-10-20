@@ -7,6 +7,8 @@
 //   {"cmd":"program","slot":0|1,"src":"{ ... }"} puts an sclang-lite program in an insert slot while it plays, answered
 //   {"program":{ok,slot,ms,compileMs,controls,error?}}; {"cmd":"set","slot":0|1|"ring","params":{name:value}} is /n_set,
 //   clamped, answered {"set":{ok,slot,applied,refused}}. The slots and their busses are in chain.mjs.
+// Station mode (station.mjs): GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key= play the
+// cast's program on the object's own clock to any number of listeners, from one object, station-preview.
 // One session at a time in one object: the engine's wasm memory is 73 MB of an isolate's 128 MB, and objects of
 // one class may share an isolate, so a second engine is refused rather than risked. /radio/edgecast/ is its page.
 import { DurableObject } from 'cloudflare:workers';
@@ -14,6 +16,7 @@ import wasmModule from '../../demo/shell/vendor/scsynth-nrt.wasm';
 import glue from './glue.gen.mjs';
 import { QUANTUM, MEM } from './engine.mjs';
 import { startChain, createInserts, SLOTS, LIMITS } from './chain.mjs';
+export { Station } from './station.mjs';
 
 // who may open a socket: the site, a local dev server on any port, and a client with no Origin (client.mjs)
 const ORIGIN_OK = /^(https:\/\/positron\.studio|https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
@@ -127,6 +130,8 @@ export default {
   async fetch(req, env) {
     const u = new URL(req.url);
     if (u.pathname === '/ws') return env.EDGECAST.get(env.EDGECAST.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
-    return new Response('edgecast: an experiment; GET /ws with a WebSocket\n');
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST' } });
+    if (['/listen', '/status', '/start', '/stop'].includes(u.pathname)) return env.STATION.get(env.STATION.idFromName('station-preview')).fetch(req);
+    return new Response('edgecast: an experiment; GET /ws with a WebSocket, or the station: GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key=\n');
   },
 };

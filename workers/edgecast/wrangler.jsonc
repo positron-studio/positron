@@ -1,12 +1,15 @@
 // edgecast: the cast's engine (the wasm scsynth, the ring, the layers, the master) in a Durable Object; named castlab while a throwaway experiment.
-// /radio/edgecast/ is its page. node gen-glue.mjs first; then wrangler dev, or wrangler deploy. Idle, it costs nothing.
+// /radio/edgecast/ is its page; the station (station.mjs) is /listen, /status, /start, /stop. node gen-glue.mjs and
+// node gen-live.mjs first; then wrangler dev, or wrangler deploy. Idle, it costs nothing. EDGECAST_KEY is a secret.
 {
   "name": "positron-edgecast",
   "main": "worker.mjs",
   "compatibility_date": "2026-07-01",
+  // nodejs_compat: the tuner (cast/container/mixer.mjs) writes its blocks into a Buffer
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "routes": [{ "pattern": "edgecast.positron.studio", "custom_domain": true }],
-  "durable_objects": { "bindings": [{ "name": "EDGECAST", "class_name": "Edgecast" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Edgecast"] }],
+  "durable_objects": { "bindings": [{ "name": "EDGECAST", "class_name": "Edgecast" }, { "name": "STATION", "class_name": "Station" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Edgecast"] }, { "tag": "v2", "new_sqlite_classes": ["Station"] }],
   "observability": { "enabled": true }
 }

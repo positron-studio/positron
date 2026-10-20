@@ -1,1 +1,4 @@
 glue.gen.mjs
+live.gen.mjs
+.dev.vars
+.wrangler/
