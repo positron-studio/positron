@@ -75,7 +75,7 @@ export const KIT_PARTS = [
   ] },
   // `share`: the share card, demo/shell/share-card.mjs, as it ships.
   // why: lessons/kit-kit-parts.md#share
-  { part: 'share', label: 'SHARE', ids: ['site-card', 'the-svg', 'the-tags'] },
+  { part: 'share', label: 'SHARE', ids: ['background', 'site-card', 'the-svg', 'the-tags'] },
 ];
 
 export const idFor = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

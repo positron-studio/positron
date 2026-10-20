@@ -126,3 +126,39 @@ x-height). *"Hello, is thing on? 2 i dots gray, ? Dot green"*, 2026-10-13.
 ## share-card.mjs, the hello card's size
 
 three quarters of the largest that fits: *"Smaller title"*
+
+<a id="background"></a>
+
+## share-bg.mjs and og/background.mjs, a picture behind the cards
+
+Asked 2026-10-20: *"in bg add option to upload custom imaeg as bg in ig / og socials"*.
+
+The picture covers the frame (scale to the larger of the two ratios, centred, `focus` 0..1 per axis
+picks which part a crop keeps) and a flat rect of `INK.bg` sits over it. The scrim's alpha is not
+typed: `scrimFor` composites every pixel under every text block exactly as SVG does (in sRGB, then
+the luminance), and takes the lowest alpha from 0.40 up, in steps of 0.01, at which each block's
+dimmest ink reaches 4.5:1 against every pixel under it. The dimmest ink is usually the wordmark's
+`positron` in `INK.dim` (L 0.289, 6.25:1 on the bare ground), so a bright picture ends near 0.86.
+The floor 0.40 keeps a dark picture reading as this site's ground.
+
+MEASURED 2026-10-20: a bright sky with a white sun under the headline gives scrim 0.87 to 0.88 on
+all three cards, 4.52 to 4.58:1 off resvg's own raster and off Chrome's, and 3.85 to 3.91:1 at a
+scrim 0.05 lighter. The macOS Sonoma picture gives 0.85 to 0.86.
+
+With no picture `ground()` returns the one rect the cards always drew, character for character, so
+the SVG, its hash and the PNG are unchanged (`node workers/view/og/share-bg-test.mjs` compares the
+PNGs with the committed ones byte for byte). With a picture the SVG carries the picture as a data:
+URI and the focus and scrim as numbers, so the hash, and with it the URL, changes whenever any of
+them does. TEMPLATE_V does not move.
+
+In the page an SVG drawn as an image may fetch nothing, so the picture is a data: URI and the faces
+are embedded as @font-face data: URIs, fetched from this origin on the first press. The download is
+that SVG drawn on a canvas at the card's own size, and it measured 1 px from Chrome's own Geist and
+from resvg (899 against 900 and 899), against 869 without the faces.
+
+At build the picture is `demo/resources/share-bg.jpg`, `.jpeg` or `.png` (one of them; two stop the
+build), with an optional `demo/resources/share-bg.json` reading `{ "focus": [x, y] }`. The build
+reads its size from the PNG IHDR or the JPEG SOF, since it has no decoder, and resvg does not apply
+EXIF rotation, so the file must be saved upright. The PNG of a photo is about 0.3 MB for the card
+and 0.4 MB for a portrait, against 50 to 80 KB plain. `kit/share/cards.json` names what the build
+wrote, outside `/og/`, which is cached immutable for a year.

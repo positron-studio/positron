@@ -31,3 +31,13 @@ export async function renderPng(svg, width) {
     font: { fontBuffers: fonts, loadSystemFonts: false, defaultFontFamily: 'JetBrains Mono' },
   }).render().asPng();
 }
+
+/** `svg` rasterised `width` px wide as RGBA bytes, for measuring a picture (share-bg.mjs). */
+export async function renderPixels(svg, width) {
+  await (ready ??= readFile(join(HERE, 'vendor/resvg-wasm/index_bg.wasm')).then((b) => initWasm(b)));
+  fonts ??= await Promise.all(FACES.map((f) => readFile(join(HERE, 'fonts', `${f}.ttf`)).then((b) => new Uint8Array(b))));
+  return new Resvg(svg, {
+    fitTo: { mode: 'width', value: width },
+    font: { fontBuffers: fonts, loadSystemFonts: false, defaultFontFamily: 'JetBrains Mono' },
+  }).render().pixels;
+}

@@ -42,9 +42,10 @@ const { CONCEPTS, CONCEPT_DIRS, DEMO_CARDS } =
   await import(new URL('../../demo/shell/concept-list.mjs', import.meta.url));
 // The share card and its tags (demo/shell/share-card.mjs), and the rasteriser
 // that turns its SVG into a PNG with no browser (og/render.mjs, resvg wasm).
-const { siteCard, igCard, helloCard, shareTags, SITE_NAME } = await import(new URL('../../demo/shell/share-card.mjs', import.meta.url));
+const { shareTags, SITE_NAME } = await import(new URL('../../demo/shell/share-card.mjs', import.meta.url));
 const { HERO } = await import(new URL('../../demo/shell/hero.mjs', import.meta.url));
 const { renderPng, inkBox } = await import(new URL('./og/render.mjs', import.meta.url));
+const { shareBackground, shareCards } = await import(new URL('./og/background.mjs', import.meta.url));
 
 // ── the allowlist ───────────────────────────────────────────────────────────
 // [ repo-relative source, public/-relative destination ]
@@ -559,14 +560,29 @@ for (const [path, bytes, what] of ICONS.files) {
 // The name hashes the SVG and TEMPLATE_V, since scrapers cache by URL. Instagram portrait
 // 1080x1350.
 // why: lessons/workers-view.md#share-card
-const CARD = siteCard();
+// A committed demo/resources/share-bg.jpg (or .png) goes behind all three, under a scrim measured
+// for 4.5:1 text (og/background.mjs); with none they are the plain cards, byte for byte.
+// kit/share/cards.json names what was written, for that page (outside /og/, which is cached a year).
+// why: lessons/kit-share-card.md#background
+const SHARE_BG = await shareBackground();
+const SHARE_CARDS = await shareCards(SHARE_BG);
+const CARD = SHARE_CARDS.site;
 await mkdir(join(OUT, 'og'), { recursive: true });
-for (const [what, c] of [['share card', CARD], ['instagram card', igCard()], ['instagram hello', helloCard()]]) {
+if (SHARE_BG) console.log(`  share background demo/resources/${SHARE_BG.file}: ${SHARE_BG.width}x${SHARE_BG.height}, ${SHARE_BG.bytes} bytes, focus ${SHARE_BG.fx} ${SHARE_BG.fy}`);
+for (const [what, c] of [['share card', CARD], ['instagram card', SHARE_CARDS.ig], ['instagram hello', SHARE_CARDS.hello]]) {
   const t0 = performance.now();
   const png = await renderPng(c.svg, c.width);
   await writeFile(join(OUT, c.path.slice(1)), png);
-  console.log(`  ${what} ${c.path}: ${c.width}x${c.height}, ${png.length} bytes, ${(performance.now() - t0).toFixed(0)} ms`);
+  const lit = SHARE_BG ? `, scrim ${c.scrim}, text ${c.contrast.toFixed(2)}:1 (${c.bare.toFixed(2)}:1 bare, ${c.worst} the binding block)` : '';
+  console.log(`  ${what} ${c.path}: ${c.width}x${c.height}, ${png.length} bytes${lit}, ${(performance.now() - t0).toFixed(0)} ms`);
 }
+const cardEntry = (c) => ({ path: c.path, width: c.width, height: c.height,
+  ...(SHARE_BG ? { scrim: c.scrim, contrast: +c.contrast.toFixed(2), bare: +c.bare.toFixed(2) } : {}) });
+await mkdir(join(OUT, 'kit/share'), { recursive: true });
+await writeFile(join(OUT, 'kit/share/cards.json'), JSON.stringify({
+  site: cardEntry(CARD), ig: cardEntry(SHARE_CARDS.ig), hello: cardEntry(SHARE_CARDS.hello),
+  bg: SHARE_BG ? { file: SHARE_BG.file, width: SHARE_BG.width, height: SHARE_BG.height, focus: [SHARE_BG.fx, SHARE_BG.fy] } : null,
+}, null, 2) + '\n');
 
 // Profile images (Instagram 320, GitHub 460, YouTube 800): p.s in the mono at 600, centred on
 // resvg's ink box, at /kit/logo/'s upload sizes and fills.
