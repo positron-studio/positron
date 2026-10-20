@@ -142,7 +142,7 @@ export class Chamber extends DurableObject {
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
-    if (u.pathname === '/ws') return env.LAB.get(env.LAB.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
+    if (u.pathname === '/ws') return env.CHAMBER.get(env.CHAMBER.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
     return new Response('chamber: an experiment; GET /ws with a WebSocket\n');
   },
 };

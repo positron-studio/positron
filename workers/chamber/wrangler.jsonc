@@ -1,4 +1,4 @@
-// chamber: the cast's engine in a Durable Object (named castlab while it was a throwaway experiment) (the cast's wasm engine in a Durable Object). No routes, no custom domain.
+// chamber: the cast's engine (the wasm scsynth, the ring, the layers, the master) in a Durable Object; named castlab while a throwaway experiment.
 // node gen-glue.mjs first; then wrangler dev, or wrangler deploy once and wrangler delete after.
 {
   "name": "positron-chamber",
