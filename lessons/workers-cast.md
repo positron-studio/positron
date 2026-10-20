@@ -762,3 +762,25 @@ restart or a program edit.
 - `node workers/cast/fresh-test.mjs`: 10 checks against a fake feed and clock, one a negative control. MEASURED: sorting
   oldest first turns three red (7/10).
 
+
+## gate
+
+`workers/cast/gate.mjs` and `workers/cast/render.mjs`, 2026-10-20. Asked after an evening of about 15 live sound
+deploys, each on one complaint and none listened to first (HANDOFF session 85): *"Maybe 15min is ok?"*, then
+*"Note inneed ui to prelisten / scrib etc"*, then *"can you render i nparallel?"* and *"also make one dry render"*.
+
+- The render is the code on air, not a model of it: `startLive` from `container/live.mjs` in the grains-local
+  image, the station's stored program, the files as `/file/<id>` serves them (cached in
+  `~/.cache/positron-cast-files`), at the station's size (`--cpus 1 --memory 3072m`). JACK's dummy driver is the
+  clock, so 15 min takes 15 min. Renders run side by side instead (`--each`), one container and one git worktree each.
+- Events are logged on the mix clock and moved onto the MP3's clock by the median of `seconds - mp3Seconds`
+  (the pipes and the encoder), so a scene mark on the page lands where it is heard.
+- `--dry` is the same files through the tuner and the master only (ring at mix 0, no layers), a file every
+  100 s with a 15 s cross-fade: the reference the processing is heard against.
+- The checks are what the owner complained about, measured on the MP3 with ffmpeg: integrated -18 to -14 LUFS,
+  LRA under 8, true peak under -1 dBFS, no silence over 0.7 s at -50 dB, no short-term stretch under -30 LUFS, no
+  rise of 10 LU in 3 s, each hand-over within 6 LU before against after and no dip of 8 LU inside it, every
+  finished scene at least 40 s, no xruns, no driver failure.
+- The MP3 goes to R2 (`positron-station/cast-renders/<name>.mp3`, served immutable by the station worker's
+  `/media/`, so a new render is a new name), the report into `demo/radio/cast/renders/renders.json`, shown at
+  `/radio/cast/renders/` after a site deploy.
