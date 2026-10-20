@@ -1,3 +1,11 @@
+# Handoff, 2026-10-20 evening, session 86: events11 ported to main, the cast deploy waits; the chamber is live
+
+- **Site BUILD `bbd48118-152059-5e0c`**, confirmed: LOCAL plays the events11 composer, https://positron.studio/radio/chamber/ is up, the renders page has main-events11. Not pushed.
+- **The cast is NOT deployed.** The port is committed (`fab4fcf2`, then fixes) and main passed the gate as `main-events11` (-15.9 LUFS, LRA 7.7, peak -3.5, 0 clicks, hand-overs within 4.6, 0 xruns). The deploy (`node workers/cast/deploy.mjs`) was refused by the session's permission classifier as a production deploy; the owner runs it or allows it. All six stations were off at 15:21Z.
+- **What the port is:** refs/renders/morning-events11's composer (life.mjs, layers.mjs, master.mjs) with isTest, TEST_DWELL, MIN_BLEND, MIN_DWELL kept; main's live.mjs with the freeze gate, effects landed on moments, the duck, softened ghosts; gains.mjs with each file's moments and Evening rituals soft. Tests: life 103/103, load 16/16, local 27, live 28/28, grains 26/26, layers 16/16, handover 29/29.
+- **The chamber** (workers/chamber/, named castlab while an experiment): the cast's engine in a Durable Object at chamber.positron.studio, 0.89 to 0.97 ms of CPU per 20 ms on Cloudflare. The page sends a file or the microphone and plays it back; one session at a time; plan-cast-lightweight.md sections 8 to 10.
+- **Decided today:** no pre-render, no offline render (*"we need to deal with live sources"*); the light chain (workers/cast/light/, a fifth less CPU, two thirds less memory) and the chamber are the next engines, after Üle Heli.
+
 # Handoff, 2026-10-20 midday, session 86 continued: morning-events3 passes the gate, waiting on the owner's listen
 
 - **Site BUILD `f4114bd1-092953-c1b3`**, confirmed. Not pushed. No cast deploy all session; the station sounds as `0084743e` did.
