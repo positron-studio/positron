@@ -432,6 +432,10 @@ with its own temp profile, and the owner needed Chrome closed.
   `pgrep -fl "Google Chrome.*--headless"` should print nothing, and
   `pkill -f "Google Chrome.*--headless"` clears what is left. It never
   touches the owner's own Chrome (no `--headless` in its command line).
+- ⚠️ **Playwright's `chrome-headless-shell` is a headless Chrome the pattern above
+  misses** (2026-10-20: *"chrome isntances choking my machine"*, at 65 % of a core).
+  Sweep it too: `pgrep -fl "chrome-headless-shell"` should print nothing, and
+  `pkill -f "chrome-headless-shell"` clears it.
 - Temp profiles (`mkdtemp` under the system temp dir) go with it: remove the
   directory in the same `finally`.
 
