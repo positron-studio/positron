@@ -480,7 +480,7 @@ no planner.
 Built: one object, `station-preview` (class `Station`), plays the cast on its own clock and serves listeners itself,
 no Icecast and no container. Routes on https://edgecast.positron.studio: `GET /listen` (MP3 to any number of listeners,
 each given the last 2 s first), `GET /status` (JSON), `POST /start?key=&cap=<minutes>` (default 30, 1 to 1440),
-`POST /stop?key=`. The key is the secret `EDGECAST_KEY` (in `.env`). The browser mode (`/ws`) is unchanged.
+`POST /stop?key=`. The key is the cast's own `CAST_KEY` (in `.env`), set as a secret on edgecast too. The browser mode (`/ws`) is unchanged.
 
 The chain, all in one isolate: the program from `cast.positron.studio/feed` (gains, kinds, moments already on it),
 shuffled by the votes as the Caster's `pickFiles`; each file from `cast.positron.studio/file/<id>`; mpg123 in wasm

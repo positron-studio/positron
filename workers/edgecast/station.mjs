@@ -29,7 +29,7 @@ export class Station extends DurableObject {
     if (p === '/status') return json(await this.status());
     if (p === '/start' || p === '/stop') {
       if (req.method !== 'POST') return json({ error: `POST ${p}` }, 405);
-      if (!this.env.EDGECAST_KEY || u.searchParams.get('key') !== this.env.EDGECAST_KEY) return json({ error: `${p} needs the key` }, 403);
+      if (!this.env.CAST_KEY || u.searchParams.get('key') !== this.env.CAST_KEY) return json({ error: `${p} needs the key` }, 403);
       if (p === '/stop') { await this.halt('stopped by request'); return json(await this.status()); }
       const cap = Math.round(Math.min(CAP_MIN.max, Math.max(CAP_MIN.min, Number(u.searchParams.get('cap')) || CAP_MIN.default)));
       if (await this.ctx.storage.get('want')) return json({ error: 'already playing: stop it first', ...(await this.status()) }, 409);
