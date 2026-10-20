@@ -395,3 +395,39 @@ Not needed for portability: scsynth is C++ and SuperSonic already compiles it to
 port of our subset (the 36 UGens sclang-lite knows, the ring, FreeVerb, the limiter) would be lighter and would also run
 native on the Pi and as wasm everywhere, but it is weeks of work and gives up the SynthDef programs the layers and the
 master are written in. It comes back only if item 1 or 2 above fails.
+
+### SFU costs (Realtime pricing, read 2026-10-20)
+
+$0.05 per GB from Cloudflare to us or to a listener; the first 1,000 GB a month free, shared by SFU, TURN and the
+adapter; traffic into Cloudflare free (the adapter's ingest included).
+
+| path | size | price |
+| --- | --- | --- |
+| a live source into the object (adapter egress, 48 kHz stereo 16-bit PCM) | 192 kB/s, 0.69 GB an hour | $0.035 a live hour; $0.83 a day if live round the clock |
+| the object back into the SFU (adapter ingest) | | free |
+| one WebRTC listener (Opus about 96 kbit/s) | 43 MB an hour | $0.002 a listener hour |
+| Väin's stations (the object's TCP source to their Icecast) | | no Realtime cost |
+
+The free 1,000 GB a month is about 1,450 live hours of PCM in, or about 23,000 listener hours out.
+
+## 9. The light chain, measured (2026-10-20, workers/cast/light/)
+
+One process: node drives the vendored SuperSonic wasm scsynth (`wasm-scsynth.mjs` runs the vendor's worklet in a
+`node:vm` context, one `process()` per 128 frames), the tuner straight in, LAME the only child; no JACK, no jack-stdio,
+no native scsynth, no UDP. `grains-light.mjs` keeps `startGrains`' handle, so `live.mjs` runs unchanged. MEASURED in
+grains-local on OrbStack, 60 s windows, seed 7, the three cached files:
+
+| run | container % of a core | memory peak | keeps up |
+| --- | --- | --- | --- |
+| today, 1 vCPU | 23.5 to 23.8 (kernel 6.3 to 7.6) | 316 to 478 MiB | yes |
+| light, 1 vCPU | 15.5 to 19.7 (kernel 0.8 to 1.2) | 110 to 133 MiB | yes |
+| today, 0.5 | 21.0 | 316 | yes |
+| light, 0.5 | 18.8 to 19.6 | 167 to 205 | yes after boot |
+| today, 0.25 | 21.3, throttled 46 s of 60 | 318 | no: 10 xruns |
+| light, 0.25, lead 2 to 4 s | 17.7 to 18.4 | 200 to 253 | yes, 400 ms stalls absorbed |
+
+Today's split: node 10, native scsynth 5.1 to 5.7, jack-stdout 2.9, jack-stdin 2.0 to 2.4 (both 70 to 80 % kernel time),
+LAME 2.5. The cheap toggles (sampleClock off, status once a second, the period) are inside the noise. Sound: dry, the
+two engines differ by -40.8 dB (rounding); wet, same loudness within 0.1 LU; a live source arriving at 40 s lands at
+about 50 s in both, 0 underruns. Open before air: a 1 to 2 s lead or the wasm in a worker_thread, a dead path, the live
+and handover tests, the owner's listen.
