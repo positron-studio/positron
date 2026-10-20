@@ -88,7 +88,10 @@ if (ICE_PW) iceStart();
 
 function sourceHead(t, title) {
   return [`PUT /${t.mount} HTTP/1.0`, `Authorization: Basic ${Buffer.from(`source:${t.pw}`).toString('base64')}`, 'Content-Type: audio/mpeg',
-    'ice-name: positron cast', `ice-description: ${(title || 'Väin archive').replace(/[^\x20-\x7e]/g, '?')}`,
+    // what Väin's app shows: "<ice-name> on <channel>", and ice-description under it, read once when the source connects
+    // (their icecast_on_connect.sh). An empty or missing description reads "Unspecified description" on Icecast 2.4.4,
+    // so a fixed word stands there until their script drops it (2026-10-20, the 25.10 helikorje)
+    'ice-name: Väin', 'ice-description: helikorje',
     'ice-genre: archive', `ice-url: ${t.mount}`, 'ice-audio-info: send_notification=0;save_stream=0'];
 }
 
@@ -101,7 +104,8 @@ function icecastSink(t, title) {
     const done = (e) => { if (settled) return; settled = true; clearTimeout(timer); if (e) { sock.destroy(); no(e); } else ok(sink); };
     const timer = setTimeout(() => done(new Error(`${t.host} answered nothing in 8 s`)), 8000);
     sock.setNoDelay(true);
-    sock.on('connect', () => sock.write([...sourceHead(t, title), '', ''].join('\r\n')));
+    // Latin-1 on the wire: Icecast reads header bytes as Latin-1, so UTF-8 "Väin" arrived as "VÃ¤in" (measured on 2.4.4)
+    sock.on('connect', () => sock.write(Buffer.from([...sourceHead(t, title), '', ''].join('\r\n'), 'latin1')));
     sock.on('data', (b) => {
       if (settled) return; // drain whatever follows the status line, as their app does
       got += b.toString('latin1');
