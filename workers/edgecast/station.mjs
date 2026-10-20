@@ -11,6 +11,7 @@ import lameModule from './vendor/lame.wasm';
 import mpgModule from './vendor/mpg123.wasm';
 import glue from './glue.gen.mjs';
 import { createStation, loadProgram, LEAD_S, FRESH_EVERY_MS } from './station-core.mjs';
+import { createRelayFeed, bindingPost } from './relay-feed.mjs';
 
 // which code is answering, so a deploy's restart shows in /status
 export const CODE = 'station-3';
@@ -78,6 +79,7 @@ export class Station extends DurableObject {
     try {
       if (!this.s) await this.up(this.bootedAt ? 'after an error' : 'restart (eviction or deploy)');
       const r = await this.s.pump();
+      await this.relayFeed?.flush();
       this.ticks++; this.lastPump = { at: Date.now(), ...r };
       // the feed check runs beside the render, never in front of it: a slow feed must not cost the lead
       if (this.s.ready && !this.freshing && Date.now() - (this.freshAt || 0) >= FRESH_EVERY_MS) {
@@ -106,7 +108,10 @@ export class Station extends DurableObject {
   }
 
   /** Every listener gets every frame; one that falls a megabyte behind, or whose write fails (gone), is let go. */
-  send(f) { for (const ear of this.ears) this.feed(ear, f); }
+  send(f) {
+    for (const ear of this.ears) this.feed(ear, f);
+    if (this.env.RELAY) (this.relayFeed ||= createRelayFeed({ post: bindingPost(this.env) })).push(f);
+  }
 
   feed(ear, f) {
     if (ear.queued > EAR_MAX_QUEUED) { this.drop(ear); return; }

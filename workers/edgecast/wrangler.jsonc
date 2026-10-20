@@ -11,5 +11,6 @@
   "routes": [{ "pattern": "edgecast.positron.studio", "custom_domain": true }],
   "durable_objects": { "bindings": [{ "name": "EDGECAST", "class_name": "Edgecast" }, { "name": "STATION", "class_name": "Station" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Edgecast"] }, { "tag": "v2", "new_sqlite_classes": ["Station"] }],
+  "services": [{ "binding": "RELAY", "service": "positron-edgecast-relay" }],
   "observability": { "enabled": true }
 }

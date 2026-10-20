@@ -1,0 +1,13 @@
+// edgecast-relay: one Icecast source held for the edgecast station (worker.mjs). Before /start can work:
+// set ICE_HOST, ICE_PORT, ICE_MOUNT as vars, and VAIN_SOURCE_PW and CAST_KEY as secrets. No route: edgecast reaches it
+// by a service binding, and /start and /stop go through workers.dev with the key.
+{
+  "name": "positron-edgecast-relay",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  "vars": { "RELAY_MAX_MIN": "120" },
+  "durable_objects": { "bindings": [{ "name": "RELAY", "class_name": "Relay" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Relay"] }],
+  "observability": { "enabled": true }
+}
