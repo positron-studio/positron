@@ -40,7 +40,7 @@ import { SELFCHECK } from '/shell/selfcheck.mjs';
 const d = mount({ name: 'Cast renders', what: '', readout: null, index: '/radio/cast/', indexLabel: 'Väin cast' });
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-const COL = { hand: MEDIUM_COLOURS.audio, ghost: MEDIUM_COLOURS.program, loud: MEDIUM_COLOURS.value };
+const COL = { hand: MEDIUM_COLOURS.audio, ghost: MEDIUM_COLOURS.program, loud: MEDIUM_COLOURS.value, fx: MEDIUM_COLOURS.midi };
 
 // the audio opens on the first press of play, never on a visit
 const audio = new Audio();
@@ -53,7 +53,7 @@ const now = el('span', 'cr-now');
 const play = createIconButton({ icon: 'play', label: 'play', onPress: () => toggle() });
 const panel = createVideoPanel({ media: host, left: false, right: play.el, centre: now, aspect: 'auto', fullMode: 'bare' });
 const key = el('div', 'cr-key');
-for (const [label, c] of [['loudness', COL.loud], ['hand-over', COL.hand], ['ghost', COL.ghost], ['gap or quiet', css('--bad')], ['scene start', css('--dim')]]) {
+for (const [label, c] of [['loudness', COL.loud], ['hand-over', COL.hand], ['ghost', COL.ghost], ['effect', COL.fx], ['gap or quiet', css('--bad')], ['scene start', css('--dim')]]) {
   const s = el('span'); const sw = el('i'); sw.style.background = c; s.append(sw, label); key.append(s);
 }
 
@@ -84,7 +84,7 @@ function pick(r) {
   audio.pause(); audio.removeAttribute('src'); audio.load();
   checks.set(r.checks.map((c) => ({ ok: c.ok ? 'ok' : 'FAIL', what: c.what, got: c.got })));
   scenes.set(r.scenes.map((s) => ({ _at: s.at, at: mmss(s.at), len: s.real != null ? `${Math.round(s.real)} s` : '',
-    what: r.dry ? s.file : `${s.patch} on ${s.file}`,
+    what: r.dry ? s.file : `${s.patch} on ${s.file}${s.fx ? `, ${s.fx.kind} at ${mmss(s.at + s.fx.at)}` : ''}`,
     layer: [s.drone !== 'none' && s.drone && 'drone', s.harm !== 'none' && s.harm && 'harmonizer', s.ghost !== 'none' && s.ghost && 'ghost'].filter(Boolean).join(', ') || 'no layers' })));
   d.log(`${r.name}: ${r.pass ? 'PASS' : 'FAIL'}, ${r.I} LUFS, code ${r.code}${r.dry ? ', dry' : ''}`);
   if (was) start(); else draw();
@@ -118,6 +118,9 @@ function draw() {
   for (const h of cur.handovers) { g.fillStyle = COL.hand; g.globalAlpha = 0.28; g.fillRect(x(h.at), top, Math.max(2, x(h.to ?? h.at) - x(h.at)), bot - top); }
   g.globalAlpha = 1;
   for (const gh of cur.ghosts) { g.fillStyle = COL.ghost; g.fillRect(x(gh.at), top - 6, Math.max(2, x(gh.end ?? gh.at + 20) - x(gh.at)), 3); }
+  // a scene's surprise effect, on the scene's own clock
+  g.fillStyle = COL.fx;
+  for (const s of cur.scenes) if (s.fx) g.fillRect(x(s.at + s.fx.at), top - 6, Math.max(2, x(s.fx.len) - x(0)), 3);
   g.fillStyle = css('--bad');
   for (const q of [...cur.gaps.map((v) => ({ at: v.at, end: v.at + v.s })), ...cur.quiet]) g.fillRect(x(q.at), top - 12, Math.max(2, x(q.end) - x(q.at)), 3);
   // -16 LUFS, the target
