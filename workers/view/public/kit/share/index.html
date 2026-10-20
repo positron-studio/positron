@@ -6,7 +6,7 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="share">
-<meta property="og:description" content="The card every page is shared with and its Instagram portrait, the front page’s hero type, as the PNGs the build makes and the SVG they are made from">
+<meta property="og:description" content="The card every page is shared with and its Instagram posts, as the PNGs the build makes, the SVG they are made from, and redrawn over a picture of your own">
 <meta property="og:url" content="https://positron.studio/kit/share/">
 <meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
 <meta property="og:image:width" content="1200">
@@ -28,34 +28,52 @@
      column's width, never wider than its own 1200 px. */
   .share-pic { display: block; inline-size: 100%; block-size: auto; }
   .share-svg > svg { display: block; inline-size: 100%; block-size: auto; }
-  /* the two side by side on a desk, the wide one taking the room its shape
-     asks for, so both are the same height; one under the other on a phone */
-  .share-row { display: grid; grid-template-columns: minmax(0, 1200fr) minmax(0, 504fr); gap: 16px; align-items: start; }
+  /* three across on a desk, each column as wide as its card's shape asks so all
+     three are one height (1200 by 630 is 1200fr to the portraits' 504fr); one
+     under another on a phone */
+  .share-row { display: grid; grid-template-columns: minmax(0, 1200fr) minmax(0, 504fr) minmax(0, 504fr); gap: 16px; align-items: start; }
   .share-row figure { margin: 0; min-width: 0; }
   .share-row figcaption { margin-top: 8px; font: 400 12px/1.5 var(--mono); color: var(--dim); }
   @media (max-width: 560px) { .share-row { grid-template-columns: minmax(0, 1fr); } }
   .share-tags { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 12px/1.6 var(--mono); color: var(--dim); }
+  /* the picture block: the drop area, its two focus lanes and the way back, and
+     the three cards over the picture, a row's air apart (--rows-gap is at :root) */
+  .share-bg { display: grid; gap: var(--rows-gap); flex: 1 1 100%; min-width: 0; }
+  .share-bg[hidden], .share-tools[hidden], .share-bg .share-row[hidden] { display: none; }
+  .share-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--rows-gap); }
+  .share-tools .sld-group { flex: 1 1 300px; }
 </style>
 <script type="module">
   import { siteCard, igCard, helloCard, shareTags, TEMPLATE_V } from '/shell/share-card.mjs';
-  import { textWidth } from '/shell/bay-svg.mjs';
+  import { backed, ground, luminance, ratio, base64, imageSize, CONTRAST, BG_TYPES } from '/shell/share-bg.mjs';
+  import { textWidth, INK } from '/shell/bay-svg.mjs';
   import { el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createKitPage } from '/shell/kit-page.mjs';
+  import { createDrop } from '/shell/drop.mjs';
+  import { createSlider, createSliderGroup } from '/shell/slider.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createLinkButton } from '/shell/link-button.mjs';
 
   /**
-   * The og:image card and Instagram portrait, drawn as SVG by demo/shell/share-card.mjs
+   * The og:image card and the two Instagram posts, drawn as SVG by demo/shell/share-card.mjs
    * and made PNGs at build by workers/view/og/render.mjs. The PNG exists only in a
    * build, so it is asked for only when this page's head carries og:image.
+   * A picture of the visitor's own is read in this tab, drawn behind the cards
+   * (demo/shell/share-bg.mjs) and rasterised here, never sent anywhere.
    * See lessons/page-kit-share.md#kit-share-1
    */
   const { d, section, land, checkPage } = createKitPage({
     part: 'share',
-    what: 'The card every page is shared with and its Instagram portrait, the front page’s hero type, drawn as SVG with no browser and made PNGs at build.',
+    what: 'The card every page is shared with and its Instagram posts, drawn as SVG with no browser, made PNGs at build, and redrawn here over a picture of your own.',
   });
 
-  const card = siteCard(), ig = igCard(), hello = helloCard();
+  const MAKERS = [[siteCard, 'og:image'], [igCard, 'instagram'], [helloCard, 'instagram hello']];
+  const plain = MAKERS.map(([make]) => make());
+  const [card, ig, hello] = plain;
   const shipped = document.querySelector('meta[property="og:image"]')?.content || null;
+  // In a build the names come from what the build wrote, which carries its own picture if one is committed.
+  const built = shipped ? await fetch('/kit/share/cards.json').then((r) => (r.ok ? r.json() : null)).catch(() => null) : null;
   const imgs = [];
   let inline = null;
   const figure = (c, name, child) => {
@@ -64,31 +82,176 @@
     return f;
   };
 
-  section('SITE CARD', 'The two PNGs as they ship: the 1200 by 630 card every page names, and the 1080 by 1350 Instagram portrait no page names, each named by a hash of its SVG.', null, (box) => {
+  // ── drawing in this tab ────────────────────────────────────────────────────
+  // An SVG drawn as an image may fetch nothing, so the picture is a data: URI and the faces are
+  // embedded as @font-face data: URIs, fetched from this origin on the first press.
+  const FACES = [['Brand JetBrains Mono', 400, 'jetbrains-mono-latin-400-normal'], ['Brand JetBrains Mono', 600, 'jetbrains-mono-latin-600-normal'],
+    ['Brand Geist', 400, 'geist-latin-400-normal'], ['Brand Geist', 600, 'geist-latin-600-normal']];
+  let faceCss = null;
+  const faces = () => (faceCss ??= Promise.all(FACES.map(async ([family, weight, file]) => {
+    const b = new Uint8Array(await (await fetch(`/shell/vendor/${file}.woff2`)).arrayBuffer());
+    return `@font-face{font-family:'${family}';font-weight:${weight};font-style:normal;src:url(data:font/woff2;base64,${base64(b)}) format('woff2')}`;
+  })).then((a) => a.join('')));
+  const withFaces = (svg, css) => svg.replace(/^(<svg[^>]*>)/, `$1<style>${css}</style>`);
+
+  async function raster(svg, w, h) {
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      return cv;
+    } finally { URL.revokeObjectURL(url); }
+  }
+  const pixels = (cv) => cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  const sample = async (svg, w, h) => pixels(await raster(svg, w, h));
+  const pngOf = async (c, { fonts = true } = {}) => {
+    const cv = await raster(fonts ? withFaces(c.svg, await faces()) : c.svg, c.width, c.height);
+    return { cv, blob: await new Promise((r) => cv.toBlob(r, 'image/png')) };
+  };
+
+  // ── the picture ────────────────────────────────────────────────────────────
+  let pic = null;           // { name, href, width, height, source }
+  let focus = [0.5, 0.5];
+  let backedCards = null;   // the three cards over the picture, as drawn last
+  let urls = [];
+  const bgFigs = [];
+
+  // Read in the tab, flattened onto the site's ground (a transparent PNG), turned upright by the
+  // browser, and shrunk to the most any of the three crops needs, so the SVGs stay small.
+  async function openPicture(f) {
+    const ext = (f.name.toLowerCase().match(/\.[a-z0-9]+$/) || [''])[0];
+    const url = URL.createObjectURL(new Blob([f.bytes], { type: BG_TYPES[ext] || '' }));
+    const img = new Image();
+    img.src = url;
+    try { await img.decode(); }
+    catch { URL.revokeObjectURL(url); drop.say(`${f.name} did not open as a picture in this browser`, 'bad'); return false; }
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const k = Math.min(1, Math.max(...plain.map((c) => Math.max(c.width / iw, c.height / ih))));
+    const cv = Object.assign(document.createElement('canvas'), { width: Math.max(1, Math.round(iw * k)), height: Math.max(1, Math.round(ih * k)) });
+    const g = cv.getContext('2d');
+    g.fillStyle = INK.bg;
+    g.fillRect(0, 0, cv.width, cv.height);
+    g.drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(url);
+    pic = { name: f.name, href: cv.toDataURL('image/jpeg', 0.92), width: cv.width, height: cv.height, source: [iw, ih] };
+    focus = [0.5, 0.5];
+    fx.set(50, true); fy.set(50, true);
+    drop.say(`${f.name}, ${iw} by ${ih}, read in this tab and sent nowhere`);
+    await redraw();
+    return true;
+  }
+
+  let drawing = 0;
+  async function redraw() {
+    const mine = ++drawing;
+    if (!pic) { paint(null); return; }
+    const bg = { href: pic.href, width: pic.width, height: pic.height, fx: focus[0], fy: focus[1] };
+    const cards = [];
+    for (const [make] of MAKERS) cards.push(await backed(make, bg, sample));
+    const pngs = [];
+    for (const c of cards) pngs.push(await pngOf(c));
+    if (mine !== drawing) return;
+    backedCards = cards.map((c, i) => ({ ...c, png: pngs[i] }));
+    paint(backedCards);
+  }
+
+  function paint(cards) {
+    for (const u of urls) URL.revokeObjectURL(u);
+    urls = [];
+    tools.hidden = !cards;
+    bgRow.hidden = !cards;
+    if (!cards) { backedCards = null; return; }
+    cards.forEach((c, i) => {
+      const { img, cap } = bgFigs[i];
+      const u = URL.createObjectURL(c.png.blob);
+      urls.push(u);
+      Object.assign(img, { src: u, alt: c.alt, width: c.width, height: c.height });
+      cap.textContent = `${MAKERS[i][1]}, ${c.width} by ${c.height}, scrim ${c.scrim.toFixed(2)}, text ${c.contrast.toFixed(2)}:1`;
+    });
+  }
+
+  function download(i) {
+    const c = backedCards?.[i];
+    if (!c) return;
+    const a = Object.assign(el('a'), { href: URL.createObjectURL(c.png.blob), download: c.path.split('/').pop() });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    d.log(`saved ${a.download}, ${c.width} by ${c.height}, ${c.png.blob.size} bytes`);
+  }
+
+  const drop = createDrop({
+    accept: Object.keys(BG_TYPES),
+    label: 'Choose a picture',
+    beside: 'or drop one anywhere on this page',
+    hint: 'it stays in this tab and is never uploaded',
+    empty: '',
+    says: (s, k) => d.log(s, k),
+    onOpen: (files) => openPicture(files[0]),
+  });
+  const onFocus = (axis) => (v) => { focus[axis] = v / 100; redraw(); };
+  const fx = createSlider({ label: 'focus x', min: 0, max: 100, step: 1, value: 50, unit: '%', onChange: onFocus(0) });
+  const fy = createSlider({ label: 'focus y', min: 0, max: 100, step: 1, value: 50, unit: '%', onChange: onFocus(1) });
+  const back = createButtonGroup({ buttons: [{ id: 'plain', label: 'Plain cards',
+    onPress: () => { pic = null; drawing++; paint(null); drop.say(''); d.log('back to the plain cards'); } }] });
+  const tools = el('div', 'share-tools');
+  tools.append(createSliderGroup([fx, fy], { pair: true }).el, back.el);
+  tools.hidden = true;
+  const bgRow = el('div', 'share-row');
+  bgRow.hidden = true;
+  for (let i = 0; i < MAKERS.length; i++) {
+    const img = el('img', 'share-pic');
+    const cap = el('span');
+    const f = el('figure');
+    const fc = el('figcaption');
+    fc.append(cap, ' ', createLinkButton({ label: 'Download PNG', onPress: () => download(i) }).el);
+    f.append(img, fc);
+    bgFigs.push({ img, cap });
+    bgRow.append(f);
+  }
+
+  // For a check or a shot: the picker's own path, with no file dialog.
+  window.__share = { open: (files) => drop.open(files), cards: () => backedCards };
+
+  section('BACKGROUND', 'A picture of your own behind the three cards, under a scrim of the site’s ground as dark as the text needs to read at 4.5:1, each saved as a PNG at its real size.', null, (box) => {
+    const wrap = el('div', 'share-bg');
+    wrap.append(drop.el, tools, bgRow);
+    box.append(wrap);
+  });
+
+  section('SITE CARD', 'The three PNGs as they ship: the 1200 by 630 card every page names and the two 1080 by 1350 Instagram posts no page names, each named by a hash of its SVG.', null, (box) => {
     if (!shipped) { box.append(el('p', 'kit-n', `This copy of the page is not built, so there are no PNGs beside it. The build writes ${card.path}, ${ig.path} and ${hello.path}.`)); return; }
     const row = el('div', 'share-row');
-    for (const [c, name] of [[card, 'og:image'], [ig, 'instagram'], [hello, 'instagram hello']]) {
-      const img = Object.assign(el('img', 'share-pic'), { src: c.path, alt: c.alt, width: c.width, height: c.height });
-      const a = Object.assign(el('a', 'pos-linkbtn', `download ${c.path.split('/').pop()}`), { href: c.path, download: c.path.split('/').pop() });
-      const f = figure(c, name, img);
+    const paths = built ? [built.site, built.ig, built.hello] : plain;
+    plain.forEach((c, i) => {
+      const p = paths[i];
+      const img = Object.assign(el('img', 'share-pic'), { src: p.path, alt: c.alt, width: c.width, height: c.height });
+      const file = p.path.split('/').pop();
+      const a = Object.assign(el('a', 'pos-linkbtn', `download ${file}`), { href: p.path, download: file });
+      const f = figure(c, MAKERS[i][1], img);
+      if (p.scrim !== undefined) f.querySelector('figcaption').append(`, over ${built.bg.file}, scrim ${p.scrim.toFixed(2)}, text ${p.contrast.toFixed(2)}:1`);
       f.querySelector('figcaption').append(' ', a);
       imgs.push([c, img]);
       row.append(f);
-    }
+    });
     box.append(row);
   });
 
-  section('THE SVG', 'The same two pictures as the SVG each PNG is made from, written in this tab by the code the build runs, every attribute literal.', null, (box) => {
+  section('THE SVG', 'The same three pictures as the SVG each PNG is made from, written in this tab by the code the build runs, every attribute literal.', null, (box) => {
     const row = el('div', 'share-row');
-    for (const [c, name] of [[card, 'og:image'], [ig, 'instagram'], [hello, 'instagram hello']]) {
+    plain.forEach((c, i) => {
       const holder = el('div', 'share-svg');
       holder.innerHTML = c.svg;
       const svg = holder.firstElementChild;
       svg.setAttribute('role', 'img');
       svg.setAttribute('aria-label', c.alt);
       if (!inline) inline = holder;
-      row.append(figure(c, name, holder));
-    }
+      row.append(figure(c, MAKERS[i][1], holder));
+    });
     box.append(row);
   });
 
@@ -131,15 +294,120 @@
       t ? `"${t.textContent}" ${got.toFixed(1)} px wide in ${fam.split(',')[0]}, the metrics said ${predicted.toFixed(1)}` : 'no 600 text in the SVG');
   }
 
-  // 3. in a build, the og:image this page carries is the card this tab drew,
-  // and both PNGs load at their own sizes
+  // 3. in a build, the og:image this page carries is the card the build wrote,
+  // which is the card this tab computed unless a picture was committed, and all
+  // three PNGs load at their own sizes
   if (shipped) {
     await Promise.all(imgs.map(([, img]) => (img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; }))));
     const sizes = imgs.map(([c, img]) => `${c.path.split('/').pop()} ${img.naturalWidth}x${img.naturalHeight}`);
-    d.assert('the og:image in this page’s head is the card this tab computed, and both PNGs load at their own sizes',
-      new URL(shipped).pathname === card.path && imgs.length === 2 && imgs.every(([c, img]) => img.naturalWidth === c.width && img.naturalHeight === c.height),
-      `${new URL(shipped).pathname} against ${card.path}, ${sizes.join(', ')}`);
+    const want = built?.site.path ?? card.path;
+    const same = built?.bg ? built.site.path !== card.path : want === card.path;
+    d.assert('the og:image in this page’s head is the card the build wrote, the one this tab computed unless a picture is committed, and all three PNGs load at their own sizes',
+      !!built && new URL(shipped).pathname === want && same && imgs.length === 3 && imgs.every(([c, img]) => img.naturalWidth === c.width && img.naturalHeight === c.height),
+      `${new URL(shipped).pathname} against ${want}${built?.bg ? ` over ${built.bg.file}` : ''}, ${sizes.join(', ')}`);
   } else d.log(`not built: no og:image in this page's head, so the PNG check is the build's (${card.path}, ${ig.path})`);
+
+  // 4. a visit opens nothing: no picture and no faces until somebody presses
+  d.assert('a visit opens no picture, draws no card over one and fetches no face to embed',
+    drop.opens === 0 && !pic && !faceCss && tools.hidden && bgRow.hidden,
+    `${drop.opens} opened, tools ${tools.hidden ? 'hidden' : 'shown'}, cards ${bgRow.hidden ? 'hidden' : 'shown'}`);
+
+  // A test picture made in this tab, through the picker's own path: a sky that runs to white with a
+  // white sun under the headline, bright enough that the text needs a dark scrim.
+  const test = Object.assign(document.createElement('canvas'), { width: 1600, height: 1000 });
+  {
+    const g = test.getContext('2d'), grad = g.createLinearGradient(0, 0, 0, 1000);
+    grad.addColorStop(0, '#7fb8ff'); grad.addColorStop(1, '#ffffff');
+    g.fillStyle = grad; g.fillRect(0, 0, 1600, 1000);
+    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(700, 300, 200, 0, 7); g.fill();
+  }
+  const testBytes = new Uint8Array(await (await new Promise((r) => test.toBlob(r, 'image/png'))).arrayBuffer());
+  await drop.open([new File([testBytes], 'check-sky.png', { type: 'image/png' })]);
+
+  // 5. all three cards redraw over the picture, under new names
+  {
+    const ok = backedCards?.length === 3 && backedCards.every((c, i) => c.svg.includes('<image href="data:image/jpeg;base64,')
+      && c.svg.includes('fill-opacity=') && c.path !== plain[i].path && c.width === plain[i].width && c.height === plain[i].height);
+    d.assert('a picture opened through the picker goes behind all three cards, each under a new name',
+      ok && !tools.hidden && !bgRow.hidden,
+      backedCards ? backedCards.map((c) => `${c.path.split('/').pop()} scrim ${c.scrim}`).join(', ') : 'nothing drawn');
+  }
+
+  // 6. the text reads at 4.5:1, measured off this browser's own raster of the picture and the scrim
+  // with no text on it, which is a second source beside share-bg.mjs's arithmetic. And the scrim is
+  // the least that does it: 0.05 lighter measures under 4.5 on this picture (the negative control).
+  {
+    const LIN = Float64Array.from({ length: 256 }, (_, v) => { const u = v / 255; return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; });
+    const measure = async (c, scrim) => {
+      const bg = { href: pic.href, width: pic.width, height: pic.height, fx: focus[0], fy: focus[1], scrim };
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${c.width}" height="${c.height}" viewBox="0 0 ${c.width} ${c.height}">${ground(c.width, c.height, bg)}</svg>`;
+      const px = await sample(svg, c.width, c.height);
+      let worst = Infinity;
+      for (const r of c.regions) {
+        const ink = Math.min(...r.inks.map(luminance));
+        for (let y = Math.max(0, r.y | 0); y < Math.min(c.height, r.y + r.height); y++) for (let x = Math.max(0, r.x | 0); x < Math.min(c.width, r.x + r.width); x++) {
+          const i = (y * c.width + x) * 4;
+          const L = 0.2126 * LIN[px[i]] + 0.7152 * LIN[px[i + 1]] + 0.0722 * LIN[px[i + 2]];
+          const q = ratio(ink, L);
+          if (q < worst) worst = q;
+        }
+      }
+      return worst;
+    };
+    const at = [], under = [];
+    for (const c of backedCards || []) { at.push(await measure(c, c.scrim)); under.push(await measure(c, Math.max(0, c.scrim - 0.05))); }
+    d.assert('over the picture every block of text reads at 4.5:1 or better, measured off this browser’s raster, and a scrim 0.05 lighter does not',
+      at.length === 3 && at.every((v) => v >= CONTRAST - 0.05) && under.every((v) => v < CONTRAST),
+      at.map((v, i) => `${MAKERS[i][1]} ${v.toFixed(2)}:1 at ${backedCards[i].scrim}, ${under[i].toFixed(2)}:1 lighter`).join(', '));
+  }
+
+  // 7. a download is the card at its real size, in the site's faces: the line's first row ends where
+  // the same words end when this page's own Geist sets them on a canvas (ink against ink, so the
+  // last glyph's side bearing cancels). Without the embedded faces it ends somewhere else (the control).
+  {
+    const edge = (cv, c) => {
+      const r = c.regions.find((q) => q.name === 'line');
+      const px = pixels(cv), pad = 0.2 * 22 * c.scale;
+      const top = Math.round(r.y + pad), bottom = Math.round(top + 22 * 1.45 * c.scale);
+      let right = -1;
+      for (let y = top; y < bottom; y++) for (let x = Math.round(r.x); x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        if (px[i] > 200 && px[i + 1] > 200 && px[i + 2] > 200 && x > right) right = x;
+      }
+      return right + 1;
+    };
+    const c = backedCards?.[0];
+    const lineText = c ? [...c.svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*font-family="&apos;Brand Geist[^"]*" font-weight="400" font-size="([\d.]+)"(?: letter-spacing="([-\d.]+)")?[^>]*>([^<]+)<\/text>/g)][0] : null;
+    let detail = 'nothing drawn', ok = false;
+    if (c && lineText) {
+      const [, x, y, size, track, text] = lineText;
+      const ref = Object.assign(document.createElement('canvas'), { width: c.width, height: c.height });
+      const g = ref.getContext('2d');
+      g.font = `400 ${size}px "Brand Geist"`;
+      g.letterSpacing = `${track || 0}px`;
+      g.fillStyle = '#ffffff';
+      g.fillText(text.replace(/&apos;/g, '\'').replace(/&amp;/g, '&'), +x, +y);
+      const predicted = edge(ref, c);
+      const withFaces = edge(c.png.cv, c);
+      const bare = edge((await pngOf(c, { fonts: false })).cv, c);
+      const head = new Uint8Array(await c.png.blob.slice(0, 32).arrayBuffer());
+      const size1 = imageSize(head), size2 = imageSize(new Uint8Array(await backedCards[1].png.blob.slice(0, 32).arrayBuffer()));
+      ok = predicted > 0 && Math.abs(withFaces - predicted) <= 2 && Math.abs(bare - predicted) > 2
+        && size1?.width === 1200 && size1?.height === 630 && size2?.width === 1080 && size2?.height === 1350;
+      detail = `line ends at ${withFaces} px in the download, this page’s Geist ends it at ${predicted}, ${bare} px without the faces, PNGs ${size1?.width}x${size1?.height} and ${size2?.width}x${size2?.height}`;
+    }
+    d.assert('a downloaded card is a PNG at its real size with the text in the site’s faces, and without them it measures differently',
+      ok, detail);
+  }
+
+  // 8. the way back: the plain cards, the picture forgotten
+  {
+    back.button('plain').click();
+    await frames(2);
+    d.assert('Plain cards puts the picture away and hides what was drawn over it',
+      !pic && !backedCards && tools.hidden && bgRow.hidden && getComputedStyle(bgRow).display === 'none',
+      `picture ${pic ? 'kept' : 'gone'}, cards ${getComputedStyle(bgRow).display}`);
+  }
   } // if (SELFCHECK)
 
   d.ready();

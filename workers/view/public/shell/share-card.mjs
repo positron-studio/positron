@@ -5,6 +5,7 @@
 import { HERO } from './hero.mjs';
 import { textWidth, xml, INK, FAMILY } from './bay-svg.mjs';
 import M from './font-metrics.mjs';
+import { ground } from './share-bg.mjs';
 
 // Bump on a change the SVG cannot show (a face, resvg): it is in every hash.
 // why: lessons/kit-share-card.md#template-v
@@ -47,6 +48,13 @@ function balance(text, t, maxW) {
   return wrap(text, t, hi);
 }
 const blockW = (lines, t) => Math.max(...lines.map((l) => width(l, t)));
+// A text block's box at scale k, padded by a fifth of its size, with the inks it is drawn in:
+// what share-bg.mjs measures a background picture under.
+const region = (name, r, x, y, k, inks) => {
+  const size = r.t.size * k, padR = 0.2 * size;
+  return { name, x: x - padR, y: y - padR, width: blockW(r.lines, r.t) * k + 2 * padR,
+    height: r.lines.length * r.t.lh * size + 2 * padR, inks };
+};
 
 // The hero block laid out at the front page's sizes in a column `measure` wide:
 // its lines, and its width and height in those units.
@@ -109,7 +117,7 @@ function block(r, x, y0, k) {
  * why: lessons/kit-share-card.md#hero-card
  */
 const MARK_AIR = 40;
-function heroCard(w, h, pad, kind, lines = [2]) {
+function heroCard(w, h, pad, kind, lines = [2], bg = null) {
   let best = null;
   for (const n of lines) for (const head of breaks(HERO.head, n)) for (let m = 360; m <= 1000; m += 8) {
     const L = layout(m, head);
@@ -119,20 +127,27 @@ function heroCard(w, h, pad, kind, lines = [2]) {
   const { L, k } = best;
   const x = pad, parts = [];
   let y = pad;
-  for (const r of L.rows) { y += r.gap * k; parts.push(block(r, x, y, k)); y += r.lines.length * r.t.lh * r.t.size * k; }
+  const regions = [];
+  L.rows.forEach((r, i) => {
+    y += r.gap * k; parts.push(block(r, x, y, k));
+    regions.push(region(i ? 'line' : 'headline', r, x, y, k, i ? [r.t.fill] : [r.t.fill, INK.hi]));
+    y += r.lines.length * r.t.lh * r.t.size * k;
+  });
   parts.push(block(L.mark, x, h - pad - L.markH * k, k));
+  regions.push(region('wordmark', L.mark, x, h - pad - L.markH * k, k, [INK.dim, INK.hi]));
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
-    + `<rect width="${w}" height="${h}" fill="${INK.bg}"/>${parts.join('')}</svg>`;
+    + `${ground(w, h, bg)}${parts.join('')}</svg>`;
   const version = fnv(`${svg}|${TEMPLATE_V}`);
   return { svg, alt: ALT, version, path: `/og/${kind}-${version}.png`, width: w, height: h, scale: k,
-    headSize: TYPE.head.size * k, markSize: MARK.size * k, head: L.rows[0].lines };
+    headSize: TYPE.head.size * k, markSize: MARK.size * k, head: L.rows[0].lines, regions };
 }
 const ALT = `${SITE_NAME}: ${HERO.head} ${HERO.line}`;
 
-/** The site card, the og:image of every page: `{ svg, alt, version, path, width, height }`. */
-export const siteCard = () => heroCard(W, H, 72, 'site');
+/** The site card, the og:image of every page: `{ svg, alt, version, path, width, height, regions }`.
+ *  `bg` (share-bg.mjs) puts a picture behind it; the hash then covers the picture too. */
+export const siteCard = (bg) => heroCard(W, H, 72, 'site', [2], bg);
 /** The Instagram portrait, 1080 by 1350, tagged on no page: posted by hand. */
-export const igCard = () => heroCard(IG_W, IG_H, 96, 'ig', [2, 3, 4]);
+export const igCard = (bg) => heroCard(IG_W, IG_H, 96, 'ig', [2, 3, 4], bg);
 
 // A second Instagram post: these four lines as given, as large as fits, wordmark at the foot.
 // why: lessons/kit-share-card.md#hello
@@ -166,7 +181,7 @@ function dots(r, x, y0, k) {
   });
   return out.join('');
 }
-export function helloCard() {
+export function helloCard(bg = null) {
   const w = IG_W, h = IG_H, pad = 96;
   const r = { t: TYPE.head, lines: HELLO, hello: true, gap: 0 };
   const mark = { t: MARK, lines: [SITE_NAME], studio: true, gap: 0 };
@@ -179,10 +194,11 @@ export function helloCard() {
   const k = 0.75 * Math.min((w - 2 * pad) / tw, (h - 2 * pad - markH - MARK_AIR * km) / th);
   clips = 0;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
-    + `<rect width="${w}" height="${h}" fill="${INK.bg}"/>${block(r, pad, pad, k)}${dots(r, pad, pad, k)}${block(mark, pad, h - pad - markH, km)}</svg>`;
+    + `${ground(w, h, bg)}${block(r, pad, pad, k)}${dots(r, pad, pad, k)}${block(mark, pad, h - pad - markH, km)}</svg>`;
   const version = fnv(`${svg}|${TEMPLATE_V}`);
+  const regions = [region('headline', r, pad, pad, k, [r.t.fill, INK.dim]), region('wordmark', mark, pad, h - pad - markH, km, [INK.dim, INK.hi])];
   return { svg, alt: `${SITE_NAME}: ${HELLO.join(' ')}`, version, path: `/og/hello-${version}.png`, width: w, height: h, scale: k,
-    headSize: TYPE.head.size * k, markSize: MARK.size * km, head: HELLO };
+    headSize: TYPE.head.size * k, markSize: MARK.size * km, head: HELLO, regions };
 }
 
 /** FNV-1a, 8 hex, eccm's and trip's cardVersion. */
