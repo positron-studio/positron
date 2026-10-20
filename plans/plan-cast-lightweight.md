@@ -324,3 +324,18 @@ What to drop, in order of what it buys:
 | whether jackd `-d dummy -w 0` keeps jack-stdio whole | a 5 min run, count the bytes in and out | an hour, local |
 | the ring's CPU in a tab and on a phone | the `--cpu-browser` row for `ring` (it exists) on desktop, then the page's selfcheck on a phone | an hour |
 | the Pi's headroom | the live chain on the Pi with nothing else running, then with the studio's usual load, CPU and xruns | needs the Pi's LAN |
+
+## 7. Decided 2026-10-20: no pre-render, the cast stays live
+
+The owner, after reading this plan: *"no prerender, we need to deal with live sources"*. A station has to take a live
+input (a Väin livestream, a file arriving while it plays), so option a and the chunked c1 are out, and b was already out.
+What stays open is making the live chain lighter:
+
+1. Profile before changing anything (section 6): node's 11 %, jack-stdio's threads, `sampleClock` and the status polling.
+2. Cut the plumbing inside the chain as it is: fewer copies and conversions, the clock read less often.
+3. c2, one process (the wasm scsynth driven from node, LAME the only child): no JACK, the same engine as LOCAL. About a
+   day to find out whether it runs.
+4. d, the Pi at a site, for live inputs that start there.
+
+An offline (NRT) render is still worth having as a test tool for the gate only, never as what goes on air: it would
+let a sound change be checked in a minute rather than fifteen. That is a question for the owner, not a decision.
