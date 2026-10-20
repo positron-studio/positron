@@ -4,7 +4,7 @@
 // station's program, the files as /file/ serves them), measures loudness, peaks, gaps, scene lengths and every
 // hand-over, and prints PASS or FAIL per check. The MP3 goes to R2 and the timeline to
 // demo/radio/cast/renders/renders.json for /radio/cast/renders/. why: lessons/workers-cast.md#gate
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, statSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, statSync, rmSync, renameSync } from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
@@ -82,7 +82,8 @@ for (const it of queue) {
   it.url = `/files/${it.id}.mp3`;
   // the file's moments, read once and kept beside it: where a surprise effect lands (moments.mjs)
   const mf = join(CACHE, `${it.id}.moments.json`);
-  if (!existsSync(mf)) writeFileSync(mf, JSON.stringify(momentsOf(f)));
+  // written aside and renamed: renders started side by side read the same files
+  if (!existsSync(mf)) { const tmp = `${mf}.${process.pid}`; writeFileSync(tmp, JSON.stringify(momentsOf(f))); renameSync(tmp, mf); }
   it.moments = JSON.parse(readFileSync(mf, 'utf8')).map(({ at, kind }) => ({ at, kind }));
 }
 writeFileSync(join(OUT, `${name}.queue.json`), JSON.stringify({ queue, votes }));
