@@ -31,9 +31,8 @@
   // ?chamber= points the page at a `wrangler dev` of workers/chamber; ?cast= at another file pass.
   const LAB = (q.get('chamber') || 'https://chamber.positron.studio').replace(/\/$/, '');
   const CAST = (q.get('cast') || 'https://cast.positron.studio').replace(/\/$/, '');
-  // One engine, one object: its wasm memory is 73 MB of an isolate's 128, so every tab asks the same
-  // object and a second listener is told it is busy rather than given a second engine.
-  const ROOM = q.get('room') || 'chamber';
+  // every press gets an engine of its own: three objects ran side by side, 1,300 of 1,300 frames each (2026-10-20)
+  const ROOM = q.get('room') || `v-${Math.random().toString(36).slice(2, 10)}`;
   // A short file from the archive the cast plays, through the cast's own file pass (edge cached).
   const FILE = { id: 'evt_1791543189468', title: 'Oriental analog', seconds: 74 };
   const SR = 48000, FRAME = 960, PING_EVERY = 5;
@@ -122,7 +121,7 @@
       // what comes back: the kit's playout ring, stereo, with a cushion that grows when it runs dry
       const playout = me.playout = new AudioWorkletNode(ctx, 'pcm-playout', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
       playout.port.postMessage({ cmd: 'inChannels', n: 2 });
-      playout.port.postMessage({ cmd: 'floor', ms: 80, adaptive: true, maxMs: 400 });
+      playout.port.postMessage({ cmd: 'floor', ms: 160, adaptive: true, maxMs: 400 });
       playout.port.onmessage = (e) => { if (e.data?.stats && run === me) m.dropouts = e.data.stats.underruns; };
       playout.connect(ctx.destination);
       // what leaves: 20 ms frames cut on the tab's audio clock; a silent gain pulls it
