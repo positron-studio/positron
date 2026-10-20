@@ -1,3 +1,12 @@
+# Handoff, 2026-10-20 morning, session 86: the quality gate and the render page
+
+- **Site BUILD `91822684-040137-a31d`**, confirmed. Commits `91822684` (gate) and `dc754345` (build). Not pushed. No cast deploy. preview was already playing (the owner's); the other five off.
+- **The gate:** `node workers/cast/gate.mjs --each "now:tree:7 morning:3cbe32eb:7 dry:tree:7:dry"` renders 15 min each in parallel in grains-local (1 vCPU, 3 GiB, real time), measures, uploads to R2 `cast-renders/<name>.mp3` and writes `demo/radio/cast/renders/renders.json` (a site deploy shows it). `--measure --name x` redoes the checks with no render. `lessons/workers-cast.md#gate`.
+- **The page:** https://positron.studio/radio/cast/renders/ plays a render over its timeline (loudness, scenes, hand-overs, ghosts, gaps); picking another render keeps the second (A/B).
+- **First three, seed 7, radio1965's program (9 files):** all FAIL. now: -17.9 LUFS, LRA 6.9, peak -3.5, no silence, hand-overs within 4.6 LU, scenes 63 to 164 s; fails on a 35 s quiet stretch under -30 LUFS at 10:40 to 11:15 (EMA Varssavis) and four short-term rises of 10.1 to 10.9 LU. morning (no master yet): -28.4 LUFS, LRA 15.7, a 0.8 s silence, a 32 s scene. dry: -17.3, LRA 13.
+- **The rise check was recalibrated after the first run**: momentary loudness fired about 40 times on dry (speech after a breath); it reads short-term now.
+- **Open:** which commit is "the Hymn held choir"; the owner listens and picks a direction; then the batch fix, a render, the owner's yes, one cast deploy (which brings in the load feature).
+
 # Handoff, 2026-10-19 evening, session 85 continued: the sound frozen after a bad evening of live patching
 
 - **Frozen.** No cast sound deploy until a rendered 20 min sample is measured and the owner says yes (memory `no-live-sound-patching`). Last cast deploy 17:36Z (`0084743e`): smooth families only, scenes 60 to 150 s, files under 40 s skipped, no smear, room at most 0.35. Site `b838fb34-171151-4fdc`.
