@@ -5,7 +5,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>Echo chamber</title>
+<title>Echo edgecast</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <link rel="stylesheet" href="/shell/concept.css">
 <style>
@@ -16,8 +16,8 @@
 </style>
 <script type="module">
   // The cast's engine (wasm scsynth with the grain ring, the seven layers and the master) running in a
-  // Durable Object, workers/chamber/: 20 ms frames of 48 kHz stereo s16 out over one WebSocket, processed audio back.
-  // Two insert slots take an sclang-lite program and its knobs live (the routing is in workers/chamber/chain.mjs).
+  // Durable Object, workers/edgecast/: 20 ms frames of 48 kHz stereo s16 out over one WebSocket, processed audio back.
+  // Two insert slots take an sclang-lite program and its knobs live (the routing is in workers/edgecast/chain.mjs).
   // Nothing opens on a visit: the socket, the file and the microphone wait for Play, and Stop closes all three.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
@@ -35,8 +35,8 @@
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
-  // ?chamber= points the page at a `wrangler dev` of workers/chamber; ?cast= at another file pass.
-  const LAB = (q.get('chamber') || 'https://chamber.positron.studio').replace(/\/$/, '');
+  // ?edgecast= points the page at a `wrangler dev` of workers/edgecast; ?cast= at another file pass.
+  const LAB = (q.get('edgecast') || 'https://edgecast.positron.studio').replace(/\/$/, '');
   const CAST = (q.get('cast') || 'https://cast.positron.studio').replace(/\/$/, '');
   // every press gets an engine of its own: three objects ran side by side, 1,300 of 1,300 frames each (2026-10-20)
   const ROOM = q.get('room') || `v-${Math.random().toString(36).slice(2, 10)}`;
@@ -44,14 +44,14 @@
   const FILE = { id: 'evt_1791543189468', title: 'Oriental analog', seconds: 74 };
   const SR = 48000, FRAME = 960, PING_EVERY = 5;
 
-  const d = mount({ name: 'Echo chamber', what: '', index: '/', indexLabel: 'positron',
+  const d = mount({ name: 'Edgecast', what: '', index: '/', indexLabel: 'positron',
     // The cells under the title, the log alone at the foot, as /remote/plaits/.
     joined: false,
-    readout: { 'round trip': 'ms', network: 'ms', chamber: 'ms', sent: '', back: '', dropouts: '' } });
-  conceptNav('radio/chamber');
+    readout: { 'round trip': 'ms', network: 'ms', edgecast: 'ms', sent: '', back: '', dropouts: '' } });
+  conceptNav('radio/edgecast');
 
-  // ── the bay: the sources, the code box, the knobs and the speakers in this tab, the chamber on Cloudflare ─
-  const S = 'web', E = 'cf-chamber';
+  // ── the bay: the sources, the code box, the knobs and the speakers in this tab, edgecast on Cloudflare ─
+  const S = 'web', E = 'cf-edgecast';
   // the programs each slot starts the box with: an echo before the master, a plain pass after it
   const THROUGH = '{ In.ar(\\in.kr(0), 2) }';
   const DEFAULTS = [`{
@@ -80,7 +80,7 @@
   bay.addPort({ id: `${S}:knobs:value-out`, dir: 'out', medium: 'value', label: 'param', shape: { of: 'param' } });
   bay.addPort({ id: `${E}:engine:audio-in`, dir: 'in', medium: 'audio', label: 'pcm', transports: ['websocket'] });
   bay.addPort({ id: `${E}:engine:audio-out`, dir: 'out', medium: 'audio', label: 'bus 12' });
-  // what reaches an insert's program and knob ports goes over the chamber's socket as {cmd:'program'} and {cmd:'set'}
+  // what reaches an insert's program and knob ports goes over edgecast's socket as {cmd:'program'} and {cmd:'set'}
   INSERT.forEach((id, n) => {
     bay.addPort({ id: `${id}:audio-in`, dir: 'in', medium: 'audio', label: n ? 'bus 22' : 'bus 12' });
     bay.addPort({ id: `${id}:audio-out`, dir: 'out', medium: 'audio', label: n ? 'out' : 'bus 20', ...(n ? { transports: ['websocket'] } : {}) });
@@ -103,7 +103,7 @@
   let buffer = null;        // the decoded file, kept across presses
   let fetches = 0, micAsked = 0;
   const m = { sent: 0, back: 0, dropouts: 0, rtt: [], net: [], engine: [], peak: 0, object: null };
-  // what the slots hold, as the chamber last answered, and every frame's level with its arrival time, for the checks
+  // what the slots hold, as edgecast last answered, and every frame's level with its arrival time, for the checks
   const slotHeld = DEFAULTS.map(() => ({ src: THROUGH, controls: [] }));
   const drafts = DEFAULTS.slice();
   const levels = [], asked = [], answers = [];
@@ -128,7 +128,7 @@
     const f1 = (v) => (v == null ? '' : v.toFixed(1));
     d.set('round trip', f1(median(m.rtt)));
     d.set('network', f1(median(m.net)));
-    d.set('chamber', f1(median(m.engine)));
+    d.set('edgecast', f1(median(m.engine)));
     d.set('sent', run || m.sent ? m.sent : '');
     d.set('back', run || m.back ? m.back : '');
     d.set('dropouts', run || m.sent ? m.dropouts : '');
@@ -159,7 +159,7 @@
     transport.setIcon('play', 'stop', 'stop');
     try {
       const ctx = me.ctx = new AudioContext({ sampleRate: SR, latencyHint: 'interactive' });
-      if (ctx.sampleRate !== SR) d.log(`this browser runs audio at ${ctx.sampleRate} Hz, so the chamber hears it resampled`, 'warn');
+      if (ctx.sampleRate !== SR) d.log(`this browser runs audio at ${ctx.sampleRate} Hz, so edgecast hears it resampled`, 'warn');
       await Promise.all([ctx.audioWorklet.addModule(new URL('./capture.js', import.meta.url)), ctx.audioWorklet.addModule(PLAYOUT_URL)]);
       // what comes back: the kit's playout ring, stereo, with a cushion that grows when it runs dry
       const playout = me.playout = new AudioWorkletNode(ctx, 'pcm-playout', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
@@ -212,10 +212,10 @@
             pongAt.set(msg.pong, t);
             if (pingAt.has(msg.pong)) keep(m.net, t - pingAt.get(msg.pong));
           } else if ('booted' in msg) {
-            if (!msg.booted) { d.log(`the chamber did not boot: ${String(msg.error).split('\n')[0]}`, 'bad'); stop(); done(false); return; }
+            if (!msg.booted) { d.log(`edgecast did not boot: ${String(msg.error).split('\n')[0]}`, 'bad'); stop(); done(false); return; }
             const s = msg.scene || {};
             me.bootMs = performance.now() - asked;
-            d.log(`the chamber answered in ${Math.round(me.bootMs)} ms: the ring on ${s.patch || 'its patch'}, ${s.layers || 0} layer programs and the master, ${Math.round((msg.memoryBytes || 0) / 1048576)} MB`);
+            d.log(`edgecast answered in ${Math.round(me.bootMs)} ms: the ring on ${s.patch || 'its patch'}, ${s.layers || 0} layer programs and the master, ${Math.round((msg.memoryBytes || 0) / 1048576)} MB`);
             me.booted = true;
             me.frames.port.onmessage = (e) => send(me, e.data);
             me.statsTimer = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: 'stats' })); }, 3000);
@@ -226,7 +226,7 @@
           } else if (msg.program) {
             answered(msg.program);
           } else if (msg.set) {
-            if (!msg.set.ok) d.log(`the chamber did not set ${msg.set.refused?.join(', ') || ''}${msg.set.error ? `: ${msg.set.error}` : ''}`, 'warn');
+            if (!msg.set.ok) d.log(`edgecast did not set ${msg.set.refused?.join(', ') || ''}${msg.set.error ? `: ${msg.set.error}` : ''}`, 'warn');
           } else if (msg.stats) {
             m.object = { frames: msg.stats.frames, median: msg.stats.median, nonzero: msg.stats.nonzero, grains: msg.stats.grains };
           } else if (msg.busy || msg.ended || msg.error) {
@@ -251,10 +251,10 @@
         if (!said) { said = true; d.log('the first processed frame is back, playing it'); }
       };
       ws.onclose = (e) => {
-        if (run === me) { d.log(`the chamber closed the socket${e.reason ? `: ${e.reason}` : ''}`, 'warn'); stop(); }
+        if (run === me) { d.log(`edgecast closed the socket${e.reason ? `: ${e.reason}` : ''}`, 'warn'); stop(); }
         done(false);
       };
-      ws.onerror = () => { if (run === me) d.log('the socket to the chamber failed', 'warn'); };
+      ws.onerror = () => { if (run === me) d.log('the socket to edgecast failed', 'warn'); };
     });
   }
 
@@ -283,7 +283,7 @@
     if (m.sent) {
       const o = m.object;
       d.log(`stopped: ${m.sent} frames sent, ${m.back} back, ${m.dropouts} dropouts${o ? `; the object had counted ${o.frames} at its last report` : ''}`);
-      if (o && !o.nonzero) d.log('the object\'s own timer read 0 for every frame: Cloudflare holds a Worker\'s clock still while its code runs, so the chamber cell is timed from this tab');
+      if (o && !o.nonzero) d.log('the object\'s own timer read 0 for every frame: Cloudflare holds a Worker\'s clock still while its code runs, so edgecast cell is timed from this tab');
     }
     show();
     pb.refresh();
@@ -291,18 +291,18 @@
 
   // ── a program and its knobs, live: what arrives at an insert's ports leaves on the socket ──
   function sendProgram(to, src) {
-    // the same compiler first, here, so a broken program is answered without a message to the chamber
+    // the same compiler first, here, so a broken program is answered without a message to edgecast
     const local = compile(src, { name: 'check', bus: 0 });
     if (!local.ok) { answered({ ok: false, slot: to, error: local.message, local: true }); return false; }
     if (!playing() || run.ws.readyState !== 1) { say('Press play first'); return false; }
     asked.push({ slot: to, t: performance.now() });
     say('Compiling');
     run.ws.send(JSON.stringify({ cmd: 'program', slot: to, src }));
-    // the chamber takes one program a second, autocompile's included
+    // edgecast takes one program a second, autocompile's included
     lastAt = performance.now(); lastAuto = src;
     return true;
   }
-  // past the check here, so the chamber's own compiler is the one that answers
+  // past the check here, so edgecast's own compiler is the one that answers
   function sendRaw(to, src) { asked.push({ slot: to, t: performance.now() }); run?.ws?.send(JSON.stringify({ cmd: 'program', slot: to, src })); }
   function sendSet(to, name, v) {
     if (playing() && run.ws.readyState === 1) run.ws.send(JSON.stringify({ cmd: 'set', slot: to, params: { [name]: v } }));
@@ -313,7 +313,7 @@
     answers.push(a);
     if (!a.ok) {
       say(a.error, 'bad');
-      d.log(`${a.local ? 'did not compile, nothing was sent' : `the chamber refused the program for the insert ${SLOT_NAMES[a.slot] ?? a.slot}`}: ${a.error}`, 'warn');
+      d.log(`${a.local ? 'did not compile, nothing was sent' : `edgecast refused the program for the insert ${SLOT_NAMES[a.slot] ?? a.slot}`}: ${a.error}`, 'warn');
       return;
     }
     slotHeld[a.slot] = { src: drafts[a.slot], controls: a.controls || [] };
@@ -324,7 +324,7 @@
 
   const code = createCodeBox({ language: 'sclang', rows: CODE_ROWS, label: '', value: drafts[0],
     ariaLabel: 'the SuperCollider program in the insert, it goes in as you type', onInput: (t) => { drafts[slot] = t; autoCompile(t); } });
-  // autocompile (*"autocompile"*): a pause in typing sends the program, at most one a second (the chamber's own limit);
+  // autocompile (*"autocompile"*): a pause in typing sends the program, at most one a second (edgecast's own limit);
   // while it does not compile the line under the box says why and nothing is sent
   let autoT = 0, lastAuto = '', lastAt = 0;
   function autoCompile(src) {
@@ -345,7 +345,7 @@
   const status = el('span', 'cc-status', '', { role: 'status', 'aria-live': 'polite' });
   function say(t, kind = '') { status.textContent = t; status.dataset.kind = kind; }
 
-  // the knobs are the program's own arguments, as the chamber's compiler listed them
+  // the knobs are the program's own arguments, as edgecast's compiler listed them
   const knobHost = el('div');
   let knobs = new Map();
   function knobsFor(controls) {
@@ -378,7 +378,7 @@
   d.stack.add(top, knobHost, code.el, act, pb.el);
 
   window.__demo.bay = bay;
-  window.__demo.chamber = { start, stop, choice, slotChoice, code, room: ROOM, lab: LAB, levels, answers, slotHeld, knobs: () => knobs,
+  window.__demo.edgecast = { start, stop, choice, slotChoice, code, room: ROOM, lab: LAB, levels, answers, slotHeld, knobs: () => knobs,
     program: (src, to = slot) => { drafts[to] = src; return bay.send(`${S}:code:program-out`, { language: 'sclang', src }); },
     sendRaw, press: () => compileBtn.click(),
     probe: () => ({ running: !!run, booted: playing(), source: run?.source ?? null, ws: run?.ws?.readyState ?? null,
@@ -386,13 +386,13 @@
       rtt: median(m.rtt), net: median(m.net), engine: median(m.engine), samples: { rtt: m.rtt.length, net: m.net.length, engine: m.engine.length },
       object: m.object }) };
 
-  // ── the self-check: only under ?selfcheck=1; the driven run against the deployed chamber only on the deep tier ─
+  // ── the self-check: only under ?selfcheck=1; the driven run against the deployed edgecast only on the deep tier ─
   if (SELFCHECK) {
-    const A = d.assert, C = window.__demo.chamber;
+    const A = d.assert, C = window.__demo.edgecast;
     const has = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     const sentOn = (a, b) => bay.links().find((l) => l.from === a && l.to === b)?.sent ?? 0;
     A('a visit opens nothing: no socket, no file, no microphone, no sound', !run && fetches === 0 && micAsked === 0);
-    A('the file reaches the chamber over the websocket, through both inserts and the master, and comes back to the speakers',
+    A('the file reaches edgecast over the websocket, through both inserts and the master, and comes back to the speakers',
       has(`${S}:file:audio-out`, `${E}:engine:audio-in`) && CHAIN.every(([a, b]) => has(a, b)) && bay.links().filter((l) => l.via === 'websocket').length === 4,
       bay.links().map((l) => `${l.from} -> ${l.to} ${l.via ?? ''}`).join(', '));
     A('the code box and the knobs reach the insert before the master', has(...EDIT(0)[0].slice(0, 2)) && has(...EDIT(0)[1].slice(0, 2)));
@@ -401,7 +401,7 @@
       has(...EDIT(1)[0].slice(0, 2)) && !has(...EDIT(0)[0].slice(0, 2)) && code.value() === THROUGH && knobHost.hidden);
     slotChoice.set(0);
     wire('mic');
-    A('picking the microphone moves the link into the chamber', has(`${S}:mic:audio-out`, `${E}:engine:audio-in`) && !has(`${S}:file:audio-out`, `${E}:engine:audio-in`));
+    A('picking the microphone moves the link into edgecast', has(`${S}:mic:audio-out`, `${E}:engine:audio-in`) && !has(`${S}:file:audio-out`, `${E}:engine:audio-in`));
     wire('file');
     A('the default program\'s own arguments are the knobs, and `in` is not one', [...knobs.keys()].join() === 'time,mix', [...knobs.keys()].join());
     {
@@ -426,7 +426,7 @@
         const db = (x) => 20 * Math.log10(Math.max(1e-9, x));
         const M = C.measured = {};
         const ok = await start();
-        A('Play boots the engine in the chamber', ok && playing(), JSON.stringify(C.probe()));
+        A('Play boots the engine in edgecast', ok && playing(), JSON.stringify(C.probe()));
         if (!ok) return;
         const first = await until(() => answers.find((x) => !x.local), 5000) && answers.find((x) => !x.local);
         A('the box\'s echo goes into the insert before the master on Play', first?.ok && first.slot === 0 && first.controls.map((c) => c.name).join() === 'time,mix', JSON.stringify(first));
@@ -435,7 +435,7 @@
         const p = C.probe();
         A('frames go out and come back processed', p.sent > 200 && p.back > 0.9 * p.sent, `${p.sent} sent, ${p.back} back`);
         A('what comes back is sound, not silence', p.peak > 0.01, `peak ${p.peak.toFixed(3)}`);
-        A('round trip, network and chamber time are measured', [p.rtt, p.net, p.engine].every(Number.isFinite), `rtt ${p.rtt?.toFixed(1)}, net ${p.net?.toFixed(1)}, chamber ${p.engine?.toFixed(1)}`);
+        A('round trip, network and edgecast time are measured', [p.rtt, p.net, p.engine].every(Number.isFinite), `rtt ${p.rtt?.toFixed(1)}, net ${p.net?.toFixed(1)}, edgecast ${p.engine?.toFixed(1)}`);
         // a gain of 0.25 after the master, where nothing levels it back: about 12 dB down within a second
         slotChoice.set(1);
         const tSend = performance.now(), base = rmsIn(tSend - 2000, tSend), n = answers.length;
@@ -448,14 +448,14 @@
         M.gainDropDb = +drop.toFixed(2); M.gainAnswerMs = Math.round(g.sinceSend); M.gainFirstQuietFrameMs = quiet ? Math.round(quiet.t - tSend) : null;
         A('the returned level falls about 12 dB, within a second', drop < -8 && drop > -16 && quiet && quiet.t - tSend < 1000,
           `${drop.toFixed(1)} dB, answered in ${M.gainAnswerMs} ms, first quieter frame back ${M.gainFirstQuietFrameMs} ms after the send`);
-        // NEGATIVE CONTROL: a broken program sent past the check here is refused by the chamber's own compiler, and the sound goes on
+        // NEGATIVE CONTROL: a broken program sent past the check here is refused by edgecast's own compiler, and the sound goes on
         await wait(1100);
         const n2 = answers.length, back0 = m.back;
         C.sendRaw(1, '{ In.ar(\\in.kr(0), 2) * SinOsc.ar(');
         const b = await until(() => answers[n2], 4000) && answers[n2];
         await wait(1000);
         const during = rmsIn(b?.at ?? performance.now(), (b?.at ?? performance.now()) + 1000);
-        A('NEGATIVE CONTROL: the chamber refuses a program that does not compile, with its message', b && !b.ok && !b.local && /line \d+, column \d+/.test(b.error), b?.error);
+        A('NEGATIVE CONTROL: edgecast refuses a program that does not compile, with its message', b && !b.ok && !b.local && /line \d+, column \d+/.test(b.error), b?.error);
         A('and the sound goes on at the level it had', m.back - back0 > 40 && Math.abs(db(during) - db(after)) < 4, `${m.back - back0} frames, ${db(during).toFixed(1)} against ${db(after).toFixed(1)} dBFS`);
         // a knob, live: gain back to 1 arrives on the knobs link and the level comes back up
         const k0 = sentOn(...EDIT(1)[1].slice(0, 2)), tk = performance.now();
@@ -481,7 +481,7 @@
         choice.set(0);
         M.done = true;
       })().catch((e) => A('the driven check ran', false, e.message));
-    } else d.log('left for the deep run: playing through the chamber, the live program, the knob and the refusal');
+    } else d.log('left for the deep run: playing through edgecast, the live program, the knob and the refusal');
   }
   d.ready();
 </script>

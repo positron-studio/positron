@@ -1,4 +1,4 @@
-// The chamber's chain, with no Cloudflare import so node can run it (chain-test.mjs): the ring, the layers, the
+// Edgecast's chain, with no Cloudflare import so node can run it (chain-test.mjs): the ring, the layers, the
 // master, and two insert slots a visitor may put a program in while it plays. worker.mjs hands it the wasm module
 // and the glue; node compiles the same wasm itself.
 //
@@ -111,11 +111,11 @@ export function createInserts(chain, { now = () => Date.now(), pump = null } = {
     const at = now();
     const p0 = performance.now();
     const no = (error, extra = {}) => ({ program: { ok: false, slot, error, ...extra } });
-    if (!slots) return no('the chamber runs no engine in echo mode');
+    if (!slots) return no('edgecast runs no engine in echo mode');
     if (!Number.isInteger(slot) || !slots[slot]) return no(`there is no slot ${JSON.stringify(slot)}; the slots are 0 (${SLOTS[0].name}) and 1 (${SLOTS[1].name})`);
     if (typeof src !== 'string') return no('a program is sent as src, a string of sclang-lite');
     const bytes = enc.encode(src).length;
-    if (bytes > LIMITS.srcBytes) return no(`that program is ${bytes} bytes and the chamber takes ${LIMITS.srcBytes}`);
+    if (bytes > LIMITS.srcBytes) return no(`that program is ${bytes} bytes and edgecast takes ${LIMITS.srcBytes}`);
     if (busy) return no('the last program is still being put in');
     if (at - lastProgram < LIMITS.programEveryMs) return no(`one program a second; wait ${Math.ceil((LIMITS.programEveryMs - (at - lastProgram)) / 100) / 10} s`);
     lastProgram = at;
@@ -142,7 +142,7 @@ export function createInserts(chain, { now = () => Date.now(), pump = null } = {
   }
   function set({ slot = 0, params = {} } = {}) {
     const no = (error) => ({ set: { ok: false, slot, error } });
-    if (!slots) return no('the chamber runs no engine in echo mode');
+    if (!slots) return no('edgecast runs no engine in echo mode');
     if (!params || typeof params !== 'object') return no('set takes params, an object of name to number');
     const t = now();
     if (t - setBucket.at >= 1000) setBucket = { at: t, n: 0 };

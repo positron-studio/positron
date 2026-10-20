@@ -1,4 +1,4 @@
-// chamber: can the cast's engine (the vendored wasm scsynth, the ring, the layers and the master) run inside a
+// edgecast: can the cast's engine (the vendored wasm scsynth, the ring, the layers and the master) run inside a
 // Durable Object, fed 48 kHz stereo s16 PCM over a WebSocket the way the Realtime SFU WebSocket adapter feeds it?
 // An experiment, not on air. GET /ws upgrades; the first text message picks the mode:
 //   {"cmd":"boot","mode":"full"|"ring"|"echo","seed":7}   then binary PCM frames in, each answered with
@@ -8,7 +8,7 @@
 //   {"program":{ok,slot,ms,compileMs,controls,error?}}; {"cmd":"set","slot":0|1|"ring","params":{name:value}} is /n_set,
 //   clamped, answered {"set":{ok,slot,applied,refused}}. The slots and their busses are in chain.mjs.
 // One session at a time in one object: the engine's wasm memory is 73 MB of an isolate's 128 MB, and objects of
-// one class may share an isolate, so a second engine is refused rather than risked. /radio/chamber/ is its page.
+// one class may share an isolate, so a second engine is refused rather than risked. /radio/edgecast/ is its page.
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../../demo/shell/vendor/scsynth-nrt.wasm';
 import glue from './glue.gen.mjs';
@@ -20,16 +20,16 @@ const ORIGIN_OK = /^(https:\/\/positron\.studio|https?:\/\/(127\.0\.0\.1|localho
 // a session ends itself after this long, so a tab left open does not hold the engine for a day
 const SESSION_MS = 15 * 60 * 1000, IDLE_MS = 10 * 1000;
 
-export class Chamber extends DurableObject {
+export class Edgecast extends DurableObject {
   async fetch(req) {
-    if (req.headers.get('Upgrade') !== 'websocket') return new Response('chamber: WebSocket only', { status: 426 });
+    if (req.headers.get('Upgrade') !== 'websocket') return new Response('edgecast: WebSocket only', { status: 426 });
     const origin = req.headers.get('Origin');
-    if (origin && !ORIGIN_OK.test(origin)) return new Response('chamber: not from this origin', { status: 403 });
+    if (origin && !ORIGIN_OK.test(origin)) return new Response('edgecast: not from this origin', { status: 403 });
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
     // a busy engine answers in words and closes; a session silent for IDLE_MS gives its place up
     if (this.busy && Date.now() - this.busy.last < IDLE_MS) {
-      server.send(JSON.stringify({ busy: true, error: 'the chamber is playing for somebody else; try again in a minute' }));
+      server.send(JSON.stringify({ busy: true, error: 'edgecast is playing for somebody else; try again in a minute' }));
       server.close(1013, 'busy');
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -75,10 +75,10 @@ export class Chamber extends DurableObject {
             } catch (e) { server.send(JSON.stringify({ booted: false, error: String(e && e.stack || e), logs })); }
           } else if (m.cmd === 'program') {
             // answered later, off the line: the new node's /n_go comes out of the frames queued behind this message
-            if (!inserts) { server.send(JSON.stringify({ program: { ok: false, slot: m.slot, error: 'the chamber has not booted' } })); return; }
+            if (!inserts) { server.send(JSON.stringify({ program: { ok: false, slot: m.slot, error: 'edgecast has not booted' } })); return; }
             inserts.program(m).then((a) => { try { server.send(JSON.stringify(a)); } catch { /* closed */ } });
           } else if (m.cmd === 'set') {
-            server.send(JSON.stringify(inserts ? inserts.set(m) : { set: { ok: false, slot: m.slot, error: 'the chamber has not booted' } }));
+            server.send(JSON.stringify(inserts ? inserts.set(m) : { set: { ok: false, slot: m.slot, error: 'edgecast has not booted' } }));
           } else if (m.cmd === 'stats') {
             const s = work.slice().sort((a, b) => a - b), q = (p) => s.length ? +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(3) : null;
             server.send(JSON.stringify({ stats: { ...st, mode, median: q(0.5), p99: q(0.99), worst: s.at(-1) ?? null, nonzero: s.filter((x) => x > 0).length,
@@ -126,7 +126,7 @@ export class Chamber extends DurableObject {
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
-    if (u.pathname === '/ws') return env.CHAMBER.get(env.CHAMBER.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
-    return new Response('chamber: an experiment; GET /ws with a WebSocket\n');
+    if (u.pathname === '/ws') return env.EDGECAST.get(env.EDGECAST.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
+    return new Response('edgecast: an experiment; GET /ws with a WebSocket\n');
   },
 };

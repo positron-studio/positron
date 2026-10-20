@@ -1,6 +1,6 @@
 // The vendor's AudioWorklet processor as an ES module workerd can bundle: workerd has no node:vm, no eval and no
 // new Function, so the classic script is wrapped in a function whose parameters shadow the globals it needs.
-// Run before wrangler: node workers/chamber/gen-glue.mjs
+// Run before wrangler: node workers/edgecast/gen-glue.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
 const src = readFileSync(new URL('../../demo/shell/vendor/clockwork_audio_worklet.js', import.meta.url), 'utf8').replace(/\/\/# sourceMappingURL=.*$/m, '');
 writeFileSync(new URL('./glue.gen.mjs', import.meta.url),

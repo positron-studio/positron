@@ -432,7 +432,7 @@ two engines differ by -40.8 dB (rounding); wet, same loudness within 0.1 LU; a l
 about 50 s in both, 0 underruns. Open before air: a 1 to 2 s lead or the wasm in a worker_thread, a dead path, the live
 and handover tests, the owner's listen.
 
-## 10. The engine in a Durable Object, measured (2026-10-20, workers/chamber/, named castlab then)
+## 10. The engine in a Durable Object, measured (2026-10-20, workers/edgecast/, named castlab, then chamber)
 
 The vendored SuperSonic wasm scsynth runs in workerd, locally and on Cloudflare, with the ring, all seven layers and the
 master, at 48 kHz, fed 48 kHz stereo s16 PCM over a WebSocket and answering continuous audio. Changes for workerd: the
@@ -452,13 +452,13 @@ object there, so the worst single frame is unmeasured. Every frame came back, 0 
 between 31 and 55 s of the input, local and remote alike (the material through the grains, not frame edges); local and
 remote within 0.3 LU. Round trips on Cloudflare were the network (median 56 to 60 ms, p99 about 700 ms with the VPN up).
 Local: ThreatLocker kills the workerd of wrangler 4.148, so `wrangler dev` ran on eccm's wrangler 4.107. The throwaway
-`positron-castlab` (now `positron-chamber`) was deployed once and deleted.
+`positron-castlab` (now `positron-edgecast`) was deployed once and deleted.
 
 Next, none built: the SFU adapter wired to the object (no header, ingest back), the file program's pacing (render ahead
 by a set number of samples per message or alarm), MP3 decode and encode as wasm, the Icecast source over
 `cloudflare:sockets`, the state that has to survive a restart (seed, scene, file and second into storage).
 
-## 11. Live changes in the chamber (2026-10-20, workers/chamber/chain.mjs)
+## 11. Live changes in edgecast (2026-10-20, workers/edgecast/chain.mjs; named chamber then)
 
 Asked: *"In practice: - build and test"*. Two insert slots, each a SuperCollider program sent while it plays:
 `{cmd:'program', slot, src}` compiles with sclang-lite in the object (refused with the compiler's message, over 8 KB,

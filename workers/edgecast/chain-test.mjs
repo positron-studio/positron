@@ -1,4 +1,4 @@
-// node workers/chamber/chain-test.mjs: the chamber's live changes against the real engine (the vendored wasm
+// node workers/edgecast/chain-test.mjs: edgecast's live changes against the real engine (the vendored wasm
 // scsynth, booted by chain.mjs in node as the Durable Object boots it), fed two tones a fifth apart with the upper
 // one pulsing. No socket, no Cloudflare. Most checks are NEGATIVE CONTROLS: a refusal must name its reason, and the
 // sound must go on after it. Prints the measured numbers as JSON at the end.
