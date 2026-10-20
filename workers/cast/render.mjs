@@ -42,7 +42,7 @@ while ((Date.now() - t0) / 1000 < S) {
   if (s.landings !== last.land) {
     last.land = s.landings;
     scenes.push({ si: l.si, mixAt: +l.sceneAt.toFixed(2), file: l.file, patch: l.patch, param: l.param, len: l.len,
-      dwell: +(+l.dwell).toFixed(1), blend: +(+l.blend).toFixed(1), kind: l.def?.kind ?? null, type: l.def?.type ?? null, section: l.def?.section ?? null, bridge: l.def?.iKind ?? null,
+      dwell: +(+l.dwell).toFixed(1), blend: +(+l.blend).toFixed(1), kind: l.def?.kind ?? null, type: l.def?.type ?? null, section: l.def?.section ?? null, bridge: l.def?.iKind ?? null, fx: l.def?.fx ?? null,
       drone: l.layers?.drone, harm: l.layers?.harm, ghost: l.layers?.ghost, key: l.key ? `${l.key.root}${l.key.minor ? 'm' : ''}` : null });
   }
   if (l.phase === 'blend' && last.phase !== 'blend') blends.push({ si: l.si, mixAt: +(mix - Math.max(0, l.at)).toFixed(2), from: l.file });
