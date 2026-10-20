@@ -54,6 +54,13 @@ while ((Date.now() - t0) / 1000 < S) {
 const end = L.status();
 L.stop(); await sleep(1500); file.end(); await sleep(300);
 
+// an effect is placed by the driver when its moment comes (moments.mjs), so its real start is in the log, not in the scene's def
+for (const { line } of lines) {
+  const m = /^fx (\d+) (fx2?) (\w+) (none|[\d.]+)(?: (\d+) (\w+))?/.exec(line); if (!m) continue;
+  const sc = scenes.find((x) => x.si === +m[1]); if (!sc) continue;
+  sc[m[2]] = m[4] === 'none' ? null : { kind: m[3], at: +m[4], len: +m[5], on: m[6] };
+}
+for (const sc of scenes) for (const k of ['fx', 'fx2']) if (sc[k] && !Number.isFinite(sc[k].at)) sc[k] = null;
 // the mix runs ahead of the MP3 by the pipes and the encoder: the median gap moves every event onto the MP3's clock
 const off = offsets.length ? offsets.sort((a, b) => a - b)[offsets.length >> 1] : 0;
 const onMp3 = (x) => ({ ...x, at: +Math.max(0, x.mixAt - off).toFixed(2), ...(x.mixEnd != null ? { end: +Math.max(0, x.mixEnd - off).toFixed(2) } : {}) });

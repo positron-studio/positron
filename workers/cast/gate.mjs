@@ -62,6 +62,7 @@ dirty = !REF && git('status', '--porcelain', '--', 'demo/radio/cast', 'demo/shel
 
 // ── 2. the program and the files: what the Caster would send (levels from gains.mjs, short files left out) ──
 const { pickFiles, MIN_FILE_S } = await import('./worker.mjs');
+const { momentsOf } = await import('./moments.mjs');
 const feed = (await getJson(`${API}/feed`)).items, byId = new Map(feed.map((x) => [String(x.id), x]));
 const votes = ((await getJson(`${API}/votes`)).votes || []).filter((v) => v.vote && v.def).slice(-2000).map(({ def, vote, file }) => ({ def, vote, file }));
 let ids = flag('--ids', '') ? flag('--ids').split(',') : ((await getJson(`${API}/status/${station}`)).program || []).map((x) => x.id);
@@ -79,6 +80,10 @@ for (const it of queue) {
     writeFileSync(f, Buffer.from(await r.arrayBuffer())); console.log(`${(statSync(f).size / 1e6).toFixed(1)} MB`);
   }
   it.url = `/files/${it.id}.mp3`;
+  // the file's moments, read once and kept beside it: where a surprise effect lands (moments.mjs)
+  const mf = join(CACHE, `${it.id}.moments.json`);
+  if (!existsSync(mf)) writeFileSync(mf, JSON.stringify(momentsOf(f)));
+  it.moments = JSON.parse(readFileSync(mf, 'utf8')).map(({ at, kind }) => ({ at, kind }));
 }
 writeFileSync(join(OUT, `${name}.queue.json`), JSON.stringify({ queue, votes }));
 console.log(`program (${queue.length}): ${queue.map((x) => x.title).join(', ')}`);
