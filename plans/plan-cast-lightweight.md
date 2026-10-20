@@ -338,4 +338,4 @@ What stays open is making the live chain lighter:
 4. d, the Pi at a site, for live inputs that start there.
 
 An offline (NRT) render is still worth having as a test tool for the gate only, never as what goes on air: it would
-let a sound change be checked in a minute rather than fifteen. That is a question for the owner, not a decision.
+let a sound change be checked in a minute rather than fifteen. Answered the same day: *"no offline. experiemnt with ligth chain"*. No offline render anywhere; the next step is an experiment with a light live chain.
