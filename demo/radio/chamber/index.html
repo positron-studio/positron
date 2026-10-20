@@ -298,6 +298,8 @@
     asked.push({ slot: to, t: performance.now() });
     say('Compiling');
     run.ws.send(JSON.stringify({ cmd: 'program', slot: to, src }));
+    // the chamber takes one program a second, autocompile's included
+    lastAt = performance.now(); lastAuto = src;
     return true;
   }
   // past the check here, so the chamber's own compiler is the one that answers
@@ -321,7 +323,23 @@
   }
 
   const code = createCodeBox({ language: 'sclang', rows: CODE_ROWS, label: '', value: drafts[0],
-    ariaLabel: 'the SuperCollider program in the insert, edit it and press Compile', onInput: (t) => { drafts[slot] = t; } });
+    ariaLabel: 'the SuperCollider program in the insert, it goes in as you type', onInput: (t) => { drafts[slot] = t; autoCompile(t); } });
+  // autocompile (*"autocompile"*): a pause in typing sends the program, at most one a second (the chamber's own limit);
+  // while it does not compile the line under the box says why and nothing is sent
+  let autoT = 0, lastAuto = '', lastAt = 0;
+  function autoCompile(src) {
+    clearTimeout(autoT);
+    autoT = setTimeout(() => {
+      const r = compile(src, { name: 'check', bus: 0 });
+      if (!r.ok) { say(r.message, 'bad'); return; }
+      if (!playing()) { say('Compiles, goes in on play'); return; }
+      if (src === lastAuto) return;
+      const wait = Math.max(0, 1000 - (performance.now() - lastAt));
+      if (wait) { autoCompile(src); return; }
+      lastAuto = src; lastAt = performance.now();
+      bay.send(`${S}:code:program-out`, { language: 'sclang', src });
+    }, 600);
+  }
   const compileBtn = el('button', 'pos-sm', 'Compile', { type: 'button' });
   compileBtn.addEventListener('click', () => bay.send(`${S}:code:program-out`, { language: 'sclang', src: code.value() }));
   const status = el('span', 'cc-status', '', { role: 'status', 'aria-live': 'polite' });
@@ -355,7 +373,8 @@
   top.append(transport.el, choice.el);
   const act = el('div', 'cc-top');
   // a program goes before the master, where an effect belongs (*"why i need to choose"*); the other slot is the check's
-  act.append(compileBtn, status);
+  // no Compile button: the program goes in as you type; the hidden button stays the checks' handle
+  act.append(status);
   d.stack.add(top, knobHost, code.el, act, pb.el);
 
   window.__demo.bay = bay;
