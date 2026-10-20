@@ -54,9 +54,11 @@
   const S = 'web', E = 'cf-chamber';
   // the programs each slot starts the box with: an echo before the master, a plain pass after it
   const THROUGH = '{ In.ar(\\in.kr(0), 2) }';
-  const DEFAULTS = [`{ var x = In.ar(\\in.kr(0), 2);
+  const DEFAULTS = [`{
+  var x = In.ar(\\in.kr(0), 2);
   var time = \\time.kr(0.4, spec: [0.05, 1]);
-  x + (CombC.ar(LPF.ar(x, 2500), 1, time, time * 8) * \\mix.kr(0.35)) }`, THROUGH];
+  x + (CombC.ar(LPF.ar(x, 2500), 1, time, time * 8) * \\mix.kr(0.35))
+}`, THROUGH];
   const SLOT_NAMES = ['before the master', 'after the master'];
   const INSERT = [`${E}:pre`, `${E}:post`];
   const bay = createBay();
@@ -352,7 +354,8 @@
   const top = el('div', 'cc-top');
   top.append(transport.el, choice.el);
   const act = el('div', 'cc-top');
-  act.append(slotChoice.el, compileBtn, status);
+  // a program goes before the master, where an effect belongs (*"why i need to choose"*); the other slot is the check's
+  act.append(compileBtn, status);
   d.stack.add(top, knobHost, code.el, act, pb.el);
 
   window.__demo.bay = bay;
