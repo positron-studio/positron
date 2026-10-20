@@ -2,7 +2,10 @@
 // Durable Object, fed 48 kHz stereo s16 PCM over a WebSocket the way the Realtime SFU WebSocket adapter feeds it?
 // An experiment, not on air. GET /ws upgrades; the first text message picks the mode:
 //   {"cmd":"boot","mode":"full"|"ring"|"echo","seed":7}   then binary PCM frames in, each answered with
-//   [Float64 seq, Float64 workMs, Float64 quanta] + s16 stereo PCM out; {"cmd":"stats"} answers the object's tallies.
+//   [Float64 seq, Float64 workMs, Float64 quanta] + s16 stereo PCM out; {"cmd":"stats"} answers the object's tallies;
+//   {"cmd":"ping","n":k} is answered at once, ahead of any queued frame, as {"pong":k}.
+// One session at a time in one object: the engine's wasm memory is 73 MB of an isolate's 128 MB, and objects of
+// one class may share an isolate, so a second engine is refused rather than risked. /radio/chamber/ is its page.
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../../demo/shell/vendor/scsynth-nrt.wasm';
 import glue from './glue.gen.mjs';
@@ -15,6 +18,10 @@ import * as LIFE from '../../demo/radio/cast/life.mjs';
 
 const SR = 48000, NODE = 4000, BUF = 0, DEF = 'gring', MASTER_NODE = 4100, INPUTS = 4;
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// who may open a socket: the site, a local dev server on any port, and a client with no Origin (client.mjs)
+const ORIGIN_OK = /^(https:\/\/positron\.studio|https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
+// a session ends itself after this long, so a tab left open does not hold the engine for a day
+const SESSION_MS = 15 * 60 * 1000, IDLE_MS = 10 * 1000;
 
 async function startChain({ mode, seed, log }) {
   const t = { t0: Date.now(), p0: performance.now() };
@@ -74,8 +81,21 @@ async function startChain({ mode, seed, log }) {
 export class Chamber extends DurableObject {
   async fetch(req) {
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('chamber: WebSocket only', { status: 426 });
+    const origin = req.headers.get('Origin');
+    if (origin && !ORIGIN_OK.test(origin)) return new Response('chamber: not from this origin', { status: 403 });
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
+    // a busy engine answers in words and closes; a session silent for IDLE_MS gives its place up
+    if (this.busy && Date.now() - this.busy.last < IDLE_MS) {
+      server.send(JSON.stringify({ busy: true, error: 'the chamber is playing for somebody else; try again in a minute' }));
+      server.close(1013, 'busy');
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    try { this.busy?.socket.close(1012, 'taken over'); } catch { /* gone */ }
+    const me = { socket: server, last: Date.now() };
+    this.busy = me;
+    const release = () => { if (this.busy === me) this.busy = null; chain = null; clearTimeout(limit); };
+    const limit = setTimeout(() => { try { server.send(JSON.stringify({ ended: 'the session reached 15 minutes' })); server.close(1000, 'time'); } catch { /* gone */ } release(); }, SESSION_MS);
     const logs = [];
     const log = (l) => { if (logs.length < 200) logs.push(String(l).slice(0, 300)); };
     let chain = null, mode = 'echo', seq = 0;
@@ -85,7 +105,15 @@ export class Chamber extends DurableObject {
     const work = [], st = { frames: 0, inFrames: 0, outFrames: 0, workMs: 0, firstAt: 0, lastAt: 0, bytesIn: 0 };
     // a Blob's arrayBuffer() is async, so the frames are handled in a chain to keep them in order
     let line = Promise.resolve();
-    server.addEventListener('message', (ev) => { line = line.then(() => handle(ev)); });
+    server.addEventListener('message', (ev) => {
+      me.last = Date.now();
+      // a ping skips the line, so its answer leaves before the frame that follows it is worked on
+      if (typeof ev.data === 'string' && ev.data.startsWith('{"cmd":"ping"')) {
+        try { server.send(JSON.stringify({ pong: JSON.parse(ev.data).n })); } catch { /* closed */ }
+        return;
+      }
+      line = line.then(() => handle(ev));
+    });
     const handle = async (ev) => {
       try {
         if (typeof ev.data === 'string') {
@@ -134,7 +162,8 @@ export class Chamber extends DurableObject {
         server.send(out);
       } catch (e) { try { server.send(JSON.stringify({ error: String(e && e.stack || e) })); } catch { /* closed */ } }
     };
-    server.addEventListener('close', () => { try { server.close(); } catch { /* gone */ } });
+    server.addEventListener('close', () => { release(); try { server.close(); } catch { /* gone */ } });
+    server.addEventListener('error', release);
     return new Response(null, { status: 101, webSocket: client });
   }
 }
