@@ -6,7 +6,7 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Edgecast">
-<meta property="og:description" content="Send a file or your microphone to the cast&apos;s engine on Cloudflare. Change its effect as it plays.">
+<meta property="og:description" content="The radio1965 cast, played by one object on Cloudflare. Hear it and watch what each scene does.">
 <meta property="og:url" content="https://positron.studio/radio/edgecast/">
 <meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
 <meta property="og:image:width" content="1200">
@@ -19,483 +19,297 @@
 <meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>Echo edgecast</title>
+<title>Edgecast</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <link rel="stylesheet" href="/shell/concept.css">
 <style>
-  /* Play and the source choice on one row at the top left, as /remote/plaits/. */
-  .cc-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .cc-status { color: var(--dim); }
-  .cc-status[data-kind="bad"] { color: var(--bad); }
+  /* Play, and Start and Stop with the key, on one row at the top left, as /remote/plaits/. */
+  .ec-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  /* inside the panel the scope gives up its page margin and its own border: the panel's edge is the edge */
+  .ec-scope .pos-scope { margin: 0; }
+  .ec-scope .pos-scope-c { border: 0; display: block; }
+  .pos-vp-foot:has(.ec-line) { padding: 12px; display: block; }
+  .pos-vp-foot:has(.ec-line) .pos-vp-c { justify-content: flex-start; }
+  /* one height whatever the line says: two lines at the desk, four on a phone */
+  .ec-line { font: 12.5px/1.45 var(--sans); color: var(--dim); white-space: normal; text-align: left;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; height: calc(1.45em * 2); }
+  @media (max-width: 560px) { .ec-line { -webkit-line-clamp: 4; height: calc(1.45em * 4); } }
+  .ec-k { font: 12px var(--mono); color: var(--dim); text-transform: uppercase; }
+  .ec-v { font: 13px/1.45 var(--sans); overflow-wrap: anywhere; }
 </style>
 <script type="module">
-  // The cast's engine (wasm scsynth with the grain ring, the seven layers and the master) running in a
-  // Durable Object, workers/edgecast/: 20 ms frames of 48 kHz stereo s16 out over one WebSocket, processed audio back.
-  // Two insert slots take an sclang-lite program and its knobs live (the routing is in workers/edgecast/chain.mjs).
-  // Nothing opens on a visit: the socket, the file and the microphone wait for Play, and Stop closes all three.
+  // radio1965's cast played by edgecast (workers/edgecast/station.mjs), one Durable Object on Cloudflare with the
+  // cast's engine in wasm: GET /listen is its MP3, GET /status what it is doing. This page plays the stream in an
+  // <audio>, draws its wave and says what is going on. Nothing opens on a visit: no fetch, no stream and no poll until
+  // a press. Start and Stop show only with ?key= (the cast's key).
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
-  import { SELFCHECK, DEEP } from '/shell/selfcheck.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
-  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createPatchbay, useMediumColours, MEDIUM_COLOURS } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createChoice } from '/shell/choice.mjs';
-  import { PLAYOUT_URL } from '/shell/board.mjs';
-  import { createCodeBox } from '/shell/code-box.mjs';
-  import { createKnob } from '/shell/knob.mjs';
-  import { createKnobGrid } from '/shell/knob-grid.mjs';
-  import { CODE_ROWS } from '/shell/concept-nav.mjs';
-  import { compile } from '/shell/sclang-lite.mjs';
+  import { createGrainScope } from '/shell/grain-scope.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createGlueRows } from '/shell/glue.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
-  // ?edgecast= points the page at a `wrangler dev` of workers/edgecast; ?cast= at another file pass.
-  const LAB = (q.get('edgecast') || 'https://edgecast.positron.studio').replace(/\/$/, '');
-  const CAST = (q.get('cast') || 'https://cast.positron.studio').replace(/\/$/, '');
-  // every press gets an engine of its own: three objects ran side by side, 1,300 of 1,300 frames each (2026-10-20)
-  const ROOM = q.get('room') || `v-${Math.random().toString(36).slice(2, 10)}`;
-  // A short file from the archive the cast plays, through the cast's own file pass (edge cached).
-  const FILE = { id: 'evt_1791543189468', title: 'Oriental analog', seconds: 74 };
-  const SR = 48000, FRAME = 960, PING_EVERY = 5;
+  // ?edgecast= points the page at a `wrangler dev` of workers/edgecast
+  const EDGE = (q.get('edgecast') || 'https://edgecast.positron.studio').replace(/\/$/, '');
+  const KEY = q.get('key') || '';
+  // a start stops itself after this many minutes (the station's own default; ?cap= for another)
+  const CAP_MIN = Math.max(1, Math.min(24 * 60, Number(q.get('cap')) || 30));
+  const POLL_MS = 3000;
 
   const d = mount({ name: 'Edgecast', what: '', index: '/', indexLabel: 'positron',
-    // The cells under the title, the log alone at the foot, as /remote/plaits/.
+    // the cells under the title, the log alone at the foot, as /remote/plaits/
     joined: false,
-    readout: { 'round trip': 'ms', network: 'ms', edgecast: 'ms', sent: '', back: '', dropouts: '' } });
+    readout: { scene: '', listeners: '', lead: 's', underruns: '', files: '', until: '' } });
   conceptNav('radio/edgecast');
 
-  // ── the bay: the sources, the code box, the knobs and the speakers in this tab, edgecast on Cloudflare ─
-  const S = 'web', E = 'cf-edgecast';
-  // the programs each slot starts the box with: an echo before the master, a plain pass after it
-  const THROUGH = '{ In.ar(\\in.kr(0), 2) }';
-  const DEFAULTS = [`{
-  var x = In.ar(\\in.kr(0), 2);
-  var time = \\time.kr(0.4, spec: [0.05, 1]);
-  x + (CombC.ar(LPF.ar(x, 2500), 1, time, time * 8) * \\mix.kr(0.35))
-}`, THROUGH];
-  const SLOT_NAMES = ['before the master', 'after the master'];
-  const INSERT = [`${E}:pre`, `${E}:post`];
+  // ── the bay: the cast's files, the station on Cloudflare, the speaker in this tab ─
+  const E = 'cf-edgecast:station', F = 'cf-cast:files', S = 'web:speaker';
   const bay = createBay();
-  bay.addNode({ id: 'cf-cast:files', kind: 'endpoint', label: 'file pass', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: `${S}:file`, kind: 'engine', label: FILE.title });
-  bay.addNode({ id: `${S}:mic`, kind: 'device', label: 'microphone' });
-  bay.addNode({ id: `${S}:code`, kind: 'person', label: 'code box' });
-  bay.addNode({ id: `${S}:knobs`, kind: 'person', label: 'knobs' });
-  bay.addNode({ id: `${E}:engine`, kind: 'engine', label: 'ring and layers', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: INSERT[0], kind: 'engine', label: 'insert', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: `${E}:master`, kind: 'engine', label: 'master', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: INSERT[1], kind: 'engine', label: 'insert', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: `${S}:speaker`, kind: 'screen', label: 'speakers' });
-  bay.addPort({ id: 'cf-cast:files:audio-out', dir: 'out', medium: 'audio', label: '/file', transports: ['https'] });
-  bay.addPort({ id: `${S}:file:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', transports: ['https'] });
-  bay.addPort({ id: `${S}:file:audio-out`, dir: 'out', medium: 'audio', label: 'pcm' });
-  bay.addPort({ id: `${S}:mic:audio-out`, dir: 'out', medium: 'audio', label: 'pcm' });
-  bay.addPort({ id: `${S}:code:program-out`, dir: 'out', medium: 'program', label: 'sclang', shape: { language: 'sclang' } });
-  bay.addPort({ id: `${S}:knobs:value-out`, dir: 'out', medium: 'value', label: 'param', shape: { of: 'param' } });
-  bay.addPort({ id: `${E}:engine:audio-in`, dir: 'in', medium: 'audio', label: 'pcm', transports: ['websocket'] });
-  bay.addPort({ id: `${E}:engine:audio-out`, dir: 'out', medium: 'audio', label: 'bus 12' });
-  // what reaches an insert's program and knob ports goes over edgecast's socket as {cmd:'program'} and {cmd:'set'}
-  INSERT.forEach((id, n) => {
-    bay.addPort({ id: `${id}:audio-in`, dir: 'in', medium: 'audio', label: n ? 'bus 22' : 'bus 12' });
-    bay.addPort({ id: `${id}:audio-out`, dir: 'out', medium: 'audio', label: n ? 'out' : 'bus 20', ...(n ? { transports: ['websocket'] } : {}) });
-    bay.addPort({ id: `${id}:program-in`, dir: 'in', medium: 'program', label: 'program', shape: { language: 'sclang' }, deliver: (e) => sendProgram(n, e?.src) });
-    bay.addPort({ id: `${id}:value-in`, dir: 'in', medium: 'value', label: 'params', shape: { of: 'param' }, deliver: (e) => e?.of === 'param' && sendSet(n, e.name, e.v) });
-  });
-  bay.addPort({ id: `${E}:master:audio-in`, dir: 'in', medium: 'audio', label: 'bus 20' });
-  bay.addPort({ id: `${E}:master:audio-out`, dir: 'out', medium: 'audio', label: 'bus 22' });
-  bay.addPort({ id: `${S}:speaker:audio-in`, dir: 'in', medium: 'audio', label: 'playout', transports: ['websocket'] });
-  const SOURCES = { file: [['cf-cast:files:audio-out', `${S}:file:audio-in`, 'https'], [`${S}:file:audio-out`, `${E}:engine:audio-in`, 'websocket']],
-    mic: [[`${S}:mic:audio-out`, `${E}:engine:audio-in`, 'websocket']] };
-  const CHAIN = [[`${E}:engine:audio-out`, `${INSERT[0]}:audio-in`], [`${INSERT[0]}:audio-out`, `${E}:master:audio-in`],
-    [`${E}:master:audio-out`, `${INSERT[1]}:audio-in`], [`${INSERT[1]}:audio-out`, `${S}:speaker:audio-in`, 'websocket']];
-  const BACK = CHAIN[3];
-  // the code box and the knobs reach the insert the slot choice names
-  const EDIT = (n) => [[`${S}:code:program-out`, `${INSERT[n]}:program-in`, 'websocket'], [`${S}:knobs:value-out`, `${INSERT[n]}:value-in`, 'websocket']];
+  bay.addNode({ id: F, kind: 'endpoint', label: 'cast files', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: E, kind: 'engine', label: 'station', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: S, kind: 'screen', label: 'speaker' });
+  bay.addPort({ id: `${F}:audio-out`, dir: 'out', medium: 'audio', label: '/file', transports: ['https'] });
+  bay.addPort({ id: `${E}:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', transports: ['https'] });
+  bay.addPort({ id: `${E}:audio-out`, dir: 'out', medium: 'audio', label: '/listen', transports: ['https'] });
+  bay.addPort({ id: `${S}:audio-in`, dir: 'in', medium: 'audio', label: 'audio', transports: ['https'] });
+  const LINKS = [[`${F}:audio-out`, `${E}:audio-in`], [`${E}:audio-out`, `${S}:audio-in`]];
+  for (const [a, b] of LINKS) { const r = bay.link(a, b, [], { via: 'https' }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); }
 
-  // ── state: everything a press opens, and the counters the readout reads ───
-  let run = null;           // { source, ctx, ws, frames, playout, src, mic, booted } while playing, else null
-  let buffer = null;        // the decoded file, kept across presses
-  let fetches = 0, micAsked = 0;
-  const m = { sent: 0, back: 0, dropouts: 0, rtt: [], net: [], engine: [], peak: 0, object: null };
-  // what the slots hold, as edgecast last answered, and every frame's level with its arrival time, for the checks
-  const slotHeld = DEFAULTS.map(() => ({ src: THROUGH, controls: [] }));
-  const drafts = DEFAULTS.slice();
-  const levels = [], asked = [], answers = [];
-  const sentAt = new Map(), pingAt = new Map(), pongAt = new Map();
-  const median = (a) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
-  const keep = (a, v) => { a.push(v); if (a.length > 250) a.shift(); };
+  // ── state ──
+  let st = null;            // the station's last /status
+  let fetches = 0, pollT = 0, polling = false, player = null, listening = false;
+  const get = async (path, init) => { fetches++; const r = await fetch(`${EDGE}${path}`, { cache: 'no-store', ...init }); return r.json(); };
+  const pb = createPatchbay(bay, { flowing: (l, medium) => medium === 'audio' && !!st?.playing && (l.from === `${F}:audio-out` || listening) });
 
-  let slot = 0, source = 'file';
-  function wire(src = source) {
-    source = src;
-    for (const l of bay.links()) bay.unlink(l.id);
-    for (const [a, b, via] of [...SOURCES[source], ...CHAIN, ...EDIT(slot)]) {
-      const r = bay.link(a, b, [], via ? { via } : {});
-      if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
+  // ── what is going on: rows of label and value, filled from /status ──
+  const rows = createGlueRows({ grid: true });
+  const val = {};
+  for (const [k, label] of [['file', 'file'], ['next', 'next'], ['scene', 'scene'], ['effect', 'effect'], ['ghost', 'ghost'], ['layers', 'layers'], ['program', 'program'], ['feed', 'feed']]) {
+    val[k] = el('span', 'ec-v', '');
+    rows.row([el('span', 'ec-k', label), val[k]], { align: 'start' });
+  }
+  rows.el.hidden = true;
+
+  // ── the scope: what is heard, as /radio/cast/ draws it ──
+  const scopeHost = el('div', 'ec-scope');
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const scope = createGrainScope(scopeHost, { seconds: 10, height: 120, visitor: { colour: MEDIUM_COLOURS.program } });
+  const line = el('span', 'ec-line', 'radio1965 on edgecast: nothing playing here');
+  const panel = createVideoPanel({ media: scopeHost, left: false, right: false, centre: line, aspect: 'auto', fullMode: 'bare' });
+  const mark = (c) => { if (listening) scope.wrap({ colour: css(c), short: false }); };
+
+  // ── reading /status ──
+  const hhmm = (iso) => (iso ? new Date(iso).toISOString().slice(11, 16) : '');
+  function effectOf(sc) {
+    if (!sc) return '';
+    if (sc.phase === 'blend') return 'the blend into the next scene';
+    const now = sc.at ?? 0, on = (sc.fx || []).find((f) => now >= f.at && now < f.at + f.len);
+    if (on) return `${on.kind}, under way, ${Math.max(0, Math.round(on.at + on.len - now))} s left`;
+    const next = (sc.fx || []).filter((f) => f.at > now).sort((a, b) => a.at - b.at)[0];
+    return next ? `${next.kind} in ${Math.round(next.at - now)} s` : 'none left in this scene';
+  }
+  const layersOf = (Ly) => (Ly ? [Ly.drone !== 'none' && `${Ly.drone} drone`, Ly.res !== 'none' && `resonators ${Ly.res}`, Ly.harm !== 'none' && `harmonizer ${Ly.harm}`].filter(Boolean).join(', ') || 'the granulator alone' : '');
+  const sceneOf = (sc) => (sc ? `${sc.si + 1}: ${sc.patch}, moving ${sc.param}${sc.phase === 'blend' ? ', blending' : ''}` : '');
+
+  function show(s) {
+    const sc = s?.scene, on = !!s?.playing;
+    d.set('scene', on && sc ? sc.si + 1 : '');
+    d.set('listeners', s ? s.listeners : '');
+    d.set('lead', on && s.lead != null ? s.lead.toFixed(1) : '');
+    d.set('underruns', on && s.underruns ? s.underruns.late : '');
+    d.set('files', on && s.program ? s.program.files : '');
+    d.set('until', on ? hhmm(s.until) : '');
+    rows.el.hidden = !on;
+    if (on) {
+      val.file.textContent = s.file || '';
+      val.next.textContent = s.next || '';
+      val.scene.textContent = sceneOf(sc);
+      val.effect.textContent = effectOf(sc);
+      val.ghost.textContent = sc?.ghost ? sc.ghost : sc?.layers?.ghost === 'none' ? 'none in this scene' : 'none now';
+      val.layers.textContent = layersOf(sc?.layers);
+      val.program.textContent = s.program ? `${s.program.files} files from ${s.program.source}` : '';
+      val.feed.textContent = s.fresh ? `${hhmm(s.fresh.at)} ${s.fresh.did}, every ${s.fresh.everyS} s` : 'not checked yet';
     }
-    pb?.refresh();
-  }
-  const playing = () => !!run?.booted;
-  const pb = createPatchbay(bay, { flowing: (l, medium) => playing() && medium === 'audio' && (l.from !== 'cf-cast:files:audio-out' || run.source === 'file') });
-
-  function show() {
-    const f1 = (v) => (v == null ? '' : v.toFixed(1));
-    d.set('round trip', f1(median(m.rtt)));
-    d.set('network', f1(median(m.net)));
-    d.set('edgecast', f1(median(m.engine)));
-    d.set('sent', run || m.sent ? m.sent : '');
-    d.set('back', run || m.back ? m.back : '');
-    d.set('dropouts', run || m.sent ? m.dropouts : '');
-  }
-
-  async function loadFile() {
-    if (buffer) return buffer;
-    const url = `${CAST}/file/${FILE.id}`;
-    d.log(`fetching ${FILE.title} (${FILE.seconds} s) from ${url}`);
-    fetches++;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`the file pass answered ${r.status}`);
-    const bytes = await r.arrayBuffer();
-    // decoded once, at 48 kHz, in a context of its own so a later Play does not decode again
-    const dc = new OfflineAudioContext(2, SR, SR);
-    buffer = await dc.decodeAudioData(bytes);
-    return buffer;
-  }
-
-  async function start() {
-    if (run) return true;
-    const source = choice.value();
-    const me = { source, ctx: null, ws: null, booted: false };
-    run = me;
-    Object.assign(m, { sent: 0, back: 0, dropouts: 0, rtt: [], net: [], engine: [], peak: 0, object: null });
-    sentAt.clear(); pingAt.clear(); pongAt.clear(); levels.length = 0;
-    slotHeld.forEach((h) => Object.assign(h, { src: THROUGH, controls: [] }));
-    transport.setIcon('play', 'stop', 'stop');
-    try {
-      const ctx = me.ctx = new AudioContext({ sampleRate: SR, latencyHint: 'interactive' });
-      if (ctx.sampleRate !== SR) d.log(`this browser runs audio at ${ctx.sampleRate} Hz, so edgecast hears it resampled`, 'warn');
-      await Promise.all([ctx.audioWorklet.addModule(new URL('./capture.js', import.meta.url)), ctx.audioWorklet.addModule(PLAYOUT_URL)]);
-      // what comes back: the kit's playout ring, stereo, with a cushion that grows when it runs dry
-      const playout = me.playout = new AudioWorkletNode(ctx, 'pcm-playout', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
-      playout.port.postMessage({ cmd: 'inChannels', n: 2 });
-      playout.port.postMessage({ cmd: 'floor', ms: 160, adaptive: true, maxMs: 400 });
-      playout.port.onmessage = (e) => { if (e.data?.stats && run === me) m.dropouts = e.data.stats.underruns; };
-      playout.connect(ctx.destination);
-      // what leaves: 20 ms frames cut on the tab's audio clock; a silent gain pulls it
-      const frames = me.frames = new AudioWorkletNode(ctx, 'pcm-frames', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { frame: FRAME } });
-      const mute = ctx.createGain(); mute.gain.value = 0;
-      frames.connect(mute).connect(ctx.destination);
-      if (source === 'file') {
-        const b = await loadFile();
-        if (run !== me) return false;
-        const src = me.src = ctx.createBufferSource();
-        src.buffer = b; src.loop = true;
-        src.connect(frames);
-        src.start();
-      } else {
-        micAsked++;
-        const stream = me.mic = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 2, echoCancellation: true } });
-        if (run !== me) { stream.getTracks().forEach((t) => t.stop()); return false; }
-        me.src = ctx.createMediaStreamSource(stream);
-        me.src.connect(frames);
-        d.log(`the microphone is ${stream.getAudioTracks()[0]?.label || 'on'}`);
-      }
-      ctx.resume().catch(() => { /* a later gesture resumes it */ });
-      return await open(me);
-    } catch (e) {
-      d.log(`did not start: ${e?.message || e}`, 'bad');
-      stop();
-      return false;
-    }
-  }
-
-  function open(me) {
-    const url = `${LAB.replace(/^http/, 'ws')}/ws?room=${encodeURIComponent(ROOM)}`;
-    d.log(`opening ${url}`);
-    const ws = me.ws = new WebSocket(url);
-    ws.binaryType = 'arraybuffer';
-    let said = false, asked = 0;
-    return new Promise((done) => {
-      ws.onopen = () => { asked = performance.now(); ws.send(JSON.stringify({ cmd: 'boot', mode: 'full', seed: 7 })); };
-      ws.onmessage = (ev) => {
-        if (run !== me) return;
-        if (typeof ev.data === 'string') {
-          const msg = JSON.parse(ev.data);
-          if ('pong' in msg) {
-            const t = performance.now();
-            pongAt.set(msg.pong, t);
-            if (pingAt.has(msg.pong)) keep(m.net, t - pingAt.get(msg.pong));
-          } else if ('booted' in msg) {
-            if (!msg.booted) { d.log(`edgecast did not boot: ${String(msg.error).split('\n')[0]}`, 'bad'); stop(); done(false); return; }
-            const s = msg.scene || {};
-            me.bootMs = performance.now() - asked;
-            d.log(`edgecast answered in ${Math.round(me.bootMs)} ms: the ring on ${s.patch || 'its patch'}, ${s.layers || 0} layer programs and the master, ${Math.round((msg.memoryBytes || 0) / 1048576)} MB`);
-            me.booted = true;
-            me.frames.port.onmessage = (e) => send(me, e.data);
-            me.statsTimer = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: 'stats' })); }, 3000);
-            pb.refresh();
-            // the box's program goes in on Play, so its knobs move something from the first press
-            bay.send(`${S}:code:program-out`, { language: 'sclang', src: drafts[slot] });
-            done(true);
-          } else if (msg.program) {
-            answered(msg.program);
-          } else if (msg.set) {
-            if (!msg.set.ok) d.log(`edgecast did not set ${msg.set.refused?.join(', ') || ''}${msg.set.error ? `: ${msg.set.error}` : ''}`, 'warn');
-          } else if (msg.stats) {
-            m.object = { frames: msg.stats.frames, median: msg.stats.median, nonzero: msg.stats.nonzero, grains: msg.stats.grains };
-          } else if (msg.busy || msg.ended || msg.error) {
-            d.log(msg.ended || msg.error, msg.busy ? 'warn' : 'bad');
-          }
-          return;
-        }
-        const now = performance.now();
-        const seq = new Float64Array(ev.data, 0, 3)[0];
-        m.back++;
-        if (sentAt.has(seq)) { keep(m.rtt, now - sentAt.get(seq)); sentAt.delete(seq); }
-        // the pong for this frame left the object before the frame was worked on, so the gap is the work
-        if (pongAt.has(seq)) { keep(m.engine, Math.max(0, now - pongAt.get(seq))); pongAt.delete(seq); pingAt.delete(seq); }
-        const pcm = new Int16Array(ev.data, 24);
-        const f = new Float32Array(pcm.length);
-        let hi = 0, sq = 0;
-        for (let i = 0; i < pcm.length; i++) { f[i] = pcm[i] / 32768; sq += f[i] * f[i]; const a = f[i] < 0 ? -f[i] : f[i]; if (a > hi) hi = a; }
-        levels.push({ t: now, rms: Math.sqrt(sq / (pcm.length || 1)) });
-        if (levels.length > 3000) levels.splice(0, 500);
-        if (hi > m.peak) m.peak = hi;
-        me.playout.port.postMessage({ pcm: f }, [f.buffer]);
-        if (!said) { said = true; d.log('the first processed frame is back, playing it'); }
-      };
-      ws.onclose = (e) => {
-        if (run === me) { d.log(`edgecast closed the socket${e.reason ? `: ${e.reason}` : ''}`, 'warn'); stop(); }
-        done(false);
-      };
-      ws.onerror = () => { if (run === me) d.log('the socket to edgecast failed', 'warn'); };
-    });
-  }
-
-  function send(me, buf) {
-    if (run !== me || me.ws.readyState !== 1) return;
-    const seq = m.sent;
-    if (seq % PING_EVERY === 0) { pingAt.set(seq, performance.now()); me.ws.send(JSON.stringify({ cmd: 'ping', n: seq })); }
-    sentAt.set(seq, performance.now());
-    me.ws.send(buf);
-    m.sent++;
-    if (sentAt.size > 500) for (const k of [...sentAt.keys()].slice(0, 100)) sentAt.delete(k);
-  }
-
-  function stop() {
-    const me = run;
-    if (!me) return;
-    run = null;
-    clearInterval(me.statsTimer);
-    try { me.ws?.close(1000, 'stop'); } catch { /* gone */ }
-    try { me.frames?.port.postMessage({ cmd: 'stop' }); } catch { /* gone */ }
-    try { me.src?.stop?.(); } catch { /* not started */ }
-    try { me.src?.disconnect(); } catch { /* gone */ }
-    me.mic?.getTracks().forEach((t) => t.stop());
-    me.ctx?.close().catch(() => { /* closed */ });
-    transport.setIcon('play', 'play', 'play');
-    if (m.sent) {
-      const o = m.object;
-      d.log(`stopped: ${m.sent} frames sent, ${m.back} back, ${m.dropouts} dropouts${o ? `; the object had counted ${o.frames} at its last report` : ''}`);
-      if (o && !o.nonzero) d.log('the object\'s own timer read 0 for every frame: Cloudflare holds a Worker\'s clock still while its code runs, so edgecast cell is timed from this tab');
-    }
-    show();
+    line.textContent = on ? `${s.file || 'a file'}, ${sc ? `scene ${sceneOf(sc)}${(sc.fx || []).length && sc.phase !== 'blend' && !/^none/.test(effectOf(sc)) ? `; ${effectOf(sc)}` : ''}` : 'starting'}` : `radio1965 on edgecast: ${s ? 'off air' : 'nothing playing here'}`;
+    scope.visitorName(on && sc?.ghost ? `ghost: ${sc.ghost}` : '');
+    if (KEY) btns.enable('stop', on || !!s?.wanted, 'the station is off air');
     pb.refresh();
   }
 
-  // ── a program and its knobs, live: what arrives at an insert's ports leaves on the socket ──
-  function sendProgram(to, src) {
-    // the same compiler first, here, so a broken program is answered without a message to edgecast
-    const local = compile(src, { name: 'check', bus: 0 });
-    if (!local.ok) { answered({ ok: false, slot: to, error: local.message, local: true }); return false; }
-    if (!playing() || run.ws.readyState !== 1) { say('Press play first'); return false; }
-    asked.push({ slot: to, t: performance.now() });
-    say('Compiling');
-    run.ws.send(JSON.stringify({ cmd: 'program', slot: to, src }));
-    // edgecast takes one program a second, autocompile's included
-    lastAt = performance.now(); lastAuto = src;
-    return true;
+  /** What changed since the last status, one log line each: a file, a scene, an effect, a ghost, the feed. */
+  function changes(a, b) {
+    if (!b?.playing) { if (a?.playing) d.log(`the station went off air${b?.last?.why ? `: ${b.last.why}` : ''}`); return; }
+    const x = a?.playing ? a.scene : null, y = b.scene;
+    if (!a?.playing) d.log(`on air until ${hhmm(b.until)} UTC, ${b.program ? `${b.program.files} files from ${b.program.source}` : ''}`);
+    if (b.file && b.file !== a?.file) d.log(`now playing ${b.file}`);
+    if (y && y.inst !== x?.inst) { d.log(`scene ${sceneOf(y)}, ${layersOf(y.layers)}`); mark('--fg'); }
+    const fxOn = (sc) => (sc?.fx || []).find((f) => sc.phase !== 'blend' && sc.at >= f.at && sc.at < f.at + f.len)?.kind;
+    if (fxOn(y) && (fxOn(y) !== fxOn(x) || y.inst !== x?.inst)) d.log(`effect ${fxOn(y)} under way`);
+    if (y?.ghost && y.ghost !== x?.ghost) { d.log(`a ghost: ${y.ghost}`); mark('--md-program'); }
+    const f = b.fresh;
+    if (f && f.at !== a?.fresh?.at && (f.added?.length || f.gone?.length)) d.log(`feed: ${f.did}`);
+    if (b.underruns?.late > (a?.underruns?.late ?? b.underruns.late)) d.log(`the station fell behind the wall (${b.underruns.late} times)`, 'warn');
   }
-  // past the check here, so edgecast's own compiler is the one that answers
-  function sendRaw(to, src) { asked.push({ slot: to, t: performance.now() }); run?.ws?.send(JSON.stringify({ cmd: 'program', slot: to, src })); }
-  function sendSet(to, name, v) {
-    if (playing() && run.ws.readyState === 1) run.ws.send(JSON.stringify({ cmd: 'set', slot: to, params: { [name]: v } }));
+
+  async function poll() {
+    try { const s = await get('/status'); changes(st, s); st = s; show(s); return s; }
+    catch (e) { d.log(`edgecast did not answer: ${e.message}`, 'warn'); return null; }
   }
-  function answered(a) {
-    a.at = performance.now();
-    a.sinceSend = !a.local && asked.length ? a.at - asked.at(-1).t : null;
-    answers.push(a);
-    if (!a.ok) {
-      say(a.error, 'bad');
-      d.log(`${a.local ? 'did not compile, nothing was sent' : `edgecast refused the program for the insert ${SLOT_NAMES[a.slot] ?? a.slot}`}: ${a.error}`, 'warn');
-      return;
+  function startPoll() {
+    if (polling) return;
+    polling = true;
+    const tick = async () => { if (!polling) return; await poll(); if (polling) pollT = setTimeout(tick, POLL_MS); };
+    pollT = setTimeout(tick, POLL_MS);
+  }
+  function stopPoll() { polling = false; clearTimeout(pollT); }
+
+  // ── listening: one <audio> through an analyser, made on the first press ──
+  function makePlayer() {
+    const audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
+    const ctx = new AudioContext(), an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    ctx.createMediaElementSource(audio).connect(an);
+    an.connect(ctx.destination);
+    // the stream ends when the station restarts: while it is still on air the player comes back by itself
+    const again = (why) => {
+      if (!listening) return;
+      if (!st?.playing || (p.retries = (p.retries || 0) + 1) > 20) { d.log('the stream stopped: is the station on air?', 'warn'); stopListening(); return; }
+      d.log(`the stream ${why}, listening again`);
+      setTimeout(() => { if (listening) { audio.src = `${EDGE}/listen`; audio.play().catch(() => { /* the error event comes again */ }); } }, 1000);
+    };
+    audio.addEventListener('ended', () => again('ended'));
+    audio.addEventListener('error', () => again('broke'));
+    audio.addEventListener('playing', () => { p.retries = 0; d.log('playing the station'); pb.refresh(); });
+    const p = { audio, ctx, an, buf: new Float32Array(an.fftSize), zeros: 0, tap: null };
+    return p;
+  }
+  // WebKit hands a live stream's tap zeros (no byte ranges: WebKit 180696): then the wave comes from a second copy
+  // of our own stream, cut at MP3 frames and decoded. why: lessons/workers-cast.md#ios-scope
+  function startTap(url) {
+    const ac = new AbortController(), queue = [];
+    player.tap = { ac, queue, ready: 0 };
+    d.log('the wave here comes from a second copy of the stream: this browser gives the player\'s tap no sound');
+    const frameAt = (b, i) => b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0 && ((b[i + 2] >> 4) & 15) !== 0 && ((b[i + 2] >> 4) & 15) !== 15 && ((b[i + 2] >> 2) & 3) !== 3;
+    (async () => {
+      fetches++;
+      const rd = (await fetch(url, { signal: ac.signal, cache: 'no-store' })).body.getReader();
+      let pending = new Uint8Array(0);
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        const n = new Uint8Array(pending.length + value.length); n.set(pending); n.set(value, pending.length); pending = n;
+        if (pending.length < 8192) continue;
+        let cut = pending.length - 4; while (cut > 0 && !frameAt(pending, cut)) cut--;
+        let from = 0; while (from < cut && !frameAt(pending, from)) from++;
+        if (cut <= from) continue;
+        const chunk = pending.slice(from, cut); pending = pending.slice(cut);
+        try { const ab = await player.ctx.decodeAudioData(chunk.buffer); queue.push(ab.getChannelData(0)); player.tap.rate = ab.sampleRate; while (queue.length > 12) queue.shift(); } catch { /* a chunk that does not decode is skipped */ }
+      }
+    })().catch(() => { /* aborted on stop */ });
+  }
+  function tapTake(n) {
+    const t = player.tap, out = new Float32Array(n); let k = 0;
+    while (k < n && t.queue.length) { const c = t.queue[0], m = Math.min(n - k, c.length - t.ready); out.set(c.subarray(t.ready, t.ready + m), k); k += m; t.ready += m; if (t.ready >= c.length) { t.queue.shift(); t.ready = 0; } }
+    return out.subarray(0, k);
+  }
+  let raf = 0, lastFeed = 0, lastT = -1, zeroT = 0;
+  function feedLoop() {
+    if (!listening || !player) { raf = 0; return; }
+    const t = performance.now(), dt = (t - (lastFeed || t)) / 1000; lastFeed = t;
+    if (player.tap) {
+      const x = dt > 0 ? tapTake(Math.round(dt * (player.tap.rate || 44100))) : null; if (x?.length) scope.feed(x, player.tap.rate || 44100);
+    } else {
+      const an = player.an, n = Math.min(player.buf.length, Math.round(dt * an.context.sampleRate));
+      an.getFloatTimeDomainData(player.buf);
+      if (n > 0) scope.feed(player.buf.subarray(player.buf.length - n), an.context.sampleRate);
+      // zeros while the audio advances, for 2 s: the tap is deaf
+      if (t - zeroT > 250) {
+        zeroT = t;
+        let pk = 0; for (const v of player.buf) pk = Math.max(pk, Math.abs(v));
+        const moved = player.audio.currentTime > lastT; lastT = player.audio.currentTime;
+        player.zeros = pk === 0 && moved ? player.zeros + 1 : 0;
+        if ((player.zeros >= 8 || q.get('tap') === '1') && !player.tap) startTap(`${EDGE}/listen`);
+      }
     }
-    slotHeld[a.slot] = { src: drafts[a.slot], controls: a.controls || [] };
-    say(`In, ${Math.round(a.sinceSend ?? 0)} ms`);
-    d.log(`the program is in the insert ${SLOT_NAMES[a.slot]}: ${a.blocks} UGens, answered ${Math.round(a.sinceSend ?? 0)} ms after the send`);
-    if (a.slot === slot) knobsFor(a.controls || []);
+    raf = requestAnimationFrame(feedLoop);
   }
 
-  const code = createCodeBox({ language: 'sclang', rows: CODE_ROWS, label: '', value: drafts[0],
-    ariaLabel: 'the SuperCollider program in the insert, it goes in as you type', onInput: (t) => { drafts[slot] = t; autoCompile(t); } });
-  // autocompile (*"autocompile"*): a pause in typing sends the program, at most one a second (edgecast's own limit);
-  // while it does not compile the line under the box says why and nothing is sent
-  let autoT = 0, lastAuto = '', lastAt = 0;
-  function autoCompile(src) {
-    clearTimeout(autoT);
-    autoT = setTimeout(() => {
-      const r = compile(src, { name: 'check', bus: 0 });
-      if (!r.ok) { say(r.message, 'bad'); return; }
-      if (!playing()) { say('Compiles, goes in on play'); return; }
-      if (src === lastAuto) return;
-      const wait = Math.max(0, 1000 - (performance.now() - lastAt));
-      if (wait) { autoCompile(src); return; }
-      lastAuto = src; lastAt = performance.now();
-      bay.send(`${S}:code:program-out`, { language: 'sclang', src });
-    }, 600);
+  async function play() {
+    if (listening) { stopListening(); return; }
+    // the context is made inside the press, so the sound is allowed
+    player ||= makePlayer();
+    player.ctx.resume().catch(() => { /* sound may be late, the stream is not */ });
+    btns.setIcon?.('play', 'stop', 'stop');
+    const s = await poll();
+    startPoll();
+    if (!s?.playing) { d.log(`the station is not on air${KEY ? ': press Start' : ''}`, 'warn'); btns.setIcon?.('play', 'play', 'play'); if (!KEY) stopPoll(); return; }
+    listening = true;
+    player.audio.src = `${EDGE}/listen`;
+    player.audio.play().catch(() => { /* the error event says why */ });
+    scope.clear(); scope.source('edgecast');
+    lastFeed = 0; if (!raf) raf = requestAnimationFrame(feedLoop);
+    pb.refresh();
   }
-  const compileBtn = el('button', 'pos-sm', 'Compile', { type: 'button' });
-  compileBtn.addEventListener('click', () => bay.send(`${S}:code:program-out`, { language: 'sclang', src: code.value() }));
-  const status = el('span', 'cc-status', '', { role: 'status', 'aria-live': 'polite' });
-  function say(t, kind = '') { status.textContent = t; status.dataset.kind = kind; }
-
-  // the knobs are the program's own arguments, as edgecast's compiler listed them
-  const knobHost = el('div');
-  let knobs = new Map();
-  function knobsFor(controls) {
-    knobHost.textContent = '';
-    knobs = new Map(controls.map((c) => [c.name, createKnob({ label: c.name, min: c.spec.min, max: c.spec.max, value: c.value, hand: true,
-      onInput: (v) => bay.send(`${S}:knobs:value-out`, { of: 'param', name: c.name, v }) })]));
-    if (knobs.size) knobHost.append(createKnobGrid(knobs, { row: true }).el);
-    knobHost.hidden = !knobs.size;
+  function stopListening() {
+    listening = false;
+    if (player) { player.audio.pause(); player.audio.removeAttribute('src'); player.audio.load(); player.tap?.ac.abort(); player.tap = null; player.zeros = 0; }
+    cancelAnimationFrame(raf); raf = 0; scope.clear(); scope.source('');
+    btns.setIcon?.('play', 'play', 'play');
+    if (!KEY) stopPoll();
+    show(st);
   }
-  const knobsOf = (src) => { const r = compile(src, { name: 'check', bus: 0 }); return r.ok ? r.knobs.filter((k) => k.name !== 'in') : []; };
-  knobsFor(knobsOf(DEFAULTS[0]));
-  const slotChoice = createChoice({ label: 'insert', options: SLOT_NAMES.map((n, i) => [n, i]), at: 0,
-    onPick: (v) => { slot = v; code.set(drafts[slot]); knobsFor(slotHeld[slot].controls.length ? slotHeld[slot].controls : knobsOf(drafts[slot])); wire(); } });
 
-  // ── the controls ────────────────────────────────────────────────────────
-  const choice = createChoice({ label: 'source', options: [['file', 'file'], ['microphone', 'mic']], at: 0,
-    onPick: (v) => { const was = !!run; if (was) stop(); wire(v); if (was) start(); } });
-  const transport = createButtonGroup({ buttons: [
-    { id: 'play', icon: 'play', label: 'play', onPress: () => (run ? stop() : start()) },
+  // ── Start and Stop, only with the key: the station's own cap ends a start ──
+  async function control(what) {
+    try {
+      const s = await get(`/${what}?key=${encodeURIComponent(KEY)}${what === 'start' ? `&cap=${CAP_MIN}` : ''}`, { method: 'POST' });
+      if (s.error) d.log(`${what}: ${s.error}`, 'warn');
+      else d.log(what === 'start' ? `started, stops itself after ${CAP_MIN} min` : 'stopped');
+      startPoll();
+      await poll();
+    } catch (e) { d.log(`${what} did not reach edgecast: ${e.message}`, 'bad'); }
+  }
+
+  const btns = createButtonGroup({ buttons: [
+    { id: 'play', icon: 'play', label: 'play', onPress: () => play() },
+    ...(KEY ? [{ id: 'start', label: 'Start', onPress: () => control('start') }, { id: 'stop', label: 'Stop', onPress: () => control('stop') }] : []),
   ] });
-  wire('file');
-  setInterval(() => { if (run) { show(); pb.refresh(); } }, 500);
-
-  const top = el('div', 'cc-top');
-  top.append(transport.el, choice.el);
-  const act = el('div', 'cc-top');
-  // a program goes before the master, where an effect belongs (*"why i need to choose"*); the other slot is the check's
-  // no Compile button: the program goes in as you type; the hidden button stays the checks' handle
-  act.append(status);
-  d.stack.add(top, knobHost, code.el, act, pb.el);
+  const top = el('div', 'ec-top');
+  top.append(btns.el);
+  d.stack.add(top, panel.el, rows.el, pb.el);
 
   window.__demo.bay = bay;
-  window.__demo.edgecast = { start, stop, choice, slotChoice, code, room: ROOM, lab: LAB, levels, answers, slotHeld, knobs: () => knobs,
-    program: (src, to = slot) => { drafts[to] = src; return bay.send(`${S}:code:program-out`, { language: 'sclang', src }); },
-    sendRaw, press: () => compileBtn.click(),
-    probe: () => ({ running: !!run, booted: playing(), source: run?.source ?? null, ws: run?.ws?.readyState ?? null,
-      ctx: run?.ctx?.state ?? null, bootMs: run?.bootMs ?? null, fetches, micAsked, sent: m.sent, back: m.back, dropouts: m.dropouts, peak: m.peak,
-      rtt: median(m.rtt), net: median(m.net), engine: median(m.engine), samples: { rtt: m.rtt.length, net: m.net.length, engine: m.engine.length },
-      object: m.object }) };
+  window.__demo.edgecast = { edge: EDGE, play, stopListening, poll, status: () => st,
+    probe: () => ({ fetches, polling, listening, player: !!player, keyed: !!KEY, rows: !rows.el.hidden }) };
 
-  // ── the self-check: only under ?selfcheck=1; the driven run against the deployed edgecast only on the deep tier ─
+  // ── the self-check, only under ?selfcheck=1: everything it grades is in this tab, nothing reaches edgecast ──
   if (SELFCHECK) {
-    const A = d.assert, C = window.__demo.edgecast;
-    const has = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
-    const sentOn = (a, b) => bay.links().find((l) => l.from === a && l.to === b)?.sent ?? 0;
-    A('a visit opens nothing: no socket, no file, no microphone, no sound', !run && fetches === 0 && micAsked === 0);
-    A('the file reaches edgecast over the websocket, through both inserts and the master, and comes back to the speakers',
-      has(`${S}:file:audio-out`, `${E}:engine:audio-in`) && CHAIN.every(([a, b]) => has(a, b)) && bay.links().filter((l) => l.via === 'websocket').length === 4,
+    const A = d.assert, has = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
+    A('a visit opens nothing: no fetch, no stream, no poll', fetches === 0 && !polling && !player);
+    A('the cast\'s files reach the station and the station reaches the speaker, both over https', LINKS.every(([a, b]) => has(a, b)) && bay.links().every((l) => l.via === 'https'),
       bay.links().map((l) => `${l.from} -> ${l.to} ${l.via ?? ''}`).join(', '));
-    A('the code box and the knobs reach the insert before the master', has(...EDIT(0)[0].slice(0, 2)) && has(...EDIT(0)[1].slice(0, 2)));
-    slotChoice.set(1);
-    A('picking the other insert moves both links to it, and the box shows its program',
-      has(...EDIT(1)[0].slice(0, 2)) && !has(...EDIT(0)[0].slice(0, 2)) && code.value() === THROUGH && knobHost.hidden);
-    slotChoice.set(0);
-    wire('mic');
-    A('picking the microphone moves the link into edgecast', has(`${S}:mic:audio-out`, `${E}:engine:audio-in`) && !has(`${S}:file:audio-out`, `${E}:engine:audio-in`));
-    wire('file');
-    A('the default program\'s own arguments are the knobs, and `in` is not one', [...knobs.keys()].join() === 'time,mix', [...knobs.keys()].join());
+    A('without the key there is only Play', KEY ? true : !top.querySelector('button[data-id="start"], button[data-id="stop"]') && top.querySelectorAll('button').length === 1, `${top.querySelectorAll('button').length} buttons`);
     {
-      // NEGATIVE CONTROL: a websocket between two ends in this tab is refused, so the links above are not waved through.
-      const r = bay.link(`${S}:file:audio-out`, `${S}:speaker:audio-in`, [], { via: 'websocket' });
-      A('NEGATIVE CONTROL: a websocket inside this tab is refused', !r.ok, r.why || 'linked');
+      // NEGATIVE CONTROL: the bay refuses a link out of an input, so the two above are not waved through
+      const r = bay.link(`${S}:audio-in`, `${E}:audio-out`, [], { via: 'https' });
+      A('NEGATIVE CONTROL: a link out of the speaker\'s input is refused', !r.ok, r.why || 'linked');
       if (r.ok) bay.unlink(r.id);
-      // NEGATIVE CONTROL: a program that does not compile is refused here with the compiler's message, and nothing is sent.
-      const n = answers.length;
-      C.program('{ In.ar(\\in.kr(0), 2) * SinOsc.ar(', 0);
-      const a = answers[n];
-      A('NEGATIVE CONTROL: a program that does not compile is refused with the compiler\'s message, and opens nothing',
-        a && !a.ok && a.local && /line \d+, column \d+/.test(a.error) && !run && sentOn(...EDIT(0)[0].slice(0, 2)) === 1, a?.error);
-      drafts[0] = DEFAULTS[0];
-      say('');
     }
-    if (DEEP) {
-      (async () => {
-        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-        const until = async (fn, ms) => { const t = performance.now(); while (!fn() && performance.now() - t < ms) await wait(50); return fn(); };
-        const rmsIn = (t0, t1) => { const s = levels.filter((x) => x.t >= t0 && x.t < t1); return s.length ? Math.sqrt(s.reduce((q, x) => q + x.rms * x.rms, 0) / s.length) : 0; };
-        const db = (x) => 20 * Math.log10(Math.max(1e-9, x));
-        const M = C.measured = {};
-        const ok = await start();
-        A('Play boots the engine in edgecast', ok && playing(), JSON.stringify(C.probe()));
-        if (!ok) return;
-        const first = await until(() => answers.find((x) => !x.local), 5000) && answers.find((x) => !x.local);
-        A('the box\'s echo goes into the insert before the master on Play', first?.ok && first.slot === 0 && first.controls.map((c) => c.name).join() === 'time,mix', JSON.stringify(first));
-        M.firstProgramMs = first?.sinceSend;
-        await wait(5000);
-        const p = C.probe();
-        A('frames go out and come back processed', p.sent > 200 && p.back > 0.9 * p.sent, `${p.sent} sent, ${p.back} back`);
-        A('what comes back is sound, not silence', p.peak > 0.01, `peak ${p.peak.toFixed(3)}`);
-        A('round trip, network and edgecast time are measured', [p.rtt, p.net, p.engine].every(Number.isFinite), `rtt ${p.rtt?.toFixed(1)}, net ${p.net?.toFixed(1)}, edgecast ${p.engine?.toFixed(1)}`);
-        // a gain of 0.25 after the master, where nothing levels it back: about 12 dB down within a second
-        slotChoice.set(1);
-        const tSend = performance.now(), base = rmsIn(tSend - 2000, tSend), n = answers.length;
-        C.program('{ In.ar(\\in.kr(0), 2) * \\gain.kr(0.25) }', 1);
-        const g = await until(() => answers[n], 4000) && answers[n];
-        A('a gain program goes into the insert after the master', g?.ok && g.slot === 1 && knobs.has('gain'), JSON.stringify(g));
-        await wait(1300);
-        const after = rmsIn(g.at + 300, g.at + 1300), drop = db(after) - db(base);
-        const quiet = levels.find((x) => x.t > tSend && x.rms < base * 0.4);
-        M.gainDropDb = +drop.toFixed(2); M.gainAnswerMs = Math.round(g.sinceSend); M.gainFirstQuietFrameMs = quiet ? Math.round(quiet.t - tSend) : null;
-        A('the returned level falls about 12 dB, within a second', drop < -8 && drop > -16 && quiet && quiet.t - tSend < 1000,
-          `${drop.toFixed(1)} dB, answered in ${M.gainAnswerMs} ms, first quieter frame back ${M.gainFirstQuietFrameMs} ms after the send`);
-        // NEGATIVE CONTROL: a broken program sent past the check here is refused by edgecast's own compiler, and the sound goes on
-        await wait(1100);
-        const n2 = answers.length, back0 = m.back;
-        C.sendRaw(1, '{ In.ar(\\in.kr(0), 2) * SinOsc.ar(');
-        const b = await until(() => answers[n2], 4000) && answers[n2];
-        await wait(1000);
-        const during = rmsIn(b?.at ?? performance.now(), (b?.at ?? performance.now()) + 1000);
-        A('NEGATIVE CONTROL: edgecast refuses a program that does not compile, with its message', b && !b.ok && !b.local && /line \d+, column \d+/.test(b.error), b?.error);
-        A('and the sound goes on at the level it had', m.back - back0 > 40 && Math.abs(db(during) - db(after)) < 4, `${m.back - back0} frames, ${db(during).toFixed(1)} against ${db(after).toFixed(1)} dBFS`);
-        // a knob, live: gain back to 1 arrives on the knobs link and the level comes back up
-        const k0 = sentOn(...EDIT(1)[1].slice(0, 2)), tk = performance.now();
-        knobs.get('gain').set(1, { from: 'hand' });
-        await wait(1200);
-        const up = db(rmsIn(tk + 300, tk + 1200)) - db(during);
-        M.knobUpDb = +up.toFixed(2);
-        A('moving the gain knob goes over the knobs link and brings the level back', sentOn(...EDIT(1)[1].slice(0, 2)) > k0 && up > 8, `${up.toFixed(1)} dB`);
-        const ws = run.ws, ctx = run.ctx;
-        stop();
-        await wait(500);
-        A('Stop closes the socket and the sound', ws.readyState === 3 && ctx.state === 'closed', `ws ${ws.readyState}, ctx ${ctx.state}`);
-        slotChoice.set(0);
-        choice.set(1);
-        await wait(200);
-        const okMic = await start();
-        await wait(3000);
-        const pm = C.probe();
-        A('the microphone goes out and comes back', okMic && pm.back > 50, `${pm.sent} sent, ${pm.back} back`);
-        const tracks = run?.mic?.getTracks() || [];
-        stop();
-        A('Stop ends the microphone', tracks.length > 0 && tracks.every((t) => t.readyState === 'ended'), tracks.map((t) => t.readyState).join(' '));
-        choice.set(0);
-        M.done = true;
-      })().catch((e) => A('the driven check ran', false, e.message));
-    } else d.log('left for the deep run: playing through edgecast, the live program, the knob and the refusal');
+    // the reading of a status, on a made up one: the effect, the scene and the change log
+    const fake = { playing: true, listeners: 2, lead: 1.84, until: '2026-10-20T19:00:00.000Z', file: 'A file', next: 'B file', underruns: { late: 0 },
+      program: { files: 9, source: 'radio1965\'s program' }, fresh: { at: '2026-10-20T18:40:00.000Z', did: 'nothing new', everyS: 30 },
+      scene: { si: 2, inst: 'x2', patch: 'Cloud', param: 'pos', phase: 'dwell', at: 30, fx: [{ kind: 'echo', at: 25, len: 20 }], ghost: 'C file', layers: { drone: 'none', res: 'none', harm: 'low', ghost: 'some' } } };
+    A('an effect under way reads with its time left', effectOf(fake.scene) === 'echo, under way, 15 s left', effectOf(fake.scene));
+    A('NEGATIVE CONTROL: an effect still to come is not under way', effectOf({ ...fake.scene, at: 10 }) === 'echo in 15 s', effectOf({ ...fake.scene, at: 10 }));
+    show(fake);
+    A('a status fills the rows, the cells and the line under the wave', !rows.el.hidden && val.ghost.textContent === 'C file' && val.layers.textContent === 'harmonizer low' && /scene 3: Cloud/.test(line.textContent),
+      `${val.ghost.textContent} | ${val.layers.textContent} | ${line.textContent}`);
+    show(null);
+    A('and no status leaves the rows hidden and the cells empty', rows.el.hidden && getComputedStyle(rows.el).display === 'none');
   }
   d.ready();
 </script>
