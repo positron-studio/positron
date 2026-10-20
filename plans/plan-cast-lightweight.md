@@ -339,3 +339,59 @@ What stays open is making the live chain lighter:
 
 An offline (NRT) render is still worth having as a test tool for the gate only, never as what goes on air: it would
 let a sound change be checked in a minute rather than fifteen. Answered the same day: *"no offline. experiemnt with ligth chain"*. No offline render anywhere; the next step is an experiment with a light live chain.
+
+## 8. The Cloudflare route for live compute: SFU, WebSocket adapter, Durable Object (2026-10-20)
+
+Asked: *"what is the cf solution for this realtime compute"*, then *"yes, show data-backed plan and arealdy start experiments"*.
+This section corrects section 4e: a Worker per request cannot hold a granulator, but a Durable Object can, because it
+keeps its memory between messages and has no wall-time limit while a WebSocket or socket is open.
+
+### What Cloudflare documents (read 2026-10-20)
+
+| fact | value | source |
+| --- | --- | --- |
+| WebSocket adapter, GA | 2026-09-30 | changelog 2026-09-30 |
+| WebRTC track out to our service | Opus decoded to 48 kHz stereo PCM over a WebSocket | adapter docs |
+| our service back into WebRTC | 48 kHz stereo PCM in, published as Opus | adapter docs |
+| message size | at most 32 KB each, about 170 ms of 48 kHz stereo 16-bit | adapter docs |
+| reconnect | egress retries 15 s with a short buffer; no gapless or exactly-once promise | adapter docs |
+| Durable Object wall time | unlimited while a WebSocket, stream, TCP socket or pending I/O is open | Workers limits |
+| Durable Object memory | 128 MB per isolate | Workers limits |
+| duration price | $12.50 per million GB-s, billed at 128 MB while active | DO pricing |
+| WebSocket messages | 20 messages billed as one request, $0.15 per million | DO pricing |
+| Cloudflare's own example | speech to text and text to speech on call audio in a Durable Object | AI audio example |
+
+### What we measured (section 1)
+
+| part | % of a core |
+| --- | --- |
+| tuner | 0.53 |
+| five layer kinds | 0.73 |
+| grain ring | about 3 (upper bound) |
+| LAME 128k | 0.59 |
+| sum | about 5, so about 1 ms of work per 20 ms frame |
+
+### The estimate (arithmetic, not a bill)
+
+- One object on air for a day: 86,400 s at 0.125 GB = 10,800 GB-s, about **$0.14 a day**.
+- 50 frames a second: 4.32 million messages, 216,000 billed requests, about **$0.03 a day**.
+- About **$0.17 a day** against $1.33 for today's container; the SFU's own egress price comes on top for WebRTC listeners.
+
+### What has to be measured before believing it
+
+1. Whether the vendored wasm scsynth (SuperSonic, `demo/shell/vendor/scsynth-nrt.wasm`) runs in workerd at all: no
+   threads, no `SharedArrayBuffer`; and if not, what the smallest replacement for the ring and layers is.
+2. CPU per 20 ms frame inside a Durable Object, and its spread (the worst frame decides glitches), against the 1 ms
+   estimate; and that each WebSocket message gets its own CPU allowance.
+3. The clock: a live input clocks itself; the file program needs steady pacing from something (a feeding WebSocket, or
+   an alarm and a buffer) because timers in an isolate are not an audio clock.
+4. For Väin: MP3 decode and encode as wasm in the same object, and the source PUT over an outbound TCP socket.
+5. A restart (a deploy, an eviction): how long the gap is, and what state has to come back (the life's seed and scene,
+   the file and second; the ring and reverb tails are lost).
+
+### Rust
+
+Not needed for portability: scsynth is C++ and SuperSonic already compiles it to wasm, which is what LOCAL runs. A Rust
+port of our subset (the 36 UGens sclang-lite knows, the ring, FreeVerb, the limiter) would be lighter and would also run
+native on the Pi and as wasm everywhere, but it is weeks of work and gives up the SynthDef programs the layers and the
+master are written in. It comes back only if item 1 or 2 above fails.
