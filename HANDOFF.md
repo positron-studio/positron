@@ -1,3 +1,8 @@
+# Handoff, 2026-10-20 night, session 87: the edgecast station page shipped; to-radio65 building in the background
+
+- **Shipped:** commits `ad36b674` (workers/cast/program.mjs shared by the Caster and edgecast, the station page) and `db5ca1e3` (build). Site BUILD `ad36b674-183939-d22d`, confirmed. Cast deployed `b2f474a0` with all six stations off (still off after). edgecast `df630463` (code station-3). Cast tests read as before, program-test 23/23. Not pushed.
+- **Running in the background, in a worktree:** edgecast as the Icecast source for radio1965 (BACKLOG steps 1, 2, 4: source client, relay object, Docker rehearsal). New files only, no deploy, no connection to live.uuu.ee. When it lands: add the station hook lines it names, then step 3 (resume).
+
 # Handoff, 2026-10-20 night, session 86 end: events11 on air, edgecast is a station, one agent still running
 
 - **On air:** nothing; all six cast stations off, the edgecast station stopped (18:07Z). Cast version `fb37d316` (events11, ice-name `Väin` as Latin-1, no ice-description: Väin's app shows "Väin on radio1965" and "Unspecified description" until their on-connect script treats that as empty). Site BUILD `3b43b659-173448-8119`. edgecast worker `1d3e6b90`, reads the cast's CAST_KEY. Not pushed.
