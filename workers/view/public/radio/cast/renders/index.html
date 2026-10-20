@@ -90,7 +90,7 @@ function pick(r, row) {
   audio.pause(); audio.removeAttribute('src'); audio.load();
   checks.set(r.checks.map((c) => ({ ok: c.ok ? 'ok' : 'FAIL', what: c.what, got: c.got })));
   scenes.set(r.scenes.map((s) => ({ _at: s.at, at: mmss(s.at), len: s.real != null ? `${Math.round(s.real)} s` : '',
-    what: r.dry ? s.file : `${s.patch} on ${s.file}${s.fx ? `, ${s.fx.kind} at ${mmss(s.at + s.fx.at)}` : ''}`,
+    what: r.dry ? s.file : `${s.patch} on ${s.file}${[s.fx, s.fx2].filter(Boolean).map((f) => `, ${f.kind} at ${mmss(s.at + f.at)}`).join('')}`,
     layer: [s.drone !== 'none' && s.drone && 'drone', s.harm !== 'none' && s.harm && 'harmonizer', s.ghost !== 'none' && s.ghost && 'ghost'].filter(Boolean).join(', ') || 'no layers' })));
   d.log(`${r.name}: ${r.pass ? 'PASS' : 'FAIL'}, ${r.I} LUFS, code ${r.code}${r.dry ? ', dry' : ''}`);
   if (was) start(); else draw();
@@ -126,7 +126,7 @@ function draw() {
   for (const gh of cur.ghosts) { g.fillStyle = COL.ghost; g.fillRect(x(gh.at), top - 6, Math.max(2, x(gh.end ?? gh.at + 20) - x(gh.at)), 3); }
   // a scene's surprise effect, on the scene's own clock
   g.fillStyle = COL.fx;
-  for (const s of cur.scenes) if (s.fx) g.fillRect(x(s.at + s.fx.at), top - 6, Math.max(2, x(s.fx.len) - x(0)), 3);
+  for (const s of cur.scenes) for (const f of [s.fx, s.fx2].filter(Boolean)) g.fillRect(x(s.at + f.at), top - 6, Math.max(2, x(f.len) - x(0)), 3);
   g.fillStyle = css('--bad');
   for (const q of [...cur.gaps.map((v) => ({ at: v.at, end: v.at + v.s })), ...cur.quiet]) g.fillRect(x(q.at), top - 12, Math.max(2, x(q.end) - x(q.at)), 3);
   // -16 LUFS, the target
@@ -137,7 +137,7 @@ function draw() {
   g.fillStyle = css('--hi'); g.fillRect(x(p) - 1, 0, 2, H);
   const s = [...cur.scenes].reverse().find((v) => v.at <= p + 0.01);
   // what the playhead is inside: the scene's effect, a hand-over, a ghost
-  const fx = s?.fx && p >= s.at + s.fx.at && p <= s.at + s.fx.at + s.fx.len ? s.fx.kind : '';
+  const fx = s ? [s.fx, s.fx2].filter((f) => f && p >= s.at + f.at && p <= s.at + f.at + f.len).map((f) => f.kind).join(', ') : '';
   const ho = cur.handovers.some((h) => h.to != null && p >= h.at && p <= h.to) ? 'hand-over' : '';
   const gh = cur.ghosts.find((v) => p >= v.at && p <= (v.end ?? v.at + 20));
   const inside = [fx, ho, gh ? `ghost ${gh.title}` : ''].filter(Boolean).join(', ');
