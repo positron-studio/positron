@@ -7,10 +7,11 @@
 //   {"cmd":"program","slot":0|1,"src":"{ ... }"} puts an sclang-lite program in an insert slot while it plays, answered
 //   {"program":{ok,slot,ms,compileMs,controls,error?}}; {"cmd":"set","slot":0|1|"ring","params":{name:value}} is /n_set,
 //   clamped, answered {"set":{ok,slot,applied,refused}}. The slots and their busses are in chain.mjs.
-// Station mode (station.mjs): GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key= play the
-// cast's program on the object's own clock to any number of listeners, from one object, station-preview.
+// Station mode (station.mjs): GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key= play
+// radio1965's cast program on the object's own clock to any number of listeners, from one object, station-preview.
+// /radio/edgecast/ is the station's page; /ws is kept for client.mjs and the experiment and no page opens it.
 // One session at a time in one object: the engine's wasm memory is 73 MB of an isolate's 128 MB, and objects of
-// one class may share an isolate, so a second engine is refused rather than risked. /radio/edgecast/ is its page.
+// one class may share an isolate, so a second engine is refused rather than risked.
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../../demo/shell/vendor/scsynth-nrt.wasm';
 import glue from './glue.gen.mjs';

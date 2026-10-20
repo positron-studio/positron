@@ -761,6 +761,12 @@ restart or a program edit.
 - Test recordings are not filtered any more, here or in pickFiles: Väin's team handles them.
 - `node workers/cast/fresh-test.mjs`: 10 checks against a fake feed and clock, one a negative control. MEASURED: sorting
   oldest first turns three red (7/10).
+- Since 2026-10-20 the rules are one pure module, `workers/cast/program.mjs` (pickBy, longOnly, resolveIds, rotateAfter,
+  freshLook, freshQueue, goneFrom, programLess), asked *"should we extract the playlist logic ... make sure yu do not
+  break old casting"*. The Caster calls it and so does edgecast's station (`workers/edgecast/station-core.mjs`), which
+  plays radio1965's stored program and checks the feed every 30 s with the same rules. `node workers/cast/program-test.mjs`
+  grades the pick seed by seed against the old pickFiles, and runs its checks against three broken copies of the
+  module (each caught).
 
 
 ## gate

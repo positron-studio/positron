@@ -1,37 +1,44 @@
-// The station with no Cloudflare import, so node can run it (station-test.mjs): the program from the cast's feed,
+// The station with no Cloudflare import, so node can run it (station-test.mjs): radio1965's program from the cast,
 // live.gen.mjs (live.mjs) driving station-grains.mjs, and the MP3 frames it makes, paced on a wall clock.
-// `pump(now)` renders up to LEAD_S ahead of the wall and answers what it did; the object calls it from its alarm.
+// `pump(now)` renders up to LEAD_S ahead of the wall and answers what it did; the object calls it from its alarm, and
+// `fresh()` every FRESH_EVERY_MS. The playlist rules are the Caster's own, workers/cast/program.mjs.
 import { configureEngine } from './station-grains.mjs';
 import { configureSources } from './source.mjs';
 import { createDecoderPool } from './codec.mjs';
 import { startLive } from './live.gen.mjs';
 import { T } from './vclock.mjs';
 import { tasteOf, fileWeight } from '../../demo/radio/cast/life.mjs';
+import { pickBy, longOnly, resolveIds, freshLook, goneFrom, freshQueue, FRESH_EVERY_MS } from '../cast/program.mjs';
 
 export const CAST = 'https://cast.positron.studio';
+/** The cast station whose stored program this one plays. */
+export const PROGRAM_OF = 'radio1965';
 /** How far ahead of the wall the station renders, the most it renders in one pump, and the lag at which it skips. */
-export const LEAD_S = 2, MAX_PUMP_S = 6, SKIP_S = 8, BURST_S = 2, MIN_FILE_S = 40;
+export const LEAD_S = 2, MAX_PUMP_S = 6, SKIP_S = 8, BURST_S = 2;
+export { FRESH_EVERY_MS };
 
-/** The cast worker's pickFiles: each file weighted by the votes on it, none at weight 0, a plain shuffle with none. */
-export function pickFiles(items, votes, rand = Math.random) {
-  const fs = tasteOf(votes).file, pool = items.map((x) => ({ x, w: fileWeight(fs[x.title]) })).filter((p) => p.w > 0);
-  if (pool.every((p) => p.w === 1)) { for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; } return pool.map((p) => p.x); }
-  return pool.map((p) => ({ ...p, k: rand() ** (1 / p.w) })).sort((a, b) => b.k - a.k).map((p) => p.x);
+const json = async (f, url) => { const r = await f(url); if (!r.ok) throw new Error(`${url} answered ${r.status}`); return r.json(); };
+/** The cast's feed (gains, kinds, moments and seconds already on each), each file through the cast's own file pass. */
+export async function loadFeed(f = fetch) {
+  return ((await json(f, `${CAST}/feed`)).items || []).map((x) => ({ ...x, url: `${CAST}/file/${encodeURIComponent(x.id)}` }));
 }
 
-/** The program as the Caster makes it: the feed (gains, kinds, moments already on it), files under 40 s left out while longer ones exist. */
-export async function loadProgram({ fetch: f = fetch, rand = Math.random } = {}) {
-  const [feed, votes] = await Promise.all([f(`${CAST}/feed`).then((r) => r.json()), f(`${CAST}/votes`).then((r) => r.json()).catch(() => ({ votes: [] }))]);
+/**
+ * The program as the Caster starts radio1965: its stored program (ids resolved through the feed, in its order), or
+ * when that is empty the whole feed shuffled by the votes; files under MIN_FILE_S left out while longer ones exist.
+ */
+export async function loadProgram({ fetch: f = fetch, rand = Math.random, of = PROGRAM_OF } = {}) {
+  const [items, votes, st] = await Promise.all([loadFeed(f), json(f, `${CAST}/votes`).catch(() => ({ votes: [] })), json(f, `${CAST}/status/${of}`).catch(() => null)]);
   const vs = (votes.votes || []).filter((v) => v.vote && v.def).slice(-2000).map(({ def, vote, file }) => ({ def, vote, file }));
-  let items = (feed.items || []).map((x) => ({ ...x, url: `${CAST}/file/${encodeURIComponent(x.id)}` }));
-  const long = items.filter((x) => !(Number(x.seconds) > 0 && Number(x.seconds) < MIN_FILE_S));
-  if (long.length) items = long;
-  return { queue: pickFiles(items, vs, rand), votes: vs };
+  const ids = (st?.program || []).map((x) => x.id), prog = resolveIds(ids, items), fs = tasteOf(vs).file;
+  const list = prog.length ? prog : pickBy(items, (t) => fileWeight(fs[t]), Infinity, rand);
+  return { queue: longOnly(list), votes: vs,
+    program: { of, source: prog.length ? `${of}'s program` : `the feed shuffled by the votes (${of}'s program ${st ? 'is empty' : 'did not answer'})`, stored: ids.length, found: prog.length } };
 }
 
 let poolP = null;
 /** One station. `onFrame(frame)` gets every whole MP3 frame; `log(line)` the driver's lines. */
-export async function createStation({ wasmModule, glue, lameModule, mpgModule, fetch: f = (u, o) => fetch(u, o), seed, queue, votes = [], log = () => {}, onFrame = () => {}, now = () => Date.now() }) {
+export async function createStation({ wasmModule, glue, lameModule, mpgModule, fetch: f = (u, o) => fetch(u, o), seed, queue, votes = [], program = null, log = () => {}, onFrame = () => {}, now = () => Date.now() }) {
   poolP ||= createDecoderPool(mpgModule);
   const pool = await poolP;
   configureEngine({ wasmModule, glue, lameModule });
@@ -49,8 +56,34 @@ export async function createStation({ wasmModule, glue, lameModule, mpgModule, f
     while (burstS > BURST_S && burst.length > 1) burstS -= burst.shift().seconds;
     onFrame(fr);
   } });
+  // what plays from here on, as the Caster keeps want.queue: the program, then what the feed checks made of it
+  let list = queue.slice();
+  const curId = () => { const s = live.status(); return s.slots?.[s.from]?.id ?? null; };
   return {
     live, st, pool,
+    get queue() { return list; },
+    /**
+     * One feed check with the Caster's rules (program.mjs): new files next, newest first; gone files out of what is to
+     * come (the one playing finishes); a quiet hour brings a recent arrival round. `prev` is the kept state, answered
+     * back to keep. Its last outcome is in status().fresh.
+     */
+    async fresh(prev, startedAt) {
+      const items = await loadFeed(f), cur = curId(), t = now();
+      const look = freshLook(prev, items, { startedAt, cur, now: t });
+      const out = { at: new Date(t).toISOString(), feed: items.length, added: [], gone: [], did: look.baseline ? `the first look: ${items.length} files in the feed, none of them new` : 'nothing new' };
+      if (!look.baseline) {
+        const gone = goneFrom(list, look.ids);
+        if (look.add.length || gone.length) {
+          const q = longOnly(freshQueue(list, look.add, look.ids, cur));
+          if (q.length) { list = q; live.queue(q); }
+          out.added = look.add.map((x) => x.title); out.gone = gone.map((x) => x.title);
+          out.did = [out.added.length && `${look.why}: ${out.added.join(', ')}`, out.gone.length && `left the archive, out of the queue: ${out.gone.join(', ')}`].filter(Boolean).join('; ');
+          say(out.did);
+        }
+      }
+      st.fresh = out;
+      return look.st;
+    },
     /** The frames of the last BURST_S seconds, what a new listener is given first. */
     burst: () => burst.slice(),
     get ready() { return !!grains(live)?.ready; },
@@ -77,8 +110,12 @@ export async function createStation({ wasmModule, glue, lameModule, mpgModule, f
       const wallS = st.wall0 == null ? 0 : (t - st.wall0) / 1000;
       return { ready: !!h?.ready, seconds: s.seconds, mp3Seconds: s.mp3Seconds, lead: h?.ready ? +(h.engine.seconds - wallS).toFixed(3) : null,
         underruns: { decoderSamples: s.underruns, late: st.late, lateMaxS: +st.lateMaxS.toFixed(3), skips: st.skips, skippedS: +st.skippedS.toFixed(2) },
-        pumps: st.pumps, maxPumpS: +st.maxPumpS.toFixed(2), file: s.slots?.[s.from]?.title ?? null, phase: s.phase,
-        scene: s.life ? { si: s.life.si, patch: s.life.patch, param: s.life.param, kind: s.life.kind, wet: s.life.wet, file: s.life.file, dwell: s.life.dwell, level: s.life.level, ghost: s.life.ghost, layersUp: s.life.layersUp, counts: s.life.counts } : null,
+        pumps: st.pumps, maxPumpS: +st.maxPumpS.toFixed(2), file: s.slots?.[s.from]?.title ?? null, fileId: s.slots?.[s.from]?.id ?? null, phase: s.phase, next: s.next ?? null,
+        program: program ? { ...program, files: list.length } : null, fresh: st.fresh ?? null,
+        scene: s.life ? { si: s.life.si, inst: s.life.inst, patch: s.life.patch, param: s.life.param, kind: s.life.kind, wet: s.life.wet, file: s.life.file, phase: s.life.phase,
+          at: s.life.at, dwell: s.life.dwell, blend: s.life.blend, level: s.life.level, ghost: s.life.ghost, layersUp: s.life.layersUp, counts: s.life.counts,
+          fx: [s.life.def?.fx, s.life.def?.fx2].filter(Boolean), type: s.life.def?.type ?? null, iKind: s.life.def?.iKind ?? null,
+          layers: s.life.layers ? (({ drone, res, harm, ghost }) => ({ drone, res, harm, ghost }))(s.life.layers) : null } : null,
         out: s.grains?.out ?? null, quanta: s.grains?.quanta, grains: s.grains?.grains,
         memory: { scsynth: h?.chain?.memoryBytes?.() ?? null, mpg123: pool.memoryBytes, mpg123Handles: pool.handles, lame: h?.encoder?.memoryBytes ?? null },
         errors: st.errors.slice(-5), lines: st.lines.slice(-12) };

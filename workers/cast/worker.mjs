@@ -24,6 +24,7 @@
 import { levelFor } from './gains.mjs';
 import { tasteOf, fileWeight } from './container/sc/radio/cast/life.mjs';
 import { createEar } from './splice.mjs';
+import { pickBy, longOnly, resolveIds, rotateAfter, freshLook, goneFrom, freshQueue, programLess, MIN_FILE_S, FRESH_EVERY_MS } from './program.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
 const FEED_TYPES = new Set(['audio', 'streamrecording']);
@@ -64,10 +65,8 @@ const CHANNELS = ['radio1965', 'user1', 'user2', 'user3', 'user4'];
 // Their events API, asked only when a page or a command needs it: one answer per colo per EVENTS_S,
 // and one request per isolate however many viewers ask at once. why: lessons/workers-cast.md#live
 const EVENTS_S = 15, FEED_S = 30;
-// On air the feed is read every FRESH_EVERY_MS (30 s, asked *"30 sec"*; the feed's edge cache is 30 s to match): a file new to it plays next (newest first, a burst all of them), one
-// gone from it leaves the queue and the program (the one playing finishes first). After QUIET_MS with nothing new, an
-// arrival of the last RECENT_MS comes round again every REVISIT_MS. why: lessons/workers-cast.md#fresh
-const FRESH_EVERY_MS = 30_000, QUIET_MS = 60 * 60_000, RECENT_MS = 12 * 3600_000, REVISIT_MS = 30 * 60_000;
+// On air the feed is read every FRESH_EVERY_MS (30 s, asked *"30 sec"*; the feed's edge cache is 30 s to match); the rules
+// (new files next, gone files out, the quiet hour) are program.mjs's, shared with edgecast. why: lessons/workers-cast.md#fresh
 let eventsInFlight = null;
 async function events(ctx) {
   const cache = caches.default, key = new Request('https://cast.positron.studio/__events');
@@ -168,13 +167,12 @@ export default {
  */
 export function pickFiles(items, votes, n, rand = Math.random) {
   // test recordings play like any other file: *"test recordings are fine, let the team handle it"* (2026-10-19)
-  const fs = tasteOf(votes).file, pool = items.map((x) => ({ id: x.id, w: fileWeight(fs[x.title]) })).filter((x) => x.w > 0);
-  if (pool.every((x) => x.w === 1)) { for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; } return pool.map((x) => x.id).slice(0, n); }
-  return pool.map((x) => ({ ...x, k: rand() ** (1 / x.w) })).sort((a, b) => b.k - a.k).map((x) => x.id).slice(0, n);
+  const fs = tasteOf(votes).file;
+  return pickBy(items, (title) => fileWeight(fs[title]), n, rand).map((x) => x.id);
 }
 
-/** Seconds under which a file is left out of what plays (the clip tests are 15 s). */
-export const MIN_FILE_S = 40;
+/** Seconds under which a file is left out of what plays (the clip tests are 15 s); program.mjs's. */
+export { MIN_FILE_S };
 /**
  * Whether the container on air runs older code than this deploy: by the image's hash when both sides know it (a Worker
  * deploy alone changes nothing on air), else by the Worker version as before. why: plans/plan-cast-load.md
@@ -271,7 +269,7 @@ export class Caster {
     // every queue carries each file's gain from the table, a stored one too. why: lessons/workers-cast.md#level
     if (Array.isArray(body?.queue)) body = { ...body, queue: body.queue.map((x) => ({ ...x, ...levelFor(x.id) })) };
     // a file under MIN_FILE_S is a blip between scenes, so it does not play while longer ones can (*"Same feeds go back and forth, with quite abrupt change"*, 2026-10-19)
-    if (Array.isArray(body?.queue)) { const long = body.queue.filter((x) => !(Number(x.seconds) > 0 && Number(x.seconds) < MIN_FILE_S)); if (long.length) body = { ...body, queue: long }; }
+    if (Array.isArray(body?.queue)) body = { ...body, queue: longOnly(body.queue) };
     const r = await this.slot(k ?? await this.key()).fetch(8080, path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `the container answered ${r.status}`);
@@ -417,8 +415,7 @@ export class Caster {
 
   /** Feed ids to `{ id, title, url }`, in the order given, dropping any no longer in their feed. */
   async resolve(ids) {
-    const byId = new Map((await feed(this.ctx)).map((x) => [String(x.id), x]));
-    return (Array.isArray(ids) ? ids : []).map((id) => byId.get(String(id))).filter(Boolean).map(({ id, title, url }) => ({ id, title, url }));
+    return resolveIds(ids, await feed(this.ctx)).map(({ id, title, url }) => ({ id, title, url }));
   }
 
   /**
@@ -434,8 +431,7 @@ export class Caster {
     if (!want || !(await this.running())) { this.say(`program ${prog.length} files${want ? '' : ', plays on start'}`); this.push(); return; }
     // An empty program is the whole archive less what the votes ruled out, on air
     const list = prog.length ? prog : await this.resolve(pickFiles(await feed(this.ctx), await this.votes(), Infinity));
-    const cur = (await this.cstatus())?.now?.id, i = list.findIndex((x) => String(x.id) === String(cur));
-    const queue = i < 0 ? list : [...list.slice(i + 1), ...list.slice(0, i + 1)];
+    const queue = rotateAfter(list, (await this.cstatus())?.now?.id);
     await this.cpost('/queue', { queue });
     await this.st.put('want', { ...want, queue });
     this.say(prog.length ? `program ${prog.length} files, after this one` : 'program cleared, the whole archive after this one'); this.push();
@@ -477,33 +473,20 @@ export class Caster {
   async freshTick(want, cur) {
     if (Date.now() - (this.freshAt || 0) < FRESH_EVERY_MS) return;
     this.freshAt = Date.now();
-    const items = await feed(this.ctx), ids = new Set(items.map((x) => String(x.id))), now = Date.now();
-    let st = await this.st.get('fresh');
-    // the first look of a session is the baseline: what is in the feed at the start is not new
-    if (!st || st.startedAt !== want.startedAt) { await this.st.put('fresh', { startedAt: want.startedAt, known: [...ids], revisitAt: now + QUIET_MS, heard: {} }); return; }
-    const known = new Set(st.known), at = (x) => Date.parse(x.at || 0) || 0;
-    const fresh = items.filter((x) => !known.has(String(x.id))).sort((a, b) => at(b) - at(a));
-    let add = fresh, why = fresh.length ? `${fresh.length} new in the archive, next` : '';
-    if (fresh.length) st.revisitAt = now + QUIET_MS;
-    else if (now >= st.revisitAt) {
-      const pick = items.filter((x) => now - at(x) < RECENT_MS && String(x.id) !== String(cur) && now - (st.heard[x.id] || 0) > QUIET_MS).sort((a, b) => at(b) - at(a))[0];
-      if (pick) { add = [pick]; st.heard[pick.id] = now; why = 'quiet: a recent arrival again'; }
-      st.revisitAt = now + REVISIT_MS;
-    }
-    st.known = [...ids];
-    await this.st.put('fresh', st);
-    const queue0 = want.queue || [], gone = queue0.filter((x) => !ids.has(String(x.id)));
-    if (!add.length && !gone.length) return;
-    const q = await this.resolve(add.map((x) => x.id)), addIds = new Set(q.map((x) => String(x.id)));
-    const rest = queue0.filter((x) => ids.has(String(x.id)) && !addIds.has(String(x.id)));
-    const i = rest.findIndex((x) => String(x.id) === String(cur));
-    const queue = [...q, ...(i < 0 ? rest : [...rest.slice(i + 1), ...rest.slice(0, i + 1)])];
+    const items = await feed(this.ctx);
+    const look = freshLook(await this.st.get('fresh'), items, { startedAt: want.startedAt, cur, now: Date.now() });
+    await this.st.put('fresh', look.st);
+    if (look.baseline) return;
+    const queue0 = want.queue || [], gone = goneFrom(queue0, look.ids);
+    if (!look.add.length && !gone.length) return;
+    const q = await this.resolve(look.add.map((x) => x.id));
+    const queue = freshQueue(queue0, q, look.ids, cur);
     if (!queue.length) return;
     await this.cpost('/queue', { queue });
     await this.st.put('want', { ...want, queue });
-    const prog = await this.st.get('program');
-    if (prog?.length && prog.some((x) => !ids.has(String(x.id)))) await this.st.put('program', prog.filter((x) => ids.has(String(x.id))));
-    if (q.length) this.say(`${why}: ${q.map((x) => x.title).join(', ')}`);
+    const prog = programLess(await this.st.get('program'), look.ids);
+    if (prog) await this.st.put('program', prog);
+    if (q.length) this.say(`${look.why}: ${q.map((x) => x.title).join(', ')}`);
     if (gone.length) this.say(`left the archive, out of the queue: ${gone.map((x) => x.title).join(', ')}`);
     this.push();
   }

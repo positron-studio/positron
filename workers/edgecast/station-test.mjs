@@ -13,13 +13,16 @@ const glue = (await import('./glue.gen.mjs')).default;
 const mod = (p) => WebAssembly.compile(readFileSync(here(p)));
 const [wasmModule, lameModule, mpgModule] = await Promise.all([mod('../../demo/shell/vendor/scsynth-nrt.wasm'), mod('./vendor/lame.wasm'), mod('./vendor/mpg123.wasm')]);
 let clock = Date.now();
-const { queue, votes } = await loadProgram();
-console.log(`program: ${queue.length} files, ${votes.length} votes; first ${queue[0]?.title}`);
+const { queue, votes, program } = await loadProgram();
+console.log(`program: ${queue.length} files from ${program.source} (${program.found} of ${program.stored} stored ids in the feed), ${votes.length} votes; first ${queue[0]?.title}`);
 const frames = [];
-const s = await createStation({ wasmModule, glue, lameModule, mpgModule, seed: 7, queue, votes, now: () => clock, log: (l) => { if (process.env.V) console.log(l); }, onFrame: (f) => frames.push(f.data) });
+const s = await createStation({ wasmModule, glue, lameModule, mpgModule, seed: 7, queue, votes, program, now: () => clock, log: (l) => { if (process.env.V) console.log(l); }, onFrame: (f) => frames.push(f.data) });
 const t0 = Date.now();
 while (!s.ready) { if (Date.now() - t0 > 30000) throw new Error('not ready in 30 s'); await new Promise((r) => setTimeout(r, 50)); }
 console.log(`ready in ${Date.now() - t0} ms`);
+// the feed check, as the object runs it: the first look is the baseline
+let fresh = await s.fresh(null, 1);
+console.log(`feed check: ${s.status().fresh.did}`);
 clock = Date.now();
 const c0 = process.cpuUsage(), w0 = performance.now();
 let made = 0, k = 0;
@@ -29,6 +32,7 @@ while (made < secs) {
   clock += 500;
   // the fetches need real time to arrive: a pump with nothing to read waits a little
   await new Promise((r2) => setTimeout(r2, Number(process.env.PUMP_MS ?? 100)));
+  if (k === 60) { fresh = await s.fresh(fresh, 1); console.log(`feed check: ${s.status().fresh.did}`); }
   if (++k % 120 === 0) { const st = s.status(); console.log(`${made.toFixed(0)} s: scene ${st.scene?.si} ${st.scene?.patch} on ${st.scene?.file}, out ${JSON.stringify(st.out)}, underrun samples ${st.underruns.decoderSamples}`); }
 }
 const cpu = process.cpuUsage(c0), cpuMs = (cpu.user + cpu.system) / 1000, wallMs = performance.now() - w0;
