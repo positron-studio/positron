@@ -88,10 +88,9 @@ if (ICE_PW) iceStart();
 
 function sourceHead(t, title) {
   return [`PUT /${t.mount} HTTP/1.0`, `Authorization: Basic ${Buffer.from(`source:${t.pw}`).toString('base64')}`, 'Content-Type: audio/mpeg',
-    // what Väin's app shows: "<ice-name> on <channel>", and ice-description under it, read once when the source connects
-    // (their icecast_on_connect.sh). An empty or missing description reads "Unspecified description" on Icecast 2.4.4,
-    // so a fixed word stands there until their script drops it (2026-10-20, the 25.10 helikorje)
-    'ice-name: Väin', 'ice-description: helikorje',
+    // Väin's app shows "<ice-name> on <channel>"; no description, asked (*"rm heliorje"*): Icecast 2.4.4 then reports
+    // "Unspecified description", which their icecast_on_connect.sh would need to treat as empty
+    'ice-name: Väin',
     'ice-genre: archive', `ice-url: ${t.mount}`, 'ice-audio-info: send_notification=0;save_stream=0'];
 }
 
