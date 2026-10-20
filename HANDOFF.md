@@ -1,3 +1,11 @@
+# Handoff, 2026-10-20 midday, session 86 continued: morning-events3 passes the gate, waiting on the owner's listen
+
+- **Site BUILD `f4114bd1-092953-c1b3`**, confirmed. Not pushed. No cast deploy all session; the station sounds as `0084743e` did.
+- **The candidate: `refs/renders/morning-events3`** (not on main; `git for-each-ref refs/renders` lists every version). Built as a chain on 3cbe32eb, the morning the owner liked: + the master (415429b3) -> morning-master; + 60 s scenes, 10 s hand-overs, no scene past its file -> morning-fix; Organ out -> morning-noorgan; surprise effects -> morning-events; a little less wet than wetter (WET_CAP 0.9, SOAK 0.45 to 0.95, DRIER_SHARE 0.05, dry 0.4, LAYER_SCALE 0.9), the freeze waits for -34 dBFS (live.mjs) -> morning-events2; 13 dramatic effects (dip to 0.35, fully wet, back; 16 to 28 s; two in scenes over 110 s; FX_ODDS 0.65), no low voice on speech but a smeared drone -> morning-events3. Gate PASS: -15.3 LUFS, LRA 5, peak -1.6, hand-overs within 3.5 LU.
+- **To make it main's sound:** port the life.mjs, layers.mjs and live.mjs diffs from the ref onto main (main has moved since 3cbe32eb: compare, do not copy), give LOCAL (local.mjs, index.html) the freeze gate, run the cast tests, render again on main and gate it, the owner's yes, one cast deploy (brings the load feature 7dae37d5).
+- **Gate changes today:** rises and quiet stretches on a music file are listed, not failed (EMA Varssavis is 53 % under -30 LUFS as recorded); the rise check reads short-term loudness (momentary fired 40 times on dry). render.mjs logs a scene by the life's inst (it logged the old one twice in four renders; fixed in the run.json files from the driver's own log).
+- **Open:** the effect picker remembers only the last effect (showcase3 drew bloom four times); dub, under, memory unheard in the first showcase; the owner's rule for Organ: back only if it arrives, morphs and leaves.
+
 # Handoff, 2026-10-20 morning, session 86: the quality gate and the render page
 
 - **Site BUILD `91822684-040137-a31d`**, confirmed. Commits `91822684` (gate) and `dc754345` (build). Not pushed. No cast deploy. preview was already playing (the owner's); the other five off.
