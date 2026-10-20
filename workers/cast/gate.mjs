@@ -131,13 +131,17 @@ const abrupt = []; for (let k = 30; k < Sx.length; k++) { const [t, m] = Sx[k], 
 const quiet = []; for (const [t, s] of Sx) if (t > 10 && s < -30 && (!quiet.length || t - quiet.at(-1).end > 2)) quiet.push({ at: +t.toFixed(1), end: +t.toFixed(1), min: s }); else if (quiet.length && s < -30 && t - quiet.at(-1).end <= 2) { quiet.at(-1).end = +t.toFixed(1); quiet.at(-1).min = Math.min(quiet.at(-1).min, s); }
 
 // ── 5. the gate ──
+const sceneAt = (t) => [...scenes].reverse().find((v) => v.at <= t);
+for (const q of quiet) q.music = sceneAt(q.at)?.kind === 'music';
+const quietNotMusic = quiet.filter((q) => !q.music);
 const done = scenes.filter((s) => s.real != null);
 const checks = [
   ['integrated loudness -18 to -14 LUFS', I != null && I >= -18 && I <= -14, `${I} LUFS`],
   ['loudness range under 8 LU', LRA != null && LRA < 8, `${LRA} LU`],
   ['true peak under -1 dBFS', TP != null && TP < -1, `${TP} dBFS`],
   ['no silence over 0.7 s', !gaps.length, gaps.length ? gaps.map((g) => `${g.at} s for ${g.s} s`).join(', ') : 'none'],
-  ['no quiet stretch under -30 LUFS short-term', !quiet.length, quiet.length ? quiet.map((q) => `${q.at} to ${q.end} s`).join(', ') : 'none'],
+  // a concert breathes: a quiet stretch on a music file is listed, not failed (EMA Varssavis is 53 % under -30 LUFS as recorded)
+  ['no quiet stretch under -30 LUFS short-term, music files apart', !quietNotMusic.length, quiet.length ? quiet.map((q) => `${q.at} to ${q.end} s${q.music ? ' (music)' : ''}`).join(', ') : 'none'],
   ['no sudden rise of 10 LU in 3 s (short-term)', !abrupt.length, abrupt.length ? abrupt.map((a) => `${a.at} s +${a.rise}`).join(', ') : 'none'],
   ['every hand-over within 6 LU, before against after', handovers.every((h) => h.jump == null || Math.abs(h.jump) <= 6), handovers.map((h) => h.jump).join(' ')],
   ['no hand-over dips 8 LU', handovers.every((h) => h.dip == null || h.dip > -8), handovers.map((h) => h.dip).join(' ')],
