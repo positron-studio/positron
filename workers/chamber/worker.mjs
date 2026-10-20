@@ -4,79 +4,21 @@
 //   {"cmd":"boot","mode":"full"|"ring"|"echo","seed":7}   then binary PCM frames in, each answered with
 //   [Float64 seq, Float64 workMs, Float64 quanta] + s16 stereo PCM out; {"cmd":"stats"} answers the object's tallies;
 //   {"cmd":"ping","n":k} is answered at once, ahead of any queued frame, as {"pong":k}.
+//   {"cmd":"program","slot":0|1,"src":"{ ... }"} puts an sclang-lite program in an insert slot while it plays, answered
+//   {"program":{ok,slot,ms,compileMs,controls,error?}}; {"cmd":"set","slot":0|1|"ring","params":{name:value}} is /n_set,
+//   clamped, answered {"set":{ok,slot,applied,refused}}. The slots and their busses are in chain.mjs.
 // One session at a time in one object: the engine's wasm memory is 73 MB of an isolate's 128 MB, and objects of
 // one class may share an isolate, so a second engine is refused rather than risked. /radio/chamber/ is its page.
 import { DurableObject } from 'cloudflare:workers';
 import wasmModule from '../../demo/shell/vendor/scsynth-nrt.wasm';
 import glue from './glue.gen.mjs';
-import { bootWasm, QUANTUM, MEM } from './engine.mjs';
-import { PROGRAM, PATCHES, RING_SECONDS, valuesOf } from '../../demo/granulator/grain-ring.mjs';
-import { compile } from '../../demo/shell/sclang-lite.mjs';
-import { program as masterProgram, MASTER_BUS } from '../../demo/radio/cast/master.mjs';
-import * as LAYERS from '../../demo/radio/cast/layers.mjs';
-import * as LIFE from '../../demo/radio/cast/life.mjs';
+import { QUANTUM, MEM } from './engine.mjs';
+import { startChain, createInserts, SLOTS, LIMITS } from './chain.mjs';
 
-const SR = 48000, NODE = 4000, BUF = 0, DEF = 'gring', MASTER_NODE = 4100, INPUTS = 4;
-const tick = () => new Promise((r) => setTimeout(r, 0));
 // who may open a socket: the site, a local dev server on any port, and a client with no Origin (client.mjs)
 const ORIGIN_OK = /^(https:\/\/positron\.studio|https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
 // a session ends itself after this long, so a tab left open does not hold the engine for a day
 const SESSION_MS = 15 * 60 * 1000, IDLE_MS = 10 * 1000;
-
-async function startChain({ mode, seed, log }) {
-  const t = { t0: Date.now(), p0: performance.now() };
-  const good = compile(PROGRAM, { name: DEF, bus: MASTER_BUS });
-  if (!good.ok) throw new Error(`the ring did not compile: ${good.message}`);
-  const mst = compile(masterProgram(MASTER_BUS), { name: 'lmaster' });
-  if (!mst.ok) throw new Error(`the master did not compile: ${mst.message}`);
-  t.compileMs = performance.now() - t.p0;
-  const waiters = [];
-  let grains = 0;
-  const w = await bootWasm({ wasmModule, glue, inputs: INPUTS, sr: SR, log, onReply: (m) => {
-    if (m[0] === '/grain') { grains++; return; }
-    for (const x of waiters.slice()) if (x.test(m)) { waiters.splice(waiters.indexOf(x), 1); clearTimeout(x.t); x.ok(m); return; }
-  } });
-  t.bootMs = performance.now() - t.p0;
-  const send = (a, ...args) => w.send(a, ...args);
-  // replies only leave from process(): until the stream runs, waiting means pumping silent quanta
-  const sendAndWait = async (test, ms, address, ...args) => {
-    let r, done = false;
-    const p = new Promise((ok) => { const x = { test, ok, t: setTimeout(() => { waiters.splice(waiters.indexOf(x), 1); ok(null); }, ms) }; waiters.push(x); });
-    p.then((x) => { r = x; done = true; });
-    send(address, ...args);
-    for (let i = 0; i < 4000 && !done; i++) { w.quantum((c, b) => b.fill(0)); if (i % 8 === 7) await tick(); }
-    return r;
-  };
-  const isDone = (cmd) => (m) => (m[0] === '/done' && m[1] === cmd) || (m[0] === '/fail' && m[1] === cmd);
-  if (!await sendAndWait(isDone('/notify'), 3000, '/notify', 1)) throw new Error('wasm scsynth did not answer /notify');
-  if ((await sendAndWait(isDone('/b_alloc'), 5000, '/b_alloc', BUF, RING_SECONDS * SR, 1))?.[0] !== '/done') throw new Error('the ring buffer was not allocated');
-  const life = LIFE.createLife({ seed });
-  const s = life.scene(0);
-  // freeze 0 as live.mjs does for a patch that freezes after the dry part (freezesAfterDry): a frozen empty ring is silent
-  const vals = { ...LIFE.patchValues(s.patch), mix: 1, ...(LIFE.freezesAfterDry(s.patch) ? { freeze: 0 } : {}) };
-  if (mode !== 'echo') {
-    const def = await sendAndWait(isDone('/d_recv'), 5000, '/d_recv', good.bytes);
-    if (def?.[0] !== '/done') throw new Error(`the engine did not take the ring: ${def ? def.join(' ') : 'no answer'}`);
-    const go = await sendAndWait((m) => (m[0] === '/n_go' && m[1] === NODE) || (m[0] === '/fail' && m[1] === '/s_new'), 5000,
-      '/s_new', DEF, NODE, 1, 0, 'buf', BUF, 'inbus', 2, ...Object.entries(vals).filter(([, v]) => typeof v === 'number').flat());
-    if (go?.[0] !== '/n_go') throw new Error(`the ring did not start: ${go ? go.join(' ') : 'no answer'}`);
-    if ((await sendAndWait(isDone('/d_recv'), 5000, '/d_recv', mst.bytes))?.[0] !== '/done') throw new Error('the engine did not take the master');
-    send('/s_new', 'lmaster', MASTER_NODE, 3, NODE);
-  }
-  let layers = null, layerN = 0;
-  if (mode === 'full') {
-    layers = await LAYERS.createLayerEngine({ send, sendAndWait: (test, ms, a, ...args) => sendAndWait(test, ms, a, ...args) }, { log, to: MASTER_BUS, before: MASTER_NODE });
-    // every layer audible, so the measurement is the busy case rather than a scene's quiet start
-    const L = { ...(s.layers || {}), drone: 'both', droneLevel: 0.4, res: s.layers?.res && s.layers.res !== 'none' ? s.layers.res : 'minor7', resWet: 0.4, resDecay: 1.5,
-      harm: s.layers?.harm && s.layers.harm !== 'none' ? s.layers.harm : 'triad', harmSpread: 0.5, voc: 'fifths', ghost: 'none', room: 0.3, roomSize: 0.7 };
-    layers.apply(L, s.key || { root: 0 });
-    layers.level(1);
-    layerN = Object.keys(LAYERS.PROGRAMS).length + 1;
-  }
-  t.chainMs = performance.now() - t.p0;
-  t.chainWallMs = Date.now() - t.t0;
-  return { w, send, timing: t, scene: { patch: s.patch, layers: layerN, defBytes: good.bytes.length }, get grains() { return grains; } };
-}
 
 export class Chamber extends DurableObject {
   async fetch(req) {
@@ -98,10 +40,15 @@ export class Chamber extends DurableObject {
     const limit = setTimeout(() => { try { server.send(JSON.stringify({ ended: 'the session reached 15 minutes' })); server.close(1000, 'time'); } catch { /* gone */ } release(); }, SESSION_MS);
     const logs = [];
     const log = (l) => { if (logs.length < 200) logs.push(String(l).slice(0, 300)); };
-    let chain = null, mode = 'echo', seq = 0;
+    let chain = null, inserts = null, mode = 'echo', seq = 0;
     // the input FIFO: frames arrive in any size, the engine eats 128 at a time
     const cap = 8192 * 4, fl = new Float32Array(cap), fr = new Float32Array(cap);
     let have = 0;
+    // with no frames arriving, a program's /n_go would never come out, so silent quanta are run until it does
+    const pump = (done) => {
+      const go = () => { if (done() || chain !== c) return; if (Date.now() - st.lastAt > 200) for (let i = 0; i < 16; i++) c.w.quantum((k, b) => b.fill(0)); setTimeout(go, 50); };
+      const c = chain; setTimeout(go, 250);
+    };
     const work = [], st = { frames: 0, inFrames: 0, outFrames: 0, workMs: 0, firstAt: 0, lastAt: 0, bytesIn: 0 };
     // a Blob's arrayBuffer() is async, so the frames are handled in a chain to keep them in order
     let line = Promise.resolve();
@@ -121,9 +68,17 @@ export class Chamber extends DurableObject {
           if (m.cmd === 'boot') {
             mode = m.mode || 'full';
             try {
-              chain = await startChain({ mode, seed: m.seed ?? 7, log });
-              server.send(JSON.stringify({ booted: true, mode, timing: chain.timing, scene: chain.scene, memoryBytes: chain.w.memoryBytes(), MEM, logs }));
+              chain = await startChain({ wasmModule, glue, mode, seed: m.seed ?? 7, log });
+              inserts = createInserts(chain, { pump });
+              server.send(JSON.stringify({ booted: true, mode, timing: chain.timing, scene: chain.scene, memoryBytes: chain.w.memoryBytes(), MEM, logs,
+                slots: chain.slots ? SLOTS.map((x) => x.name) : [], limits: LIMITS }));
             } catch (e) { server.send(JSON.stringify({ booted: false, error: String(e && e.stack || e), logs })); }
+          } else if (m.cmd === 'program') {
+            // answered later, off the line: the new node's /n_go comes out of the frames queued behind this message
+            if (!inserts) { server.send(JSON.stringify({ program: { ok: false, slot: m.slot, error: 'the chamber has not booted' } })); return; }
+            inserts.program(m).then((a) => { try { server.send(JSON.stringify(a)); } catch { /* closed */ } });
+          } else if (m.cmd === 'set') {
+            server.send(JSON.stringify(inserts ? inserts.set(m) : { set: { ok: false, slot: m.slot, error: 'the chamber has not booted' } }));
           } else if (m.cmd === 'stats') {
             const s = work.slice().sort((a, b) => a - b), q = (p) => s.length ? +s[Math.min(s.length - 1, Math.floor(p * s.length))].toFixed(3) : null;
             server.send(JSON.stringify({ stats: { ...st, mode, median: q(0.5), p99: q(0.99), worst: s.at(-1) ?? null, nonzero: s.filter((x) => x > 0).length,

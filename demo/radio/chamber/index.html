@@ -11,12 +11,14 @@
 <style>
   /* Play and the source choice on one row at the top left, as /remote/plaits/. */
   .cc-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .cc-status { color: var(--dim); }
+  .cc-status[data-kind="bad"] { color: var(--bad); }
 </style>
 <script type="module">
   // The cast's engine (wasm scsynth with the grain ring, the seven layers and the master) running in a
-  // Durable Object, workers/chamber/, an echo chamber: sound sent out, processed, and played back. This tab sends it 20 ms frames of 48 kHz stereo s16 over one
-  // WebSocket and plays what comes back. Nothing opens on a visit: the socket, the file and the
-  // microphone wait for Play, and Stop closes all three.
+  // Durable Object, workers/chamber/: 20 ms frames of 48 kHz stereo s16 out over one WebSocket, processed audio back.
+  // Two insert slots take an sclang-lite program and its knobs live (the routing is in workers/chamber/chain.mjs).
+  // Nothing opens on a visit: the socket, the file and the microphone wait for Play, and Stop closes all three.
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK, DEEP } from '/shell/selfcheck.mjs';
@@ -25,6 +27,11 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createChoice } from '/shell/choice.mjs';
   import { PLAYOUT_URL } from '/shell/board.mjs';
+  import { createCodeBox } from '/shell/code-box.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { CODE_ROWS } from '/shell/concept-nav.mjs';
+  import { compile } from '/shell/sclang-lite.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -43,44 +50,77 @@
     readout: { 'round trip': 'ms', network: 'ms', chamber: 'ms', sent: '', back: '', dropouts: '' } });
   conceptNav('radio/chamber');
 
-  // ── the bay: the sources and the speakers in this tab, the chamber on Cloudflare ─
+  // ── the bay: the sources, the code box, the knobs and the speakers in this tab, the chamber on Cloudflare ─
   const S = 'web', E = 'cf-chamber';
+  // the programs each slot starts the box with: an echo before the master, a plain pass after it
+  const THROUGH = '{ In.ar(\\in.kr(0), 2) }';
+  const DEFAULTS = [`{ var x = In.ar(\\in.kr(0), 2);
+  var time = \\time.kr(0.4, spec: [0.05, 1]);
+  x + (CombC.ar(LPF.ar(x, 2500), 1, time, time * 8) * \\mix.kr(0.35)) }`, THROUGH];
+  const SLOT_NAMES = ['before the master', 'after the master'];
+  const INSERT = [`${E}:pre`, `${E}:post`];
   const bay = createBay();
   bay.addNode({ id: 'cf-cast:files', kind: 'endpoint', label: 'file pass', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: `${S}:file`, kind: 'engine', label: FILE.title });
   bay.addNode({ id: `${S}:mic`, kind: 'device', label: 'microphone' });
-  bay.addNode({ id: `${E}:engine`, kind: 'engine', label: 'chamber', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: `${S}:code`, kind: 'person', label: 'code box' });
+  bay.addNode({ id: `${S}:knobs`, kind: 'person', label: 'knobs' });
+  bay.addNode({ id: `${E}:engine`, kind: 'engine', label: 'ring and layers', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: INSERT[0], kind: 'engine', label: 'insert', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: `${E}:master`, kind: 'engine', label: 'master', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: INSERT[1], kind: 'engine', label: 'insert', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: `${S}:speaker`, kind: 'screen', label: 'speakers' });
   bay.addPort({ id: 'cf-cast:files:audio-out', dir: 'out', medium: 'audio', label: '/file', transports: ['https'] });
   bay.addPort({ id: `${S}:file:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', transports: ['https'] });
   bay.addPort({ id: `${S}:file:audio-out`, dir: 'out', medium: 'audio', label: 'pcm' });
   bay.addPort({ id: `${S}:mic:audio-out`, dir: 'out', medium: 'audio', label: 'pcm' });
-  bay.addPort({ id: `${E}:engine:audio-in`, dir: 'in', medium: 'audio', label: 'ring, layers, master', transports: ['websocket'] });
-  bay.addPort({ id: `${E}:engine:audio-out`, dir: 'out', medium: 'audio', label: 'pcm', transports: ['websocket'] });
-  bay.addPort({ id: `${S}:speaker:audio-in`, dir: 'in', medium: 'audio', label: 'playout' });
+  bay.addPort({ id: `${S}:code:program-out`, dir: 'out', medium: 'program', label: 'sclang', shape: { language: 'sclang' } });
+  bay.addPort({ id: `${S}:knobs:value-out`, dir: 'out', medium: 'value', label: 'param', shape: { of: 'param' } });
+  bay.addPort({ id: `${E}:engine:audio-in`, dir: 'in', medium: 'audio', label: 'pcm', transports: ['websocket'] });
+  bay.addPort({ id: `${E}:engine:audio-out`, dir: 'out', medium: 'audio', label: 'bus 12' });
+  // what reaches an insert's program and knob ports goes over the chamber's socket as {cmd:'program'} and {cmd:'set'}
+  INSERT.forEach((id, n) => {
+    bay.addPort({ id: `${id}:audio-in`, dir: 'in', medium: 'audio', label: n ? 'bus 22' : 'bus 12' });
+    bay.addPort({ id: `${id}:audio-out`, dir: 'out', medium: 'audio', label: n ? 'out' : 'bus 20', ...(n ? { transports: ['websocket'] } : {}) });
+    bay.addPort({ id: `${id}:program-in`, dir: 'in', medium: 'program', label: 'program', shape: { language: 'sclang' }, deliver: (e) => sendProgram(n, e?.src) });
+    bay.addPort({ id: `${id}:value-in`, dir: 'in', medium: 'value', label: 'params', shape: { of: 'param' }, deliver: (e) => e?.of === 'param' && sendSet(n, e.name, e.v) });
+  });
+  bay.addPort({ id: `${E}:master:audio-in`, dir: 'in', medium: 'audio', label: 'bus 20' });
+  bay.addPort({ id: `${E}:master:audio-out`, dir: 'out', medium: 'audio', label: 'bus 22' });
+  bay.addPort({ id: `${S}:speaker:audio-in`, dir: 'in', medium: 'audio', label: 'playout', transports: ['websocket'] });
   const SOURCES = { file: [['cf-cast:files:audio-out', `${S}:file:audio-in`, 'https'], [`${S}:file:audio-out`, `${E}:engine:audio-in`, 'websocket']],
     mic: [[`${S}:mic:audio-out`, `${E}:engine:audio-in`, 'websocket']] };
-  const BACK = [`${E}:engine:audio-out`, `${S}:speaker:audio-in`, 'websocket'];
+  const CHAIN = [[`${E}:engine:audio-out`, `${INSERT[0]}:audio-in`], [`${INSERT[0]}:audio-out`, `${E}:master:audio-in`],
+    [`${E}:master:audio-out`, `${INSERT[1]}:audio-in`], [`${INSERT[1]}:audio-out`, `${S}:speaker:audio-in`, 'websocket']];
+  const BACK = CHAIN[3];
+  // the code box and the knobs reach the insert the slot choice names
+  const EDIT = (n) => [[`${S}:code:program-out`, `${INSERT[n]}:program-in`, 'websocket'], [`${S}:knobs:value-out`, `${INSERT[n]}:value-in`, 'websocket']];
 
   // ── state: everything a press opens, and the counters the readout reads ───
   let run = null;           // { source, ctx, ws, frames, playout, src, mic, booted } while playing, else null
   let buffer = null;        // the decoded file, kept across presses
   let fetches = 0, micAsked = 0;
   const m = { sent: 0, back: 0, dropouts: 0, rtt: [], net: [], engine: [], peak: 0, object: null };
+  // what the slots hold, as the chamber last answered, and every frame's level with its arrival time, for the checks
+  const slotHeld = DEFAULTS.map(() => ({ src: THROUGH, controls: [] }));
+  const drafts = DEFAULTS.slice();
+  const levels = [], asked = [], answers = [];
   const sentAt = new Map(), pingAt = new Map(), pongAt = new Map();
   const median = (a) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
   const keep = (a, v) => { a.push(v); if (a.length > 250) a.shift(); };
 
-  function wire(source) {
+  let slot = 0, source = 'file';
+  function wire(src = source) {
+    source = src;
     for (const l of bay.links()) bay.unlink(l.id);
-    for (const [a, b, via] of [...SOURCES[source], BACK]) {
-      const r = bay.link(a, b, [], { via });
+    for (const [a, b, via] of [...SOURCES[source], ...CHAIN, ...EDIT(slot)]) {
+      const r = bay.link(a, b, [], via ? { via } : {});
       if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
     }
     pb?.refresh();
   }
   const playing = () => !!run?.booted;
-  const pb = createPatchbay(bay, { flowing: (l) => playing() && (l.from !== 'cf-cast:files:audio-out' || run.source === 'file') });
+  const pb = createPatchbay(bay, { flowing: (l, medium) => playing() && medium === 'audio' && (l.from !== 'cf-cast:files:audio-out' || run.source === 'file') });
 
   function show() {
     const f1 = (v) => (v == null ? '' : v.toFixed(1));
@@ -112,7 +152,8 @@
     const me = { source, ctx: null, ws: null, booted: false };
     run = me;
     Object.assign(m, { sent: 0, back: 0, dropouts: 0, rtt: [], net: [], engine: [], peak: 0, object: null });
-    sentAt.clear(); pingAt.clear(); pongAt.clear();
+    sentAt.clear(); pingAt.clear(); pongAt.clear(); levels.length = 0;
+    slotHeld.forEach((h) => Object.assign(h, { src: THROUGH, controls: [] }));
     transport.setIcon('play', 'stop', 'stop');
     try {
       const ctx = me.ctx = new AudioContext({ sampleRate: SR, latencyHint: 'interactive' });
@@ -177,7 +218,13 @@
             me.frames.port.onmessage = (e) => send(me, e.data);
             me.statsTimer = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ cmd: 'stats' })); }, 3000);
             pb.refresh();
+            // the box's program goes in on Play, so its knobs move something from the first press
+            bay.send(`${S}:code:program-out`, { language: 'sclang', src: drafts[slot] });
             done(true);
+          } else if (msg.program) {
+            answered(msg.program);
+          } else if (msg.set) {
+            if (!msg.set.ok) d.log(`the chamber did not set ${msg.set.refused?.join(', ') || ''}${msg.set.error ? `: ${msg.set.error}` : ''}`, 'warn');
           } else if (msg.stats) {
             m.object = { frames: msg.stats.frames, median: msg.stats.median, nonzero: msg.stats.nonzero, grains: msg.stats.grains };
           } else if (msg.busy || msg.ended || msg.error) {
@@ -193,8 +240,10 @@
         if (pongAt.has(seq)) { keep(m.engine, Math.max(0, now - pongAt.get(seq))); pongAt.delete(seq); pingAt.delete(seq); }
         const pcm = new Int16Array(ev.data, 24);
         const f = new Float32Array(pcm.length);
-        let hi = 0;
-        for (let i = 0; i < pcm.length; i++) { f[i] = pcm[i] / 32768; const a = f[i] < 0 ? -f[i] : f[i]; if (a > hi) hi = a; }
+        let hi = 0, sq = 0;
+        for (let i = 0; i < pcm.length; i++) { f[i] = pcm[i] / 32768; sq += f[i] * f[i]; const a = f[i] < 0 ? -f[i] : f[i]; if (a > hi) hi = a; }
+        levels.push({ t: now, rms: Math.sqrt(sq / (pcm.length || 1)) });
+        if (levels.length > 3000) levels.splice(0, 500);
         if (hi > m.peak) m.peak = hi;
         me.playout.port.postMessage({ pcm: f }, [f.buffer]);
         if (!said) { said = true; d.log('the first processed frame is back, playing it'); }
@@ -238,6 +287,59 @@
     pb.refresh();
   }
 
+  // ── a program and its knobs, live: what arrives at an insert's ports leaves on the socket ──
+  function sendProgram(to, src) {
+    // the same compiler first, here, so a broken program is answered without a message to the chamber
+    const local = compile(src, { name: 'check', bus: 0 });
+    if (!local.ok) { answered({ ok: false, slot: to, error: local.message, local: true }); return false; }
+    if (!playing() || run.ws.readyState !== 1) { say('Press play first'); return false; }
+    asked.push({ slot: to, t: performance.now() });
+    say('Compiling');
+    run.ws.send(JSON.stringify({ cmd: 'program', slot: to, src }));
+    return true;
+  }
+  // past the check here, so the chamber's own compiler is the one that answers
+  function sendRaw(to, src) { asked.push({ slot: to, t: performance.now() }); run?.ws?.send(JSON.stringify({ cmd: 'program', slot: to, src })); }
+  function sendSet(to, name, v) {
+    if (playing() && run.ws.readyState === 1) run.ws.send(JSON.stringify({ cmd: 'set', slot: to, params: { [name]: v } }));
+  }
+  function answered(a) {
+    a.at = performance.now();
+    a.sinceSend = !a.local && asked.length ? a.at - asked.at(-1).t : null;
+    answers.push(a);
+    if (!a.ok) {
+      say(a.error, 'bad');
+      d.log(`${a.local ? 'did not compile, nothing was sent' : `the chamber refused the program for the insert ${SLOT_NAMES[a.slot] ?? a.slot}`}: ${a.error}`, 'warn');
+      return;
+    }
+    slotHeld[a.slot] = { src: drafts[a.slot], controls: a.controls || [] };
+    say(`In, ${Math.round(a.sinceSend ?? 0)} ms`);
+    d.log(`the program is in the insert ${SLOT_NAMES[a.slot]}: ${a.blocks} UGens, answered ${Math.round(a.sinceSend ?? 0)} ms after the send`);
+    if (a.slot === slot) knobsFor(a.controls || []);
+  }
+
+  const code = createCodeBox({ language: 'sclang', rows: CODE_ROWS, label: '', value: drafts[0],
+    ariaLabel: 'the SuperCollider program in the insert, edit it and press Compile', onInput: (t) => { drafts[slot] = t; } });
+  const compileBtn = el('button', 'pos-sm', 'Compile', { type: 'button' });
+  compileBtn.addEventListener('click', () => bay.send(`${S}:code:program-out`, { language: 'sclang', src: code.value() }));
+  const status = el('span', 'cc-status', '', { role: 'status', 'aria-live': 'polite' });
+  function say(t, kind = '') { status.textContent = t; status.dataset.kind = kind; }
+
+  // the knobs are the program's own arguments, as the chamber's compiler listed them
+  const knobHost = el('div');
+  let knobs = new Map();
+  function knobsFor(controls) {
+    knobHost.textContent = '';
+    knobs = new Map(controls.map((c) => [c.name, createKnob({ label: c.name, min: c.spec.min, max: c.spec.max, value: c.value, hand: true,
+      onInput: (v) => bay.send(`${S}:knobs:value-out`, { of: 'param', name: c.name, v }) })]));
+    if (knobs.size) knobHost.append(createKnobGrid(knobs, { row: true }).el);
+    knobHost.hidden = !knobs.size;
+  }
+  const knobsOf = (src) => { const r = compile(src, { name: 'check', bus: 0 }); return r.ok ? r.knobs.filter((k) => k.name !== 'in') : []; };
+  knobsFor(knobsOf(DEFAULTS[0]));
+  const slotChoice = createChoice({ label: 'insert', options: SLOT_NAMES.map((n, i) => [n, i]), at: 0,
+    onPick: (v) => { slot = v; code.set(drafts[slot]); knobsFor(slotHeld[slot].controls.length ? slotHeld[slot].controls : knobsOf(drafts[slot])); wire(); } });
+
   // ── the controls ────────────────────────────────────────────────────────
   const choice = createChoice({ label: 'source', options: [['file', 'file'], ['microphone', 'mic']], at: 0,
     onPick: (v) => { const was = !!run; if (was) stop(); wire(v); if (was) start(); } });
@@ -249,59 +351,115 @@
 
   const top = el('div', 'cc-top');
   top.append(transport.el, choice.el);
-  d.stack.add(top, pb.el);
+  const act = el('div', 'cc-top');
+  act.append(slotChoice.el, compileBtn, status);
+  d.stack.add(top, knobHost, code.el, act, pb.el);
 
   window.__demo.bay = bay;
-  window.__demo.chamber = { start, stop, choice, room: ROOM, lab: LAB,
+  window.__demo.chamber = { start, stop, choice, slotChoice, code, room: ROOM, lab: LAB, levels, answers, slotHeld, knobs: () => knobs,
+    program: (src, to = slot) => { drafts[to] = src; return bay.send(`${S}:code:program-out`, { language: 'sclang', src }); },
+    sendRaw, press: () => compileBtn.click(),
     probe: () => ({ running: !!run, booted: playing(), source: run?.source ?? null, ws: run?.ws?.readyState ?? null,
       ctx: run?.ctx?.state ?? null, bootMs: run?.bootMs ?? null, fetches, micAsked, sent: m.sent, back: m.back, dropouts: m.dropouts, peak: m.peak,
       rtt: median(m.rtt), net: median(m.net), engine: median(m.engine), samples: { rtt: m.rtt.length, net: m.net.length, engine: m.engine.length },
       object: m.object }) };
 
-  // ── the self-check: only under ?selfcheck=1; the driven run, which holds the chamber's one engine, only on the deep tier ─
+  // ── the self-check: only under ?selfcheck=1; the driven run against the deployed chamber only on the deep tier ─
   if (SELFCHECK) {
-    const A = d.assert;
-    const held = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
+    const A = d.assert, C = window.__demo.chamber;
+    const has = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
+    const sentOn = (a, b) => bay.links().find((l) => l.from === a && l.to === b)?.sent ?? 0;
     A('a visit opens nothing: no socket, no file, no microphone, no sound', !run && fetches === 0 && micAsked === 0);
-    A('the file reaches the chamber over the websocket and comes back to the speakers',
-      held(`${S}:file:audio-out`, `${E}:engine:audio-in`) && held(...BACK.slice(0, 2)) && bay.links().filter((l) => l.via === 'websocket').length === 2,
+    A('the file reaches the chamber over the websocket, through both inserts and the master, and comes back to the speakers',
+      has(`${S}:file:audio-out`, `${E}:engine:audio-in`) && CHAIN.every(([a, b]) => has(a, b)) && bay.links().filter((l) => l.via === 'websocket').length === 4,
       bay.links().map((l) => `${l.from} -> ${l.to} ${l.via ?? ''}`).join(', '));
+    A('the code box and the knobs reach the insert before the master', has(...EDIT(0)[0].slice(0, 2)) && has(...EDIT(0)[1].slice(0, 2)));
+    slotChoice.set(1);
+    A('picking the other insert moves both links to it, and the box shows its program',
+      has(...EDIT(1)[0].slice(0, 2)) && !has(...EDIT(0)[0].slice(0, 2)) && code.value() === THROUGH && knobHost.hidden);
+    slotChoice.set(0);
     wire('mic');
-    A('picking the microphone moves the link into the chamber', held(`${S}:mic:audio-out`, `${E}:engine:audio-in`) && !held(`${S}:file:audio-out`, `${E}:engine:audio-in`));
+    A('picking the microphone moves the link into the chamber', has(`${S}:mic:audio-out`, `${E}:engine:audio-in`) && !has(`${S}:file:audio-out`, `${E}:engine:audio-in`));
     wire('file');
+    A('the default program\'s own arguments are the knobs, and `in` is not one', [...knobs.keys()].join() === 'time,mix', [...knobs.keys()].join());
     {
       // NEGATIVE CONTROL: a websocket between two ends in this tab is refused, so the links above are not waved through.
       const r = bay.link(`${S}:file:audio-out`, `${S}:speaker:audio-in`, [], { via: 'websocket' });
       A('NEGATIVE CONTROL: a websocket inside this tab is refused', !r.ok, r.why || 'linked');
       if (r.ok) bay.unlink(r.id);
+      // NEGATIVE CONTROL: a program that does not compile is refused here with the compiler's message, and nothing is sent.
+      const n = answers.length;
+      C.program('{ In.ar(\\in.kr(0), 2) * SinOsc.ar(', 0);
+      const a = answers[n];
+      A('NEGATIVE CONTROL: a program that does not compile is refused with the compiler\'s message, and opens nothing',
+        a && !a.ok && a.local && /line \d+, column \d+/.test(a.error) && !run && sentOn(...EDIT(0)[0].slice(0, 2)) === 1, a?.error);
+      drafts[0] = DEFAULTS[0];
+      say('');
     }
     if (DEEP) {
       (async () => {
         const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        const until = async (fn, ms) => { const t = performance.now(); while (!fn() && performance.now() - t < ms) await wait(50); return fn(); };
+        const rmsIn = (t0, t1) => { const s = levels.filter((x) => x.t >= t0 && x.t < t1); return s.length ? Math.sqrt(s.reduce((q, x) => q + x.rms * x.rms, 0) / s.length) : 0; };
+        const db = (x) => 20 * Math.log10(Math.max(1e-9, x));
+        const M = C.measured = {};
         const ok = await start();
-        A('Play boots the engine in the chamber', ok && playing(), JSON.stringify(window.__demo.chamber.probe()));
+        A('Play boots the engine in the chamber', ok && playing(), JSON.stringify(C.probe()));
         if (!ok) return;
-        await wait(6000);
-        const p = window.__demo.chamber.probe();
+        const first = await until(() => answers.find((x) => !x.local), 5000) && answers.find((x) => !x.local);
+        A('the box\'s echo goes into the insert before the master on Play', first?.ok && first.slot === 0 && first.controls.map((c) => c.name).join() === 'time,mix', JSON.stringify(first));
+        M.firstProgramMs = first?.sinceSend;
+        await wait(5000);
+        const p = C.probe();
         A('frames go out and come back processed', p.sent > 200 && p.back > 0.9 * p.sent, `${p.sent} sent, ${p.back} back`);
         A('what comes back is sound, not silence', p.peak > 0.01, `peak ${p.peak.toFixed(3)}`);
         A('round trip, network and chamber time are measured', [p.rtt, p.net, p.engine].every(Number.isFinite), `rtt ${p.rtt?.toFixed(1)}, net ${p.net?.toFixed(1)}, chamber ${p.engine?.toFixed(1)}`);
+        // a gain of 0.25 after the master, where nothing levels it back: about 12 dB down within a second
+        slotChoice.set(1);
+        const tSend = performance.now(), base = rmsIn(tSend - 2000, tSend), n = answers.length;
+        C.program('{ In.ar(\\in.kr(0), 2) * \\gain.kr(0.25) }', 1);
+        const g = await until(() => answers[n], 4000) && answers[n];
+        A('a gain program goes into the insert after the master', g?.ok && g.slot === 1 && knobs.has('gain'), JSON.stringify(g));
+        await wait(1300);
+        const after = rmsIn(g.at + 300, g.at + 1300), drop = db(after) - db(base);
+        const quiet = levels.find((x) => x.t > tSend && x.rms < base * 0.4);
+        M.gainDropDb = +drop.toFixed(2); M.gainAnswerMs = Math.round(g.sinceSend); M.gainFirstQuietFrameMs = quiet ? Math.round(quiet.t - tSend) : null;
+        A('the returned level falls about 12 dB, within a second', drop < -8 && drop > -16 && quiet && quiet.t - tSend < 1000,
+          `${drop.toFixed(1)} dB, answered in ${M.gainAnswerMs} ms, first quieter frame back ${M.gainFirstQuietFrameMs} ms after the send`);
+        // NEGATIVE CONTROL: a broken program sent past the check here is refused by the chamber's own compiler, and the sound goes on
+        await wait(1100);
+        const n2 = answers.length, back0 = m.back;
+        C.sendRaw(1, '{ In.ar(\\in.kr(0), 2) * SinOsc.ar(');
+        const b = await until(() => answers[n2], 4000) && answers[n2];
+        await wait(1000);
+        const during = rmsIn(b?.at ?? performance.now(), (b?.at ?? performance.now()) + 1000);
+        A('NEGATIVE CONTROL: the chamber refuses a program that does not compile, with its message', b && !b.ok && !b.local && /line \d+, column \d+/.test(b.error), b?.error);
+        A('and the sound goes on at the level it had', m.back - back0 > 40 && Math.abs(db(during) - db(after)) < 4, `${m.back - back0} frames, ${db(during).toFixed(1)} against ${db(after).toFixed(1)} dBFS`);
+        // a knob, live: gain back to 1 arrives on the knobs link and the level comes back up
+        const k0 = sentOn(...EDIT(1)[1].slice(0, 2)), tk = performance.now();
+        knobs.get('gain').set(1, { from: 'hand' });
+        await wait(1200);
+        const up = db(rmsIn(tk + 300, tk + 1200)) - db(during);
+        M.knobUpDb = +up.toFixed(2);
+        A('moving the gain knob goes over the knobs link and brings the level back', sentOn(...EDIT(1)[1].slice(0, 2)) > k0 && up > 8, `${up.toFixed(1)} dB`);
         const ws = run.ws, ctx = run.ctx;
         stop();
         await wait(500);
         A('Stop closes the socket and the sound', ws.readyState === 3 && ctx.state === 'closed', `ws ${ws.readyState}, ctx ${ctx.state}`);
+        slotChoice.set(0);
         choice.set(1);
         await wait(200);
         const okMic = await start();
         await wait(3000);
-        const pm = window.__demo.chamber.probe();
+        const pm = C.probe();
         A('the microphone goes out and comes back', okMic && pm.back > 50, `${pm.sent} sent, ${pm.back} back`);
         const tracks = run?.mic?.getTracks() || [];
         stop();
         A('Stop ends the microphone', tracks.length > 0 && tracks.every((t) => t.readyState === 'ended'), tracks.map((t) => t.readyState).join(' '));
         choice.set(0);
+        M.done = true;
       })().catch((e) => A('the driven check ran', false, e.message));
-    } else d.log('left for the deep run: playing through the chamber, which holds its one engine');
+    } else d.log('left for the deep run: playing through the chamber, the live program, the knob and the refusal');
   }
   d.ready();
 </script>

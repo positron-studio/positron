@@ -457,3 +457,20 @@ Local: ThreatLocker kills the workerd of wrangler 4.148, so `wrangler dev` ran o
 Next, none built: the SFU adapter wired to the object (no header, ingest back), the file program's pacing (render ahead
 by a set number of samples per message or alarm), MP3 decode and encode as wasm, the Icecast source over
 `cloudflare:sockets`, the state that has to survive a restart (seed, scene, file and second into storage).
+
+## 11. Live changes in the chamber (2026-10-20, workers/chamber/chain.mjs)
+
+Asked: *"In practice: - build and test"*. Two insert slots, each a SuperCollider program sent while it plays:
+`{cmd:'program', slot, src}` compiles with sclang-lite in the object (refused with the compiler's message, over 8 KB,
+more than one a second, over 256 UGens, a self-freeing program) and replaces the slot's node in one quantum (`/d_recv`
+with an `/s_new` addAction 4, the old def freed); `{cmd:'set', slot | 'ring', params}` moves a program's own controls or
+the ring's (clamped by PATCH_LIMITS), at most 120 a second. Routing: ring and room on 12-13, slot 0 12-13 to 20-21, the
+master 20-21 to 22-23, slot 1 22-23 to 0-1. A gain before the master does not stay (the leveller lifts it back within
+seconds: -12.3, -9.8, -4.4, -4.4, -2 dB), so an effect belongs in slot 0 and a level change in slot 1.
+
+MEASURED: compile 0.12 to 1.2 ms in node; send to answer 51 ms, send to the first changed frame 50 ms (the next frame),
+plus the page's 160 ms cushion to the ear; a 0.25 gain after the master -13.1 dB in the page, -13.3 from a node client on
+Cloudflare; a swap leaves no silent block (quietest 20 ms -40 dBFS against -16); two echo inserts cost about 0.06 ms a
+frame more, about 0.94 against 1.0 ms of CPU per 20 ms on Cloudflare. Checks: chain-test 21/21 (eight negative
+controls), page 10/10, deep 23/23 against the deployed chamber. The planner's numbers as data: not built, the chamber runs
+no planner.

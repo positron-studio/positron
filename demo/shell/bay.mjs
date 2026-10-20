@@ -93,8 +93,8 @@ export const TRANSPORT_NAMES = [...new Set([...Object.values(TRANSPORTS), READS]
 /** The transports that never leave one machine, so `via` cannot ask for them across a wire. */
 // `fbdev` is a board's own video into its framebuffer (rig/board/hdmi.mjs), asked for by name.
 export const MACHINE_ONLY = ['webaudio', 'page', 'indexeddb', 'jack', 'fbdev'];
-/** What a light link between two sites may name as its wire: the relay room, or a board's direct WebRTC channel. */
-export const LIGHT_VIA = ['relay', 'datachannel'];
+/** What a light link between two sites may name as its wire: the relay room, a board's direct WebRTC channel, or the chamber's socket. */
+export const LIGHT_VIA = ['relay', 'datachannel', 'websocket'];
 
 /**
  * Which transport a heavy link rides. `internet-one` with more than one receiver is
