@@ -431,3 +431,29 @@ LAME 2.5. The cheap toggles (sampleClock off, status once a second, the period) 
 two engines differ by -40.8 dB (rounding); wet, same loudness within 0.1 LU; a live source arriving at 40 s lands at
 about 50 s in both, 0 underruns. Open before air: a 1 to 2 s lead or the wasm in a worker_thread, a dead path, the live
 and handover tests, the owner's listen.
+
+## 10. The engine in a Durable Object, measured (2026-10-20, workers/castlab/)
+
+The vendored SuperSonic wasm scsynth runs in workerd, locally and on Cloudflare, with the ring, all seven layers and the
+master, at 48 kHz, fed 48 kHz stereo s16 PCM over a WebSocket and answering continuous audio. Changes for workerd: the
+wasm imported as a module (no runtime `WebAssembly.compile`), the worklet wrapped by `gen-glue.mjs` (no `vm`, `eval` or
+`new Function`), shared `WebAssembly.Memory` works with no threads. Upload 1,841 KiB (504 KiB gzipped), wasm memory
+73.4 MB of the 128 MB, boot 15 to 31 ms locally, 110 to 184 ms seen from the client on Cloudflare.
+
+| where | run | CPU | % of a core | per 20 ms of audio |
+| --- | --- | --- | --- | --- |
+| Cloudflare | echo, 20 ms frames, 31 s | 351 ms | 1.1 | 0.23 ms |
+| Cloudflare | full chain, 20 ms frames, 101.9 s | 4,931 ms | **4.84** | **0.97 ms** |
+| Cloudflare | full chain, 170 ms frames, 60.9 s | 2,472 ms | 4.06 | 0.81 ms |
+| local workerd | full chain, 20 ms frames, 61 s | | 10.7 | 2.14 ms |
+
+Cloudflare CPU from `wrangler tail` (one `cpuTime` per WebSocket session); `performance.now()` is frozen inside the
+object there, so the worst single frame is unmeasured. Every frame came back, 0 dropouts; 7 clicks in every run, all
+between 31 and 55 s of the input, local and remote alike (the material through the grains, not frame edges); local and
+remote within 0.3 LU. Round trips on Cloudflare were the network (median 56 to 60 ms, p99 about 700 ms with the VPN up).
+Local: ThreatLocker kills the workerd of wrangler 4.148, so `wrangler dev` ran on eccm's wrangler 4.107. The throwaway
+`positron-castlab` was deployed once and deleted.
+
+Next, none built: the SFU adapter wired to the object (no header, ingest back), the file program's pacing (render ahead
+by a set number of samples per message or alarm), MP3 decode and encode as wasm, the Icecast source over
+`cloudflare:sockets`, the state that has to survive a restart (seed, scene, file and second into storage).
