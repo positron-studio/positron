@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Cast renders">
+<meta property="og:url" content="https://positron.studio/radio/cast/renders/">
+<meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Cast renders</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .cr-line { position: relative; height: 180px; cursor: pointer; touch-action: none; background: var(--card); }
+  .cr-line canvas { display: block; width: 100%; height: 100%; }
+  .cr-now { font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .cr-key { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 11px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+  .cr-key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+</style>
+<body>
+<script type="module">
+import { mount, el } from '/shell/shell.mjs';
+import { createTable } from '/shell/table.mjs';
+import { createVideoPanel } from '/shell/video-panel.mjs';
+import { createIconButton } from '/shell/icon-button.mjs';
+import { font, whenFaces } from '/shell/canvas-font.mjs';
+import { MEDIUM_COLOURS } from '/shell/patchbay.mjs';
+import { SELFCHECK } from '/shell/selfcheck.mjs';
+
+const d = mount({ name: 'Cast renders', what: '', readout: null, index: '/radio/cast/', indexLabel: 'Väin cast' });
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const COL = { hand: MEDIUM_COLOURS.audio, ghost: MEDIUM_COLOURS.program, loud: MEDIUM_COLOURS.value };
+
+// the audio opens on the first press of play, never on a visit
+const audio = new Audio();
+audio.preload = 'none';
+let cur = null, wantAt = 0;
+
+const host = el('div', 'cr-line'), cv = el('canvas');
+host.append(cv);
+const now = el('span', 'cr-now');
+const play = createIconButton({ icon: 'play', label: 'play', onPress: () => toggle() });
+const panel = createVideoPanel({ media: host, left: false, right: play.el, centre: now, aspect: 'auto', fullMode: 'bare' });
+const key = el('div', 'cr-key');
+for (const [label, c] of [['loudness', COL.loud], ['hand-over', COL.hand], ['ghost', COL.ghost], ['gap or quiet', css('--bad')], ['scene start', css('--dim')]]) {
+  const s = el('span'); const sw = el('i'); sw.style.background = c; s.append(sw, label); key.append(s);
+}
+
+const list = createTable({ columns: [
+  { key: 'name', label: 'render', grow: true },
+  { key: 'gate', label: 'gate', width: 56 },
+  { key: 'I', label: 'lufs', width: 56, align: 'right' },
+  { key: 'LRA', label: 'lra', width: 48, align: 'right' },
+  { key: 'TP', label: 'peak', width: 56, align: 'right' },
+  { key: 'n', label: 'scenes', width: 64, align: 'right' },
+], empty: 'no renders yet', onPick: (r) => pick(r._r) });
+const checks = createTable({ columns: [
+  { key: 'ok', label: 'ok', width: 44 },
+  { key: 'what', label: 'check', grow: true },
+  { key: 'got', label: 'measured', width: 180, clip: true, hover: 'got' },
+], empty: 'pick a render' });
+const scenes = createTable({ columns: [
+  { key: 'at', label: 'at', width: 56, align: 'right' },
+  { key: 'len', label: 'len', width: 52, align: 'right' },
+  { key: 'what', label: 'scene', grow: true, hover: 'layer' },
+], empty: 'pick a render', onPick: (r) => seek(r._at) });
+d.stack.add(list.el, panel.el, key, checks.el, scenes.el);
+
+function pick(r) {
+  // a version picked while one plays carries on at the same second: that is the A to B
+  const t = cur ? audio.currentTime || wantAt : 0, was = !audio.paused;
+  cur = r; wantAt = t;
+  audio.pause(); audio.removeAttribute('src'); audio.load();
+  checks.set(r.checks.map((c) => ({ ok: c.ok ? 'ok' : 'FAIL', what: c.what, got: c.got })));
+  scenes.set(r.scenes.map((s) => ({ _at: s.at, at: mmss(s.at), len: s.real != null ? `${Math.round(s.real)} s` : '',
+    what: r.dry ? s.file : `${s.patch} on ${s.file}`,
+    layer: [s.drone !== 'none' && s.drone && 'drone', s.harm !== 'none' && s.harm && 'harmonizer', s.ghost !== 'none' && s.ghost && 'ghost'].filter(Boolean).join(', ') || 'no layers' })));
+  d.log(`${r.name}: ${r.pass ? 'PASS' : 'FAIL'}, ${r.I} LUFS, code ${r.code}${r.dry ? ', dry' : ''}`);
+  if (was) start(); else draw();
+}
+function start() {
+  if (!cur) return;
+  if (audio.src !== cur.url) { audio.src = cur.url; audio.addEventListener('loadedmetadata', () => { audio.currentTime = wantAt; }, { once: true }); }
+  audio.play().catch((e) => d.log(`play: ${e.message}`, 'bad'));
+}
+function toggle() { if (audio.paused) start(); else audio.pause(); }
+function seek(t) {
+  wantAt = Math.max(0, Math.min(cur?.seconds ?? 0, t));
+  if (audio.src && audio.readyState > 0) audio.currentTime = wantAt;
+  draw();
+}
+audio.addEventListener('play', () => play.set('pause', 'pause'));
+audio.addEventListener('pause', () => play.set('play', 'play'));
+
+// the timeline: short-term loudness over scene bands, hand-overs and ghosts as spans, gaps and quiet in red
+function draw() {
+  const dpr = devicePixelRatio || 1, W = host.clientWidth, H = host.clientHeight;
+  if (!W) return;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  if (!cur) return;
+  const T = cur.seconds || 1, x = (t) => (t / T) * W, top = 18, bot = H - 4, y = (l) => bot - ((Math.max(-40, Math.min(-6, l)) + 40) / 34) * (bot - top);
+  g.font = font(400, 10);
+  cur.scenes.forEach((s, i) => { const a = x(s.at), b = x(cur.scenes[i + 1]?.at ?? T);
+    if (i % 2) { g.fillStyle = css('--card2'); g.fillRect(a, top, b - a, bot - top); }
+    g.fillStyle = css('--dim'); g.fillRect(a, top, 1, bot - top); });
+  for (const h of cur.handovers) { g.fillStyle = COL.hand; g.globalAlpha = 0.28; g.fillRect(x(h.at), top, Math.max(2, x(h.to ?? h.at) - x(h.at)), bot - top); }
+  g.globalAlpha = 1;
+  for (const gh of cur.ghosts) { g.fillStyle = COL.ghost; g.fillRect(x(gh.at), top - 6, Math.max(2, x(gh.end ?? gh.at + 20) - x(gh.at)), 3); }
+  g.fillStyle = css('--bad');
+  for (const q of [...cur.gaps.map((v) => ({ at: v.at, end: v.at + v.s })), ...cur.quiet]) g.fillRect(x(q.at), top - 12, Math.max(2, x(q.end) - x(q.at)), 3);
+  // -16 LUFS, the target
+  g.strokeStyle = css('--line2'); g.setLineDash([3, 3]); g.beginPath(); g.moveTo(0, y(-16)); g.lineTo(W, y(-16)); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = COL.loud; g.lineWidth = 1.5; g.beginPath();
+  cur.lufs.forEach((l, i) => { const px = x(i), py = y(l); i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke();
+  const p = audio.src ? audio.currentTime : wantAt;
+  g.fillStyle = css('--hi'); g.fillRect(x(p) - 1, 0, 2, H);
+  const s = [...cur.scenes].reverse().find((v) => v.at <= p + 0.01);
+  now.textContent = `${mmss(p)} / ${mmss(T)}  ${s ? `${s.patch}  ${s.file}` : ''}`;
+}
+let drag = false;
+const at = (e) => { const r = host.getBoundingClientRect(); return ((e.clientX - r.left) / r.width) * (cur?.seconds ?? 0); };
+host.addEventListener('pointerdown', (e) => { if (!cur) return; drag = true; try { host.setPointerCapture(e.pointerId); } catch { /* synthetic */ } seek(at(e)); });
+host.addEventListener('pointermove', (e) => { if (drag) seek(at(e)); });
+host.addEventListener('pointerup', () => { drag = false; });
+addEventListener('keydown', (e) => {
+  if (!cur || e.target.closest?.('input, textarea, select')) return;
+  const p = audio.src ? audio.currentTime : wantAt;
+  if (e.key === ' ') { e.preventDefault(); toggle(); }
+  else if (e.key === 'ArrowRight') seek(p + 10);
+  else if (e.key === 'ArrowLeft') seek(p - 10);
+  else if (e.key === ']' || e.key === '[') { const n = e.key === ']' ? cur.scenes.find((s) => s.at > p + 0.5) : [...cur.scenes].reverse().find((s) => s.at < p - 2); if (n) seek(n.at); }
+});
+new ResizeObserver(() => draw()).observe(host);
+whenFaces(draw);
+(function frame() { if (!audio.paused) draw(); requestAnimationFrame(frame); })();
+
+const { renders: all = [] } = await fetch('./renders.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+// newest first, the dry references after the versions they are heard against
+const renders = [...all].sort((a, b) => (a.dry - b.dry) || String(b.made).localeCompare(String(a.made)));
+list.set(renders.map((r) => ({ _r: r, name: `${r.name}${r.dry ? ' (dry)' : ''}`, gate: r.pass ? 'PASS' : 'FAIL', I: r.I, LRA: r.LRA, TP: r.TP, n: r.scenes.length })));
+if (renders[0]) pick(renders[0]);
+d.api.renders = renders.length;
+if (SELFCHECK) {
+  d.assert('the renders index loads', Array.isArray(renders), `${renders.length} renders`);
+  d.assert('nothing plays on a visit', audio.paused && !audio.src);
+}
+d.ready();
+</script>
