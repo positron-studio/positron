@@ -76,6 +76,8 @@ export const KIT_PARTS = [
   // `share`: the share card, demo/shell/share-card.mjs, as it ships.
   // why: lessons/kit-kit-parts.md#share
   { part: 'share', label: 'SHARE', ids: ['background', 'site-card', 'the-svg', 'the-tags'] },
+  // `naming`: the edge's patches as named today and as plans/plan-edgecast-modular.md names them.
+  { part: 'naming', label: 'NAMING', ids: ['the-radio1965-cast-on-the-edge', 'the-same-every-box', 'edge-to-radio1965', 'the-container-cast', 'the-cast-in-the-tab', 'browser-mode', 'the-pi-for-comparison', 'a-playlist-station-no-supercollider', 'webrtc-in-mp3-out', 'mp3-in-webrtc-out'] },
 ];
 
 export const idFor = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
