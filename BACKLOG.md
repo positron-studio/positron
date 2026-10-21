@@ -1,7 +1,7 @@
 ## Open
-- **edge naming: a page of patchbays to feel the proposed names** (2026-10-21). Asked: *"I'm not sure about this new naming. Can you draw me a page with a lot of patch base with your proposed names and routings so you can feel it? We don't have to work with just imaginary ones proposed."* Read: draw today's real patches (the cast in three hosts, the Pi, browser mode, the relay) side by side as they are named now and as plans/plan-edgecast-modular.md would name them, plus the new no-SuperCollider patches. A page, not a rename. DONE 2026-10-21: https://positron.studio/kit/naming/ (unlisted), ten patches, today beside the plan's edge-n and beside keeping the word edgecast-n. The naming decision is the owner's. 2026-10-21: asked *"edge- to cf-*something* ?"*, then *"use desktop layouts and only new one"*: the page now shows only `cf-edgecast:<box>` (the site the worker is, every part a node, numbered only when a second board runs), wide desk pictures. Not yet written into plans/plan-edgecast-modular.md, which still says edge-n; the plan changes when the owner settles it.
+- **edge naming: a page of patchbays to feel the proposed names** (2026-10-21). Asked: *"I'm not sure about this new naming. Can you draw me a page with a lot of patch base with your proposed names and routings so you can feel it? We don't have to work with just imaginary ones proposed."* Read: draw today's real patches (the cast in three hosts, the Pi, browser mode, the relay) side by side as they are named now and as plans/plan-edgecast-modular.md would name them, plus the new no-SuperCollider patches. A page, not a rename. DONE 2026-10-21: https://positron.studio/kit/naming/ (unlisted), ten patches, today beside the plan's edge-n and beside keeping the word edgecast-n. The naming decision is the owner's. 2026-10-21: asked *"edge- to cf-*something* ?"*, then *"use desktop layouts and only new one"*: the page now shows only `cf-edgecast:<box>` (the site the worker is, every part a node, numbered only when a second board runs), wide desk pictures. SETTLED 2026-10-21, option A: *"A. Keep the scheme, and give the edge's parts the catalogue names you already use (my pick). -- ok"* (and *"do not want intrduce new schemes"*): `cf-<our worker>:<node>` as today, the edge's parts as catalogue nodes on `cf-edgecast`, `cf-cast` untouched, no `positron-edge` rename, no `edge-n` sites. Plan and its nine edge: lines rewritten to it, 2026-10-21.
 - **edgecast as bay boxes: naming first, then modularity: PLAN DONE 2026-10-20**, plans/plan-edgecast-modular.md. Asked: *"make a plan to make this edge cast thing more modular and more similar what we built so far, all those super colliders in P, super colliders in browser, etc. See how we name them. And the whole thing, if you think about the batch bay, it should be connected boxes. Maybe I want to use edge casting to do that format conversion, SFU, PVM to MP3 or back, all that stuff with no super collider processing at all. So maybe they have to be in modular boxes. And in that case, this monolithic edgecast station is not appropriate. So first the naming, second the modularity. Try to align it to the existing this patch bay logic and modular logic what we have in Positron for this edge casting too. And don't be afraid to suggest total renames and modularization if it makes sense and is technically feasible."*. The steps follow, one line each.
-- **edge: rename edgecast-relay to positron-source (step 1)** (2026-10-20, plans/plan-edgecast-modular.md §1.4, §3).
+- **edge: rename edgecast-relay to positron-source (step 1, the owner's call still)** (2026-10-20, plans/plan-edgecast-modular.md §1.4, §3).
   What: `workers/edgecast-relay/` to `workers/source/`, worker `positron-source`, class `Source`, binding `SOURCE`,
   `relay-feed.mjs` to `source-feed.mjs`, `lessons/edgecast.md#relay` pointers; done before the owner sets
   VAIN_SOURCE_PW and ICE_*. Files: workers/edgecast-relay/*, workers/edgecast/wrangler.jsonc, relay-feed.mjs,
@@ -9,7 +9,7 @@
   station-test.mjs the same, `GET /status` on the new worker answers `state: off`, CAST_KEY put on it, the owner has
   deleted positron-edgecast-relay.
 - **edge: resume stored as one key (step 2, with BACKLOG radio1965 step 3)** (2026-10-20). What: step 3 as queued,
-  stored as `resume: { seed, si, fileId, second, at }` so the Board reads it unchanged. Files:
+  stored as `resume: { seed, si, fileId, second, at }` so the patch runtime of step 5 reads it unchanged. Files:
   workers/edgecast/station.mjs, station-core.mjs, station-test.mjs. Done when: station-test.mjs has a restart case
   that resumes at the stored file and second with a negative control, and a forced restart under `wrangler dev`
   resumes rather than starting at scene 0.
@@ -20,33 +20,35 @@
   Done when: nodes-test, bay-test and node-runtime-test are green and a PCM to MP3 link is refused with
   `codec does not match` (negative control).
 - **edge: redraw /radio/edgecast/ and /radio/cast/ with catalogue nodes (step 4)** (2026-10-20). What: the edgecast
-  page draws the coarse patch from patch text (`edge-1:cast`, `edge-1:encoder`, `edge-1:shout`,
+  page draws the coarse patch from patch text (`cf-edgecast:cast`, `cf-edgecast:encoder`, `cf-edgecast:shout`,
   `cf-source:radio1965`); the cast page draws `web:cast` (label local) and `cf-cast:<target>` kind engine. Files:
   demo/radio/edgecast/index.html, demo/radio/cast/index.html. Done when: check-html passes on both, the cast page's
   selfcheck count is unchanged, a shot of each picture, site deployed with its BUILD stamp.
-- **edge: positron-edge, class Board, running the coarse patch (step 5)** (2026-10-20). What: a new worker
-  `positron-edge` at edge.positron.studio, `workers/edge/`, patch files read by parsePatch and checked by createBay and
-  addNodes, `rt/<type>.mjs` factories wrapping today's code, the `rpc` link to positron-source; the page moves to it;
-  the owner deletes positron-edgecast. Not within 24 h before the radio1965 live test. Files: workers/edge/*,
-  demo/radio/edgecast/index.html (or /radio/edge/), lessons/edgecast.md. Done when: station-test reads the same, one
+- **edge: positron-edgecast running the coarse patch from patch text (step 5)** (2026-10-20, names settled
+  2026-10-21). What: the existing worker positron-edgecast, its `Station` class reading
+  `workers/edgecast/patches/cast.patch` through parsePatch, checked by createBay and addNodes with site `cf-edgecast`,
+  `workers/edgecast/rt/<type>.mjs` factories wrapping today's code, the `rpc` link to the relay; behaviour byte for byte
+  as today. No new worker, no deletion by the owner. Not within 24 h before the radio1965 live test. Files:
+  workers/edgecast/*, demo/radio/edgecast/index.html, lessons/edgecast.md. Done when: station-test reads the same count, one
   capped 20 min listen.mjs run on Cloudflare has 0 breaks and 0 silences over 0.7 s, CPU per alarm within median 36 ms
   and p99 66 ms, wasm memory within 107.2 MB.
 - **edge: encoder and shout out of the coarse box (step 6)** (2026-10-20). What: LAME and the framer leave
   station-grains.mjs `block()`, the listener fan-out leaves the class, both as boxes linked `via isolate`. Files:
-  workers/edge/rt/cast.mjs, rt/encoder.mjs, rt/shout.mjs. Done when: as step 5, same numbers.
+  workers/edgecast/rt/cast.mjs, rt/encoder.mjs, rt/shout.mjs. Done when: as step 5, same numbers.
 - **edge: a patch with no SuperCollider (step 7)** (2026-10-20). What: `playlist -> player -> encoder -> shout` on
-  `edge-3`, scsynth never instantiated. Files: workers/edge/patches/plain.patch, rt/playlist.mjs, rt/player.mjs. Done
+  `cf-edgecast` as its own DO instance (`idFromName('plain')`), scsynth never instantiated. Files:
+  workers/edgecast/patches/plain.patch, rt/playlist.mjs, rt/player.mjs. Done
   when: CPU per audio second from wrangler tail, wasm memory (expected 33.8 MB) and a 20 min listen with 0 breaks are
   written into the plan.
-- **edge: the SFU adapter both ways (step 8)** (2026-10-20). What: a `websocket` input and output on the Board wired to
+- **edge: the SFU adapter both ways (step 8)** (2026-10-20). What: a `websocket` input and output on positron-edgecast wired to
   Cloudflare Realtime's WebSocket adapter; `cf-sfu -> encoder -> shout` and `cf-shout:preview -> decoder -> resample ->
-  cf-sfu`. Files: workers/edge/rt/decoder.mjs, rt/resample.mjs, the Board's socket handling, patches/sfu-in.patch,
+  cf-sfu`. Files: workers/edgecast/rt/decoder.mjs, rt/resample.mjs, the worker's socket handling, patches/sfu-in.patch,
   sfu-out.patch. Done when: an audio WebRTC publisher of our own is heard as MP3 and the reverse is heard in a tab,
   frames counted, the VPN checked first, adapter egress and CPU written into the plan.
 - **edge: split the cast box (step 9, after Üle Heli, only when a patch needs a part)** (2026-10-20). What: player,
   tuner, grains, layers, master, planner as boxes; `live.mjs` changed for both engines, never forked; the browser mode
-  `edge-2` (grains, collide, master, collide-2) is the first user. Files: workers/cast/container/live.mjs,
-  workers/edge/gen-live.mjs, workers/edge/rt/*. Done when: live-test, grains-test, local-test, life-test and
+  (`cf-edgecast:grains`, `collide`, `master`, `collide-2`, today's `Edgecast` class) is the first user. Files:
+  workers/cast/container/live.mjs, workers/edgecast/gen-live.mjs, workers/edgecast/rt/*. Done when: live-test, grains-test, local-test, life-test and
   station-test read their current counts, and a 20 min edge listen matches step 5's numbers.
 - **edgecast into Väin's radio1965** (2026-10-20). Asked: *"when i can edgecast into v2ins 1965"*. Queued after the station page lands (do not edit the station code at the same time): (1) TCP source from edgecast via cloudflare:sockets to live.uuu.ee:8001, PUT /radio1965 HTTP/1.0, Basic source:VAIN_SOURCE_PW, ice-name Väin as Latin-1, ice-audio-info send_notification=0;save_stream=0, wait for ` 200`, frames at real time; (2) a small relay object, deployed rarely, that holds their mount across a station restart (their mount takes one source, their players do not reconnect); (3) the station saves seed, scene, file and second to storage and resumes; (4) a rehearsal on an Icecast 2.4.4 in Docker here, hours, with a deploy and a forced restart; (5) the first live test on radio1965 only with the owner present: container stations off, Väin not streaming there, one capped run of at most 2 minutes, judged from the source side, the owner listens in the app (the permission classifier refused an agent doing this unattended); (6) longer runs. Not for Sunday 25.10: the container cast plays the event. Steps 1, 2 and 4 DONE 2026-10-20 (a6566799, relay deployed inert as 04ed0af0, rehearsed in Docker only). Left: step 3 (resume), the owner sets VAIN_SOURCE_PW and ICE_* on the relay, then 5 and 6.
 - **edgecast: memory headroom** (2026-10-20). Asked: *"wasm memory scsynth 73.4 + mpg123 17.0 + LAME 16.8 = 107.2 of 128 MB - can we manage"*. The scsynth part is our own reservation in workers/edgecast/engine.mjs MEM (wasmHeapSize 24 MiB, memArenaSize 32 MiB, rings 2 + guest 4 + inbox 4 + outbox 4 MiB) against about 1.5 MB the 8 s ring needs; measure what it needs with station-test.mjs at smaller sizes, then set it. The codecs' 16 to 17 MB each are Emscripten's default initial memory, compiled in. The JS heap is unmeasured.

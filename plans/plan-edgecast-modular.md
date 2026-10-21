@@ -3,6 +3,14 @@
 Status (2026-10-20): a plan, nothing built. Written from reading code and our own docs only. No connection to any
 external server was opened, no station was started, nothing was deployed.
 
+**Decided 2026-10-21: keep the scheme.** The owner, after *"do not want intrduce new schemes"*: *"A. Keep the
+scheme, and give the edge's parts the catalogue names you already use (my pick). -- ok"*. So the edge is the site
+`cf-edgecast`, the worker `positron-edgecast` keeps its name, folder and domain, and its parts are catalogue nodes on
+it (`cf-edgecast:cast`, `cf-edgecast:encoder`, `cf-edgecast:shout` and the rest), as `cf-cast:files` and
+`cf-shout:radio1965` already are. The earlier proposal (sites `edge-1` to `edge-n`, `kind: 'board'`, a worker
+`positron-edge` at `edge.positron.studio` in `workers/edge/`, a DO class `Board`) is refused in 1.4 and 1.5. The names
+are drawn at https://positron.studio/kit/naming/.
+
 Asked 2026-10-20, voice typed: *"make a plan to make this edge cast thing more modular and more similar what we built
 so far, all those super colliders in P, super colliders in browser, etc. See how we name them. And the whole thing, if
 you think about the batch bay, it should be connected boxes. Maybe I want to use edge casting to do that format
@@ -28,11 +36,13 @@ Tags: **READ** (taken off code or a document), **MEASURED** (with the file that 
    (`demo/radio/edgecast/index.html:57`): the site is a worker's name and the node is a word with four meanings in
    this repository. The same engine is `web:local` in the tab, `cf-cast:caster` in the container and
    `cf-edgecast:station` on the edge: three names for one patch, none of them a catalogue type.
-2. **Proposed: the Cloudflare host becomes a SITE like the Pi, `edge-1`, and its parts become catalogue nodes**:
-   `edge-1:player`, `edge-1:grains`, `edge-1:collide`, `edge-1:encoder`, `edge-1:shout`. The worker becomes
-   `positron-edge` at `edge.positron.studio`, its Durable Object class `Board` (the Pi's process is the board). The
-   Icecast relay becomes `positron-source`, class `Source`, drawn `cf-source:radio1965`, the mirror of
-   `cf-shout:radio1965`. Section 1 has every name and its price.
+2. **Decided 2026-10-21: the scheme stays, `cf-<our worker>:<node>`, and the edge's parts become catalogue nodes on
+   the site `cf-edgecast`**: `cf-edgecast:cast`, `cf-edgecast:player`, `cf-edgecast:grains`, `cf-edgecast:collide`,
+   `cf-edgecast:encoder`, `cf-edgecast:shout`. The worker stays `positron-edgecast` at `edgecast.positron.studio`, in
+   `workers/edgecast/`, with today's classes `Station` and `Edgecast`. Several patches running at once are told apart
+   by the Durable Object instance (`idFromName` of the patch name), not by a numbered site, and each patch is drawn as
+   its own picture. Proposed, the owner's call still: the Icecast relay becomes `positron-source`, class `Source`,
+   drawn `cf-source:radio1965`, the mirror of `cf-shout:radio1965`. Section 1 has every name and its price.
 3. **A patch is the bay's own text form** (`printPatch`/`parsePatch`, `bay.mjs:739` to `744`), read by the worker,
    checked by `createBay` and `addNodes` exactly as a page checks it, and drawn by the page from the same file. A
    PCM port and an MP3 port do not link: `bay.mjs:958` to `968` already refuses a shape key that differs
@@ -70,7 +80,7 @@ Tags: **READ** (taken off code or a document), **MEASURED** (with the file that 
    says they should share a catalogue name and differ only by site.
 2. **The same job drawn with two kinds.** `cf-cast:caster` is `endpoint`, `cf-edgecast:station` is `engine`.
 3. **A site named after a worker, a node named after nothing it does.** `cf-edgecast` is a worker; `station` says
-   nothing about sound.
+   nothing about sound. The site half is the scheme and stays (2026-10-21); the node half is what changes.
 4. **"station" means four things.** The catalogue's `station` is a broadcaster's live stream (`nodes.mjs:496` to
    `501`, `err:vikerraadio`); `workers/station/` is `positron-station`, which serves `/media/<key>` from R2; the cast's
    six "stations" are mounts (`preview`, `radio1965`, `user1` to `user4`), each a `Caster` by name; and edgecast's DO
@@ -108,26 +118,31 @@ The vocabulary is the bay's, and nothing new is invented where a word exists:
 - **A transport is on the link, never a node.** The WebSocket to the SFU adapter is `via websocket` (already in
   `TRANSPORT_NAMES`, `bay.mjs:89`), as the Pi's audio is `via relay`.
 
-So the edge is a site, numbered like the Pi and the rooms (`pi-1`, `studio-1`, `chat-1`): **`edge-1`**, with a
-`label` saying which patch it plays. It is not `cf-edge`: a `cf-` site is a service drawn and never announced
-(plan-site-names.md §4d), and the edge is a board that runs nodes, `kind: 'board'` in `SITE_KINDS`
-(`graph-registry.mjs:17`), `place: 'cloudflare'`.
+So the edge keeps the scheme it already has: a `cf-<our worker>` site with nodes on it, as `cf-cast:files`,
+`cf-cast:radio1965`, `cf-shout:radio1965` and `cf-store:history` already are. The site is **`cf-edgecast`**, and its
+parts are catalogue nodes on it: `cf-edgecast:cast`, `cf-edgecast:player`, `cf-edgecast:encoder`,
+`cf-edgecast:decoder`, `cf-edgecast:resample`, `cf-edgecast:grains`, `cf-edgecast:layers`, `cf-edgecast:master`,
+`cf-edgecast:collide`, `cf-edgecast:collide-2`, `cf-edgecast:playlist`, `cf-edgecast:planner`, `cf-edgecast:tuner`,
+`cf-edgecast:shout`. Decided by the owner 2026-10-21 (option A, *"do not want intrduce new schemes"*).
+
+Several patches running at once are told apart by the Durable Object instance, `idFromName` of the patch name, not by
+a numbered site. Drawn, each patch is its own picture, so no number is needed.
 
 ### 1.4 The names, one by one, with the price of each
 
 | thing | today | proposed | what it costs |
 | --- | --- | --- | --- |
-| the worker | `positron-edgecast`, `workers/edgecast/`, `edgecast.positron.studio` | **`positron-edge`**, `workers/edge/`, `edge.positron.studio` | Deployed as a NEW worker, so a fresh DO namespace and no migration at all; the old worker is deleted by the owner (the permission classifier refuses deletes). DO state lost: `want`, `last`, `restarts`, `boot`, `fresh`, all disposable while the station is stopped. Breaks: the page's default `EDGE` and its `?edgecast=` parameter, `listen.mjs`'s default base, `client.mjs`, `tail-cpu.mjs`, `lessons/edgecast.md` (file and every `why:` pointer), the `CAST_KEY` secret (put again). Older files keep the old name as history; `positron-history` gets one row. |
-| the DO class | `Station` (instance `station-preview`), `Edgecast` (instance `lab`) | **`Board`**, one class, instance `idFromName(site)`: `edge-1` plays the cast, `edge-2` is the lab | Nothing beyond the worker rename if done as a new worker. In place it would need a `renamed_classes` migration and a new tag (READ from Cloudflare docs, unmeasured here). One engine per isolate still holds: two classes may share an isolate as one class may (`worker.mjs:13`, `station.mjs`'s own note), so merging the classes changes no risk. |
-| the code word | `station-3` (`station.mjs:17`) | `board-1` | none |
-| the bay node | `cf-edgecast:station`, kind engine | `edge-1:cast` first (one coarse box), then the boxes of §2 | the page only; `/radio/edgecast/` has no selfcheck strings on the id |
-| the insert slots | `slots[0]`, `slots[1]` (`chain.mjs`) | **`edge-2:collide`** and **`edge-2:collide-2`**, catalogue `collide`, `program-in` sclang | none outside the worker; `client.mjs`'s `slot` commands keep working through a mapping |
-| the relay | `positron-edgecast-relay`, `workers/edgecast-relay/`, class `Relay`, binding `RELAY`, `relay-feed.mjs` | **`positron-source`**, `workers/source/`, class **`Source`**, binding `SOURCE`, drawn **`cf-source:radio1965`** (catalogue `source`, label Icecast source); `relay-feed.mjs` becomes `source-feed.mjs` | Cheapest now: deployed inert (`04ed0af0`), only `CAST_KEY` set, no `ICE_*`, no `VAIN_SOURCE_PW` (HANDOFF session 87). After the owner sets those secrets the rename means setting them twice. Breaks: `relay-test.mjs` imports, `lessons/edgecast.md#relay`, BACKLOG and HANDOFF lines (history stays). Removes the second `Relay` class in the account. |
-| the decoder file | `workers/edgecast/source.mjs` | `workers/edge/rt/player.mjs` | frees the word "source" for the Icecast end |
+| the worker | `positron-edgecast`, `workers/edgecast/`, `edgecast.positron.studio` | **kept**. REFUSED: `positron-edge`, `workers/edge/`, `edge.positron.studio`, because the owner chose to keep the scheme, 2026-10-21 | none. The refused rename would have been a new worker, a fresh DO namespace, a delete by the owner, and broken the page's `EDGE` default, `listen.mjs`, `client.mjs`, `tail-cpu.mjs`, `lessons/edgecast.md` and the `CAST_KEY` secret. |
+| the DO class | `Station` (instance `station-preview`), `Edgecast` (instance `lab`) | **kept**. One class running a patch can be the existing `Station` class reading a patch, instance `idFromName` of the patch name. REFUSED as a requirement: one class `Board`, because the owner chose to keep the scheme, 2026-10-21 | none. Optional and not a step: a class rename in place needs a `renamed_classes` migration and a new tag (READ from Cloudflare docs, unmeasured here). One engine per isolate still holds: two classes may share an isolate as one class may (`worker.mjs:13`, `station.mjs`'s own note). |
+| the code word | `station-3` (`station.mjs:17`) | kept. REFUSED: `board-1`, with the `Board` class (2026-10-21) | none |
+| the bay node | `cf-edgecast:station`, kind engine | **`cf-edgecast:cast`** first (one coarse box), then the boxes of §2 on `cf-edgecast` | the page only; `/radio/edgecast/` has no selfcheck strings on the id |
+| the insert slots | `slots[0]`, `slots[1]` (`chain.mjs`) | **`cf-edgecast:collide`** and **`cf-edgecast:collide-2`**, catalogue `collide`, `program-in` sclang | none outside the worker; `client.mjs`'s `slot` commands keep working through a mapping |
+| the relay | `positron-edgecast-relay`, `workers/edgecast-relay/`, class `Relay`, binding `RELAY`, `relay-feed.mjs` | proposed, the owner's call still: **`positron-source`**, `workers/source/`, class **`Source`**, binding `SOURCE`, drawn **`cf-source:radio1965`** (catalogue `source`, label Icecast source); `relay-feed.mjs` becomes `source-feed.mjs` | Cheapest now: deployed inert (`04ed0af0`), only `CAST_KEY` set, no `ICE_*`, no `VAIN_SOURCE_PW` (HANDOFF session 87). After the owner sets those secrets the rename means setting them twice. Breaks: `relay-test.mjs` imports, `lessons/edgecast.md#relay`, BACKLOG and HANDOFF lines (history stays). Removes the second `Relay` class in the account. |
+| the decoder file | `workers/edgecast/source.mjs` | `workers/edgecast/rt/player.mjs` | frees the word "source" for the Icecast end |
 | the codec file | `codec.mjs` (pool and LAME) | `rt/decoder.mjs` shares the mpg123 pool with `rt/player.mjs`; `rt/encoder.mjs` | none |
 | the wasm host | `edgecast/engine.mjs` and `cast/light/wasm-scsynth.mjs` | one `scsynth-host.mjs` with two loaders (workerd glue, node vm) | the light chain is off air; `chain-test`, `station-test` and the light chain's own runs must read the same |
 | "the program" | `loadProgram`, `PROGRAM_OF`, `program.mjs` | the node is **`playlist`**; the cast's `workers/cast/program.mjs` keeps its file name (the container is on air, see 1.5) | none for the node; the word `program` stays the medium's |
-| the page | `/radio/edgecast/`, title Edgecast | **`/radio/edge/`**, title Edge | one plain word, not the group's name, free in `demo/radio/` (checked: blend, cast, edgecast, key, live, scenery, tempo, tuner). The old URL becomes a 404 by the no-forwarding rule (positron-concepts). `concept-list.mjs:54`, `conceptNav`, the card `say`. Optional: keeping `edgecast` costs nothing and the owner uses "edge casting" as a verb. |
+| the page | `/radio/edgecast/`, title Edgecast | **kept**, the same word as the worker and the site. REFUSED: `/radio/edge/`, because the owner chose to keep the scheme, 2026-10-21 | none. Keeping `edgecast` costs nothing and the owner uses "edge casting" as a verb. |
 | LOCAL in the bay | `web:local` | **`web:cast`**, label `local` | the cast page's own asserts name `web:local:audio-in` (`demo/radio/cast/index.html:171`, `:1136`); a page deploy, no cast deploy |
 | the container in the bay | `cf-cast:caster`, kind endpoint | **`cf-cast:radio1965`** (or the open target), catalogue `cast`, kind engine | page drawing only, asserts at `:1136` to `:1141` move with it |
 | new transports | none | **`isolate`** (a block handed over inside one isolate; in `MACHINE_ONLY`, the edge's `jack`), **`rpc`** (a service binding POST between two workers, the relay's pattern) | `bay.mjs` `TRANSPORT_NAMES`, `bay-test.mjs`; a shared file, one agent |
@@ -145,6 +160,10 @@ So the edge is a site, numbered like the Pi and the rooms (`pi-1`, `studio-1`, `
 - **`positron-shout`, `cf-shout`: not renamed.** The edge's listener fan-out reuses the catalogue type `shout`
   instead (§2), so the word gains a second site rather than a second meaning.
 - **`pi-1:pappus` and the Pi's JACK client names: left alone** (1.2 item 11).
+- **The edge as numbered sites `edge-1` to `edge-n`, `kind: 'board'` in `SITE_KINDS`, a worker `positron-edge` at
+  `edge.positron.studio` in `workers/edge/`, and a DO class `Board` as a requirement: refused, the owner chose to keep
+  the scheme, 2026-10-21** (*"do not want intrduce new schemes"*). The edge is `cf-edgecast:<node>`; several patches
+  are separate DO instances, not separate sites.
 
 ## 2. Modularity
 
@@ -172,55 +191,58 @@ refuses a mismatch in words (`bay.mjs:966` to `968`). Light links (`value`) are 
 | `level` | exists (`nodes.mjs:245`) | `audio-in` | `audio-out`, `value-out` (rms, peak, clipped) | the meter inside `station-grains.mjs` `block()` | 0 | negligible |
 | `cast` | new, the COARSE box | `file-in`, `value-in` (which file) | `audio-out` `{ codec: 'pcm', rate: 44100, channels: 2 }` | `station-grains.mjs` minus LAME plus `live.gen.mjs`: everything above from `player` to `master` and the `planner`, as it runs now | 73.4 + 17.0 MB | about 7.8 % of a core for the whole station on Cloudflare, encoder included (MEASURED, §12) |
 
-The `cast` box is there on purpose: it is the same type on every site, `web:cast` (LOCAL), `edge-1:cast`,
+The `cast` box is there on purpose: it is the same type on every site, `web:cast` (LOCAL), `cf-edgecast:cast`,
 `cf-cast:radio1965`, which settles the naming in step 4 before any code is split, and it is what the edge runs until a
 patch needs one of its parts alone.
 
 ### 2.2 Patches the boxes make
 
+Every patch below is on the one site `cf-edgecast`. Two of them running at once are two Durable Object instances
+(`idFromName` of the patch name), and each is drawn as its own picture, so no site number is needed.
+
 The radio1965 cast on the edge, coarse (what runs today, redrawn):
 
 ```
-cf-cast:files:file-out -> edge-1:cast:file-in via https
-edge-1:playlist:value-out -> edge-1:cast:value-in
-edge-1:cast:audio-out -> edge-1:encoder:audio-in via isolate
-edge-1:encoder:audio-out -> edge-1:shout:audio-in via isolate
-edge-1:shout:audio-out -> web:speaker:audio-in via https
-edge-1:encoder:audio-out -> cf-source:radio1965:audio-in via rpc
+cf-cast:files:file-out -> cf-edgecast:cast:file-in via https
+cf-edgecast:playlist:value-out -> cf-edgecast:cast:value-in
+cf-edgecast:cast:audio-out -> cf-edgecast:encoder:audio-in via isolate
+cf-edgecast:encoder:audio-out -> cf-edgecast:shout:audio-in via isolate
+cf-edgecast:shout:audio-out -> web:speaker:audio-in via https
+cf-edgecast:encoder:audio-out -> cf-source:radio1965:audio-in via rpc
 cf-source:radio1965:audio-out -> vain:icecast:audio-in via icecast
 ```
 
 The same, split (the target, step 9):
 
 ```
-edge-1:playlist:value-out -> edge-1:player:value-in
-cf-cast:files:file-out -> edge-1:player:file-in via https
-edge-1:player:audio-out -> edge-1:tuner:audio-in via isolate
-edge-1:tuner:audio-out -> edge-1:grains:audio-in via isolate
-edge-1:tuner:audio-out -> edge-1:layers:audio-in via isolate
-edge-1:grains:audio-out -> edge-1:master:audio-in via isolate
-edge-1:layers:audio-out -> edge-1:master:audio-in via isolate
-edge-1:master:audio-out -> edge-1:encoder:audio-in via isolate
-edge-1:planner:value-out -> edge-1:grains:value-in
+cf-edgecast:playlist:value-out -> cf-edgecast:player:value-in
+cf-cast:files:file-out -> cf-edgecast:player:file-in via https
+cf-edgecast:player:audio-out -> cf-edgecast:tuner:audio-in via isolate
+cf-edgecast:tuner:audio-out -> cf-edgecast:grains:audio-in via isolate
+cf-edgecast:tuner:audio-out -> cf-edgecast:layers:audio-in via isolate
+cf-edgecast:grains:audio-out -> cf-edgecast:master:audio-in via isolate
+cf-edgecast:layers:audio-out -> cf-edgecast:master:audio-in via isolate
+cf-edgecast:master:audio-out -> cf-edgecast:encoder:audio-in via isolate
+cf-edgecast:planner:value-out -> cf-edgecast:grains:value-in
 ```
 
 Patches with **no SuperCollider at all**, which is what was asked for:
 
 ```
 # a playlist station: files re-encoded and fanned out, nothing processed
-edge-3:playlist:value-out -> edge-3:player:value-in
-cf-cast:files:file-out -> edge-3:player:file-in via https
-edge-3:player:audio-out -> edge-3:encoder:audio-in via isolate
-edge-3:encoder:audio-out -> edge-3:shout:audio-in via isolate
+cf-edgecast:playlist:value-out -> cf-edgecast:player:value-in
+cf-cast:files:file-out -> cf-edgecast:player:file-in via https
+cf-edgecast:player:audio-out -> cf-edgecast:encoder:audio-in via isolate
+cf-edgecast:encoder:audio-out -> cf-edgecast:shout:audio-in via isolate
 
 # WebRTC in, MP3 out: a call or a WHIP publisher heard by Icecast listeners (PCM to MP3)
-cf-sfu:call:audio-out -> edge-4:encoder:audio-in via websocket
-edge-4:encoder:audio-out -> edge-4:shout:audio-in via isolate
+cf-sfu:call:audio-out -> cf-edgecast:encoder:audio-in via websocket
+cf-edgecast:encoder:audio-out -> cf-edgecast:shout:audio-in via isolate
 
 # MP3 in, WebRTC out: our own mount heard over the SFU (MP3 to PCM)
-cf-shout:preview:audio-out -> edge-5:decoder:audio-in via https
-edge-5:decoder:audio-out -> edge-5:resample:audio-in via isolate
-edge-5:resample:audio-out -> cf-sfu:call:audio-in via websocket
+cf-shout:preview:audio-out -> cf-edgecast:decoder:audio-in via https
+cf-edgecast:decoder:audio-out -> cf-edgecast:resample:audio-in via isolate
+cf-edgecast:resample:audio-out -> cf-sfu:call:audio-in via websocket
 ```
 
 `cf-sfu:<session>` is a Cloudflare service site like `cf-stream:live` (drawn, never announced). The SFU is the
@@ -229,14 +251,15 @@ messages of at most 32 KB (READ, plan-cast-lightweight §8), so an encoder fed b
 stream into Väin's 44.1 kHz mount (radio1965 MEASURED 44.1 kHz in positron-streaming) needs a `resample` or a 48 kHz
 MP3 that their app may or may not take (unmeasured, never to be tried on their server without the owner).
 
-The browser mode that exists today is a patch too, which is why the `Edgecast` class can go:
+The browser mode that exists today is a patch too, so one class reading a patch could run it. The `Edgecast` class
+stays unless a rename is free:
 
 ```
-web:player:audio-out -> edge-2:grains:audio-in via websocket
-edge-2:grains:audio-out -> edge-2:collide:audio-in via isolate
-edge-2:collide:audio-out -> edge-2:master:audio-in via isolate
-edge-2:master:audio-out -> edge-2:collide-2:audio-in via isolate
-edge-2:collide-2:audio-out -> web:speaker:audio-in via websocket
+web:player:audio-out -> cf-edgecast:grains:audio-in via websocket
+cf-edgecast:grains:audio-out -> cf-edgecast:collide:audio-in via isolate
+cf-edgecast:collide:audio-out -> cf-edgecast:master:audio-in via isolate
+cf-edgecast:master:audio-out -> cf-edgecast:collide-2:audio-in via isolate
+cf-edgecast:collide-2:audio-out -> web:speaker:audio-in via websocket
 ```
 
 ### 2.3 How the boxes connect on Cloudflare, with numbers
@@ -266,16 +289,17 @@ the relay caps a push at 1 MiB (`workers/edgecast-relay/worker.mjs:15`).
 
 - **The file is the bay's text form**, one link a line, `#` comments, read by `parsePatch` (`bay.mjs:740`). It is a
   projection of the graph and round trips through `bay-test.mjs` already. A patch lives at
-  `workers/edge/patches/<name>.patch`; a start names it (`POST /edge-1/start?patch=cast&key=&cap=`).
+  `workers/edgecast/patches/<name>.patch`; a start names it (`POST /start?patch=cast&key=&cap=`), and the patch name
+  picks the Durable Object instance (`idFromName`), so two patches running at once are two objects on one site.
 - **The worker builds a bay and lets it refuse**: `createBay()`, `addNodes(bay, site, types)` from `nodes.mjs` with
-  `site: 'edge-1'`, one `bay.link()` per line. A refusal (`codec does not match`, a link out of an `external` node
+  `site: 'cf-edgecast'`, one `bay.link()` per line. A refusal (`codec does not match`, a link out of an `external` node
   without `consent: true`, an unknown type) is the answer to the start, in the bay's own words. The page draws the
   same file with `createPatchbay`, so the picture and the running thing cannot disagree, which is the rule
   *everything a page shows arrives on a link* (positron-concepts).
 - **The runtime mirrors `/connect/`'s**: `demo/shell/node-runtime.mjs` already maps a catalogue type to a factory
   (`RUNTIMES`, `rt-<type>.mjs`, `make(o)` returning `deliver`, `audio`, `start`, `stop`), and `plan(links, have)`
   (`node-runtime.mjs:103`) already decides which runtimes a set of links needs. The edge gets `EDGE_RUNTIMES` and
-  `workers/edge/rt/<type>.mjs` with the same `make`, where `audio.in[port]` takes a block `{ L, R, n, rate }` (PCM)
+  `workers/edgecast/rt/<type>.mjs` with the same `make`, where `audio.in[port]` takes a block `{ L, R, n, rate }` (PCM)
   or `{ frames }` (MP3) and `audio.out[port]` is a list of subscribers. `NOT_YET` gets the reasons for the types
   the edge cannot run, the same test (every type in one of the two) applies.
 - **The clock is the host's, never a node**, as JACK is on the Pi and the AudioContext in a tab. On the edge it is
@@ -306,12 +330,12 @@ the relay caps a push at 1 MiB (`workers/edgecast-relay/worker.mjs:15`).
 Every step keeps the container cast and its tests untouched (no cast deploy in this plan), never opens Väin's or ERR's
 servers, and leaves BACKLOG's radio1965 steps in their order: step 3 (resume) is not blocked by anything here.
 
-1. **Rename the relay to `positron-source` now** (1.4). It is inert, so the rename is free of live risk, and it is the
+1. **Rename the relay to `positron-source` now** (1.4), the owner's call still. It is inert, so the rename is free of live risk, and it is the
    last moment before the owner puts `VAIN_SOURCE_PW` and `ICE_*` on it. Proof: `relay-test.mjs` (as `source-test.mjs`)
    reads the same count; `station-test.mjs` the same; the new worker's `GET /status` answers `state: off`; the edge's
    posts reach it locally under `wrangler dev`. The owner deletes `positron-edgecast-relay`.
 2. **BACKLOG step 3, resume, as already planned**, in today's `Station`. One detail from this plan: store it as one
-   key, `resume: { seed, si, fileId, second, at }`, so the `Board` of step 5 reads it unchanged.
+   key, `resume: { seed, si, fileId, second, at }`, so the patch runtime of step 5 reads it unchanged.
 3. **The catalogue**: `playlist`, `decoder`, `resample`, `layers`, `master`, `planner`, `encoder`, `source`, `cast`
    in `nodes.mjs`; `player` gains `value-in`; `collide` gains `audio-in`; `codec` on audio shapes; `isolate` and
    `rpc` in `bay.mjs`; each new type in `node-runtime.mjs` `NOT_YET` with its reason. Shared files, one agent.
@@ -320,18 +344,18 @@ servers, and leaves BACKLOG's radio1965 steps in their order: step 3 (resume) is
 4. **The drawings**: `/radio/edgecast/` draws the coarse patch from a patch text (the same lines the worker will read),
    `/radio/cast/` draws `web:cast` and `cf-cast:<target>` with kind engine. A site deploy only. Proof: `check-html`, the
    cast page's selfcheck count unchanged (36 at session 84), one shot of each picture.
-5. **`positron-edge`, class `Board`, the coarse patch**, a new worker beside the old one: the runtime of 2.4 running
-   `cast`, `encoder`, `shout` and the `rpc` link to `positron-source`, all wrapping today's code. Behaviour must be
-   byte for byte the station's. Proof: `station-test.mjs` the same, then on Cloudflare one capped run with
-   `listen.mjs` for 20 min: 0 breaks, 0 silences over 0.7 s, CPU per alarm within the measured median 36 ms and p99
-   66 ms, memory within 107.2 MB. Then the page points at `edge.positron.studio`, the owner deletes `positron-edgecast`.
-   Not within 24 h before BACKLOG step 5's live test, so that test runs on code that has been heard.
+5. **The coarse patch in the existing `positron-edgecast` worker**: the `Station` class reads the coarse patch from
+   patch text and runs it through the runtime of 2.4 (`cast`, `encoder`, `shout` and the `rpc` link to the relay), all
+   wrapping today's code. No new worker, no deletion by the owner. Behaviour must be byte for byte the station's
+   today. Proof: `station-test.mjs` the same count, then on Cloudflare one capped run with `listen.mjs` for 20 min: 0
+   breaks, 0 silences over 0.7 s, CPU per alarm within the measured median 36 ms and p99 66 ms, memory within
+   107.2 MB. Not within 24 h before BACKLOG step 5's live test, so that test runs on code that has been heard.
 6. **Split the encoder and the shout out of the coarse box** (LAME and the framer leave `station-grains.mjs` `block()`;
    the ears leave the class). Proof as step 5.
-7. **The first patch with no SuperCollider**: `playlist -> player -> encoder -> shout` on `edge-3`. The scsynth wasm is
-   not instantiated. Proof and the measurement it exists for: CPU per audio second from `wrangler tail`, wasm memory
+7. **The first patch with no SuperCollider**: `playlist -> player -> encoder -> shout` on `cf-edgecast`, its own DO
+   instance (`idFromName('plain')`). The scsynth wasm is not instantiated. Proof and the measurement it exists for: CPU per audio second from `wrangler tail`, wasm memory
    (expected 33.8 MB), a 20 min listen with 0 breaks.
-8. **The SFU patches**: wire the WebSocket adapter (never built) to a `websocket` input and output on the board;
+8. **The SFU patches**: wire the WebSocket adapter (never built) to a `websocket` input and output on the edgecast worker;
    `cf-sfu -> encoder -> shout` and `cf-shout:preview -> decoder -> resample -> cf-sfu`. Proof: a WebRTC publisher of
    our own (the `/video/webrtc/` camera's WHIP path is video; an audio publisher is needed) heard as MP3, and the
    reverse heard in a tab; frames counted, the VPN checked first (CLAUDE.md).
@@ -339,7 +363,7 @@ servers, and leaves BACKLOG's radio1965 steps in their order: step 3 (resume) is
    handle, its OSC and the tuner directly, and it is the container's on-air driver, rewritten for the edge by
    `gen-live.mjs`. It is split only after Üle Heli, only if a patch needs a part alone, and only by changing
    `live.mjs` for both engines under the cast's tests (`live-test` 27/27, `grains-test`, `local-test` 26/26). The
-   browser mode (`edge-2`) is the first user, since `chain.mjs` is already grains, collide, master, collide-2.
+   browser mode (today's `Edgecast` class, instance `lab`) is the first user, since `chain.mjs` is already grains, collide, master, collide-2.
 
 What to do first: **step 1 today** (it gets more expensive the moment the owner sets the Väin secrets), **step 2 next**
 (it is on the live test's path), and step 3 by one agent before any page or worker agent starts, since it touches
@@ -356,6 +380,8 @@ shared files.
 - **Forking `live.mjs` or any file the container cast runs.** The container plays Sunday 25.10; `gen-live.mjs` already
   throws when `live.mjs` changes shape, and that guard stays the only coupling.
 - **Renaming the cast worker, its DO or its domain** (1.5).
+- **`edge-n` sites, `kind: 'board'`, `positron-edge`, its domain and folder, and a `Board` class as a step** (1.5): the
+  owner chose to keep the scheme, 2026-10-21.
 - **A `program`, `station` or `relay` node name** (1.2 items 4 to 6).
 - **The edge announcing its graph into a relay room now.** It could, as the Pi does (`boardGraph`), and `/patchbay/`
   would see it, but it costs a socket per object to `positron-ws` and nobody asked for it. A later slice.
@@ -380,11 +406,12 @@ shared files.
 6. **The bundle**: `bay.mjs` and `nodes.mjs` in the worker, size and start CPU, by `wrangler deploy --dry-run --outdir`.
 7. **A 48 kHz MP3 on Väin's mount**: whether their app plays it; settled only with the owner present, or avoided with
    `resample`.
-8. **`renamed_classes`**: documented to keep storage, unmeasured here; moot if the rename is a new worker, as proposed.
+8. **`renamed_classes`**: documented to keep storage, unmeasured here. Optional since 2026-10-21: no class rename is a
+   step, and it is measured only if renaming `Station` is ever wanted.
 
 ## Backlog lines
 
-- **edge: rename edgecast-relay to positron-source (step 1)** (2026-10-20, plans/plan-edgecast-modular.md §1.4, §3).
+- **edge: rename edgecast-relay to positron-source (step 1, the owner's call still)** (2026-10-20, plans/plan-edgecast-modular.md §1.4, §3).
   What: `workers/edgecast-relay/` to `workers/source/`, worker `positron-source`, class `Source`, binding `SOURCE`,
   `relay-feed.mjs` to `source-feed.mjs`, `lessons/edgecast.md#relay` pointers; done before the owner sets
   VAIN_SOURCE_PW and ICE_*. Files: workers/edgecast-relay/*, workers/edgecast/wrangler.jsonc, relay-feed.mjs,
@@ -392,7 +419,7 @@ shared files.
   station-test.mjs the same, `GET /status` on the new worker answers `state: off`, CAST_KEY put on it, the owner has
   deleted positron-edgecast-relay.
 - **edge: resume stored as one key (step 2, with BACKLOG radio1965 step 3)** (2026-10-20). What: step 3 as queued,
-  stored as `resume: { seed, si, fileId, second, at }` so the Board reads it unchanged. Files:
+  stored as `resume: { seed, si, fileId, second, at }` so the patch runtime of step 5 reads it unchanged. Files:
   workers/edgecast/station.mjs, station-core.mjs, station-test.mjs. Done when: station-test.mjs has a restart case
   that resumes at the stored file and second with a negative control, and a forced restart under `wrangler dev`
   resumes rather than starting at scene 0.
@@ -403,31 +430,33 @@ shared files.
   Done when: nodes-test, bay-test and node-runtime-test are green and a PCM to MP3 link is refused with
   `codec does not match` (negative control).
 - **edge: redraw /radio/edgecast/ and /radio/cast/ with catalogue nodes (step 4)** (2026-10-20). What: the edgecast
-  page draws the coarse patch from patch text (`edge-1:cast`, `edge-1:encoder`, `edge-1:shout`,
+  page draws the coarse patch from patch text (`cf-edgecast:cast`, `cf-edgecast:encoder`, `cf-edgecast:shout`,
   `cf-source:radio1965`); the cast page draws `web:cast` (label local) and `cf-cast:<target>` kind engine. Files:
   demo/radio/edgecast/index.html, demo/radio/cast/index.html. Done when: check-html passes on both, the cast page's
   selfcheck count is unchanged, a shot of each picture, site deployed with its BUILD stamp.
-- **edge: positron-edge, class Board, running the coarse patch (step 5)** (2026-10-20). What: a new worker
-  `positron-edge` at edge.positron.studio, `workers/edge/`, patch files read by parsePatch and checked by createBay and
-  addNodes, `rt/<type>.mjs` factories wrapping today's code, the `rpc` link to positron-source; the page moves to it;
-  the owner deletes positron-edgecast. Not within 24 h before the radio1965 live test. Files: workers/edge/*,
-  demo/radio/edgecast/index.html (or /radio/edge/), lessons/edgecast.md. Done when: station-test reads the same, one
+- **edge: positron-edgecast running the coarse patch from patch text (step 5)** (2026-10-20, names settled
+  2026-10-21). What: the existing worker positron-edgecast, its `Station` class reading
+  `workers/edgecast/patches/cast.patch` through parsePatch, checked by createBay and addNodes with site `cf-edgecast`,
+  `workers/edgecast/rt/<type>.mjs` factories wrapping today's code, the `rpc` link to the relay; behaviour byte for byte
+  as today. No new worker, no deletion by the owner. Not within 24 h before the radio1965 live test. Files:
+  workers/edgecast/*, demo/radio/edgecast/index.html, lessons/edgecast.md. Done when: station-test reads the same count, one
   capped 20 min listen.mjs run on Cloudflare has 0 breaks and 0 silences over 0.7 s, CPU per alarm within median 36 ms
   and p99 66 ms, wasm memory within 107.2 MB.
 - **edge: encoder and shout out of the coarse box (step 6)** (2026-10-20). What: LAME and the framer leave
   station-grains.mjs `block()`, the listener fan-out leaves the class, both as boxes linked `via isolate`. Files:
-  workers/edge/rt/cast.mjs, rt/encoder.mjs, rt/shout.mjs. Done when: as step 5, same numbers.
+  workers/edgecast/rt/cast.mjs, rt/encoder.mjs, rt/shout.mjs. Done when: as step 5, same numbers.
 - **edge: a patch with no SuperCollider (step 7)** (2026-10-20). What: `playlist -> player -> encoder -> shout` on
-  `edge-3`, scsynth never instantiated. Files: workers/edge/patches/plain.patch, rt/playlist.mjs, rt/player.mjs. Done
+  `cf-edgecast` as its own DO instance (`idFromName('plain')`), scsynth never instantiated. Files:
+  workers/edgecast/patches/plain.patch, rt/playlist.mjs, rt/player.mjs. Done
   when: CPU per audio second from wrangler tail, wasm memory (expected 33.8 MB) and a 20 min listen with 0 breaks are
   written into the plan.
-- **edge: the SFU adapter both ways (step 8)** (2026-10-20). What: a `websocket` input and output on the Board wired to
+- **edge: the SFU adapter both ways (step 8)** (2026-10-20). What: a `websocket` input and output on positron-edgecast wired to
   Cloudflare Realtime's WebSocket adapter; `cf-sfu -> encoder -> shout` and `cf-shout:preview -> decoder -> resample ->
-  cf-sfu`. Files: workers/edge/rt/decoder.mjs, rt/resample.mjs, the Board's socket handling, patches/sfu-in.patch,
+  cf-sfu`. Files: workers/edgecast/rt/decoder.mjs, rt/resample.mjs, the worker's socket handling, patches/sfu-in.patch,
   sfu-out.patch. Done when: an audio WebRTC publisher of our own is heard as MP3 and the reverse is heard in a tab,
   frames counted, the VPN checked first, adapter egress and CPU written into the plan.
 - **edge: split the cast box (step 9, after Üle Heli, only when a patch needs a part)** (2026-10-20). What: player,
   tuner, grains, layers, master, planner as boxes; `live.mjs` changed for both engines, never forked; the browser mode
-  `edge-2` (grains, collide, master, collide-2) is the first user. Files: workers/cast/container/live.mjs,
-  workers/edge/gen-live.mjs, workers/edge/rt/*. Done when: live-test, grains-test, local-test, life-test and
+  (`cf-edgecast:grains`, `collide`, `master`, `collide-2`, today's `Edgecast` class) is the first user. Files:
+  workers/cast/container/live.mjs, workers/edgecast/gen-live.mjs, workers/edgecast/rt/*. Done when: live-test, grains-test, local-test, life-test and
   station-test read their current counts, and a 20 min edge listen matches step 5's numbers.
