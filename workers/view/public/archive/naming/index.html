@@ -61,7 +61,7 @@
     files: 'cast files', local: 'cast in the tab', cast: 'the cast', player: 'player', speaker: 'speaker', station: 'station',
     lab: 'browser mode', playlist: 'playlist', planner: 'planner', tuner: 'tuner', grains: 'grains', layers: 'layers',
     master: 'master', encoder: 'mp3 encoder', decoder: 'mp3 decoder', resample: 'resample', shout: 'listeners',
-    collide: 'SuperCollider', 'collide-2': 'SuperCollider', call: 'a WebRTC call', keys: 'keys', relay: 'Icecast source',
+    collide: 'SuperCollider', 'collide-2': 'SuperCollider', call: 'a WebRTC call', keys: 'keys', relay: 'to radio1965',
   };
   const mediumOf = (id) => { const m = id.split(':')[2].split('-')[0]; return MEDIA.includes(m) ? m : 'value'; };
   const nodeOf = (id) => id.split(':').slice(0, 2).join(':');
@@ -105,8 +105,8 @@
     { title: 'THE SAME, EVERY BOX', note: 'The cast node opened into the parts it is made of, after Üle Heli.',
       plan: SPLIT },
     { title: 'EDGE TO RADIO1965', note: 'The edge feeding Väin’s mount, through a source that holds the mount across a restart.',
-      plan: [['cf-edgecast:cast:audio-out', 'cf-edgecast:encoder:audio-in', 'isolate'], ['cf-edgecast:encoder:audio-out', 'cf-source:radio1965:audio-in', 'rpc'],
-        ['cf-source:radio1965:audio-out', 'vain:icecast:audio-in', 'icecast'],
+      plan: [['cf-edgecast:cast:audio-out', 'cf-edgecast:encoder:audio-in', 'isolate'], ['cf-edgecast:encoder:audio-out', 'cf-edgecast:relay:audio-in', 'rpc'],
+        ['cf-edgecast:relay:audio-out', 'vain:icecast:audio-in', 'icecast'],
         ['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in', 'https'], ['cf-shout:radio1965:audio-out', 'web:speaker:audio-in', 'https']] },
     { title: 'THE CONTAINER CAST', note: 'What /radio/cast/ plays on radio1965, the container drawn as the station it plays.',
       plan: [['vain:archive:file-out', 'cf-cast:radio1965:file-in', 'https'], ['cf-cast:radio1965:audio-out', 'vain:icecast:audio-in', 'icecast'],
