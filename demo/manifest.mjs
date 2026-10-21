@@ -379,7 +379,8 @@ export const DEMOS = [
   { name: 'kit/share', title: 'share', group: 'kit', act: 0, created: '2026-10-13', built: true, unlisted: true,
     one: 'the card every page is shared with and its Instagram posts, as the PNGs the build makes, the SVG they are made from, and redrawn over a picture of your own',
     tags: ['shell', 'no network'] },
-  { name: 'kit/naming', title: 'naming', group: 'kit', act: 0, created: '2026-10-21', built: true, unlisted: true,
+  // The edge's names, archived 2026-10-21 once settled (*"arvhice the naming"*).
+  { name: 'archive/naming', group: 'kit', act: 0, created: '2026-10-21', built: true, unlisted: true,
     one: 'the cast and edgecast patches with the edge as the site cf-edgecast and every part a node on it',
     tags: ['shell', 'no network'] },
 

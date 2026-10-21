@@ -5,7 +5,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>POSITRON kit/naming</title>
+<title>POSITRON archive/naming</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <link rel="stylesheet" href="/shell/kit-page.css">
 <style>
@@ -14,21 +14,31 @@
   .nm-wide { overflow-x: auto; }
 </style>
 <script type="module">
-  import { el } from '/shell/shell.mjs';
+  import { mount, guard, el } from '/shell/shell.mjs';
   import { MEDIA } from '/shell/bay.mjs';
   import { useMediumColours } from '/shell/patchbay.mjs';
   import { createBayView, BAY_VIEW_CSS } from '/shell/bay-view.mjs';
   import { createPortInk } from '/shell/port-ink.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
-  import { createKitPage } from '/shell/kit-page.mjs';
   useMediumColours();
 
   // The edge's patches with the edge as the site cf-edgecast and its parts as nodes, the names the owner chose
   // on 2026-10-21 over plans/plan-edgecast-modular.md's edge-n. Drawn from link lists; nothing here is a real bay.
-  const { d, section, land, checkPage } = createKitPage({
-    part: 'naming',
-    what: 'The cast and edgecast patches with the edge as the site cf-edgecast and every part a node on it.',
-  });
+  // Archived 2026-10-21 once the owner settled the names (option A, plans/plan-edgecast-modular.md).
+  const d = mount({ name: 'archive/naming', readout: null, showLog: false, controls: [], index: '/archive/', indexLabel: 'archive',
+    what: 'The cast and edgecast patches with the edge as the site cf-edgecast and every part a node on it.' });
+  guard(d);
+  // A heading, a note, the patch text and the picture, in the kit page's classes.
+  const section = (title, note, src, build) => {
+    const sec = el('section', 'kit-sec');
+    sec.append(el('h2', 'kit-h', title));
+    if (note) sec.append(el('p', 'kit-n', note));
+    sec.append(el('pre', 'kit-src', src));
+    const box = el('div', 'kit-box');
+    build(box);
+    sec.append(box);
+    d.el.append(sec);
+  };
   document.head.append(Object.assign(document.createElement('style'), { textContent: BAY_VIEW_CSS }));
 
   // What each node is, drawn at a box's top right.
@@ -124,12 +134,10 @@
 
   const ink = createPortInk({ ports: () => bays.flatMap((b) => b.bay.ports()) }, MEDIA);
   ink.paint(d.el);
-  land();
 
   if (SELFCHECK) {
     const frames = (n) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
     await frames(3);
-    checkPage();
     const bad = bays.filter(({ bay, view }) => view.wires.size !== bay.links().length || view.el.querySelectorAll('.lv-box').length !== bay.nodes().length);
     d.assert('every picture draws one wire per link and one box per node', bays.length === ROWS.length && !bad.length, `${bays.length} pictures, ${bad.length} wrong`);
     d.assert('NEGATIVE CONTROL: a picture of no links draws no wire', createBayView(fakeBay([])).wires.size === 0, 'empty bay, 0 wires');
