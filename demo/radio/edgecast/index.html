@@ -22,6 +22,15 @@
   @media (max-width: 560px) { .ec-line { -webkit-line-clamp: 4; height: calc(1.45em * 4); } }
   .ec-k { font: 12px var(--mono); color: var(--dim); text-transform: uppercase; }
   .ec-v { font: 13px/1.45 var(--sans); overflow-wrap: anywhere; }
+  /* the radio1965 block: its controls on one row, then a fixed line saying what it waits for */
+  .ec-air { display: flex; flex-direction: column; gap: 12px; }
+  .ec-air-h { margin: 0; }
+  .ec-air-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ec-air-note { font: 13px/1.45 var(--sans); color: var(--dim); margin: 0; text-wrap: balance; }
+  .ec-air-line { font: 12.5px/1.45 var(--mono); color: var(--dim); margin: 0; height: calc(1.45em * 2); overflow: hidden; }
+  /* nothing reserved before anything is said: the room arrives with the first word */
+  .ec-air-line:empty { display: none; }
+  .ec-air .ec-v.ec-lines { white-space: pre-line; font: 12px/1.45 var(--mono); }
 </style>
 <script type="module">
   // radio1965's cast played by edgecast (workers/edgecast/station.mjs), one Durable Object on Cloudflare with the
@@ -37,6 +46,7 @@
   import { createGrainScope } from '/shell/grain-scope.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
+  import { createChoice } from '/shell/choice.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -46,6 +56,8 @@
   // a start stops itself after this many minutes (the station's own default; ?cap= for another)
   const CAP_MIN = Math.max(1, Math.min(24 * 60, Number(q.get('cap')) || 30));
   const POLL_MS = 3000;
+  // radio1965 is heard through our shout relay, one upstream connection however many listen (?shout= for a local one)
+  const SHOUT = (q.get('shout') || 'https://shout.positron.studio').replace(/\/$/, '');
 
   const d = mount({ name: 'Edgecast', what: '', index: '/', indexLabel: 'positron',
     // the cells under the title, the log alone at the foot, as /remote/plaits/
@@ -84,11 +96,49 @@
   // the chain that sounds only while somebody here is listening, the rest whenever the station is on air
   const HEARD = new Set([`${C}:audio-out`, `${EN}:audio-out`, `${SH}:audio-out`]);
 
+  // ── on radio1965: the encoder's frames go to the relay worker (positron-edgecast-relay, through edgecast's RELAY
+  // binding), which is the source on Väin's Icecast mount; we hear the mount back through shout, as their listeners do.
+  // Drawn only while the relay is on or somebody here listens to radio1965.
+  const R = 'cf-edgecast:relay', V = 'vain:icecast', SR = 'cf-shout:radio1965';
+  bay.addNode({ id: R, kind: 'engine', label: 'to radio1965', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: V, kind: 'external', label: 'Väin Icecast', place: 'live.uuu.ee' });
+  bay.addNode({ id: SR, kind: 'endpoint', label: 'shout relay', place: 'cloudflare', net: 'cloudflare' });
+  bay.addPort({ id: `${R}:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', shape: { codec: 'mp3' } });
+  bay.addPort({ id: `${R}:audio-out`, dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
+  bay.addPort({ id: `${V}:audio-in`, dir: 'in', medium: 'audio', label: 'radio1965', transports: ['icecast'] });
+  bay.addPort({ id: `${V}:audio-out`, dir: 'out', medium: 'audio', label: 'radio1965', transports: ['https'] });
+  bay.addPort({ id: `${SR}:audio-in`, dir: 'in', medium: 'audio', label: 'one upstream', transports: ['https'] });
+  bay.addPort({ id: `${SR}:audio-out`, dir: 'out', medium: 'audio', label: '/radio1965', transports: ['https'] });
+  // a link out of their Icecast opens a connection to somebody else's server, so it carries consent: a press here
+  const AIR = [[`${EN}:audio-out`, `${R}:audio-in`, {}], [`${R}:audio-out`, `${V}:audio-in`, { via: 'icecast' }],
+    [`${V}:audio-out`, `${SR}:audio-in`, { via: 'https', consent: true }], [`${SR}:audio-out`, `${S}:audio-in`, { via: 'https' }]];
+  const AIR_NODES = new Set([R, V, SR]);
+  let airLinks = [];        // the ids of AIR while it is drawn
+
   // ── state ──
   let st = null;            // the station's last /status
   let fetches = 0, pollT = 0, polling = false, player = null, listening = false;
   const get = async (path, init) => { fetches++; const r = await fetch(`${EDGE}${path}`, { cache: 'no-store', ...init }); return r.json(); };
-  const pb = createPatchbay(bay, { flowing: (l, medium) => medium === 'audio' && !!st?.playing && (!HEARD.has(l.from) || listening) });
+  let rst = null;           // the relay's last /relay/status
+  let radio = null, hearing = false, going = false;
+  const relayOn = () => !!rst && rst.state !== 'off';
+  const airShown = () => relayOn() || hearing || going;
+  const nodeOf = (id) => id.split(':').slice(0, 2).join(':');
+  const drawn = { nodes: () => bay.nodes().filter((n) => airLinks.length || !AIR_NODES.has(n.id)),
+    ports: () => bay.ports().filter((p) => airLinks.length || !AIR_NODES.has(nodeOf(p.id))), links: () => bay.links() };
+  const pb = createPatchbay(drawn, { flowing: (l, medium) => {
+    if (medium !== 'audio') return false;
+    if (l.to === `${R}:audio-in` || l.from === `${R}:audio-out`) return rst?.state === 'on-air';
+    if (l.from === `${V}:audio-out` || l.from === `${SR}:audio-out`) return hearing;
+    return !!st?.playing && (!HEARD.has(l.from) || listening);
+  } });
+  /** Draws or takes away the radio1965 chain. */
+  function wire(on = airShown()) {
+    if (on && !airLinks.length) {
+      for (const [a, b, o] of AIR) { const r = bay.link(a, b, [], o); if (r.ok) airLinks.push(r.id); else d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); }
+    } else if (!on && airLinks.length) { for (const id of airLinks) bay.unlink(id); airLinks = []; }
+    pb.refresh();
+  }
 
   // ── what is going on: rows of label and value, filled from /status ──
   const rows = createGlueRows({ grid: true });
@@ -244,6 +294,7 @@
 
   async function play() {
     if (listening) { stopListening(); return; }
+    if (hearing) stopHearing();
     // the context is made inside the press, so the sound is allowed
     player ||= makePlayer();
     player.ctx.resume().catch(() => { /* sound may be late, the stream is not */ });
@@ -278,22 +329,179 @@
     } catch (e) { d.log(`${what} did not reach edgecast: ${e.message}`, 'bad'); }
   }
 
+  // ── radio1965: the station first, the relay only once the station is producing, so the mount never carries
+  // the station's boot as silence (measured 09:08Z 2026-10-21: 10.8 s of it when the relay went first) ──
+  /** Producing: on air with the render ahead of the wall clock and a tick run, so frames are going to the relay. */
+  const producing = (s) => s?.playing === true && s.lead > 0 && s.seconds > 0 && s.ticks > 0;
+  const waitingFor = (s) => !s ? 'waiting for edgecast to answer'
+    : !s.wanted ? 'the station is not wanted: did the start fail?'
+    : !s.playing ? 'waiting for the station to boot'
+    : !(s.seconds > 0) ? 'waiting for the first rendered second'
+    : !(s.lead > 0) ? `waiting for the render to get ahead of the clock (lead ${s.lead ?? 'none'})`
+    : 'waiting for the first tick';
+  /**
+   * Start the station with a cap a minute past the relay's, wait until it is producing, then start the relay.
+   * io: startStation(cap), stationStatus(), startRelay(min), wait(ms), now(), say(text), aborted(), deadlineMs.
+   */
+  async function onAirSequence(minutes, io) {
+    const a = await io.startStation(minutes + 1);
+    if (a?.error && !/already playing/.test(a.error)) throw new Error(`the station did not start: ${a.error}`);
+    if (a?.error) io.say(`the station was already playing, until ${hhmm(a.until)} UTC`);
+    const t0 = io.now();
+    for (;;) {
+      if (io.aborted()) throw new Error('stopped before the relay started');
+      const s = await io.stationStatus();
+      if (producing(s)) { io.say(`the station is producing: lead ${s.lead.toFixed(1)} s, ${s.seconds.toFixed(1)} s rendered; starting the relay`); break; }
+      io.say(waitingFor(s));
+      if (io.now() - t0 > io.deadlineMs) throw new Error(`the station was not producing after ${Math.round(io.deadlineMs / 1000)} s (${waitingFor(s)})`);
+      await io.wait(1000);
+    }
+    const r = await io.startRelay(minutes);
+    if (r?.error) throw new Error(`the relay did not start: ${r.error}`);
+    return r;
+  }
+  /** The relay lets go of the mount first, then the station stops. */
+  async function offAirSequence(io) { const r = await io.stopRelay(); const s = await io.stopStation(); return { r, s }; }
+
+  const key = encodeURIComponent(KEY);
+  const post = (path) => get(path, { method: 'POST' });
+  let aborting = false;
+  const liveIo = {
+    startStation: (cap) => post(`/start?key=${key}&cap=${cap}`),
+    stationStatus: () => poll(),
+    startRelay: (min) => post(`/relay/start?key=${key}&min=${min}`),
+    stopRelay: () => post(`/relay/stop?key=${key}`),
+    stopStation: () => post(`/stop?key=${key}`),
+    wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+    now: () => Date.now(),
+    say: (t) => { airLine.textContent = t; },
+    aborted: () => aborting,
+    deadlineMs: 90000,
+  };
+
+  const air = el('section', 'ec-air');
+  const airH = el('h3', 'pos-sec-h ec-air-h', 'radio1965');
+  const airNote = el('p', 'ec-air-note', 'radio1965 is Väin\'s public mount. When we are not on it, their own stream may be.');
+  const airLine = el('p', 'ec-air-line', '');
+  const minutes = createChoice({ label: 'minutes', options: [['2', 2], ['5', 5], ['10', 10]], at: 0 });
+  const airBtns = createButtonGroup({ buttons: [
+    ...(KEY ? [{ id: 'onair', label: 'On radio1965', onPress: () => goOnAir() }, { id: 'offair', label: 'Stop', onPress: () => goOffAir() }] : []),
+    { id: 'hear', label: 'Listen on radio1965', onPress: () => hear() },
+  ] });
+  const airRow = el('div', 'ec-air-row');
+  if (KEY) airRow.append(minutes.el);
+  airRow.append(airBtns.el);
+
+  // the relay's numbers, filled from /relay/status every POLL_MS while the station or the relay is on
+  const relayRows = createGlueRows({ grid: true });
+  const rv = {};
+  for (const k of ['state', 'on air', 'sent', 'station', 'silence', 'gaps', 'drops', 'refusals', 'lines']) {
+    rv[k] = el('span', k === 'lines' ? 'ec-v ec-lines' : 'ec-v', '');
+    relayRows.row([el('span', 'ec-k', k), rv[k]], { align: 'start' });
+  }
+  relayRows.el.hidden = true;
+  if (KEY) air.append(airH, airRow, airLine, airNote, relayRows.el); else air.append(airH, airRow, airNote);
+
+  function showRelay(r) {
+    relayRows.el.hidden = !r;
+    if (!r) return;
+    const sent = r.sent || {}, last = (a) => (a?.length ? a[a.length - 1] : null);
+    rv.state.textContent = `${r.state}${r.why ? `: ${r.why}` : ''}${r.until ? `, until ${hhmm(r.until)} UTC` : ''}`;
+    rv['on air'].textContent = r.onAirS != null ? `${r.onAirS} s` : '';
+    rv.sent.textContent = sent.bytes != null ? `${Math.round(sent.bytes / 1000)} kB` : '';
+    rv.station.textContent = sent.stationS != null ? `${sent.stationS} s${r.station ? `, ${r.station.up ? 'pushing' : 'quiet'}` : ''}` : '';
+    rv.silence.textContent = sent.silentS != null ? `${sent.silentS} s` : '';
+    const g = last(sent.gaps);
+    rv.gaps.textContent = sent.gaps ? `${sent.gaps.length}${g ? `, last ${g.s} s at ${hhmm(g.at)}` : ''}` : '';
+    const dr = last(r.drops);
+    rv.drops.textContent = r.drops ? `${r.drops.length}${dr ? `, last: ${dr.why}` : ''}` : '';
+    const rf = last(r.refusals);
+    rv.refusals.textContent = r.refusals ? `${r.refusals.length}${rf ? `, last: ${rf.msg || rf.why}` : ''}` : '';
+    rv.lines.textContent = (r.lines || []).slice(-3).map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('\n');
+  }
+  function airButtons() {
+    if (!KEY) return;
+    airBtns.enable('onair', !going && !relayOn(), going ? 'starting' : 'the relay is on: stop it first');
+    airBtns.enable('offair', going || relayOn() || !!st?.wanted, 'nothing is on');
+    minutes.disabled(going || relayOn());
+  }
+  let airT = 0, airPolling = false;
+  async function pollRelay() {
+    try { const r = await get('/relay/status'); if (rst?.state !== r.state) d.log(`relay: ${r.state}${r.why ? `, ${r.why}` : ''}`, /refused/.test(r.state) ? 'warn' : undefined); rst = r; showRelay(r); }
+    catch (e) { d.log(`the relay status did not answer: ${e.message}`, 'warn'); }
+    wire(); airButtons();
+  }
+  function startAirPoll() {
+    if (airPolling) return;
+    airPolling = true; startPoll();
+    const tick = async () => {
+      if (!airPolling) return;
+      await pollRelay();
+      if (!going && !relayOn() && !st?.wanted) { airPolling = false; return; }
+      airT = setTimeout(tick, POLL_MS);
+    };
+    airT = setTimeout(tick, 0);
+  }
+
+  async function goOnAir() {
+    const min = minutes.value();
+    going = true; aborting = false; wire(); airButtons();
+    d.log(`on radio1965 for ${min} min: the station first, with a cap of ${min + 1} min`);
+    try {
+      await onAirSequence(min, liveIo);
+      d.log(`the relay is starting: on radio1965 for ${min} min`);
+      airLine.textContent = 'the relay is taking the mount';
+    } catch (e) { d.log(e.message, 'warn'); airLine.textContent = e.message; }
+    going = false;
+    startAirPoll(); await pollRelay();
+  }
+  async function goOffAir() {
+    aborting = true;
+    try {
+      const { r, s } = await offAirSequence(liveIo);
+      d.log(`stopped: the relay (${r?.error || r?.state || 'off'}), then the station (${s?.error || (s?.playing ? 'still playing' : 'off')})`);
+      airLine.textContent = 'off radio1965';
+    } catch (e) { d.log(`stop did not reach edgecast: ${e.message}`, 'bad'); }
+    startAirPoll(); await pollRelay(); await poll();
+  }
+
+  // ── listening on radio1965: what Väin's listeners hear, through shout; an <audio> made on the first press ──
+  function hear() {
+    if (hearing) { stopHearing(); return; }
+    if (listening) stopListening();
+    radio ||= Object.assign(document.createElement('audio'), { preload: 'none' });
+    radio.onplaying = () => { d.log('playing radio1965'); pb.refresh(); };
+    radio.onerror = () => { if (hearing) { d.log('radio1965 did not play: their mount may be off', 'warn'); stopHearing(); } };
+    hearing = true;
+    radio.src = `${SHOUT}/radio1965`;
+    radio.play().catch(() => { /* the error event says why */ });
+    airBtns.button('hear').textContent = 'Stop listening';
+    wire();
+  }
+  function stopHearing() {
+    hearing = false;
+    if (radio) { radio.pause(); radio.removeAttribute('src'); radio.load(); }
+    airBtns.button('hear').textContent = 'Listen on radio1965';
+    wire();
+  }
+  if (KEY) airButtons();
+
   const btns = createButtonGroup({ buttons: [
     { id: 'play', icon: 'play', label: 'play', onPress: () => play() },
     ...(KEY ? [{ id: 'start', label: 'Start', onPress: () => control('start') }, { id: 'stop', label: 'Stop', onPress: () => control('stop') }] : []),
   ] });
   const top = el('div', 'ec-top');
   top.append(btns.el);
-  d.stack.add(top, panel.el, rows.el, pb.el);
+  d.stack.add(top, panel.el, rows.el, air, pb.el);
 
   window.__demo.bay = bay;
   window.__demo.edgecast = { edge: EDGE, play, stopListening, poll, status: () => st,
-    probe: () => ({ fetches, polling, listening, player: !!player, keyed: !!KEY, rows: !rows.el.hidden }) };
+    probe: () => ({ fetches, polling, listening, player: !!player, keyed: !!KEY, rows: !rows.el.hidden, radio: !!radio, hearing, airPolling }) };
 
   // ── the self-check, only under ?selfcheck=1: everything it grades is in this tab, nothing reaches edgecast ──
   if (SELFCHECK) {
     const A = d.assert, has = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
-    A('a visit opens nothing: no fetch, no stream, no poll', fetches === 0 && !polling && !player);
+    A('a visit opens nothing: no fetch, no stream, no poll, no radio1965', fetches === 0 && !polling && !player && !radio && !airPolling);
     const out = bay.links().filter((l) => l.via === 'https').map((l) => `${l.from} -> ${l.to}`).sort().join();
     const inside = bay.links().filter((l) => l.from.startsWith('cf-edgecast:') && l.to.startsWith('cf-edgecast:'));
     A('the cast\'s files reach the cast and /listen reaches the speaker over https, and the cast, mp3 and /listen are linked inside the edge',
@@ -324,6 +532,69 @@
       `${val.ghost.textContent} | ${val.layers.textContent} | ${line.textContent}`);
     show(null);
     A('and no status leaves the rows hidden and the cells empty', rows.el.hidden && getComputedStyle(rows.el).display === 'none');
+
+    // ── radio1965, all on stubs: nothing here reaches edgecast, the relay, shout or their mount ──
+    const stub = (statuses, { start = {}, relay = { state: 'connecting' } } = {}) => {
+      const calls = []; let t = 0, i = 0;
+      return { calls, io: {
+        startStation: async (cap) => { calls.push(`station start cap ${cap}`); return start; },
+        stationStatus: async () => { const s = statuses[Math.min(i++, statuses.length - 1)]; calls.push(`status ${producing(s) ? 'producing' : 'not yet'}`); return s; },
+        startRelay: async (min) => { calls.push(`relay start min ${min}`); return relay; },
+        stopRelay: async () => { calls.push('relay stop'); return { state: 'off' }; },
+        stopStation: async () => { calls.push('station stop'); return { playing: false }; },
+        wait: async (ms) => { t += ms; }, now: () => t, say: () => {}, aborted: () => false, deadlineMs: 5000 } };
+    };
+    const booting = [null, { wanted: true, playing: false, seconds: null, lead: null, ticks: 0 },
+      { wanted: true, playing: true, seconds: 0.4, lead: 0, ticks: 0 }, { wanted: true, playing: true, seconds: 2.6, lead: 1.9, ticks: 3 }];
+    {
+      const { calls, io } = stub(booting);
+      await onAirSequence(2, io);
+      const ri = calls.indexOf('relay start min 2'), pi = calls.indexOf('status producing');
+      A('on radio1965 for 2 min: the station starts with a cap of 3, and the relay starts with 2 only after a status says producing',
+        calls[0] === 'station start cap 3' && pi > 0 && ri === pi + 1 && calls.filter((c) => c.startsWith('status')).length === 4, calls.join(', '));
+    }
+    {
+      // NEGATIVE CONTROL: a station that never produces never gets the relay, and the wait gives up in words
+      const { calls, io } = stub([{ wanted: true, playing: true, seconds: 0.4, lead: 0, ticks: 2 }]);
+      let err = '';
+      try { await onAirSequence(5, io); } catch (e) { err = e.message; }
+      A('NEGATIVE CONTROL: a station whose render never gets ahead of the clock never gets the relay, and the wait says why',
+        !calls.some((c) => c.startsWith('relay')) && /not producing after 5 s/.test(err) && /lead 0/.test(err), `${err} | ${calls.length} calls`);
+    }
+    {
+      // NEGATIVE CONTROL: a refused station start (a wrong key) sends nothing to the relay
+      const { calls, io } = stub(booting, { start: { error: '/start needs the key' } });
+      let err = '';
+      try { await onAirSequence(2, io); } catch (e) { err = e.message; }
+      A('NEGATIVE CONTROL: a refused station start sends nothing to the relay', calls.length === 1 && /needs the key/.test(err), calls.join(', '));
+    }
+    A('producing needs on air, a lead, rendered seconds and a tick; each missing one reads as not producing',
+      producing(booting[3]) && !producing(booting[2]) && !producing({ ...booting[3], ticks: 0 }) && !producing({ ...booting[3], playing: false }) && !producing(null));
+    {
+      const { calls, io } = stub([]);
+      await offAirSequence(io);
+      A('Stop lets go of the mount first, then stops the station', calls.join(', ') === 'relay stop, station stop', calls.join(', '));
+    }
+    {
+      // the chain is drawn while the relay is on, and taken away after
+      const before = drawn.nodes().length;
+      rst = { state: 'on-air' }; wire();
+      const has2 = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
+      const shown = drawn.nodes().map((n) => n.id);
+      A('with the relay on, the picture gains to radio1965, Väin\'s Icecast and shout, linked on to the speaker',
+        AIR.every(([a, b]) => has2(a, b)) && [R, V, SR].every((x) => shown.includes(x)) && before === shown.length - 3, `${before} -> ${shown.length} nodes`);
+      rst = null; wire();
+      A('and with it off they are gone again', !bay.links().some((l) => l.from === `${R}:audio-out`) && drawn.nodes().length === before, `${drawn.nodes().length} nodes`);
+      // NEGATIVE CONTROL: the link out of their Icecast is refused without consent
+      const r = bay.link(`${V}:audio-out`, `${SR}:audio-in`, [], { via: 'https' });
+      A('NEGATIVE CONTROL: a link out of Väin\'s Icecast without consent is refused', !r.ok, r.why || 'linked');
+      if (r.ok) bay.unlink(r.id);
+    }
+    showRelay({ state: 'refused-auth', why: 'HTTP/1.0 401 Unauthorized', onAirS: 0, drops: [], refusals: [{ at: '2026-10-21T09:00:00.000Z', why: 'refused-auth', msg: 'HTTP/1.0 401 Unauthorized' }],
+      sent: { bytes: 23400, stationS: 0, silentS: 1.5, gaps: [] }, station: { up: false }, lines: ['a', 'b', 'refused, not retrying'] });
+    A('a relay status fills its rows, the refusal with Icecast\'s own words', !relayRows.el.hidden && /401/.test(rv.refusals.textContent) && rv.sent.textContent === '23 kB' && /refused-auth/.test(rv.state.textContent),
+      `${rv.state.textContent} | ${rv.refusals.textContent} | ${rv.sent.textContent}`);
+    showRelay(null);
   }
   d.ready();
 </script>

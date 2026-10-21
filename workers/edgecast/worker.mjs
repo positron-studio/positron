@@ -127,12 +127,27 @@ export class Edgecast extends DurableObject {
   }
 }
 
+const CORS = { 'access-control-allow-origin': '*' };
+async function relay(req, env, u) {
+  const want = u.pathname === '/relay/status' ? 'GET' : 'POST';
+  if (req.method !== want) return Response.json({ error: `${want} ${u.pathname}` }, { status: 405, headers: CORS });
+  if (!env.RELAY) return Response.json({ error: 'no RELAY binding' }, { status: 500, headers: CORS });
+  const to = new URL(`https://relay${u.pathname.slice('/relay'.length)}`);
+  for (const k of ['key', 'min']) if (u.searchParams.has(k)) to.searchParams.set(k, u.searchParams.get(k));
+  try {
+    const r = await env.RELAY.fetch(to, { method: want });
+    return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/json', 'cache-control': 'no-store', ...CORS } });
+  } catch (e) { return Response.json({ error: `the relay did not answer: ${e.message}` }, { status: 502, headers: CORS }); }
+}
+
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
     if (u.pathname === '/ws') return env.EDGECAST.get(env.EDGECAST.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST' } });
     if (['/listen', '/status', '/start', '/stop'].includes(u.pathname)) return env.STATION.get(env.STATION.idFromName('station-preview')).fetch(req);
-    return new Response('edgecast: an experiment; GET /ws with a WebSocket, or the station: GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key=\n');
+    // the relay to radio1965 through the RELAY binding, so a page never talks to its workers.dev name; the relay checks the key
+    if (['/relay/start', '/relay/stop', '/relay/status'].includes(u.pathname)) return relay(req, env, u);
+    return new Response('edgecast: an experiment; GET /ws with a WebSocket, or the station: GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key=; the relay: GET /relay/status, POST /relay/start?key=&min=, POST /relay/stop?key=\n');
   },
 };
