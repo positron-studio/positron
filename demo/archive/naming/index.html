@@ -47,7 +47,7 @@
     files: 'cast files', local: 'cast in the tab', cast: 'the cast', player: 'player', speaker: 'speaker', station: 'station',
     lab: 'browser mode', playlist: 'playlist', planner: 'planner', tuner: 'tuner', grains: 'grains', layers: 'layers',
     master: 'master', encoder: 'mp3 encoder', decoder: 'mp3 decoder', resample: 'resample', shout: 'listeners',
-    collide: 'SuperCollider', 'collide-2': 'SuperCollider', call: 'a WebRTC call', keys: 'keys', relay: 'to radio1965',
+    collide: 'SuperCollider', 'collide-2': 'SuperCollider', 'knob-cutoff': 'cutoff', 'knob-room': 'room', 'knob-pitch': 'pitch', code: 'sclang code box', call: 'a WebRTC call', keys: 'keys', relay: 'to radio1965',
   };
   const mediumOf = (id) => { const m = id.split(':')[2].split('-')[0]; return MEDIA.includes(m) ? m : 'value'; };
   const nodeOf = (id) => id.split(':').slice(0, 2).join(':');
@@ -104,6 +104,13 @@
       plan: [['web:player:audio-out', 'cf-edgecast:grains:audio-in', 'websocket'], ['cf-edgecast:grains:audio-out', 'cf-edgecast:collide:audio-in', 'isolate'],
         ['cf-edgecast:collide:audio-out', 'cf-edgecast:master:audio-in', 'isolate'], ['cf-edgecast:master:audio-out', 'cf-edgecast:collide-2:audio-in', 'isolate'],
         ['cf-edgecast:collide-2:audio-out', 'web:speaker:audio-in', 'websocket']] },
+    { title: 'EDGECAST WITH COLLIDE KNOBS', note: 'A file sent from the tab through SuperCollider on the edge, three knobs in the tab setting its parameters while it plays.',
+      plan: [['web:player:audio-out', 'cf-edgecast:collide:audio-in', 'websocket'], ['cf-edgecast:collide:audio-out', 'web:speaker:audio-in', 'websocket'],
+        ['web:knob-cutoff:value-out', 'cf-edgecast:collide:value-in', 'websocket'], ['web:knob-room:value-out', 'cf-edgecast:collide:value-in', 'websocket'],
+        ['web:knob-pitch:value-out', 'cf-edgecast:collide:value-in', 'websocket']] },
+    { title: 'COLLIDE LIVE COMPILE', note: 'sclang typed in the tab, compiled into SuperCollider on the edge while it plays, played from the keys and heard back.',
+      plan: [['web:code:program-out', 'cf-edgecast:collide:program-in', 'websocket'], ['web:keys:midi-out', 'cf-edgecast:collide:midi-in', 'websocket'],
+        ['web:player:audio-out', 'cf-edgecast:collide:audio-in', 'websocket'], ['cf-edgecast:collide:audio-out', 'web:speaker:audio-in', 'websocket']] },
     { title: 'THE PI, FOR COMPARISON', note: 'The same SuperCollider node on the Pi and on the edge, only the site changes.',
       plan: [['web:keys:midi-out', 'pi-1:collide:midi-in', 'relay'], ['pi-1:collide:audio-out', 'web:speaker:audio-in', 'webrtc'],
         ['web:keys:midi-out', 'cf-edgecast:collide:midi-in', 'websocket'], ['cf-edgecast:collide:audio-out', 'web:speaker:audio-in', 'websocket']] },
