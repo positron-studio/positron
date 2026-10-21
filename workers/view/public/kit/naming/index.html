@@ -6,7 +6,7 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="naming">
-<meta property="og:description" content="The cast and edgecast patches as named today, as the modular plan names them, and keeping the word edgecast">
+<meta property="og:description" content="The cast and edgecast patches with the edge as the site cf-edgecast and every part a node on it">
 <meta property="og:url" content="https://positron.studio/kit/naming/">
 <meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
 <meta property="og:image:width" content="1200">
@@ -23,9 +23,9 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <link rel="stylesheet" href="/shell/kit-page.css">
 <style>
-  .nm-row { display: flex; gap: 24px; overflow-x: auto; align-items: flex-start; }
-  .nm-fig { flex: none; width: 300px; min-width: 0; }
-  .nm-none { font: 500 11px/1.6 var(--mono); opacity: 0.6; padding: 16px 0; }
+  /* a desk wide column, so a chain of seven boxes draws across instead of stacking */
+  body { max-width: 1280px; }
+  .nm-wide { overflow-x: auto; }
 </style>
 <script type="module">
   import { el } from '/shell/shell.mjs';
@@ -37,11 +37,11 @@
   import { createKitPage } from '/shell/kit-page.mjs';
   useMediumColours();
 
-  // The edge's patches three ways: as named today, as plans/plan-edgecast-modular.md names them, and the
-  // same boxes keeping the word edgecast as the site. Drawn from link lists; nothing here is a real bay.
+  // The edge's patches with the edge as the site cf-edgecast and its parts as nodes, the names the owner chose
+  // on 2026-10-21 over plans/plan-edgecast-modular.md's edge-n. Drawn from link lists; nothing here is a real bay.
   const { d, section, land, checkPage } = createKitPage({
     part: 'naming',
-    what: 'The cast and edgecast patches as named today, as the modular plan names them, and keeping the word edgecast.',
+    what: 'The cast and edgecast patches with the edge as the site cf-edgecast and every part a node on it.',
   });
   document.head.append(Object.assign(document.createElement('style'), { textContent: BAY_VIEW_CSS }));
 
@@ -67,95 +67,72 @@
     return { nodes: () => [...nodes.values()], ports: () => [...ports.values()], links: () => links };
   };
   const line = (l) => `${l.from} -> ${l.to}${l.tf ? ` ${l.tf}` : ''}`;
-  // The same patch with the plan's site `edge-<n>` renamed to `edgecast-<n>`.
-  const keepWord = (links) => links.map(([a, b, v]) => [a.replace(/^edge-/, 'edgecast-'), b.replace(/^edge-/, 'edgecast-'), v]);
 
   const SPLIT = [
-    ['cf-cast:files:file-out', 'edge-1:player:file-in', 'https'],
-    ['edge-1:playlist:value-out', 'edge-1:player:value-in'],
-    ['edge-1:player:audio-out', 'edge-1:tuner:audio-in', 'isolate'],
-    ['edge-1:tuner:audio-out', 'edge-1:grains:audio-in', 'isolate'],
-    ['edge-1:tuner:audio-out', 'edge-1:layers:audio-in', 'isolate'],
-    ['edge-1:planner:value-out', 'edge-1:grains:value-in'],
-    ['edge-1:planner:value-out', 'edge-1:layers:value-in'],
-    ['edge-1:grains:audio-out', 'edge-1:master:audio-in', 'isolate'],
-    ['edge-1:layers:audio-out', 'edge-1:master:audio-in', 'isolate'],
-    ['edge-1:master:audio-out', 'edge-1:encoder:audio-in', 'isolate'],
-    ['edge-1:encoder:audio-out', 'edge-1:shout:audio-in', 'isolate'],
-    ['edge-1:shout:audio-out', 'web:speaker:audio-in', 'https'],
+    ['cf-cast:files:file-out', 'cf-edgecast:player:file-in', 'https'],
+    ['cf-edgecast:playlist:value-out', 'cf-edgecast:player:value-in'],
+    ['cf-edgecast:player:audio-out', 'cf-edgecast:tuner:audio-in', 'isolate'],
+    ['cf-edgecast:tuner:audio-out', 'cf-edgecast:grains:audio-in', 'isolate'],
+    ['cf-edgecast:tuner:audio-out', 'cf-edgecast:layers:audio-in', 'isolate'],
+    ['cf-edgecast:planner:value-out', 'cf-edgecast:grains:value-in'],
+    ['cf-edgecast:planner:value-out', 'cf-edgecast:layers:value-in'],
+    ['cf-edgecast:grains:audio-out', 'cf-edgecast:master:audio-in', 'isolate'],
+    ['cf-edgecast:layers:audio-out', 'cf-edgecast:master:audio-in', 'isolate'],
+    ['cf-edgecast:master:audio-out', 'cf-edgecast:encoder:audio-in', 'isolate'],
+    ['cf-edgecast:encoder:audio-out', 'cf-edgecast:shout:audio-in', 'isolate'],
+    ['cf-edgecast:shout:audio-out', 'web:speaker:audio-in', 'https'],
   ];
   const COARSE = [
-    ['cf-cast:files:file-out', 'edge-1:cast:file-in', 'https'],
-    ['edge-1:playlist:value-out', 'edge-1:cast:value-in'],
-    ['edge-1:cast:audio-out', 'edge-1:encoder:audio-in', 'isolate'],
-    ['edge-1:encoder:audio-out', 'edge-1:shout:audio-in', 'isolate'],
-    ['edge-1:shout:audio-out', 'web:speaker:audio-in', 'https'],
+    ['cf-cast:files:file-out', 'cf-edgecast:cast:file-in', 'https'],
+    ['cf-edgecast:playlist:value-out', 'cf-edgecast:cast:value-in'],
+    ['cf-edgecast:cast:audio-out', 'cf-edgecast:encoder:audio-in', 'isolate'],
+    ['cf-edgecast:encoder:audio-out', 'cf-edgecast:shout:audio-in', 'isolate'],
+    ['cf-edgecast:shout:audio-out', 'web:speaker:audio-in', 'https'],
   ];
   const ROWS = [
-    { title: 'THE RADIO1965 CAST ON THE EDGE', note: 'What /radio/edgecast/ plays today, one box on Cloudflare. The plan splits it into the encoder and the listeners first.',
-      today: [['cf-cast:files:audio-out', 'cf-edgecast:station:audio-in', 'https'], ['cf-edgecast:station:audio-out', 'web:speaker:audio-in', 'https']],
+    { title: 'THE RADIO1965 CAST ON THE EDGE', note: 'What /radio/edgecast/ plays, with the encoder and the listeners as their own nodes and the cast as one.',
       plan: COARSE },
-    { title: 'THE SAME, EVERY BOX', note: 'Step 9 of the plan, after Üle Heli: the cast box opened into the parts it is made of. Today it is the one box above.',
-      today: null, plan: SPLIT },
-    { title: 'EDGE TO RADIO1965', note: 'The relay that holds Väin’s mount across a restart. Deployed today and not drawn on any page; the plan calls it a source.',
-      today: [['cf-edgecast:station:audio-out', 'cf-edgecast-relay:relay:audio-in', 'service binding'], ['cf-edgecast-relay:relay:audio-out', 'vain:icecast:audio-in', 'icecast'],
-        ['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in', 'https'], ['cf-shout:radio1965:audio-out', 'web:speaker:audio-in', 'https']],
-      plan: [['edge-1:cast:audio-out', 'edge-1:encoder:audio-in', 'isolate'], ['edge-1:encoder:audio-out', 'cf-source:radio1965:audio-in', 'rpc'],
+    { title: 'THE SAME, EVERY BOX', note: 'The cast node opened into the parts it is made of, after Üle Heli.',
+      plan: SPLIT },
+    { title: 'EDGE TO RADIO1965', note: 'The edge feeding Väin’s mount, through a source that holds the mount across a restart.',
+      plan: [['cf-edgecast:cast:audio-out', 'cf-edgecast:encoder:audio-in', 'isolate'], ['cf-edgecast:encoder:audio-out', 'cf-source:radio1965:audio-in', 'rpc'],
         ['cf-source:radio1965:audio-out', 'vain:icecast:audio-in', 'icecast'],
         ['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in', 'https'], ['cf-shout:radio1965:audio-out', 'web:speaker:audio-in', 'https']] },
-    { title: 'THE CONTAINER CAST', note: 'What /radio/cast/ draws today for radio1965. The worker keeps its name; only the drawing changes to the station it plays.',
-      today: [['vain:archive:audio-out', 'cf-cast:caster:audio-in', 'https'], ['cf-cast:caster:audio-out', 'vain:icecast:audio-in', 'icecast'],
-        ['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in', 'https'], ['cf-shout:radio1965:audio-out', 'web:player:audio-in', 'https']],
+    { title: 'THE CONTAINER CAST', note: 'What /radio/cast/ plays on radio1965, the container drawn as the station it plays.',
       plan: [['vain:archive:file-out', 'cf-cast:radio1965:file-in', 'https'], ['cf-cast:radio1965:audio-out', 'vain:icecast:audio-in', 'icecast'],
-        ['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in', 'https'], ['cf-shout:radio1965:audio-out', 'web:speaker:audio-in', 'https']],
-      keep: false },
-    { title: 'THE CAST IN THE TAB', note: 'LOCAL on /radio/cast/. Today web:local; the plan gives it the catalogue name cast, so the tab, the edge and the container share one type.',
-      today: [['vain:archive:audio-out', 'cf-cast:files:audio-in', 'https'], ['cf-cast:files:audio-out', 'web:local:audio-in', 'https']],
+        ['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in', 'https'], ['cf-shout:radio1965:audio-out', 'web:speaker:audio-in', 'https']] },
+    { title: 'THE CAST IN THE TAB', note: 'LOCAL on /radio/cast/, the same cast node in the tab.',
       plan: [['vain:archive:file-out', 'cf-cast:files:file-in', 'https'], ['cf-cast:files:file-out', 'web:cast:file-in', 'https'],
-        ['web:cast:audio-out', 'web:speaker:audio-in']],
-      keep: false },
-    { title: 'BROWSER MODE', note: 'Edgecast’s first form: a file sent from the tab, processed on the edge, heard back. Not drawn today; its two insert slots are SuperCollider nodes.',
-      today: [['web:player:audio-out', 'cf-edgecast:lab:audio-in', 'websocket'], ['cf-edgecast:lab:audio-out', 'web:speaker:audio-in', 'websocket']],
-      plan: [['web:player:audio-out', 'edge-2:grains:audio-in', 'websocket'], ['edge-2:grains:audio-out', 'edge-2:collide:audio-in', 'isolate'],
-        ['edge-2:collide:audio-out', 'edge-2:master:audio-in', 'isolate'], ['edge-2:master:audio-out', 'edge-2:collide-2:audio-in', 'isolate'],
-        ['edge-2:collide-2:audio-out', 'web:speaker:audio-in', 'websocket']] },
-    { title: 'THE PI, FOR COMPARISON', note: 'Already named by the rule: the same catalogue name on every site, only the prefix changes. /remote/collide/ and the tab’s own SuperCollider.',
-      today: [['web:keys:midi-out', 'pi-1:collide:midi-in', 'relay'], ['pi-1:collide:audio-out', 'web:speaker:audio-in', 'webrtc'],
-        ['web:keys:midi-out', 'web:collide:midi-in'], ['web:collide:audio-out', 'web:speaker:audio-in']],
+        ['web:cast:audio-out', 'web:speaker:audio-in']] },
+    { title: 'BROWSER MODE', note: 'A file sent from the tab, processed on the edge and heard back, with two SuperCollider inserts.',
+      plan: [['web:player:audio-out', 'cf-edgecast:grains:audio-in', 'websocket'], ['cf-edgecast:grains:audio-out', 'cf-edgecast:collide:audio-in', 'isolate'],
+        ['cf-edgecast:collide:audio-out', 'cf-edgecast:master:audio-in', 'isolate'], ['cf-edgecast:master:audio-out', 'cf-edgecast:collide-2:audio-in', 'isolate'],
+        ['cf-edgecast:collide-2:audio-out', 'web:speaker:audio-in', 'websocket']] },
+    { title: 'THE PI, FOR COMPARISON', note: 'The same SuperCollider node on the Pi and on the edge, only the site changes.',
       plan: [['web:keys:midi-out', 'pi-1:collide:midi-in', 'relay'], ['pi-1:collide:audio-out', 'web:speaker:audio-in', 'webrtc'],
-        ['web:keys:midi-out', 'edge-2:collide:midi-in', 'websocket'], ['edge-2:collide:audio-out', 'web:speaker:audio-in', 'websocket']] },
-    { title: 'A PLAYLIST STATION, NO SUPERCOLLIDER', note: 'New: files played in order, re-encoded and fanned out, nothing processed. Cannot be built today without the whole station.',
-      today: null, plan: [['edge-3:playlist:value-out', 'edge-3:player:value-in'], ['cf-cast:files:file-out', 'edge-3:player:file-in', 'https'],
-        ['edge-3:player:audio-out', 'edge-3:encoder:audio-in', 'isolate'], ['edge-3:encoder:audio-out', 'edge-3:shout:audio-in', 'isolate'],
-        ['edge-3:shout:audio-out', 'web:speaker:audio-in', 'https']] },
-    { title: 'WEBRTC IN, MP3 OUT', note: 'New: a call through Cloudflare’s SFU heard by Icecast style listeners, PCM to MP3 on the edge.',
-      today: null, plan: [['cf-sfu:call:audio-out', 'edge-4:encoder:audio-in', 'websocket'], ['edge-4:encoder:audio-out', 'edge-4:shout:audio-in', 'isolate'],
-        ['edge-4:shout:audio-out', 'web:speaker:audio-in', 'https']] },
-    { title: 'MP3 IN, WEBRTC OUT', note: 'New: our own mount decoded on the edge and sent into the SFU, MP3 to PCM.',
-      today: null, plan: [['cf-shout:preview:audio-out', 'edge-5:decoder:audio-in', 'https'], ['edge-5:decoder:audio-out', 'edge-5:resample:audio-in', 'isolate'],
-        ['edge-5:resample:audio-out', 'cf-sfu:call:audio-in', 'websocket'], ['cf-sfu:call:audio-out', 'web:speaker:audio-in', 'webrtc']] },
+        ['web:keys:midi-out', 'cf-edgecast:collide:midi-in', 'websocket'], ['cf-edgecast:collide:audio-out', 'web:speaker:audio-in', 'websocket']] },
+    { title: 'A PLAYLIST STATION, NO SUPERCOLLIDER', note: 'Files played in order, encoded and fanned out to listeners, nothing processed.',
+      plan: [['cf-edgecast:playlist:value-out', 'cf-edgecast:player:value-in'], ['cf-cast:files:file-out', 'cf-edgecast:player:file-in', 'https'],
+        ['cf-edgecast:player:audio-out', 'cf-edgecast:encoder:audio-in', 'isolate'], ['cf-edgecast:encoder:audio-out', 'cf-edgecast:shout:audio-in', 'isolate'],
+        ['cf-edgecast:shout:audio-out', 'web:speaker:audio-in', 'https']] },
+    { title: 'WEBRTC IN, MP3 OUT', note: 'A call through Cloudflare’s SFU heard as an MP3 stream.',
+      plan: [['cf-sfu:call:audio-out', 'cf-edgecast:encoder:audio-in', 'websocket'], ['cf-edgecast:encoder:audio-out', 'cf-edgecast:shout:audio-in', 'isolate'],
+        ['cf-edgecast:shout:audio-out', 'web:speaker:audio-in', 'https']] },
+    { title: 'MP3 IN, WEBRTC OUT', note: 'Our own mount decoded on the edge and sent into the SFU.',
+      plan: [['cf-shout:preview:audio-out', 'cf-edgecast:decoder:audio-in', 'https'], ['cf-edgecast:decoder:audio-out', 'cf-edgecast:resample:audio-in', 'isolate'],
+        ['cf-edgecast:resample:audio-out', 'cf-sfu:call:audio-in', 'websocket'], ['cf-sfu:call:audio-out', 'web:speaker:audio-in', 'webrtc']] },
   ];
 
   const LABEL = (node) => [{ text: node.label, sans: true }];
   const bays = [];
-  const figure = (label, links) => {
-    const fig = el('div', 'nm-fig');
-    if (!links) { fig.append(el('div', 'nm-none', 'not possible today'), el('span', 'kit-fig-l', label)); return fig; }
-    const bay = fakeBay(links);
-    const view = createBayView(bay, { detail: LABEL });
-    bays.push({ bay, view });
-    fig.append(view.el, el('span', 'kit-fig-l', label));
-    return fig;
-  };
   for (const x of ROWS) {
-    const keep = x.keep === false ? null : keepWord(x.plan);
-    const text = [x.today && `# today\n${fakeBay(x.today).links().map(line).join('\n')}`,
-      `# plan\n${fakeBay(x.plan).links().map(line).join('\n')}`].filter(Boolean).join('\n\n');
-    section(x.title, x.note, text, (box) => {
-      const row = el('div', 'nm-row');
-      row.append(figure('TODAY', x.today), figure('PLAN, SITE edge-n', x.plan));
-      if (keep) row.append(figure('KEEPING THE WORD, SITE edgecast-n', keep));
-      box.append(row);
+    const bay = fakeBay(x.plan);
+    section(x.title, x.note, bay.links().map(line).join('\n'), (box) => {
+      const wide = el('div', 'nm-wide');
+      box.append(wide);
+      const view = createBayView(bay, { detail: LABEL });
+      wide.append(view.el);
+      bays.push({ bay, view });
     });
   }
 
@@ -168,7 +145,7 @@
     await frames(3);
     checkPage();
     const bad = bays.filter(({ bay, view }) => view.wires.size !== bay.links().length || view.el.querySelectorAll('.lv-box').length !== bay.nodes().length);
-    d.assert('every picture draws one wire per link and one box per node', bays.length > 20 && !bad.length, `${bays.length} pictures, ${bad.length} wrong`);
+    d.assert('every picture draws one wire per link and one box per node', bays.length === ROWS.length && !bad.length, `${bays.length} pictures, ${bad.length} wrong`);
     d.assert('NEGATIVE CONTROL: a picture of no links draws no wire', createBayView(fakeBay([])).wires.size === 0, 'empty bay, 0 wires');
   }
   d.ready();
