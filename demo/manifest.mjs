@@ -380,7 +380,7 @@ export const DEMOS = [
     one: 'the card every page is shared with and its Instagram posts, as the PNGs the build makes, the SVG they are made from, and redrawn over a picture of your own',
     tags: ['shell', 'no network'] },
   { name: 'kit/naming', title: 'naming', group: 'kit', act: 0, created: '2026-10-21', built: true, unlisted: true,
-    one: 'the cast and edgecast patches as named today, as the modular plan names them, and keeping the word edgecast',
+    one: 'the cast and edgecast patches with the edge as the site cf-edgecast and every part a node on it',
     tags: ['shell', 'no network'] },
 
   // A page per deck, `demo/slides/<deck>/` at `/slides/<deck>/`, unlisted; the deck's card links
