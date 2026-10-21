@@ -41,8 +41,8 @@ Tags: **READ** (taken off code or a document), **MEASURED** (with the file that 
    `cf-edgecast:encoder`, `cf-edgecast:shout`. The worker stays `positron-edgecast` at `edgecast.positron.studio`, in
    `workers/edgecast/`, with today's classes `Station` and `Edgecast`. Several patches running at once are told apart
    by the Durable Object instance (`idFromName` of the patch name), not by a numbered site, and each patch is drawn as
-   its own picture. Proposed, the owner's call still: the Icecast relay becomes `positron-source`, class `Source`,
-   drawn `cf-source:radio1965`, the mirror of `cf-shout:radio1965`. Section 1 has every name and its price.
+   its own picture. Decided 2026-10-21: the Icecast relay keeps its worker `positron-edgecast-relay` and is
+   drawn `cf-edgecast:relay`, labelled "to radio1965" (no rename, no new word). Section 1 has every name and its price.
 3. **A patch is the bay's own text form** (`printPatch`/`parsePatch`, `bay.mjs:739` to `744`), read by the worker,
    checked by `createBay` and `addNodes` exactly as a page checks it, and drawn by the page from the same file. A
    PCM port and an MP3 port do not link: `bay.mjs:958` to `968` already refuses a shape key that differs
@@ -53,8 +53,7 @@ Tags: **READ** (taken off code or a document), **MEASURED** (with the file that 
    $1.12 a day against the container's $1.33, and every hop needs its own lead buffer (the relay needed 1 s ahead and
    a 1 s re-buffer, `lessons/edgecast.md#relay`). The one split that exists today, the relay, is the right shape: it
    was split for lifetime, not for function.
-5. **First steps, in order:** rename the relay to `positron-source` NOW, while it is deployed inert with no Väin
-   secrets set (it is the cheapest it will ever be); then BACKLOG step 3 (resume) unchanged; then the catalogue
+5. **First steps, in order:** the relay keeps its name (decided 2026-10-21); BACKLOG step 3 (resume) unchanged; then the catalogue
    entries; then the coarse patch in the worker with byte identical behaviour; then a patch with no SuperCollider in
    it at all (`playlist -> player -> encoder -> shout`), measured. The container cast and Sunday 25.10 are not touched.
 
@@ -137,7 +136,7 @@ a numbered site. Drawn, each patch is its own picture, so no number is needed.
 | the code word | `station-3` (`station.mjs:17`) | kept. REFUSED: `board-1`, with the `Board` class (2026-10-21) | none |
 | the bay node | `cf-edgecast:station`, kind engine | **`cf-edgecast:cast`** first (one coarse box), then the boxes of §2 on `cf-edgecast` | the page only; `/radio/edgecast/` has no selfcheck strings on the id |
 | the insert slots | `slots[0]`, `slots[1]` (`chain.mjs`) | **`cf-edgecast:collide`** and **`cf-edgecast:collide-2`**, catalogue `collide`, `program-in` sclang | none outside the worker; `client.mjs`'s `slot` commands keep working through a mapping |
-| the relay | `positron-edgecast-relay`, `workers/edgecast-relay/`, class `Relay`, binding `RELAY`, `relay-feed.mjs` | proposed, the owner's call still: **`positron-source`**, `workers/source/`, class **`Source`**, binding `SOURCE`, drawn **`cf-source:radio1965`** (catalogue `source`, label Icecast source); `relay-feed.mjs` becomes `source-feed.mjs` | Cheapest now: deployed inert (`04ed0af0`), only `CAST_KEY` set, no `ICE_*`, no `VAIN_SOURCE_PW` (HANDOFF session 87). After the owner sets those secrets the rename means setting them twice. Breaks: `relay-test.mjs` imports, `lessons/edgecast.md#relay`, BACKLOG and HANDOFF lines (history stays). Removes the second `Relay` class in the account. |
+| the relay | `positron-edgecast-relay`, `workers/edgecast-relay/`, class `Relay`, binding `RELAY`, `relay-feed.mjs` | **unchanged**, drawn **`cf-edgecast:relay`**, label "to radio1965". Decided 2026-10-21: *"- Drawn: cf-edgecast:relay, labelled "to radio1965". - Worker: positron-edgecast-relay, unchanged. No rename, and no new word. -- go"* `positron-source` / `cf-source` refused: the owner did not get the name. | none. It stays a worker of its own because a deploy restarts every object in a worker, and Väin's players do not reconnect. |
 | the decoder file | `workers/edgecast/source.mjs` | `workers/edgecast/rt/player.mjs` | frees the word "source" for the Icecast end |
 | the codec file | `codec.mjs` (pool and LAME) | `rt/decoder.mjs` shares the mpg123 pool with `rt/player.mjs`; `rt/encoder.mjs` | none |
 | the wasm host | `edgecast/engine.mjs` and `cast/light/wasm-scsynth.mjs` | one `scsynth-host.mjs` with two loaders (workerd glue, node vm) | the light chain is off air; `chain-test`, `station-test` and the light chain's own runs must read the same |
@@ -208,8 +207,8 @@ cf-edgecast:playlist:value-out -> cf-edgecast:cast:value-in
 cf-edgecast:cast:audio-out -> cf-edgecast:encoder:audio-in via isolate
 cf-edgecast:encoder:audio-out -> cf-edgecast:shout:audio-in via isolate
 cf-edgecast:shout:audio-out -> web:speaker:audio-in via https
-cf-edgecast:encoder:audio-out -> cf-source:radio1965:audio-in via rpc
-cf-source:radio1965:audio-out -> vain:icecast:audio-in via icecast
+cf-edgecast:encoder:audio-out -> cf-edgecast:relay:audio-in via rpc
+cf-edgecast:relay:audio-out -> vain:icecast:audio-in via icecast
 ```
 
 The same, split (the target, step 9):
@@ -277,7 +276,7 @@ cf-edgecast:collide-2:audio-out -> web:speaker:audio-in via websocket
    takes one source and their players do not reconnect, and the edge loses its engine on every eviction and deploy.
    This is the relay's reason as written, and it is measured to hold a mount through 62 s of a silent station
    (`lessons/edgecast.md#rehearsal`).
-2. **A secret.** `VAIN_SOURCE_PW` lives only in `positron-source`; the edge never holds it.
+2. **A secret.** `VAIN_SOURCE_PW` lives only in `positron-edgecast-relay`; the edge never holds it.
 3. **Memory.** A patch that would pass 128 MB in one isolate (two scsynths: about 147 MB of wasm, COMPUTED from 73.4
    each) is split by putting the second engine in a second worker. Not by class: two classes may share an isolate.
 
@@ -330,10 +329,7 @@ the relay caps a push at 1 MiB (`workers/edgecast-relay/worker.mjs:15`).
 Every step keeps the container cast and its tests untouched (no cast deploy in this plan), never opens Väin's or ERR's
 servers, and leaves BACKLOG's radio1965 steps in their order: step 3 (resume) is not blocked by anything here.
 
-1. **Rename the relay to `positron-source` now** (1.4), the owner's call still. It is inert, so the rename is free of live risk, and it is the
-   last moment before the owner puts `VAIN_SOURCE_PW` and `ICE_*` on it. Proof: `relay-test.mjs` (as `source-test.mjs`)
-   reads the same count; `station-test.mjs` the same; the new worker's `GET /status` answers `state: off`; the edge's
-   posts reach it locally under `wrangler dev`. The owner deletes `positron-edgecast-relay`.
+1. **DROPPED 2026-10-21: the relay is not renamed.** It stays `positron-edgecast-relay`, drawn `cf-edgecast:relay`. *"- Drawn: cf-edgecast:relay, labelled "to radio1965". - Worker: positron-edgecast-relay, unchanged. No rename, and no new word. -- go"*
 2. **BACKLOG step 3, resume, as already planned**, in today's `Station`. One detail from this plan: store it as one
    key, `resume: { seed, si, fileId, second, at }`, so the patch runtime of step 5 reads it unchanged.
 3. **The catalogue**: `playlist`, `decoder`, `resample`, `layers`, `master`, `planner`, `encoder`, `source`, `cast`
@@ -411,13 +407,6 @@ shared files.
 
 ## Backlog lines
 
-- **edge: rename edgecast-relay to positron-source (step 1, the owner's call still)** (2026-10-20, plans/plan-edgecast-modular.md §1.4, §3).
-  What: `workers/edgecast-relay/` to `workers/source/`, worker `positron-source`, class `Source`, binding `SOURCE`,
-  `relay-feed.mjs` to `source-feed.mjs`, `lessons/edgecast.md#relay` pointers; done before the owner sets
-  VAIN_SOURCE_PW and ICE_*. Files: workers/edgecast-relay/*, workers/edgecast/wrangler.jsonc, relay-feed.mjs,
-  station.mjs, lessons/edgecast.md. Done when: the renamed relay test reads the same count as relay-test.mjs did,
-  station-test.mjs the same, `GET /status` on the new worker answers `state: off`, CAST_KEY put on it, the owner has
-  deleted positron-edgecast-relay.
 - **edge: resume stored as one key (step 2, with BACKLOG radio1965 step 3)** (2026-10-20). What: step 3 as queued,
   stored as `resume: { seed, si, fileId, second, at }` so the patch runtime of step 5 reads it unchanged. Files:
   workers/edgecast/station.mjs, station-core.mjs, station-test.mjs. Done when: station-test.mjs has a restart case
@@ -431,7 +420,7 @@ shared files.
   `codec does not match` (negative control).
 - **edge: redraw /radio/edgecast/ and /radio/cast/ with catalogue nodes (step 4)** (2026-10-20). What: the edgecast
   page draws the coarse patch from patch text (`cf-edgecast:cast`, `cf-edgecast:encoder`, `cf-edgecast:shout`,
-  `cf-source:radio1965`); the cast page draws `web:cast` (label local) and `cf-cast:<target>` kind engine. Files:
+  `cf-edgecast:relay`); the cast page draws `web:cast` (label local) and `cf-cast:<target>` kind engine. Files:
   demo/radio/edgecast/index.html, demo/radio/cast/index.html. Done when: check-html passes on both, the cast page's
   selfcheck count is unchanged, a shot of each picture, site deployed with its BUILD stamp.
 - **edge: positron-edgecast running the coarse patch from patch text (step 5)** (2026-10-20, names settled
