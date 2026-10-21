@@ -45,7 +45,7 @@
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
-  import { createBay } from '/shell/bay.mjs';
+  import { createBay, parsePatch } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours, MEDIUM_COLOURS } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createGrainScope } from '/shell/grain-scope.mjs';
@@ -67,24 +67,42 @@
     readout: { scene: '', listeners: '', lead: 's', underruns: '', files: '', until: '' } });
   conceptNav('radio/edgecast');
 
-  // ── the bay: the cast's files, the station on Cloudflare, the speaker in this tab ─
-  const E = 'cf-edgecast:station', F = 'cf-cast:files', S = 'web:speaker';
+  // ── the bay: the coarse patch the station runs, as patch text (plans/plan-edgecast-modular.md §2.2) ──
+  // Inside the edge the links carry no `via`, so the bay gives them its one machine transport.
+  const F = 'cf-cast:files', PL = 'cf-edgecast:playlist', C = 'cf-edgecast:cast', EN = 'cf-edgecast:encoder', SH = 'cf-edgecast:shout', S = 'web:speaker';
   const bay = createBay();
   bay.addNode({ id: F, kind: 'endpoint', label: 'cast files', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: E, kind: 'engine', label: 'station', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: PL, kind: 'engine', label: 'playlist', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: C, kind: 'engine', label: 'the cast', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: EN, kind: 'engine', label: 'mp3', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: SH, kind: 'endpoint', label: '/listen', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: S, kind: 'screen', label: 'speaker' });
   bay.addPort({ id: `${F}:audio-out`, dir: 'out', medium: 'audio', label: '/file', transports: ['https'] });
-  bay.addPort({ id: `${E}:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', transports: ['https'] });
-  bay.addPort({ id: `${E}:audio-out`, dir: 'out', medium: 'audio', label: '/listen', transports: ['https'] });
+  bay.addPort({ id: `${PL}:value-out`, dir: 'out', medium: 'value', label: 'next file', shape: { of: 'file' } });
+  bay.addPort({ id: `${C}:value-in`, dir: 'in', medium: 'value', label: 'which file', shape: { of: 'file' } });
+  bay.addPort({ id: `${C}:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', transports: ['https'] });
+  bay.addPort({ id: `${C}:audio-out`, dir: 'out', medium: 'audio', label: 'pcm', shape: { codec: 'pcm' } });
+  bay.addPort({ id: `${EN}:audio-in`, dir: 'in', medium: 'audio', label: 'pcm', shape: { codec: 'pcm' } });
+  bay.addPort({ id: `${EN}:audio-out`, dir: 'out', medium: 'audio', label: 'mp3', shape: { codec: 'mp3' } });
+  bay.addPort({ id: `${SH}:audio-in`, dir: 'in', medium: 'audio', label: 'mp3', shape: { codec: 'mp3' } });
+  bay.addPort({ id: `${SH}:audio-out`, dir: 'out', medium: 'audio', label: '/listen', transports: ['https'] });
   bay.addPort({ id: `${S}:audio-in`, dir: 'in', medium: 'audio', label: 'audio', transports: ['https'] });
-  const LINKS = [[`${F}:audio-out`, `${E}:audio-in`], [`${E}:audio-out`, `${S}:audio-in`]];
-  for (const [a, b] of LINKS) { const r = bay.link(a, b, [], { via: 'https' }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); }
+  const PATCH = `
+    ${PL}:value-out -> ${C}:value-in
+    ${F}:audio-out -> ${C}:audio-in via https
+    ${C}:audio-out -> ${EN}:audio-in
+    ${EN}:audio-out -> ${SH}:audio-in
+    ${SH}:audio-out -> ${S}:audio-in via https`;
+  const LINKS = parsePatch(PATCH);
+  for (const l of LINKS) { const r = bay.link(l.from, l.to, l.transforms, l.via ? { via: l.via } : {}); if (!r.ok) d.log(`${l.from} -> ${l.to} refused: ${r.why}`, 'warn'); }
+  // the chain that sounds only while somebody here is listening, the rest whenever the station is on air
+  const HEARD = new Set([`${C}:audio-out`, `${EN}:audio-out`, `${SH}:audio-out`]);
 
   // ── state ──
   let st = null;            // the station's last /status
   let fetches = 0, pollT = 0, polling = false, player = null, listening = false;
   const get = async (path, init) => { fetches++; const r = await fetch(`${EDGE}${path}`, { cache: 'no-store', ...init }); return r.json(); };
-  const pb = createPatchbay(bay, { flowing: (l, medium) => medium === 'audio' && !!st?.playing && (l.from === `${F}:audio-out` || listening) });
+  const pb = createPatchbay(bay, { flowing: (l, medium) => medium === 'audio' && !!st?.playing && (!HEARD.has(l.from) || listening) });
 
   // ── what is going on: rows of label and value, filled from /status ──
   const rows = createGlueRows({ grid: true });
@@ -290,13 +308,23 @@
   if (SELFCHECK) {
     const A = d.assert, has = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     A('a visit opens nothing: no fetch, no stream, no poll', fetches === 0 && !polling && !player);
-    A('the cast\'s files reach the station and the station reaches the speaker, both over https', LINKS.every(([a, b]) => has(a, b)) && bay.links().every((l) => l.via === 'https'),
-      bay.links().map((l) => `${l.from} -> ${l.to} ${l.via ?? ''}`).join(', '));
+    const out = bay.links().filter((l) => l.via === 'https').map((l) => `${l.from} -> ${l.to}`).sort().join();
+    const inside = bay.links().filter((l) => l.from.startsWith('cf-edgecast:') && l.to.startsWith('cf-edgecast:'));
+    A('the cast\'s files reach the cast and /listen reaches the speaker over https, and the cast, mp3 and /listen are linked inside the edge',
+      LINKS.every((l) => has(l.from, l.to)) && out === [`${F}:audio-out -> ${C}:audio-in`, `${SH}:audio-out -> ${S}:audio-in`].sort().join()
+      && inside.length === 3 && inside.every((l) => !l.via),
+      bay.links().map((l) => `${l.from} -> ${l.to} ${l.via ?? l.session?.transport ?? ''}`).join(', '));
     A('without the key there is only Play', KEY ? true : !top.querySelector('button[data-id="start"], button[data-id="stop"]') && top.querySelectorAll('button').length === 1, `${top.querySelectorAll('button').length} buttons`);
     {
       // NEGATIVE CONTROL: the bay refuses a link out of an input, so the two above are not waved through
-      const r = bay.link(`${S}:audio-in`, `${E}:audio-out`, [], { via: 'https' });
+      const r = bay.link(`${S}:audio-in`, `${SH}:audio-out`, [], { via: 'https' });
       A('NEGATIVE CONTROL: a link out of the speaker\'s input is refused', !r.ok, r.why || 'linked');
+      if (r.ok) bay.unlink(r.id);
+    }
+    {
+      // NEGATIVE CONTROL: the codec is in the picture, so the cast's pcm cannot skip the encoder
+      const r = bay.link(`${C}:audio-out`, `${SH}:audio-in`);
+      A('NEGATIVE CONTROL: the cast\'s pcm straight into /listen is refused, it has to pass the mp3 encoder', !r.ok && /codec/.test(r.why), r.why || 'linked');
       if (r.ok) bay.unlink(r.id);
     }
     // the reading of a status, on a made up one: the effect, the scene and the change log

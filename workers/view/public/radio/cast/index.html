@@ -143,20 +143,25 @@
   let live = {};
   let target = LOCAL; // the open station
 
-  // ── the patch: their archive, the caster in Cloudflare, the mount it plays into, and this page's players ──
+  // ── the patch: their archive, the cast in Cloudflare (one node per station it plays), the mount it plays into, and this page's players ──
   const bay = createBay();
+  // the cast playing a station is `cf-cast:<station>`, the same `cast` node local is in this browser (web:cast)
+  const CASTERS = STATIONS.filter((t) => t !== LOCAL);
+  const casterOf = (t) => `cf-cast:${t}`;
   bay.addNode({ id: 'vain:archive', kind: 'external', label: 'Väin archive', place: 'eccm.ee' });
-  bay.addNode({ id: 'cf-cast:caster', kind: 'endpoint', label: 'caster', place: 'cloudflare', net: 'cloudflare' });
+  for (const t of CASTERS) bay.addNode({ id: casterOf(t), kind: 'engine', label: t, place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: 'cf-icecast:preview', kind: 'endpoint', label: 'preview Icecast', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: 'vain:icecast', kind: 'external', label: 'Väin Icecast', place: 'live.uuu.ee' });
   bay.addNode({ id: 'cf-shout:radio1965', kind: 'endpoint', label: 'shout relay', place: 'cloudflare', net: 'cloudflare' });
   bay.addNode({ id: 'web:player', kind: 'engine', label: 'player' });
   bay.addNode({ id: 'web:prelisten', kind: 'engine', label: 'prelisten' });
   bay.addNode({ id: 'cf-cast:files', kind: 'endpoint', label: 'file pass', place: 'cloudflare', net: 'cloudflare' });
-  bay.addNode({ id: 'web:local', kind: 'engine', label: 'local' });
+  bay.addNode({ id: 'web:cast', kind: 'engine', label: 'local' });
   bay.addPort({ id: 'vain:archive:audio-out', dir: 'out', medium: 'audio', label: 'mp3 files', transports: ['https'] });
-  bay.addPort({ id: 'cf-cast:caster:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
-  bay.addPort({ id: 'cf-cast:caster:audio-out', dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
+  for (const t of CASTERS) {
+    bay.addPort({ id: `${casterOf(t)}:audio-in`, dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
+    bay.addPort({ id: `${casterOf(t)}:audio-out`, dir: 'out', medium: 'audio', label: 'source', transports: ['icecast'] });
+  }
   bay.addPort({ id: 'cf-icecast:preview:audio-in', dir: 'in', medium: 'audio', label: '/preview', transports: ['icecast'] });
   bay.addPort({ id: 'cf-icecast:preview:audio-out', dir: 'out', medium: 'audio', label: '/listen/preview', transports: ['https'] });
   bay.addPort({ id: 'vain:icecast:audio-in', dir: 'in', medium: 'audio', label: 'radio1965, user1 to user4', transports: ['icecast'] });
@@ -167,7 +172,7 @@
   bay.addPort({ id: 'web:prelisten:audio-in', dir: 'in', medium: 'audio', label: 'one file', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:files:audio-in', dir: 'in', medium: 'audio', label: 'archive', transports: ['https'] });
   bay.addPort({ id: 'cf-cast:files:audio-out', dir: 'out', medium: 'audio', label: '/file', transports: ['https'] });
-  bay.addPort({ id: 'web:local:audio-in', dir: 'in', medium: 'audio', label: 'tuner, grains', transports: ['https'] });
+  bay.addPort({ id: 'web:cast:audio-in', dir: 'in', medium: 'audio', label: 'tuner, grains', transports: ['https'] });
   const SINK = (t) => (t === 'preview' ? 'cf-icecast:preview:audio-in' : 'vain:icecast:audio-in');
   const HEARD = { preview: [['cf-icecast:preview:audio-out', 'web:player:audio-in']],
     radio1965: [['vain:icecast:audio-out', 'cf-shout:radio1965:audio-in'], ['cf-shout:radio1965:audio-out', 'web:player:audio-in']] };
@@ -180,18 +185,23 @@
   const localHere = () => localOn() && target === LOCAL;
   const listening = () => !!player && !player.audio.paused;
   const prelistening = () => !!pre && !pre.paused;
-  const pb = createPatchbay(bay, { flowing: (l) => {
+  // the picture draws the cast of the open station only (radio1965's while local is open), not six loose boxes
+  const shownCaster = () => casterOf(target === LOCAL ? 'radio1965' : target);
+  const hidden = (id) => CASTERS.some((t) => casterOf(t) !== shownCaster() && (id === casterOf(t) || id.startsWith(`${casterOf(t)}:`)));
+  const drawn = { nodes: () => bay.nodes().filter((n) => !hidden(n.id)), ports: () => bay.ports().filter((p) => !hidden(p.id)), links: () => bay.links() };
+  const pb = createPatchbay(drawn, { flowing: (l) => {
     if (l.to === 'web:prelisten:audio-in') return prelistening();
-    if (l.to === 'web:local:audio-in' || l.to === 'cf-cast:files:audio-in') return localOn();
+    if (l.to === 'web:cast:audio-in' || l.to === 'cf-cast:files:audio-in') return localOn();
     if (l.to === 'web:player:audio-in' || l.from === 'vain:icecast:audio-out') return listening() && listenTarget === target;
     return !!status[target]?.onAir;
   } });
   function wire() {
     for (const l of bay.links()) bay.unlink(l.id);
-    const cast = target === LOCAL ? [] : [['vain:archive:audio-out', 'cf-cast:caster:audio-in'], ['cf-cast:caster:audio-out', SINK(target)], ...(HEARD[target] || [])];
+    const C = casterOf(target);
+    const cast = target === LOCAL ? [] : [['vain:archive:audio-out', `${C}:audio-in`], [`${C}:audio-out`, SINK(target)], ...(HEARD[target] || [])];
     for (const [a, b] of [...cast, ['vain:archive:audio-out', 'web:prelisten:audio-in'],
-      ['vain:archive:audio-out', 'cf-cast:files:audio-in'], ['cf-cast:files:audio-out', 'web:local:audio-in']]) {
-      const r = bay.link(a, b, [], { via: a.startsWith('cf-cast:caster') ? 'icecast' : 'https', consent: true });
+      ['vain:archive:audio-out', 'cf-cast:files:audio-in'], ['cf-cast:files:audio-out', 'web:cast:audio-in']]) {
+      const r = bay.link(a, b, [], { via: a === `${C}:audio-out` ? 'icecast' : 'https', consent: true });
       if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
     }
     pb.refresh();
@@ -1147,12 +1157,12 @@
       listenUrl('radio1965') === `${SHOUT}/radio1965` && !/uuu\.ee/.test(listenUrl('radio1965')) && !listenUrl('user1')
       && user1 && gone(listenBtn.el) && gone(inApp));
     d.assert('local\'s chain: archive through the file pass to this browser, and no caster link at all',
-      linked('cf-cast:files:audio-out', 'web:local:audio-in') && !bay.links().some((l) => l.from.startsWith('cf-cast:caster') || l.to.startsWith('cf-cast:caster')));
+      linked('cf-cast:files:audio-out', 'web:cast:audio-in') && !bay.links().some((l) => CASTERS.some((t) => l.from.startsWith(`${casterOf(t)}:`) || l.to.startsWith(`${casterOf(t)}:`))));
     rowOf('preview').click();
     d.assert('preview\'s chain: the caster plays into our own Icecast and the player hears /listen/preview',
-      linked('cf-cast:caster:audio-out', 'cf-icecast:preview:audio-in') && linked('cf-icecast:preview:audio-out', 'web:player:audio-in'));
+      linked('cf-cast:preview:audio-out', 'cf-icecast:preview:audio-in') && linked('cf-icecast:preview:audio-out', 'web:player:audio-in'));
     d.assert('NEGATIVE CONTROL: a link out of their archive without consent is refused',
-      !bay.link('vain:archive:audio-out', 'cf-cast:caster:audio-in', [], { via: 'https' }).ok);
+      !bay.link('vain:archive:audio-out', 'cf-cast:preview:audio-in', [], { via: 'https' }).ok);
     // the buttons, against a socket that records instead of connecting
     const sent = [];
     const realOpen = openSocket, realKey = key;
