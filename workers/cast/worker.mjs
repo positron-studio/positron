@@ -14,6 +14,8 @@
 //                              when it is not running
 //   status also carries `listeners` (the broadcast on air: now, peak, listener minutes) and `listens` (the last ones),
 //                              read off the mount's own Icecast status while on air, at most once a minute (listeners.mjs)
+//   GET  /listens/<station>    ?from=&to= (ms or ISO), &step= 1 | 5 | 15 | 60 min, &format=csv: listeners over time, read back
+//                              from Analytics Engine (dataset cast_listeners) through the Analytics SQL binding, cached 30 s
 //   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
 //   POST /votes?key=           {inst, def, vote: 1 bad | 2 meh | 3 good | 4 great | null, comment, file, station?}: one row per
 //                              scene played (`inst`, a station's from its status.life); no vote and no comment takes it back
@@ -26,7 +28,7 @@
 import { levelFor } from './gains.mjs';
 import { tasteOf, fileWeight } from './container/sc/radio/cast/life.mjs';
 import { createEar } from './splice.mjs';
-import { statusUrl, parseStatus, trueCount, listenTick, listenStatus, close as closeListen, TEE_OF, STATUS_KEEP_S, STATUS_TIMEOUT_MS } from './listeners.mjs';
+import { statusUrl, parseStatus, trueCount, listenTick, listenStatus, close as closeListen, TEE_OF, STATUS_KEEP_S, STATUS_TIMEOUT_MS, listenPoint, listensQuery, listensRows, listensCsv } from './listeners.mjs';
 import { pickBy, longOnly, resolveIds, rotateAfter, freshLook, goneFrom, freshQueue, programLess, MIN_FILE_S, FRESH_EVERY_MS } from './program.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
@@ -170,6 +172,29 @@ async function file(req, id, ctx) {
   return send(new Response(b, { headers: h }), 'miss');
 }
 
+/**
+ * One station's listeners over time, from the points countListeners wrote. Public, as /status is, and cached 30 s per
+ * colo so a page refreshing it costs the SQL service nothing more. why: lessons/workers-cast.md#listen-points
+ */
+async function listens(req, env, ctx, station) {
+  if (!NAME.test(station || '') || !targets(env)[station]) return json({ error: 'no such station' }, 404);
+  const u = new URL(req.url), csv = u.searchParams.get('format') === 'csv';
+  const q = listensQuery({ station, from: u.searchParams.get('from'), to: u.searchParams.get('to'), step: u.searchParams.get('step') });
+  if (q.error) return json({ error: q.error }, 400);
+  if (!env.ANALYTICS_SQL) return json({ error: 'no Analytics SQL binding on this worker' }, 503);
+  // the key is the bucketed range, so two pages a few seconds apart share an answer
+  const key = new Request(`https://cast.positron.studio/__listens/${station}/${q.step}/${Math.floor(q.from / 30_000)}/${Math.floor(q.to / 30_000)}/${csv ? 'csv' : 'json'}`);
+  try { const hit = await caches.default.match(key); if (hit) return hit; } catch { /* no cache here */ }
+  let rows;
+  try { rows = listensRows((await env.ANALYTICS_SQL.query({ query: q.query, params: q.params })).data); }
+  catch (e) { return json({ error: `analytics: ${String(e?.message || e).slice(0, 200)}`, retryable: !!e?.retryable }, 502); }
+  const res = csv
+    ? new Response(listensCsv(rows), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `inline; filename="${station}-listeners.csv"`, 'cache-control': 'max-age=30', ...cors } })
+    : new Response(JSON.stringify({ station, from: q.from, to: q.to, step: q.step, rows }), { headers: { 'content-type': 'application/json', 'cache-control': 'max-age=30', ...cors } });
+  try { ctx?.waitUntil?.(caches.default.put(key, res.clone())); } catch { /* no cache here */ }
+  return res;
+}
+
 export default {
   async fetch(req, env, ctx) {
     const u = new URL(req.url), [, route, name] = u.pathname.split('/');
@@ -177,6 +202,7 @@ export default {
     if (route === 'feed') { try { return json({ items: await feed(ctx) }); } catch (e) { return json({ error: e.message }, 502); } }
     if (route === 'live') { try { return json(await live(ctx)); } catch (e) { return json({ error: e.message }, 502); } }
     if (route === 'file') return file(req, name, ctx);
+    if (route === 'listens') return listens(req, env, ctx, name);
     if (route === 'votes') {
       if (req.method === 'POST' && (!env.CAST_KEY || u.searchParams.get('key') !== env.CAST_KEY)) return json({ error: 'a vote needs the key' }, 403);
       return env.VOTES.get(env.VOTES.idFromName('owner')).fetch(req);
@@ -531,6 +557,14 @@ export class Caster {
     if (!t) return;
     const r = await listenTick({ list: (await this.st.get('listens')) || [], want, onAir, mount: t.mount, now: Date.now(), read: () => this.listenRead(t) });
     if (r.changed) await this.st.put('listens', r.list);
+    if (r.ok) this.writePoint(r.list.at(-1), 'reading');
+  }
+
+  /** One Analytics Engine point, not awaited (writeDataPoint returns nothing to wait for); never throws. */
+  writePoint(rec, event) {
+    const t = targets(this.env)[this.name];
+    if (!t || !this.env.LISTENS) return;
+    try { this.env.LISTENS.writeDataPoint(listenPoint(this.name, t.local ? 'preview' : 'vain', rec, event)); } catch (e) { this.say(`listeners point: ${e.message}`); }
   }
 
   /** One reading: `{ ok, count, from }`. */
@@ -570,7 +604,10 @@ export class Caster {
   async stop(why) {
     await this.st.put('stopped', { at: iso(Date.now()), t: Date.now(), why });
     const ls = await this.st.get('listens');
-    if (ls?.length && ls.at(-1).endedAt == null) { ls[ls.length - 1] = closeListen(ls.at(-1), Date.now()); await this.st.put('listens', ls); }
+    if (ls?.length && ls.at(-1).endedAt == null) {
+      ls[ls.length - 1] = closeListen(ls.at(-1), Date.now()); await this.st.put('listens', ls);
+      this.writePoint(ls.at(-1), 'closed');
+    }
     await this.st.delete(['want', 'progress']);
     await this.st.deleteAlarm();
     const k = await this.key();

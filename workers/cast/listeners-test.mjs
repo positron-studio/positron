@@ -2,8 +2,8 @@
 // no network. Their status-json in both shapes and broken ones, the shout correction, listener minutes across polls, and
 // that nothing is fetched off air. Negative controls are named; a stand-in server answers instead of their Icecast.
 import { createServer } from 'node:http';
-import { parseStatus, trueCount, listenTick, listenStatus, close, LISTEN_EVERY_MS, GAP_MAX_MS, KEEP } from './listeners.mjs';
-import { Caster, originStatus } from './worker.mjs';
+import { parseStatus, trueCount, listenTick, listenStatus, close, LISTEN_EVERY_MS, GAP_MAX_MS, KEEP, listenPoint, listensQuery, listensRows, listensCsv, STEPS, ROWS_MAX } from './listeners.mjs';
+import worker, { Caster, originStatus } from './worker.mjs';
 
 let pass = 0, fail = 0;
 const check = (name, ok, got = '') => { if (ok) { pass++; console.log(`ok   ${name}`); } else { fail++; console.log(`FAIL ${name}${got ? `: ${got}` : ''}`); } };
@@ -105,6 +105,55 @@ tees.length = 0;
 const pv = caster('preview'); pv.ears = new Set([1, 2]);
 await pv.countListeners({ startedAt: 1 }, true);
 check('preview counts its own listeners (the relay is one of them) and asks Väin nothing', mem.get('listens').at(-1).now === 4 && served === 1, JSON.stringify(mem.get('listens').at(-1)));
+
+// ── Analytics Engine points ──
+const points = [];
+env.LISTENS = { writeDataPoint: (p) => { points.push(p); } };
+served = 0; body = MANY;
+const p1 = caster('radio1965');
+await p1.countListeners(null, false); await p1.countListeners({ startedAt: 1 }, false);
+check('no point off air or not yet on air', points.length === 0);
+await new Promise((r) => setTimeout(r, 0));
+await p1.countListeners({ startedAt: 1 }, true);
+const pt = points[0];
+check('a point per successful reading, field order fixed: station; mount, kind, event, start; raw, relay up, relay listeners, people, peak, minutes',
+  points.length === 1 && JSON.stringify(pt.indexes) === '["radio1965"]' && JSON.stringify(pt.blobs) === JSON.stringify(['radio1965', 'vain', 'reading', new Date(1).toISOString()])
+  && JSON.stringify(pt.doubles) === JSON.stringify([7, 1, 3, 9, 9, 0]), JSON.stringify(pt));
+await p1.countListeners({ startedAt: 1 }, true);
+check('a sweep inside the minute writes nothing more', points.length === 1);
+const bad = caster('user3');
+await bad.countListeners({ startedAt: 1 }, true);
+check('no point on a failed read (no source on that mount)', points.length === 1 && bad.ctx.storage && true);
+const pre = caster('preview'); pre.ears = new Set([1]);
+await pre.countListeners({ startedAt: 5 }, true);
+check('preview writes its points as kind preview', points.length === 2 && points[1].blobs[1] === 'preview' && points[1].doubles[3] === 3, JSON.stringify(points[1]));
+const swapped = listenPoint('radio1965', 'vain', { mount: 'radio1965', startedAt: 1, now: 9, peak: 9, minutes: 2, from: { origin: 7, tee: { listeners: 3, upstreamConnections: 1 } } });
+check('NEGATIVE CONTROL: people is double4 and Väin\'s own count double1, never the other way round', swapped.doubles[3] === 9 && swapped.doubles[0] === 7 && swapped.doubles[3] !== swapped.doubles[0]);
+const shut = listenPoint('radio1965', 'vain', close({ mount: 'radio1965', startedAt: 1, now: 4, peak: 6, minutes: 10, lastAt: 0, from: { origin: 5 } }, 60_000), 'closed');
+check('a closed broadcast\'s point says so and carries its peak and minutes, no count', shut.blobs[2] === 'closed' && shut.doubles[3] === 0 && shut.doubles[4] === 6 && shut.doubles[5] === 14, JSON.stringify(shut.doubles));
+
+// ── reading back ──
+const NOWQ = Date.parse('2026-10-22T12:00:00Z');
+const q = listensQuery({ station: 'radio1965', now: NOWQ });
+check('no range: the last two hours, 1 minute buckets, the station a parameter not text', q.step === 1 && q.to === NOWQ && q.from === NOWQ - 2 * 3600_000 && q.params.station === 'radio1965' && !q.query.includes("'radio1965'") && /events\.analyticsEngine\.cast_listeners/.test(q.query) && /blob3 = 'reading'/.test(q.query), q.query);
+check('48 hours asking for 1 minute is raised to the first step under the row cap', listensQuery({ station: 'x', from: NOWQ - 48 * 3600_000, to: NOWQ, step: 1 }).step === 5);
+check('NEGATIVE CONTROL: a step that is not on the list is refused, not passed into the SQL', !!listensQuery({ station: 'x', step: "1' MINUTE) --", now: NOWQ }).error);
+check('NEGATIVE CONTROL: more than 14 days is refused', !!listensQuery({ station: 'x', from: NOWQ - 15 * 86400_000, to: NOWQ }).error && !listensQuery({ station: 'x', from: NOWQ - 14 * 86400_000, to: NOWQ }).error);
+check('NEGATIVE CONTROL: to before from is refused', !!listensQuery({ station: 'x', from: NOWQ, to: NOWQ - 1 }).error);
+check(`every step keeps a full 14 days under ${ROWS_MAX} rows or says so`, STEPS.at(-1) * 60_000 * ROWS_MAX >= 14 * 86400_000);
+const rows = listensRows([{ t: '2026-10-22 10:05:00', people: '4', vain: 2, readings: 5 }, { t: '2026-10-22 10:00:00', people: 3, vain: null, readings: 5 }]);
+check('rows: SQL times read as UTC, in order, numbers or null', rows.length === 2 && rows[0].t === Date.parse('2026-10-22T10:00:00Z') && rows[1].people === 4 && rows[0].vain === null, JSON.stringify(rows));
+check('CSV: one header, a line per bucket, ISO times', listensCsv(rows) === 'time,listening,vain_count,readings\n2026-10-22T10:00:00.000Z,3,,5\n2026-10-22T10:05:00.000Z,4,2,5\n', JSON.stringify(listensCsv(rows)));
+// the route, against a stand-in SQL binding
+const sqlSeen = [];
+const routeEnv = { ...env, CAST_KEY: 'k', ANALYTICS_SQL: { query: async (x) => { sqlSeen.push(x); return { data: [{ t: '2026-10-22 10:00:00', people: 2, vain: 1, readings: 1 }], rows: 1 }; } } };
+const ask = (path) => worker.fetch(new Request(`https://cast.positron.studio${path}`), routeEnv, { waitUntil: () => {} });
+const j = await (await ask('/listens/radio1965?from=2026-10-22T09:00:00Z&to=2026-10-22T11:00:00Z')).json();
+check('GET /listens answers rows from the SQL binding', j.rows?.[0]?.people === 2 && j.step === 1 && sqlSeen[0]?.params?.station === 'radio1965', JSON.stringify(j));
+const csvRes = await ask('/listens/radio1965?from=2026-10-22T09:00:00Z&to=2026-10-22T11:00:00Z&format=csv');
+check('?format=csv answers text/csv', /text\/csv/.test(csvRes.headers.get('content-type')) && (await csvRes.text()).startsWith('time,listening'));
+check('NEGATIVE CONTROL: an unknown station is a 404 and asks the SQL nothing', (await ask('/listens/nosuch')).status === 404 && sqlSeen.length === 2);
+check('NEGATIVE CONTROL: a bad range is a 400 and asks the SQL nothing', (await ask('/listens/radio1965?from=2026-01-01&to=2026-10-22')).status === 400 && sqlSeen.length === 2);
 globalThis.fetch = realFetch;
 srv.close();
 

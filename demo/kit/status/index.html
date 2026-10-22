@@ -17,6 +17,9 @@
   import { createPresence, PRESENCE_STATES } from '/shell/presence.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createKitPage } from '/shell/kit-page.mjs';
+  import { createLineChart } from '/shell/line-chart.mjs';
+  import { useMediumColours } from '/shell/patchbay.mjs';
+  useMediumColours();
 
   /**
    * kit/status: one part of /kit/ on a page of its own (plans/plan-kit-split.md).
@@ -55,6 +58,8 @@
   // whichever came first and grade the wrong arrangement
   let joinedPage = null, splitPage = null;
   let kitRoFlex = null, kitRoGrid = null;
+  // the line chart specimens, for the rendered checks at the bottom
+  let lcSpec = null, lcEmpty = null;
 
 
   /**
@@ -67,6 +72,30 @@
    * harnesses press that row by position.
    * See lessons/page-kit-status.md#kit-status-6
    */
+  section('LINE CHART',
+    'One or two series over time as plain SVG, sized by its own box: ticks in the mono face, the peak marked, '
+    + 'a gap where a reading is missing, and nothing at all drawn while there is nothing to show.',
+    `const chart = createLineChart({ label: 'listeners', unit: '' })
+chart.set({ from, to, series: [
+  { name: 'listening', points: [[t, 4], [t2, null], ...] },
+  { name: 'at Väin', points: [...] }] })`,
+    (box) => {
+      box.classList.add('kit-wide');
+      // two days of a made-up broadcast: an evening rise, a quiet night, one reading missing
+      const to = Date.UTC(2026, 9, 22, 18, 0), from = to - 48 * 3600_000, step = 15 * 60_000;
+      const people = [], vain = [];
+      for (let t = from, i = 0; t <= to; t += step, i++) {
+        const h = new Date(t).getUTCHours(), v = Math.max(0, Math.round(2 + 4 * Math.sin(((h - 13) / 24) * 2 * Math.PI) + ((i * 7) % 3) - 1));
+        people.push([t, i === 70 ? null : v]); vain.push([t, i === 70 ? null : Math.max(0, v - 1)]);
+      }
+      lcSpec = createLineChart({ label: 'listeners over two days' });
+      box.append(lcSpec.el);
+      lcSpec.set({ from, to, series: [{ name: 'listening', points: people }, { name: 'at Väin', points: vain }] });
+      lcEmpty = createLineChart({ label: 'an empty chart' });
+      box.append(lcEmpty.el);
+      lcEmpty.set({ from, to, series: [{ name: 'listening', points: [] }] });
+    });
+
   section('MIDI LOG',
     'What arrived on the wire, in columns, under the panel it moved. The raw bytes are a '
     + 'column of their own and are never replaced by the reading beside them, because a '
@@ -349,6 +378,19 @@ createReport({ readout, rows: 2, size: 'sm', joined: false }) // 1 x n, 2 x n. T
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   checkPage();
 
+  {
+    const L = lcSpec.layout(), svgEl = lcSpec.el.querySelector('svg');
+    const paths = svgEl.querySelectorAll('path.pos-lc-line'), box = svgEl.getBoundingClientRect();
+    d.assert('the line chart draws two series, the main one broken at the missing reading, with its peak marked',
+      paths.length === 2 && (paths[1].getAttribute('d').match(/M/g) || []).length === 2 && !!svgEl.querySelector('circle.pos-lc-peak')
+      && svgEl.querySelector('.pos-lc-peakt')?.textContent === `peak ${L.peak.v}` && lcSpec.el.querySelectorAll('.pos-lc-key > span').length === 2,
+      JSON.stringify({ paths: paths.length, peak: L?.peak?.v }));
+    d.assert('it is as wide as its own box and its ticks are drawn in the mono face',
+      Math.abs(L.width - box.width) <= 1 && /JetBrains/.test(getComputedStyle(svgEl.querySelector('.pos-lc-axis text')).fontFamily),
+      `${L.width} against ${box.width.toFixed(1)}`);
+    d.assert('NEGATIVE CONTROL: an empty chart draws nothing and takes no room',
+      getComputedStyle(lcEmpty.el).display === 'none' && !lcEmpty.el.querySelector('svg').children.length && lcEmpty.layout() === null);
+  }
 
   /**
    * Same ten cells, two arrangements: the flex row wraps where the width allows, the

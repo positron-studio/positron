@@ -804,6 +804,28 @@ then *"build it yes"*. Read in tarmoj/radio1965 at dce3411: their app fetches `h
 - NOT measured against their server: nobody probed it to build this. The first broadcast on a uuu mount is the first
   real reading; until then the shape is the app's and the project description's, not ours.
 
+### listen-points
+
+Asked 2026-10-22: *"i will broadcast 2 days. i want charts out of it later"*, *"cf analytics events, no?"*, *"do it"*.
+
+- Every successful listener reading writes one Workers Analytics Engine point (binding `LISTENS`, dataset
+  `cast_listeners`), not awaited; a broadcast's close writes one more with blob3 `closed`. Nothing off air, nothing
+  on a failed read, at most one a minute per station (the reading's own bound). The field order is fixed in
+  `listenPoint` and the read back depends on it: index1 station; blob1 mount, blob2 kind (`vain` or `preview`),
+  blob3 event, blob4 the broadcast's start; double1 Väin's own count, double2 the relay's connections there,
+  double3 who listens through the relay, double4 people, double5 peak so far, double6 listener minutes so far.
+- Retention, READ in Cloudflare's limits page that day: *"Data written to Workers Analytics Engine is stored for
+  three months"*. The last 20 broadcasts' summaries stay in the Caster's storage as before.
+- `GET /listens/<station>?from=&to=&step=&format=csv` reads it back through the Analytics SQL binding
+  (`"analytics": { "binding": "ANALYTICS_SQL" }`, needs wrangler 4.145 or later; `deploy.mjs` runs 4.148 from
+  `rig/containers-next`). No API token anywhere: the binding takes the Worker's own account. The table is
+  `events.analyticsEngine.cast_listeners`, with no `accountTag` in the SQL (the binding refuses one).
+- Buckets of 1, 5, 15 or 60 minutes, `toStartOfInterval`; a step too fine for the range is raised to the first that
+  keeps it under 2000 rows, a step not on the list is refused (a non-number once passed as `auto`, caught by the
+  test's negative control), and more than 14 days is refused. `APPROX_MAX` per bucket, because exact `MAX` is
+  refused on adaptively sampled datasets; at a point a minute nothing is sampled, so it is the exact most.
+- Answers are cached 30 s per colo, so a page refreshing it once a minute costs the SQL service nothing more.
+
 ## gate
 
 `workers/cast/gate.mjs` and `workers/cast/render.mjs`, 2026-10-20. Asked after an evening of about 15 live sound

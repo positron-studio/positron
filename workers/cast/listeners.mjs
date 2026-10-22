@@ -92,7 +92,7 @@ export async function listenTick({ list = [], want, onAir, mount, read, now }) {
   try { sample = await read(); } catch (e) { sample = { ok: false, why: String(e?.message || e).slice(0, 120) }; }
   out[out.length - 1] = fold(cur, sample, now);
   while (out.length > KEEP) out.shift();
-  return { list: out, read: true, changed: true };
+  return { list: out, read: true, changed: true, ok: !!sample?.ok };
 }
 
 /** Status for a page: the broadcast on air (or null) and the last ones, newest first. */
@@ -103,4 +103,57 @@ export function listenStatus(list = [], now = Date.now()) {
   const past = list.filter((x) => x.endedAt != null).reverse().slice(0, 10)
     .map(({ startedAt, endedAt, peak, minutes, polls, mount }) => ({ startedAt, endedAt, peak: polls ? peak : null, minutes: Math.round(minutes), mount }));
   return { listeners: on, listens: past };
+}
+
+/**
+ * One Analytics Engine point per successful reading, and one when a broadcast closes. The field order is fixed and the
+ * reading back depends on it: index1 station; blob1 mount, blob2 kind (vain | preview), blob3 event (reading | closed),
+ * blob4 the broadcast's start; double1 the origin's own count, double2 the relay's connections there, double3 who
+ * listens through the relay, double4 people, double5 peak so far, double6 listener minutes so far.
+ * why: lessons/workers-cast.md#listen-points
+ */
+export const DATASET = 'cast_listeners';
+export function listenPoint(station, kind, rec, event = 'reading') {
+  const f = rec.from || {}, tee = f.tee || {};
+  const reading = event === 'reading';
+  return {
+    indexes: [station],
+    blobs: [rec.mount || station, kind, event, new Date(rec.startedAt).toISOString()],
+    doubles: [reading ? f.origin ?? 0 : 0, reading ? tee.upstreamConnections ?? 0 : 0, reading ? tee.listeners ?? 0 : 0,
+      reading ? rec.now ?? 0 : 0, rec.peak ?? 0, Math.round((rec.minutes ?? 0) * 1000) / 1000],
+  };
+}
+
+/** Bucket sizes in minutes, the longest range read back, and the most rows one answer carries. */
+export const STEPS = [1, 5, 15, 60], RANGE_MAX_MS = 14 * 86400_000, ROWS_MAX = 2000;
+const when = (v, dflt) => { if (v == null || v === '') return dflt; const n = Number(v); const t = Number.isFinite(n) ? n : Date.parse(v); return Number.isFinite(t) ? t : NaN; };
+
+/**
+ * The SQL for one station's listeners between `from` and `to` (ms or ISO), bucketed by `step` minutes. A step too fine
+ * for the range is raised to the first that fits ROWS_MAX; no step picks one. `{ error }` for a range it will not read.
+ */
+export function listensQuery({ station, from, to, step, now = Date.now() }) {
+  const t1 = when(to, now), t0 = when(from, t1 - 2 * 3600_000);
+  if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return { error: 'from and to are times, from before to' };
+  if (t1 - t0 > RANGE_MAX_MS) return { error: `at most ${RANGE_MAX_MS / 86400_000} days at once` };
+  const asked = step == null || step === '' || step === 'auto' ? 0 : Number(step);
+  if (asked !== 0 && !STEPS.includes(asked)) return { error: `step is one of ${STEPS.join(', ')} minutes` };
+  const fits = (m) => (t1 - t0) / (m * 60_000) <= ROWS_MAX;
+  const m = STEPS.find((x) => x >= asked && fits(x)) ?? STEPS.at(-1);
+  const query = `SELECT toStartOfInterval(timestamp, INTERVAL '${m}' MINUTE) AS t, APPROX_MAX(double4) AS people, APPROX_MAX(double1) AS vain, COUNT(*) AS readings `
+    + `FROM events.analyticsEngine.${DATASET} WHERE index1 = $station AND blob3 = 'reading' AND timestamp >= $from AND timestamp < $to `
+    + `GROUP BY t ORDER BY t LIMIT ${ROWS_MAX}`;
+  return { query, params: { station, from: new Date(t0).toISOString(), to: new Date(t1).toISOString() }, from: t0, to: t1, step: m };
+}
+
+/** Rows as the page reads them: `{ t (ms), people, vain, readings }`, in time order, numbers or null. */
+export function listensRows(data = []) {
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  return data.map((r) => ({ t: Date.parse(/Z|[+-]\d\d:?\d\d$/.test(String(r.t)) ? r.t : `${String(r.t).replace(' ', 'T')}Z`), people: num(r.people), vain: num(r.vain), readings: num(r.readings) }))
+    .filter((r) => Number.isFinite(r.t)).sort((a, b) => a.t - b.t);
+}
+
+/** The same rows as CSV, one header line, times in ISO UTC. */
+export function listensCsv(rows) {
+  return ['time,listening,vain_count,readings', ...rows.map((r) => [new Date(r.t).toISOString(), r.people ?? '', r.vain ?? '', r.readings ?? ''].join(','))].join('\n') + '\n';
 }

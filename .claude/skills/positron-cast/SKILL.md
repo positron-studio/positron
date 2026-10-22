@@ -350,7 +350,7 @@ All node, no network, from the repo root. Last counts and the session:
 | `workers/cast/live-test.mjs` | the live driver; `--browser`, `--live` need Chrome or the grains image | 27/27 (84) |
 | `workers/cast/local-test.mjs` | LOCAL holds the container's numbers | 26/26 (84) |
 | `workers/cast/fresh-test.mjs` | `Caster.freshTick` on a fake feed and clock | 10/10 (84) |
-| `workers/cast/listeners-test.mjs` | listener count: status-json parse, shout correction, listener minutes, no read off air | 30/30 (2026-10-22) |
+| `workers/cast/listeners-test.mjs` | listener count, Analytics Engine points, GET /listens on a stand-in SQL binding, no read off air | 49/49 (2026-10-22) |
 | `workers/cast/mixer-test.mjs` | the tuner port against `createTunerGraph` | 54/54 (83) |
 | `workers/cast/grains-test.mjs` | stage 2's pure parts, `container/sc/` copies match `demo/`; `--live` in the image | 25/25 (83) |
 | `workers/cast/handover-test.mjs` | the handover against fake containers | 29/29 (83) |
