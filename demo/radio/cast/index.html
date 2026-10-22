@@ -1134,9 +1134,13 @@
       const j = await getListens(`${BASE}/listens/${t}?${q}`);
       if (chartKey !== key) return;
       if (j.error) throw new Error(j.error);
-      const pts = (k) => j.rows.map((x) => [x.t, x[k]]);
-      // three buckets apart is missing time (between broadcasts, or a read that failed), not a slope
-      chart.set({ from: j.from, to: j.to, maxGap: 3 * (j.step || 1) * 60_000, series: [{ name: 'listening', points: pts('people') }, ...(t === 'preview' ? [] : [{ name: 'at Väin', points: pts('vain') }])] });
+      // Every bucket in the range, a bucket with no reading as null: off air or a failed read is a gap, not a slope.
+      // why: lessons/kit-line-chart.md#missing
+      const byT = new Map(j.rows.map((x) => [x.t, x])), stepMs = (j.step || 1) * 60_000;
+      const slots = [];
+      for (let t = Math.floor(j.from / stepMs) * stepMs; t <= j.to; t += stepMs) slots.push(t);
+      const pts = (k) => slots.map((t) => [t, byT.get(t)?.[k] ?? null]);
+      chart.set({ from: j.from, to: j.to, series: [{ name: 'listening', points: pts('people') }, ...(t === 'preview' ? [] : [{ name: 'at Väin', points: pts('vain') }])] });
       chartNote.textContent = j.rows.length ? '' : 'no readings in this range'; chartNote.hidden = !chartNote.textContent;
     } catch (e) { chart.set({ series: [] }); chartNote.textContent = `the chart did not load: ${e.message}`; chartNote.hidden = false; }
   }

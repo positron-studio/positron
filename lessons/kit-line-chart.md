@@ -27,11 +27,13 @@ so ticks and labels are text in the site's mono face and the picture scales with
 The chart's rules are one block at the foot of `shell.css`. `.pos-lc[hidden]` is said there because `.pos-lc` sets
 `display: flex`, which beats the UA's own `[hidden]`: an empty chart has to take no room (an empty box is a line).
 
-<a id="max-gap"></a>
+<a id="missing"></a>
 
-## `maxGap`: missing time is not a slope
+## Missing data is null, and only null breaks the line
 
 Asked 2026-10-22 with a crop of /radio/cast/: *"last diatonal makes no sense. its jsut missing data (no lsiteners on
-air)"*. Two radio1965 broadcasts, 13:49 to 13:53 and from 14:55, were drawn as one line, a diagonal from 3 down to 0
-across the hour nothing was recorded. `chartLayout` takes `maxGap` (ms): two readings further apart start a new
-stroke. The cast page passes three bucket steps, so one late reading still joins and an hour off air does not.
+air)"*. Two radio1965 broadcasts, 13:49 to 13:53 and from 14:55, were drawn as one line, a diagonal across the hour
+nothing was recorded. A first fix, a `maxGap` in milliseconds inside the chart, was taken out the same day:
+*"just to minimum and avoid such diagonals in systematic way. x axis is not always time"*. So the chart has one rule,
+a null breaks the line, and the data says where it is missing: the cast page lays out every bucket of the range and
+sends a bucket with no reading as null. A 0 is a reading (on air, nobody listening) and stays on the line.
