@@ -1,6 +1,7 @@
 # Kit lessons: participant
 
-The reasons behind `demo/shell/participant.mjs`, `demo/room/mesh.mjs` and `/room/video/`. Each code site keeps a
+The reasons behind `demo/shell/participant.mjs`, `demo/room/mesh.mjs` and the video rooms (`/room/present/`,
+`/room/stage/`, `/room/mesh/`; `/room/video/` until it was split on 2026-10-22, see [#split](#split)). Each code site keeps a
 one-line pointer, `// why: lessons/kit-participant.md#<anchor>`. The plan is `plans/plan-video-room.md`.
 
 <a id="header"></a>
@@ -97,6 +98,9 @@ a shape family; that left bands of empty panel and was removed.
 <a id="page"></a>
 
 ## `/room/video/`
+
+`/room/video/` is gone since 2026-10-22: the same module is `/room/present/` and `/room/stage/` ([#split](#split)).
+What follows is kept as it was written about it.
 
 `/room/broadcast/` with the broadcast column replaced by the grid. The chat, its `*` links and its compose box are
 unchanged. The camera and microphone are one named link per other tab (`<me>:camera:video-out ->
@@ -283,7 +287,7 @@ Plan §5: a film is not sent through WebRTC. Every tab plays the same file from 
 (`https://positron-station.kristjan-jansen.workers.dev/media/mimproject/party-container-vabaduse-valjak-2010.mp4`,
 MIMproject's own, 2:37, 854 x 480, 16.5 MB). Watch, play, pause and seek,
 pressed by anybody, go out as one event on a TIMED light link, `<me>:transport:value-out ->
-*:player-video:value-in` with `ahead: 400`: `bay-node.mjs` stamps `at` on the shared clock and every tab's bay
+*:player:value-in` with `ahead: 400`: `bay-node.mjs` stamps `at` on the shared clock and every tab's bay
 delivers it when its clock reads `at`, this tab's own included. The shared clock is `proto/looper/peer.mjs`
 over the relay room `<code>-ntp`, the lowest site the reference, as the archived clock pages do.
 
@@ -312,3 +316,65 @@ over the relay room `<code>-ntp`, the lowest site the reference, as the archived
   first second after a seek, while the tabs wait paused for the film to reach the place they aimed at.
 - Every tab here is one machine, one clock; across machines the peer clock adds its own error (measured
   elsewhere at about 3 ms, `positron-streaming`). Not measured across machines.
+
+<a id="split"></a>
+
+## Two demos become present and stage
+
+Asked 2026-10-22: *"split video room into autio-video-sceen and audio-viddeo-stream"*, then the names *"present
+stage"*, *"Replace /room/video/"*, *"steaem should be webrtc stream. separte btton"* and *"audio-video-stream ->
+stage"*. `/room/video/` is removed with no forwarding; `demo/room/video-room.mjs` is still one module, called as
+`videoRoom({ via: 'sfu', name: 'Present', present: true })`, `videoRoom({ via: 'sfu', name: 'Stage', stream: true })`
+and `videoRoom({ via: 'p2p', name: 'Video mesh' })`. Present has Share, Stage has Stream, the mesh has neither.
+
+The film watched together (Watch, the shared clock `<code>-ntp`, the timed `transport -> *:player:value-in`
+links and the steering) is on no page now, so its wiring left `video-room.mjs`. `demo/room/together.mjs` and
+`together-test.mjs` stay untouched: its `pickPresenter`, `stripOrder` and `CLAIM_STALE_MS` are what both Share
+and Stream use for one leader at a time, and `filmTarget`, `steer` and `newer` are kept for when it comes back.
+The `transport` node left `nodes.mjs` with it, and `player-video` lists only `video/recorder`. The sections
+[#film](#film) and [#steer](#steer) are its record.
+
+<a id="stream"></a>
+
+## `/room/stage/`: a live stream on everybody's stage
+
+Stream is its own button, beside the camera and the microphone. The streamer's tab plays one of MIMproject's own
+films on its own stage from our bucket (`https://positron-station.kristjan-jansen.workers.dev/media/mimproject/
+party-container-vabaduse-valjak-2010.mp4`, `crossorigin="anonymous"`, which the station answers with
+`access-control-allow-origin: *`), loops it, and sends what the player shows with `captureStream()`: one picture
+track and one sound track. Why a film and not a second camera: it carries picture AND sound with nothing plugged
+in, so every desk (and a headless test with a fake camera) can stream; the call camera is already the camera.
+A device picker for a capture card is not built. iPhone Safari has no `captureStream()` on a `<video>`, so there
+is no Stream button there.
+
+Through the SFU the stream is two more kinds in `sfu.mjs`, `stream` (the picture) and `sound`, each published once
+whatever the room's size. The picture goes as ONE layer at 2.5 Mbit/s, not simulcast: everybody draws it at the
+stage's size, and the stage is the biggest thing on every screen, so a smaller layer would only be a worse copy;
+three layers would also triple the streamer's encoding for nobody. The sound goes at 128 kbit/s, music rather than
+speech. Both are said in `sfu.pub` only while they carry something, so a late joiner pulls them only then. A
+receiver's stage plays the stream with its sound (`createStage().show(s, { sound: true })`); the streamer watches
+the player itself, with its controls, so pausing pauses the stream for everybody.
+
+One streamer at a time, by the presenter rule ([#share](#share)): the claim rides `<me>:stream:value-out ->
+*:stage:value-in`. Starting a stream switches your microphone off, because the film's sound would come back
+through it. The patchbay draws `cf-r2:film:file-out -> <streamer>:stream:file-in` (https),
+`<streamer>:stream:video-out` and `:audio-out` -> each other tab's `stage:video-in` and `stage:audio-in`
+(transport `sfu`, through the `cf-sfu` box), and `<streamer>:stream:video-out -> <streamer>:stage:video-in` (page).
+
+MEASURED 2026-10-22, one machine, fake camera, `?turn=0`, the SFU worker at positron-sfu.kristjan-jansen.workers.dev,
+4 tabs (3 desk, 1 phone 375): press to every other stage playing a picture, 989 ms on all three (polled every
+100 ms; includes loading the film from the bucket); the stage's sound RMS on the three receivers 0.30, 0.25 and
+0.27 against the speaker floor of 0.02; a fifth tab joining late had the stream on its stage in 3.0 s, RMS 0.28.
+Receivers got the picture at 639 x 360 from an 854 x 480 film: the encoder started below full size and had not
+climbed back in the 2.5 s watched. Two Stream presses at once: one streamer on every tab.
+
+
+<a id="strip-phone"></a>
+
+## The strip on a phone fills the space under the stage
+
+Seen 2026-10-22 on /room/stage/ at 375 px: the strip was one sideways row of 3:4 tiles, 285 px tall (two fifths of the
+box), two tiles cut at the right and about 236 px of empty panel under them. In a tall box the strip now takes all the
+height under the stage: `fit()` picks the columns and rows and the tiles split the space exactly, cropped, as the
+plain grid does; a wide box keeps one row that
+scrolls sideways under the stage.

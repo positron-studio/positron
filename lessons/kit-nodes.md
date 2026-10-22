@@ -99,3 +99,9 @@ presenter's screen or the film), `transport` (a person: play, pause and seek, st
 `player-video` gained an optional `value-in` for that transport. All `place: 'site'` for the same reason as the
 three above. `/room/video/` and `/room/mesh/` build them inline; the catalogue is their record.
 
+Changed 2026-10-22 when `/room/video/` was split into `/room/present/` and `/room/stage/`
+(`lessons/kit-participant.md#split`): `share` is on present only, `stream` is new (an engine on stage: a film
+from the bucket in, `video-out` and `audio-out` by `sfu`, `value-out` saying it streams), `stage` gained an
+optional `audio-in` for the stream's sound and is on present and stage, not the mesh. `transport` left the
+catalogue because no page plays a film together any more, and `player-video` lists only `video/recorder`.
+

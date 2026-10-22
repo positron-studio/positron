@@ -1732,7 +1732,7 @@ media, a mesh; `sfu` is through a media server, one upload whatever the number o
   one upload per receiver.
 - `datachannel` stays. The Pi pages really do carry PCM and frames on an `RTCDataChannel`
   (`graph-registry.mjs` `BOARD_TRANSPORTS`, `remote/path.mjs`), so it is the right word there. It was the
-  wrong word only on `/room/video/`, whose media is RTP tracks.
+  wrong word only on `/room/video/` (split 2026-10-22 into `/room/present/` and `/room/stage/`; `/room/video/` is gone), whose media is RTP tracks.
 - `notes` gives each alternative its own `says`, so a `p2p` link does not print the WHEP cell's warning
   about a VPN. The test that no cell quotes an unplanned number reads `says` only, so the notes carry none.
 - A refusal names a port by its id when it has no label (a port added by `addNodes` has none), where it

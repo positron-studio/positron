@@ -2,7 +2,7 @@
 
 Status (2026-10-22): a plan, with its first three steps built and not deployed (§8a). Built: the participant
 tile and grid (`demo/shell/participant.mjs`, a block on /kit/chat/), a full mesh over the relay room
-(`demo/room/mesh.mjs`), the page `/room/video/` (not on the front page), its phone layout, `p2p` and `sfu` in the
+(`demo/room/mesh.mjs`), the page `/room/video/` (not on the front page; split into `/room/present/` and `/room/stage/` on 2026-10-22, §8a), its phone layout, `p2p` and `sfu` in the
 bay, short room codes and a lobby. Checked locally with Chromium's fake camera and microphone, two to
 four tabs, a local relay and no TURN. Nothing was deployed and nothing was committed. Prices were read on
 2026-10-22.
@@ -324,6 +324,9 @@ WebRTC track, and an answer about the rights to show a given film to a group ove
 
 ## 8a. Built after the plan, 2026-10-22
 
+`/room/video/` is gone since 2026-10-22: it became `/room/present/` and `/room/stage/` (last step below). The steps
+before that one name `/room/video/` as it was on their day and are kept as the record.
+
 ### Step: the phone layout (done, local only)
 
 What it does, on `/room/video/`:
@@ -507,13 +510,13 @@ Step 5, file mode (§5.1). Watch (the `cast` icon) puts one of MIMproject's own 
 played from our bucket through the station worker
 (`mimproject/party-container-vabaduse-valjak-2010.mp4`, 2:37, 854 x 480, 16.5 MB). The player's own controls
 are the press: play, pause and seek by anybody go out on a TIMED light link,
-`<me>:transport:value-out -> *:player-video:value-in` with `ahead: 400`, stamped `at` on the shared clock
+`<me>:transport:value-out -> *:player:value-in` with `ahead: 400`, stamped `at` on the shared clock
 (`proto/looper/peer.mjs` over the room `<code>-ntp`), and every tab's bay delivers it when its clock reads `at`.
 Between events each tab steers its player (`steer`): seeks past 250 ms, aiming ahead by what a seek takes and
 waiting paused for the film to reach it; nearer, plays 2, 5 or 10 per cent faster or slower. A film switches your
 microphone off. The film and a presenter exclude each other: Share is off while a film is on and Watch while
-somebody presents. Patchbay: `cf-r2:film:file-out -> <me>:player-video:file-in` (https),
-`<me>:player-video:video-out -> <me>:stage:video-in`, and the timed `transport` links marked `ahead 400`.
+somebody presents. Patchbay: `cf-r2:film:file-out -> <me>:player:file-in` (https),
+`<me>:player:video-out -> <me>:stage:video-in`, and the timed `transport` links marked `ahead 400`.
 
 MEASURED drift (spread = largest minus smallest film position across tabs, read together and brought to one
 shared time), 2026-10-22, one machine:
@@ -534,6 +537,45 @@ every 100 ms held tabs 30 ms behind for 8 s (every rate change costs the player 
 the target landed 170 to 410 ms behind, because fetching an unbuffered spot from workers.dev took 0.3 to 0.6 s.
 Not measured: several machines (the shared clock's own error adds), a real phone, a slow network, audio echo with
 an open microphone (the film switches it off), and the rights to show a film to a room (§10).
+
+### Step: two demos become present and stage (done, local only)
+
+Asked 2026-10-22: *"split video room into autio-video-sceen and audio-viddeo-stream"*, then *"present stage"*,
+*"Replace /room/video/"*, *"steaem should be webrtc stream. separte btton"* and *"audio-video-stream -> stage"*.
+
+- **`/room/present/`** (title Present): the SFU call (audio, camera, chat) and Share, exactly as Share worked on
+  `/room/video/`: one presenter at a time, the earliest press wins, stage and strip, the presenter sees a small
+  preview, no Share on a phone.
+- **`/room/stage/`** (title Stage): the SFU call and a live WebRTC stream on everybody's stage, started by its own
+  Stream button (the `cast` icon), separate from the camera and the microphone; no Share. One streamer at a time,
+  by the presenter rule. The streamer's tab plays one of MIMproject's own films from our bucket on its own stage,
+  with sound and the player's controls, and sends it with `captureStream()`: picture and sound, two new SFU kinds
+  `stream` (one layer, 2.5 Mbit/s, no simulcast because everybody draws it at the stage's size) and `sound`
+  (128 kbit/s). A film and not a second camera because it carries picture and sound with nothing plugged in;
+  a device picker for a capture card is not built. Patchbay: `cf-r2:film:file-out -> <streamer>:stream:file-in`,
+  `<streamer>:stream:video-out` and `:audio-out` -> every other `stage`, transport `sfu` through `cf-sfu`.
+  Starting a stream switches the streamer's microphone off. No Stream button where the browser has no
+  `captureStream()` on a `<video>` (iPhone Safari).
+- **`/room/mesh/`** stays: the browser to browser call, audio, camera and chat, no Share, no Stream.
+- **`/room/video/` is removed**, no forwarding. One module still: `videoRoom({ via, name, present: true })` and
+  `videoRoom({ via, name, stream: true })`.
+- **Watch is on no page**, so the film watched together (step 5 above) left `video-room.mjs`: no shared clock,
+  no timed `transport` links, no steering. `demo/room/together.mjs` and its test are untouched (both pages still
+  take `pickPresenter` and `stripOrder` from it). `nodes.mjs`: `transport` removed, `stream` added, `stage`
+  gained an optional `audio-in`.
+
+Checked 2026-10-22, one machine, Chromium's fake camera, `?turn=0`, the local relay and the deployed SFU worker:
+- `/room/stage/`, 4 tabs (3 desk, 1 phone 375): every camera tile playing in 5.0 s; press Stream to every other
+  stage playing a picture **989 ms** on all three (polled every 100 ms, film loaded from the bucket included);
+  stage sound RMS **0.30, 0.25, 0.27** on the receivers (the speaker floor is 0.02); a late fifth tab had the
+  stream with sound (RMS 0.28) in **3.0 s**; receivers got 639 x 360 of the 854 x 480 film 2.5 s in; Stop put
+  every tab back on the grid; two Stream presses at once left one streamer everywhere.
+- `/room/present/`, 4 tabs (the phone without `getDisplayMedia`): press Share to every other stage playing
+  **0.7 to 2.3 s**, 1280 x 720 on every stage; no Share button on the phone; a late joiner had it in 2.8 s; two
+  presses at once left one presenter.
+- `/room/mesh/`, 3 tabs (1 phone): every other camera playing with a picture in 0.5 s, buttons microphone,
+  camera, Leave only, no stage links.
+- `nodes-test` 73/73, `bay-test` 262/262, `together-test` 24/24, `/kit/chat/?selfcheck=1` 13/13 at 1280 and 375.
 
 
 ## 9. Steps, in order

@@ -95,7 +95,7 @@ grid.stage(stage.el, [presenterTile, ...]) and grid.stage(null) for the grid aga
       mode('other');
     });
 
-  // PARTICIPANT GRID: demo/shell/participant.mjs, the tiles /room/video/ draws its cameras with.
+  // PARTICIPANT GRID: demo/shell/participant.mjs, the tiles /room/present/, /room/stage/ and /room/mesh/ draw their cameras with.
   // A painted canvas stands in for a camera, so the specimen opens no device.
   let pgrid = null;
   const pTiles = [];
@@ -247,13 +247,16 @@ createParticipantGrid({ gap, minW }) -> { el, add(tile), remove(tile), layout() 
       getComputedStyle(hidden.el).display === 'none', getComputedStyle(hidden.el).display);
     hidden.el.remove();
 
-    // Stage and strip: the stage on top, every tile in ONE row under it, presenter first; and back.
+    // Stage and strip: the stage on top, the tiles under it, presenter first; one row in a wide box, the space
+    // under the stage filled in a tall one (a phone); and back.
     const tops = sTiles.map((t) => Math.round(t.el.getBoundingClientRect().top));
     const sr = sStage.el.getBoundingClientRect();
     const L = sgrid.layout();
-    d.assert('with a presenter the stage sits on top and every camera in one row under it, the presenter first',
-      L.mode === 'stage' && new Set(tops).size === 1 && tops[0] >= Math.round(sr.bottom) && L.order[0] === sTiles[2].id && sr.height > L.strip.h,
-      `${L.mode}, rows at ${[...new Set(tops)].join(',')}, stage ${sr.width.toFixed(0)}x${sr.height.toFixed(0)}, strip ${L.strip.h}, first ${L.order[0]}`);
+    const rowsOk = L.narrow ? new Set(tops).size >= 1 : new Set(tops).size === 1;
+    d.assert(L.narrow ? 'with a presenter the stage sits on top and the cameras fill the space under it, the presenter first'
+      : 'with a presenter the stage sits on top and every camera in one row under it, the presenter first',
+      L.mode === 'stage' && rowsOk && Math.min(...tops) >= Math.round(sr.bottom) && L.order[0] === sTiles[2].id && (L.narrow || sr.height > L.strip.h),
+      `${L.mode}, narrow ${L.narrow}, rows at ${[...new Set(tops)].join(',')}, stage ${sr.width.toFixed(0)}x${sr.height.toFixed(0)}, strip ${L.strip.h}, first ${L.order[0]}`);
     sStage.show(null); sgrid.stage(null);
     const G = sgrid.layout();
     d.assert('with nobody presenting the same tiles are a grid again, the stage gone',

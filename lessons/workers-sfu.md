@@ -6,7 +6,7 @@ The reasons behind `workers/sfu/worker.mjs` (positron-sfu, sfu.positron.studio).
 
 ## `worker.mjs` header
 
-Built 2026-10-22 for `/room/video/` (`plans/plan-video-room.md`). Cloudflare Realtime SFU, app
+Built 2026-10-22 for `/room/video/` (split 2026-10-22 into `/room/present/` and `/room/stage/`; `/room/video/` is gone) (`plans/plan-video-room.md`). Cloudflare Realtime SFU, app
 `8c2a974b...`, the same app the retired `elektron-rtc` used.
 
 - **Not a proxy.** The old worker forwarded `/cf/*` to the SFU behind one shared token, which a public page

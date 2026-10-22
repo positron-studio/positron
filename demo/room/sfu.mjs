@@ -16,8 +16,13 @@ export const ridFor = (w, dpr = 1) => (w * dpr >= 640 ? 'c' : w * dpr >= 320 ? '
 /** A screen share goes out as one layer: every viewer draws it on the stage, and a smaller copy of a
  *  screen is text nobody can read. why: lessons/kit-participant.md#share-sfu */
 const SCREEN = [{ maxBitrate: 2_500_000 }];
-/** What this tab can publish: a camera, a microphone, a screen. */
-const KINDS = ['audio', 'video', 'screen'];
+/** A live stream (/room/stage/) goes out as one layer too, for the same reason, and its sound at music quality.
+ *  why: lessons/kit-participant.md#stream */
+const STREAM = [{ maxBitrate: 2_500_000 }], SOUND = [{ maxBitrate: 128_000 }];
+/** What this tab can publish: a camera, a microphone, a screen, a stream's picture and its sound. */
+const KINDS = ['audio', 'video', 'screen', 'stream', 'sound'];
+/** The kinds drawn on the stage rather than in a tile, said only while they carry something. */
+const STAGED = ['screen', 'stream', 'sound'];
 
 /** One promise chain per session: each step starts when the last has finished, failed or not. */
 function queue() {
@@ -40,9 +45,10 @@ const gathered = (pc, ms = 1500) => new Promise((resolve) => {
  * @param {string} o.site       this tab's site
  * @param {(msg: object) => boolean} o.send   puts one JSON message on the relay room
  * @param {RTCIceServer[]} [o.iceServers]
- * @param {() => {audio: MediaStreamTrack|null, video: MediaStreamTrack|null, screen?: MediaStreamTrack|null}} o.tracks  what to send now
+ * @param {() => {audio: MediaStreamTrack|null, video: MediaStreamTrack|null, screen?: MediaStreamTrack|null,
+ *   stream?: MediaStreamTrack|null, sound?: MediaStreamTrack|null}} o.tracks  what to send now
  * @param {(site: string, stream: MediaStream) => void} o.onStream
- * @param {(site: string, stream: MediaStream|null) => void} [o.onShare]  a site's screen, null when it is gone
+ * @param {(site: string, stream: MediaStream|null) => void} [o.onShare]  a site's screen or live stream, null when it is gone
  * @param {(site: string, state: string, how?: string) => void} [o.onState]
  * @param {(line: string, kind?: string) => void} [o.log]
  */
@@ -61,16 +67,19 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   const remotes = new Map();   // site -> { sessionId, proof, tracks: [{ trackName, kind }] }
   const pulled = new Map();    // `${site} ${trackName}` -> mid ('' while pending)
   const streams = new Map();   // site -> MediaStream
-  const shares = new Map();    // site -> MediaStream, its screen
+  const shares = new Map();    // site -> MediaStream, its screen, or its stream's picture and sound
   const sending = new Set();   // kinds with a live track now
   let wanted = [], rid = 'b', closed = false, ready = null;
 
   inn.pc.ontrack = (e) => {
     const t = inn.mids.get(e.transceiver.mid);
     if (!t) { log(`a track arrived on mid ${e.transceiver.mid} that nothing asked for`, 'warn'); return; }
-    if (t.kind === 'screen') {
-      const s = new MediaStream([e.track]);
-      shares.set(t.site, s);
+    if (STAGED.includes(t.kind)) {
+      // A stream's picture and sound arrive as two tracks and are one MediaStream on the stage.
+      let s = shares.get(t.site);
+      if (!s || t.kind === 'screen') { s = new MediaStream(); shares.set(t.site, s); }
+      for (const old of s.getTracks().filter((x) => x.kind === e.track.kind)) s.removeTrack(old);
+      s.addTrack(e.track);
       onShare(t.site, s);
       return;
     }
@@ -112,7 +121,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   function announce() {
     if (!out.session || closed) return;
     send({ type: 'sfu.pub', site, sessionId: out.session.sessionId, proof: out.session.proof,
-      tracks: [...out.published].filter(([kind]) => kind !== 'screen' || sending.has('screen'))
+      tracks: [...out.published].filter(([kind]) => !STAGED.includes(kind) || sending.has(kind))
         .map(([kind, p]) => ({ trackName: p.trackName, kind })) });
   }
 
@@ -126,11 +135,12 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       if (track) sending.add(kind); else sending.delete(kind);
       if (had) {
         await had.transceiver.sender.replaceTrack(track || null).catch(() => {});
-        if (kind === 'screen' && was !== !!track) announce();
+        if (STAGED.includes(kind) && was !== !!track) announce();
         return;
       }
       if (!track) return;
-      const enc = kind === 'video' ? { sendEncodings: LAYERS } : kind === 'screen' ? { sendEncodings: SCREEN } : {};
+      const enc = kind === 'video' ? { sendEncodings: LAYERS } : kind === 'screen' ? { sendEncodings: SCREEN }
+        : kind === 'stream' ? { sendEncodings: STREAM } : kind === 'sound' ? { sendEncodings: SOUND } : {};
       const transceiver = out.pc.addTransceiver(track, { direction: 'sendonly', ...enc });
       if (kind === 'screen') {
         // Keep the text sharp and let the frame rate give: a screen is read, not watched.
@@ -147,7 +157,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       const bad = r.tracks.find((t) => t.errorCode);
       if (bad) throw new Error(`publish ${kind}: ${bad.errorCode} ${bad.errorDescription || ''}`);
       out.published.set(kind, { trackName, transceiver });
-      log(`sfu published ${kind}${kind === 'video' ? ' in three layers' : kind === 'screen' ? ' in one layer' : ''}`);
+      log(`sfu published ${kind}${kind === 'video' ? ' in three layers' : kind === 'screen' || kind === 'stream' ? ' in one layer' : ''}`);
       announce();
     }).catch((e) => log(`sfu ${e.message}`, 'warn'));
   }
@@ -244,8 +254,8 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     },
     peers: () => [...streams.keys()].map((s) => ({ site: s, state: inn.pc.connectionState, route: route.in })),
     layerNow: () => rid,
-    published: () => [...out.published.keys()].filter((k) => k !== 'screen' || sending.has('screen')),
-    /** The screen this tab pulled from a site, if any. */
+    published: () => [...out.published.keys()].filter((k) => !STAGED.includes(k) || sending.has(k)),
+    /** The screen or stream this tab pulled from a site, if any. */
     share: (s) => shares.get(s) || null,
     /** The two peer connections, for a page that reads their stats (/radio/return/); read only. */
     connections: () => ({ send: out.pc, receive: inn.pc }),

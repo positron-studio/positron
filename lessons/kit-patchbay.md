@@ -60,7 +60,7 @@ built as before and left off the page unless a caller passes
 
 ## `createPatchbay`: a `*` end stops at the room box
 
-Asked 2026-10-22 on `/room/video/`: *"*:chat / grid. they are weird, we prefixed them in chat room demo, no in
+Asked 2026-10-22 on `/room/video/` (split 2026-10-22 into `/room/present/` and `/room/stage/`; `/room/video/` is gone): *"*:chat / grid. they are weird, we prefixed them in chat room demo, no in
 patchbay"*. A `*` link (`web:chat:value-out -> *:chat:value-in`) was drawn as two hops with a box called
 `*:chat`, "every other tab", at the far end. The `cf-relay:<room>` box already says where a light link goes, so
 the hop to or from a `*` end is not drawn, and no `*:` node or port is. The `*` stays in the code, where it is
@@ -71,7 +71,7 @@ the bay's address for every other tab. Pages drawn without `createPatchbay` (`/k
 
 ## `createPatchbay`: an `sfu` link is drawn through a `cf-sfu:<room>` box
 
-Added 2026-10-22 for `/room/video/` on Cloudflare's SFU. A link whose session says `sfu` is drawn as two hops
+Added 2026-10-22 for `/room/video/` (split 2026-10-22 into `/room/present/` and `/room/stage/`; `/room/video/` is gone) on Cloudflare's SFU. A link whose session says `sfu` is drawn as two hops
 through `cf-sfu:<room>` ("Cloudflare SFU"), the way a relayed link goes through `cf-relay:<room>`. So the picture
 shows what the SFU buys: one wire from your camera into the box, and the copies out to every grid, where a mesh
 draws one wire per person straight from your camera.

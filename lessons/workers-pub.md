@@ -848,7 +848,7 @@ Above `async scheduled(_event, env, ctx) {`, lines 1168 to 1175 before the cut.
 
 ## `/ice?room=`: credentials counted per room
 
-Added 2026-10-22 for `/room/video/` (`plans/plan-video-room.md` §8a). Per address alone, the 21st person
+Added 2026-10-22 for `/room/video/` (split 2026-10-22 into `/room/present/` and `/room/stage/`; `/room/video/` is gone) (`plans/plan-video-room.md` §8a). Per address alone, the 21st person
 behind one public address in an hour is refused, and many people share one (an office, a café, a mobile
 carrier's NAT). With a room name the rule is 60 an hour for the room and 40 per address; without one it
 is 20 per address as before; 120 an hour overall either way, which is what bounds somebody inventing room
