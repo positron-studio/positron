@@ -84,6 +84,8 @@ const CSS = `
   .pos-stg-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
                   font: 400 12px/1.4 var(--mono); color: var(--dim2); }
   .pos-stg-wait[hidden] { display: none; }
+  .pos-stg-sound { position: absolute; right: 6px; top: 6px; }
+  .pos-stg-sound[hidden] { display: none; }
 `;
 let styled = false;
 const style = () => {
@@ -169,7 +171,12 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
   const say = el('div', 'pos-stg-say', 'You are presenting');
   mine.append(preview, say);
   const tag = el('div', 'pos-stg-tag', '');
-  root.append(video, waitEl, mine, tag);
+  // A browser that will not start a stream with sound without a fresh tap (Safari, with no camera or microphone on)
+  // plays it muted, and this asks for the tap. why: lessons/kit-participant.md#tap-for-sound
+  const soundBtn = el('button', 'pos-stg-sound', 'Tap for sound');
+  soundBtn.type = 'button'; soundBtn.hidden = true;
+  soundBtn.addEventListener('click', () => { video.muted = false; video.play?.().catch(() => {}); soundBtn.hidden = true; });
+  root.append(video, waitEl, mine, tag, soundBtn);
   let self = false, src = null, film = '';
   // The stage takes the share's own shape, read off whichever picture is showing.
   const shape = (v) => { if (v.videoWidth && v.videoHeight) root.style.setProperty('--stage-ar', `${v.videoWidth} / ${v.videoHeight}`); };
@@ -187,7 +194,12 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
       const v = shown(), other = self ? video : preview;
       if (other.srcObject) other.srcObject = null;
       if (v.srcObject !== src) v.srcObject = src;
-      if (src) v.play?.().catch(() => {});
+      soundBtn.hidden = true;
+      if (src) v.play?.().catch(() => {
+        if (v !== video || !sound) return;
+        video.muted = true;
+        video.play?.().then(() => { soundBtn.hidden = false; }).catch(() => {});
+      });
       waitEl.hidden = self || !!src;
       tag.textContent = self ? '' : who ? `${who} ${verb}` : '';
     },
