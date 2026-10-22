@@ -857,3 +857,13 @@ then reported "Unspecified description". Asked 2026-10-22: *"add 'Mixed by posit
 sources to Väin send `ice-description: Mixed by positron.studio`: the cast container (`container/server.mjs`
 `sourceHead`) and edgecast's relay (`workers/edgecast-relay/icecast.mjs`), whose test holds the two to the same lines.
 It is plain ASCII, so the Latin-1 encoding the relay uses for `Väin` does not touch it.
+
+<a id="listen-days"></a>
+
+### the listener chart steps by day
+
+Asked 2026-10-22: *"can we simplify. i do not now what broadcast means. just days < > ? (skip empty days?)"*. The
+2 h, 24 h, 48 h and broadcast buttons went. A stepper (`createStepper` with a day picker in the middle) goes through
+the days that had a broadcast (any part of one, from the `listens` records) and today while on air, oldest to newest,
+opening on the newest; the arrows stop at the ends. A day is midnight to midnight in the visitor's time, 5 minute
+buckets. A row of the past broadcasts table jumps to its day.

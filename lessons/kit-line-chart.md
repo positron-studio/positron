@@ -37,3 +37,11 @@ nothing was recorded. A first fix, a `maxGap` in milliseconds inside the chart, 
 *"just to minimum and avoid such diagonals in systematic way. x axis is not always time"*. So the chart has one rule,
 a null breaks the line, and the data says where it is missing: the cast page lays out every bucket of the range and
 sends a bucket with no reading as null. A 0 is a reading (on air, nobody listening) and stays on the line.
+
+<a id="edge-labels"></a>
+
+## A time label at the edge is anchored inwards
+
+Seen 2026-10-22 on /radio/cast/'s day chart: a day starts at midnight, so the first tick sits on the plot's left
+edge and its centred label ("22 Oct") was cut to "2 Oct"; "15:00" was cut on the right. A label whose half width
+would run past the box is anchored to `start` or `end` instead of `middle`.

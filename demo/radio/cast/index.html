@@ -92,7 +92,7 @@
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el, createReport } from '/shell/shell.mjs';
   import { createTable } from '/shell/table.mjs';
-  import { createChoice } from '/shell/choice.mjs';
+  import { createStepper } from '/shell/stepper.mjs';
   import { createLineChart } from '/shell/line-chart.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
@@ -1100,34 +1100,52 @@
     { key: 'length', label: 'length', width: 60, align: 'right' },
     { key: 'peak', label: 'peak', width: 44, align: 'right', hi: true },
     { key: 'heard', label: 'heard', width: 64, align: 'right', hover: 'heardT' },
-  ], empty: '', onPick: (r) => { pickedPast = r.rec; rangeCh.set(3, true); loadChart(true); } });
+  ], empty: '', onPick: (r) => { const i = days.indexOf(dayStart(r.rec.startedAt)); if (i >= 0) goDay(i); } });
   // LISTENERS OVER TIME: the points the cast wrote to Analytics Engine, read back through GET /listens; asked only
   // once this section shows for a station with a broadcast, then once a minute while that station is on air
   const chart = createLineChart({ label: 'listeners over time' });
-  const RANGES = [['2 h', 2], ['24 h', 24], ['48 h', 48], ['broadcast', 'past']];
-  const rangeCh = createChoice({ options: RANGES, at: 0, onPick: () => loadChart(true) });
+  // One day at a time, stepping over the days that had a broadcast only, the newest first.
+  // why: lessons/workers-cast.md#listen-days
+  const DAY = 86400_000;
+  const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const dayLabel = (t) => new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  let days = [], dayAt = -1, daysKey = '';
+  const dayStep = createStepper({ what: 'day', prev: () => goDay(dayAt - 1), next: () => goDay(dayAt + 1),
+    pick: { options: [], at: 0, onPick: (i) => goDay(i) } });
+  function goDay(i) {
+    if (!days.length) return;
+    dayAt = Math.max(0, Math.min(days.length - 1, i));
+    dayStep.show(dayLabel(days[dayAt]), dayAt);
+    dayStep.buttons[0].disabled = dayAt === 0; dayStep.buttons[1].disabled = dayAt === days.length - 1;
+    loadChart(true);
+  }
   const csvLink = el('a', 'vc-url', 'csv'); csvLink.target = '_blank'; csvLink.rel = 'noopener';
-  rangeCh.el.classList.add('vc-range');
-  const chartHead = el('div', 'vc-head'); chartHead.append(rangeCh.el, csvLink);
+  const chartHead = el('div', 'vc-head'); chartHead.append(dayStep.el, csvLink);
   const chartNote = el('span', 'vc-dim', ''); chartNote.hidden = true;
   const earsSec = sec('listeners', ears.readoutEl, chartHead, chart.el, chartNote, pastTbl.el);
-  let pickedPast = null, chartAt = 0, chartKey = '', chartFor = '', pastKey = '';
+  let chartAt = 0, chartKey = '', chartFor = '', pastKey = '';
   let getListens = async (url) => (await fetch(url)).json();
   const hm = (ms) => { const m = Math.round(ms / 60_000); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
   const day = (t) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  /** The range asked for: the last hours, or the pickedPast past broadcast (the newest when none was pickedPast). */
-  function rangeOf(t) {
-    const v = rangeCh.value(), past = status[t]?.listens || [];
-    if (v === 'past') { const r = pickedPast && past.some((x) => x.startedAt === pickedPast.startedAt) ? pickedPast : past[0]; return r ? { from: r.startedAt, to: r.endedAt } : null; }
-    const to = Date.now(); return { from: to - v * 3600_000, to };
+  /** The days a station had a broadcast on (any part of one), and today while it is on air, oldest first. */
+  function daysOf(t) {
+    const st = status[t], set = new Set();
+    for (const r of st?.listens || []) for (let d = dayStart(r.startedAt); d <= (r.endedAt ?? Date.now()); d = dayStart(d + DAY + 3600_000)) set.add(d);
+    if (st?.onAir) set.add(dayStart(Date.now()));
+    return [...set].sort((a, b) => a - b);
+  }
+  /** The day shown, midnight to midnight (an hour over so a 25 hour day fits), never past now. */
+  function rangeOf() {
+    const d = days[dayAt];
+    return d == null ? null : { from: d, to: Math.min(dayStart(d + DAY + 3600_000), Date.now()) };
   }
   async function loadChart(force = false) {
-    const t = target, r = rangeOf(t);
+    const t = target, r = rangeOf();
     if (!r || earsSec.hidden) return;
-    const live = rangeCh.value() !== 'past' && !!status[t]?.onAir;
+    const live = !!status[t]?.onAir && days[dayAt] === dayStart(Date.now());
     if (!force && chartFor === t && (!live || Date.now() - chartAt < 60_000)) return;
     chartAt = Date.now(); chartFor = t;
-    const q = `from=${Math.round(r.from)}&to=${Math.round(r.to)}`, key = `${t}?${q}`;
+    const q = `from=${Math.round(r.from)}&to=${Math.round(r.to)}&step=5`, key = `${t}?${q}`;
     chartKey = key;
     csvLink.href = `${BASE}/listens/${t}?${q}&format=csv`;
     try {
@@ -1154,9 +1172,15 @@
     const pk = `${target}|${past.map((x) => x.startedAt).join()}`;
     if (pk !== pastKey) { pastKey = pk; pastTbl.set(past.map((x) => ({ rec: x, when: day(x.startedAt), length: hm(x.endedAt - x.startedAt), peak: x.peak ?? '', heard: `${x.minutes} min`, heardT: 'listener minutes' }))); }
     pastTbl.el.hidden = !past.length;
-    rangeCh.buttons[3].disabled = !past.length;
-    // off air with only past broadcasts, the newest one is what there is to see
-    if (chartFor !== target && !on && past.length && rangeCh.value() !== 'past') rangeCh.set(3, true);
+    // the days, rebuilt when they change; a new station opens on its newest day
+    const ds = daysOf(target), dk = `${target}|${ds.join()}`;
+    if (dk !== daysKey) {
+      const same = daysKey.startsWith(`${target}|`), keep = same ? days[dayAt] : null;
+      daysKey = dk; days = ds;
+      dayStep.options(ds.map(dayLabel), 0);
+      const i = keep != null && ds.includes(keep) ? ds.indexOf(keep) : ds.length - 1;
+      if (ds.length) { dayAt = -1; goDay(i); return; }
+    }
     if (!earsSec.hidden) loadChart(chartFor !== target);
   }
   const stations = sec('stations', cardRow);
@@ -1188,7 +1212,7 @@
     // a stand-in for GET /listens: the checks never ask the cast's SQL anything
     const listenAsks = [];
     getListens = async (url) => { listenAsks.push(url); const u = new URL(url), to = +u.searchParams.get('to'), from = +u.searchParams.get('from');
-      return { from, to, step: 5, rows: Array.from({ length: 12 }, (_, i) => ({ t: from + ((to - from) * i) / 12, people: [1, 2, 4, 3, 5, 6, 4, 3, 2, 2, 1, 0][i], vain: 1, readings: 5 })) }; };
+      return { from, to, step: 5, rows: Array.from({ length: 12 }, (_, i) => ({ t: Math.floor((from + ((to - from) * i) / 12) / 300_000) * 300_000, people: [1, 2, 4, 3, 5, 6, 4, 3, 2, 2, 1, 0][i], vain: 1, readings: 5 })) }; };
     window.__listenAsks = listenAsks;
     const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
@@ -1424,13 +1448,15 @@
     const cell = (k) => ears.cells.get(k).firstChild?.textContent ?? '';
     await tick(50);
     const asked0 = listenAsks.slice();
-    d.assert('the listeners section asks GET /listens for the last 2 hours once it shows, and draws the chart with its peak and a csv link',
-      asked0.length === 1 && /\/listens\/preview\?from=\d+&to=\d+$/.test(asked0[0]) && (+new URL(asked0[0]).searchParams.get('to') - +new URL(asked0[0]).searchParams.get('from')) === 2 * 3600_000
-      && !chart.el.hidden && chart.layout()?.peak?.v === 6 && /format=csv$/.test(csvLink.href), JSON.stringify({ asked0, peak: chart.layout()?.peak?.v }));
+    const u0 = asked0[0] && new URL(asked0[0]);
+    d.assert('the listeners section opens on today (on air) and asks GET /listens for today from midnight, 5 minute buckets, with its peak and a csv link',
+      asked0.length === 1 && +u0.searchParams.get('from') === dayStart(Date.now()) && u0.searchParams.get('step') === '5' && days.length === 2 && dayAt === 1
+      && !chart.el.hidden && chart.layout()?.peak?.v === 6 && /format=csv$/.test(csvLink.href) && dayStep.buttons[1].disabled && !dayStep.buttons[0].disabled,
+      JSON.stringify({ asked0, days, dayAt, peak: chart.layout()?.peak?.v }));
     pastTbl.el.querySelector('.pos-tbl-row:not(.pos-tbl-head)')?.click(); await tick(50);
     const pastAsk = listenAsks.at(-1), pu = new URL(pastAsk);
-    d.assert('pressing a past broadcast charts exactly that broadcast and lights "broadcast"',
-      +pu.searchParams.get('from') === H0 && +pu.searchParams.get('to') === H0 + 130 * 60_000 && rangeCh.value() === 'past', pastAsk);
+    d.assert('pressing a past broadcast charts its whole day, and the stepper shows that day',
+      +pu.searchParams.get('from') === dayStart(H0) && +pu.searchParams.get('to') === dayStart(dayStart(H0) + DAY + 3600_000) && dayAt === 0 && dayStep.buttons[0].disabled, pastAsk);
     const pastRows = () => [...pastTbl.el.querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')].map((r) => r.textContent);
     d.assert('on air: listening, peak, listener minutes and how long ago, the card says how many, and the last broadcast is a row',
       cell('listening') === '5' && cell('peak') === '8' && cell('heard') === '42' && cell('counted') === '12' && cards.preview.ears.textContent === '5 listening'
@@ -1449,7 +1475,7 @@
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
     live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); if (t !== LOCAL) badges[t].set('unknown'); cards[t].card.set({ desc: '' }); cards[t].stops.textContent = ''; cards[t].ears.textContent = ''; }
-    rangeCh.set(0, true); chartFor = ''; pastKey = ''; chart.set({ series: [] });
+    chartFor = ''; pastKey = ''; daysKey = ''; days = []; dayAt = -1; chart.set({ series: [] });
     rowOf(LOCAL).click(); say(''); paintRow(LOCAL); paintDetail();
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !localOn() && !audioReqs().length, audioReqs().join(' '));

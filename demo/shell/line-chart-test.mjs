@@ -57,5 +57,10 @@ check('a null slot starts a new stroke', (holed.lines[0].d.match(/M/g) || []).le
 const far = chartLayout({ ...base, series: [{ points: [[base.from, 3], [base.from + H, 0]] }] });
 check('NEGATIVE CONTROL: two readings far apart with no null between are joined; the chart does not guess', (far.lines[0].d.match(/M/g) || []).length === 1);
 
+// a tick at the very edge keeps its label inside the box
+const edge = chartLayout({ ...base, series: [{ points: pts([1, 2, 3]) }] });
+check('the first tick at the left edge is anchored to start, the middle ones centred', edge.xTicks[0].anchor === 'start' && edge.xTicks.slice(1, -1).every((t) => t.anchor === 'middle'));
+check('NEGATIVE CONTROL: no tick label runs past either edge', edge.xTicks.every((t) => t.anchor !== 'middle' || (t.x - (t.label.length * 7) / 2 >= 0 && t.x + (t.label.length * 7) / 2 <= base.width)));
+
 console.log(`\n${pass}/${pass + fail} ok`);
 process.exit(fail ? 1 : 0);

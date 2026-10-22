@@ -1,4 +1,5 @@
 ## Open
+- ~~**/radio/cast/ chart: days instead of ranges** (2026-10-22).~~ DONE 2026-10-22: a day stepper, edge tick labels kept inside. Asked with a crop: *"can we simplify. i do not now what broadcast means. just days < > ? (skip empty days?)"*. A stepper over the days that had a broadcast, newest first; the 2 h, 24 h, 48 h and broadcast buttons go.
 - **Line chart: missing data is null, no time rule in the chart** (2026-10-22). Asked: *"just to minimum and avoid such diagonals in systematic way. x axis is not always time"*. `maxGap` removed from line-chart.mjs; the data marks a missing slot as null (the one rule: null breaks the line); the cast page fills every empty bucket with null.
 - ~~**/radio/cast/ chart: no line across missing time** (2026-10-22).~~ Asked with a crop: *"last diatonal makes no sense. its jsut missing data (no lsiteners on air)"*. DONE: line-chart.mjs `maxGap`, the cast page passes three buckets.
 - **/radio/cast/: the listener count above the live badge on a station card** (2026-10-22). Asked with a crop: *"move listener count above live status"*. demo/radio/cast/index.html.
