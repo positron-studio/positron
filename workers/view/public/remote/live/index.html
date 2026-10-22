@@ -27,7 +27,7 @@
 </style>
 <script type="module">
   // Ableton Live on the studio Mac, site `m1` in room `m1-1` (rig/m1/studio-agent.mjs). Notes go to Live over IAC,
-  // Live's sound comes back through a Core Audio tap only while this page plays, tempo and Live's own play over
+  // Live's sound comes back through a Core Audio tap only while this page plays, the instrument's own parameters over
   // AbletonOSC, over the relay or direct (`?path=direct`, data channels `pcm` and `ctl`, as the Pi). (Live's transport is not started from here: the keys do not need it). Opening Live and loading an instrument need the studio key (?key= once, kept in this browser).
   // why: lessons/page-remote.md#live
   import { conceptNav } from '/shell/concept-nav.mjs';
@@ -51,7 +51,7 @@
   const d = mount({ name: 'Live on Mac', what: '', index: '/', indexLabel: 'positron',
     // The lag cells under the title, the log alone at the foot, as /remote/piano/.
     joined: false,
-    readout: { 'key to sound': 'ms', 'round trip': 'ms', tempo: 'bpm', instrument: '' } });
+    readout: { 'key to sound': 'ms', 'round trip': 'ms', path: '', instrument: '' } });
   conceptNav('remote/live');
 
   const q = new URLSearchParams(location.search);
@@ -74,8 +74,12 @@
     return { t, sig: [...mac].map((b) => b.toString(16).padStart(2, '0')).join('') };
   }
 
-  /** What Live 11 Standard's browser loads by name onto track 1 (abletonosc-ext/browser.py). */
-  const INSTRUMENTS = [{ name: 'Drift', program: 0 }, { name: 'Grand Piano', program: 1 }];
+  /** What Live 11 Standard's browser loads by name onto track 1 (abletonosc-ext/browser.py), and the four of its own
+   *  parameters this page turns, by Live's names (live.params lists them all). */
+  const INSTRUMENTS = [
+    { name: 'Drift', program: 0, knobs: [['filter', 'LP Freq'], ['resonance', 'LP Reso'], ['release', 'Env 1 Release'], ['detune', 'Osc 2 Detune']] },
+    { name: 'Grand Piano', program: 1, knobs: [['bright', 'Bright'], ['tone', 'Tone'], ['reverb', 'Reverb'], ['release', 'Release']] },
+  ];
 
   // ── the bay: this page's nodes and Live's ports as the Mac announces them (macGraph) ──
   const S = 'web';
@@ -83,8 +87,8 @@
   const LIVE = (p) => `${MAC_SITE}:live:${p}`;
   const bay = createBay();
   addNodes(bay, S, [{ name: 'keys', variant: 'cc' }, 'patch'], { portLabel: 'node:port' });
-  bay.addNode({ id: `${S}:transport`, kind: 'person', label: 'tempo' });
-  bay.addPort({ id: id('transport', 'value-out'), label: 'transport:value-out', dir: 'out', medium: 'value', shape: { of: 'param' } });
+  bay.addNode({ id: `${S}:sound`, kind: 'person', label: 'instrument knobs' });
+  bay.addPort({ id: id('sound', 'value-out'), label: 'sound:value-out', dir: 'out', medium: 'value', shape: { of: 'param' } });
   bay.addNode({ id: `${MAC_SITE}:live`, kind: 'engine', label: 'Ableton Live on the Mac', place: ROOM });
 
   let board = null, armed = false, program = 0, liveState = null;
@@ -97,15 +101,14 @@
       board.send(ev.d2 > 0 ? { type: 'note.on', node: 'live', note: ev.d1, vel: ev.d2 } : { type: 'note.off', node: 'live', note: ev.d1 });
     } else if (ev.cls === 'cc') board.send({ type: 'cc', node: 'live', ctrl: ev.d1, value: ev.d2 });
   }
-  // What reaches m1:live:value-in: Live's tempo, which its synced LFOs and delays follow.
-  async function toTransport(ev) {
-    if (!board || ev.param !== 'tempo') return;
-    const r = await board.ask({ type: 'live.set', tempo: ev.value }, 'live.state', 4000);
-    if (r) showLive(r);
+  // What reaches m1:live:value-in: one of the instrument's own parameters, by Live's index, in Live's range.
+  function toSound(ev) {
+    if (!board || !armed || !Number.isInteger(ev.i) || !Number.isFinite(ev.value)) return;
+    board.send({ type: 'live.param', i: ev.i, value: ev.value });
   }
   const PORTS = [
     { id: LIVE('midi-in'), dir: 'in', medium: 'midi', accepts: ['note', 'cc', 'program'], deliver: toLive },
-    { id: LIVE('value-in'), dir: 'in', medium: 'value', shape: { of: 'param' }, deliver: toTransport },
+    { id: LIVE('value-in'), dir: 'in', medium: 'value', shape: { of: 'param' }, deliver: toSound },
     { id: LIVE('audio-out'), dir: 'out', medium: 'audio' },
   ];
   for (const p of PORTS) bay.addPort({ label: p.id.split(':').slice(1).join(':'), ...p });
@@ -113,7 +116,7 @@
   for (const [from, to] of [
     [id('keys', 'midi-out'), LIVE('midi-in')],
     [id('patch', 'midi-out'), LIVE('midi-in')],
-    [id('transport', 'value-out'), LIVE('value-in')],
+    [id('sound', 'value-out'), LIVE('value-in')],
     [LIVE('audio-out'), id('scope', 'audio-in')],
     [LIVE('audio-out'), id('speaker', 'audio-in')],
   ]) {
@@ -176,6 +179,7 @@
     const st = board.stats();
     d.set('key to sound', lastLag == null ? '' : Math.round(lastLag));
     d.set('round trip', st?.rttMs == null ? '' : Math.round(st.rttMs));
+    d.set('path', st?.via ?? '');
   }, 250);
   // Every link to the Mac is remade with `via` when the path changes, so the patchbay draws the wire that carries it.
   let wiredVia = null;
@@ -193,9 +197,9 @@
   }
   function showLive(r) {
     liveState = r;
-    d.set('tempo', r?.ok ? r.tempo : '');
-    if (r?.ok && Math.round(tempo.value()) !== Math.round(r.tempo)) tempo.receive(r.tempo);
-    if (r?.ok) d.set('instrument', r.instrument || 'none');
+    if (!r?.ok) return;
+    d.set('instrument', r.instrument || 'none');
+    if (r.instrument && r.instrument !== knobsFor) loadKnobs();
   }
 
   // ── the instrument: a pick is one program change from patch:midi-out ─────
@@ -214,13 +218,31 @@
     if (!r?.ok) { say(`Live did not load ${ins.name}${r?.why ? `: ${r.why}` : ''}`, 'warn'); return; }
     patchPick.show(ins.name, INSTRUMENTS.indexOf(ins));
     d.set('instrument', ins.name);
+    await loadKnobs();
     say(`${ins.name} on track 1 in Live, listening to IAC, armed`);
   }
 
-  // ── tempo, the transport node's value-out ────────────────────────────────
-  const tempo = createKnob({ label: 'tempo', min: 60, max: 180, step: 1, value: 120, unit: '',
-    onChange: (v) => bay.send(id('transport', 'value-out'), { param: 'tempo', value: Math.round(v) }) });
-  const knobs = createKnobGrid(new Map([['tempo', tempo]]), { row: true });
+  // ── the instrument's knobs: sound:value-out, read from Live for whatever is loaded ──
+  // 0 to 100 on screen, Live's own min to max on the wire; one message per move, Live smooths nothing so it is heard.
+  const knobsHost = el('div');
+  let knobsFor = null;
+  async function loadKnobs() {
+    const r = await board?.ask({ type: 'live.params' }, 'live.params', 6000);
+    if (!r?.ok) return;
+    const ins = INSTRUMENTS.find((x) => x.name === r.device);
+    knobsFor = r.device;
+    knobsHost.replaceChildren();
+    if (!ins) { d.log(`${r.device} has no knobs chosen on this page`); return; }
+    const map = new Map();
+    for (const [label, live] of ins.knobs) {
+      const p = r.params.find((x) => x.name === live);
+      if (!p || !Number.isFinite(p.min) || !Number.isFinite(p.max) || p.max <= p.min) continue;
+      const pct = (v) => Math.round(100 * (v - p.min) / (p.max - p.min));
+      map.set(label, createKnob({ label, min: 0, max: 100, step: 1, value: pct(p.value), title: live,
+        onInput: (v) => bay.send(id('sound', 'value-out'), { param: live, i: p.i, value: p.min + (v / 100) * (p.max - p.min) }) }));
+    }
+    if (map.size) knobsHost.append(createKnobGrid(map, { row: true }).el);
+  }
 
   // ── the keyboard, and a plugged in one through the same node ─────────────
   const host = el('div');
@@ -295,11 +317,12 @@
       } else rewire('relay');
       armed = true;
       board.watchRtt(2000);
+      await loadKnobs();
       openMidi();
       transport.setIcon('play', 'stop', 'stop');
       clearInterval(poll);
       poll = setInterval(async () => { if (armed) { const s = await board.ask({ type: 'live.get' }, 'live.state', 3000); if (s) showLive(s); } }, 3000);
-      say(`Ableton Live on the studio Mac at ${st.tempo} bpm, play the keys`);
+      say(`${st.instrument || 'Ableton Live'} on the studio Mac, play the keys`);
     } finally { starting = false; }
   }
   function stop() {
@@ -348,7 +371,7 @@
 
   const top = el('div', 'cc-top');
   top.append(transport.el, pathChoice.el);
-  d.stack.add(top, wave.el, knobs.el, patchPick.el, host, pb.el);
+  d.stack.add(top, wave.el, knobsHost, patchPick.el, host, pb.el);
   window.__demo.bay = bay;
   window.__demo.probe = () => ({ armed, mode, level, program, live: liveState, said: saidLast, stats: board ? board.stats() : null, lags: [...lags] });
   d.ready();
