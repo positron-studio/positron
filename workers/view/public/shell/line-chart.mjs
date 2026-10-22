@@ -48,7 +48,12 @@ export function chartLayout({ series = [], from, to, width, height, offsetMin = 
   const want = Math.max(1, Math.floor((plot.r - plot.l) / TICK_PX));
   const step = TIME_STEPS.find((s) => (to - from) / s <= want) ?? TIME_STEPS.at(-1);
   const xTicks = [];
-  for (let t = Math.ceil((from + off) / step) * step - off; t <= to; t += step) xTicks.push({ t, x: x(t), label: tickLabel(t, step, off) });
+  // A label that would run past the box's edge is anchored inwards, so a tick at the very start or end stays whole.
+  // why: lessons/kit-line-chart.md#edge-labels
+  for (let t = Math.ceil((from + off) / step) * step - off; t <= to; t += step) {
+    const label = tickLabel(t, step, off), half = (label.length * CHAR_PX) / 2, xt = x(t);
+    xTicks.push({ t, x: xt, label, anchor: xt - half < 0 ? 'start' : xt + half > width ? 'end' : 'middle' });
+  }
   const lines = series.map((s, i) => {
     // The one rule for missing data: a null breaks the line. The data marks it, the chart never guesses.
     // why: lessons/kit-line-chart.md#missing
@@ -99,7 +104,7 @@ export function createLineChart({ label = 'line chart', unit = '' } = {}) {
       g.append(svg('line', { x1: L.plot.l, x2: L.plot.r, y1: t.y, y2: t.y, class: t.v ? 'pos-lc-grid' : 'pos-lc-base' }));
       g.append(svg('text', { x: L.plot.l - 6, y: t.y, 'text-anchor': 'end', 'dominant-baseline': 'middle' }, t.label));
     }
-    for (const t of L.xTicks) g.append(svg('text', { x: t.x, y: L.plot.b + 6, 'text-anchor': 'middle', 'dominant-baseline': 'hanging' }, t.label));
+    for (const t of L.xTicks) g.append(svg('text', { x: t.anchor === 'start' ? Math.max(0, t.x) : t.anchor === 'end' ? Math.min(L.width, t.x) : t.x, y: L.plot.b + 6, 'text-anchor': t.anchor, 'dominant-baseline': 'hanging' }, t.label));
     fig.append(g);
     // the faint series under the main one
     for (const l of [...L.lines].reverse()) if (l.d) fig.append(svg('path', { d: l.d, class: `pos-lc-line pos-lc-${l.tone}` }));
