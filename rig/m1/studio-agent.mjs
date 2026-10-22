@@ -193,6 +193,20 @@ async function handle(m, reply) {
       if (typeof m.metronome === 'boolean') tell('/live/song/set/metronome', [m.metronome ? 1 : 0]);
       return reply('live.state', await liveState());
     }
+    // The instrument's own parameters (track 1, device 1): names, ranges and values, and one set by index.
+    case 'live.params': {
+      if (!running.live) return reply('live.params', { ok: false, why: 'Ableton Live is not open' });
+      const [names, mins, maxs, vals] = await Promise.all(['name', 'min', 'max', 'value']
+        .map((k) => ask(`/live/device/get/parameters/${k}`, [0, 0])));
+      if (!names) return reply('live.params', { ok: false, why: 'Live did not answer' });
+      const list = names.slice(2).map((name, i) => ({ i, name, min: mins?.[i + 2], max: maxs?.[i + 2], value: vals?.[i + 2] }));
+      return reply('live.params', { ok: true, device: (await ask('/live/track/get/devices/name', [0]))?.[1] ?? null, params: list });
+    }
+    case 'live.param': {
+      if (!running.live || !Number.isInteger(m.i) || !Number.isFinite(m.value)) return;
+      tell('/live/device/set/parameter/value', [0, 0, m.i, Number(m.value)]);
+      return;
+    }
     case 'live.instrument': {
       const name = String(m.name || '').slice(0, 60);
       const no = signedOk(m, name);

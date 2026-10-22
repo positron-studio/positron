@@ -679,3 +679,9 @@ address. Relay or direct (`?path=direct`), as `/remote/piano/`; the agent answer
 MEASURED 2026-10-22 headless against the Mac, notes sent along the bay: key to sound 353 to 455 ms (relay round trip
 84 ms, cushion 160 ms, Live's own 13.7 ms output latency), 720 frames, 0 lost; tempo 97 set from the port and read
 back from Live.
+
+Tempo was a knob for one evening and came out (*"tempo not affecting much"*): nothing on the page plays clips and
+Drift's LFO runs free in Hz, so tempo moved nothing audible. The knobs are the loaded instrument's own parameters
+now (`live.params` lists them, `live.param` sets one by index in Live's own range), four chosen by name per
+instrument: Drift filter, resonance, release, detune; Grand Piano bright, tone, reverb, release. MEASURED: a held
+note at level 0.343 with the filter open, 0.094 closed from the knob's port.
