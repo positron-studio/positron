@@ -685,3 +685,9 @@ Drift's LFO runs free in Hz, so tempo moved nothing audible. The knobs are the l
 now (`live.params` lists them, `live.param` sets one by index in Live's own range), four chosen by name per
 instrument: Drift filter, resonance, release, detune; Grand Piano bright, tone, reverb, release. MEASURED: a held
 note at level 0.343 with the filter open, 0.094 closed from the knob's port.
+
+Every knob has an invisible hand (`createKnob({ hand: true })`, no `step`: 127 steps is too few for a hand). Its moves
+go through the kit's send gate, `makeCcSend` (`demo/shell/cc-adapter.mjs`), keyed by the knob's slot, not by Live's
+parameter index (the gate treats controllers 64 to 69 as switches, and Drift's Volume is index 64). The page maps slot
+to index; the Mac maps 0 to 127 onto the parameter's range as `live.params` read it. MEASURED 2026-10-22 in the room:
+idle 0 messages, one hand 165 in 5 s, four hands 163 in 5 s carrying 642 values. More hands, same message rate.

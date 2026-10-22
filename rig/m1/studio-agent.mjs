@@ -32,6 +32,7 @@ const FROM = `m1-${randomId(6)}`, ID = randomId(8), SINCE = Date.now();
 let ws = null, seq = 0, aseq = 0, sent = 0, lastHeard = Date.now(), backoff = 500;
 let midi = null, tap = null, running = { live: false, obs: false };
 const held = new Set();
+let ranges = new Map();   // Live parameter index -> { min, max }, from the last live.params
 const clientSeen = new Map();   // from -> last message time
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const send = (m) => { if (ws?.readyState === 1) { ws.send(format(m, { from: FROM, seq: seq++ })); return true; } return false; };
@@ -200,11 +201,17 @@ async function handle(m, reply) {
         .map((k) => ask(`/live/device/get/parameters/${k}`, [0, 0])));
       if (!names) return reply('live.params', { ok: false, why: 'Live did not answer' });
       const list = names.slice(2).map((name, i) => ({ i, name, min: mins?.[i + 2], max: maxs?.[i + 2], value: vals?.[i + 2] }));
+      ranges = new Map(list.map((x) => [x.i, x]));
       return reply('live.params', { ok: true, device: (await ask('/live/track/get/devices/name', [0]))?.[1] ?? null, params: list });
     }
+    // `set: [[index, 0..127], ...]` from a page's send gate, mapped onto each parameter's range as live.params read it.
     case 'live.param': {
-      if (!running.live || !Number.isInteger(m.i) || !Number.isFinite(m.value)) return;
-      tell('/live/device/set/parameter/value', [0, 0, m.i, Number(m.value)]);
+      if (!running.live || !Array.isArray(m.set)) return;
+      for (const [i, v] of m.set.slice(0, 16)) {
+        const r = ranges.get(i);
+        if (!r || !Number.isFinite(v) || !Number.isFinite(r.min) || !Number.isFinite(r.max)) continue;
+        tell('/live/device/set/parameter/value', [0, 0, i, r.min + (Math.max(0, Math.min(127, v)) / 127) * (r.max - r.min)]);
+      }
       return;
     }
     case 'live.instrument': {
@@ -214,6 +221,7 @@ async function handle(m, reply) {
       // An instrument on the track, then the track listening to IAC Bus 1, armed, monitoring In: a track with no
       // device or no input makes no sound however well the MIDI arrives. The setters do not reply, so read back.
       const track = Number.isInteger(m.track) ? m.track : 0;
+      ranges = new Map();
       const r = await ask('/live/browser/load', [track, name], 2);
       if (!r) return reply('live.instrument', { ok: false, why: 'Live did not answer the load' });
       tell('/live/track/set/input_routing_type', [track, 'IAC Driver (Bus 1)']);
