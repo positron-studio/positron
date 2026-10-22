@@ -28,7 +28,7 @@
 <script type="module">
   // Ableton Live on the studio Mac, site `m1` in room `m1-1` (rig/m1/studio-agent.mjs). Notes go to Live over IAC,
   // Live's sound comes back through a Core Audio tap only while this page plays, tempo and Live's own play over
-  // AbletonOSC. Opening Live and loading an instrument need the studio key (?key= once, kept in this browser).
+  // AbletonOSC (Live's transport is not started from here: the keys do not need it). Opening Live and loading an instrument need the studio key (?key= once, kept in this browser).
   // why: lessons/page-remote.md#live
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
@@ -50,7 +50,7 @@
   const d = mount({ name: 'Live on Mac', what: '', index: '/', indexLabel: 'positron',
     // The lag cells under the title, the log alone at the foot, as /remote/piano/.
     joined: false,
-    readout: { 'key to sound': 'ms', 'round trip': 'ms', tempo: 'bpm', live: '' } });
+    readout: { 'key to sound': 'ms', 'round trip': 'ms', tempo: 'bpm', instrument: '' } });
   conceptNav('remote/live');
 
   const q = new URLSearchParams(location.search);
@@ -80,7 +80,7 @@
   const LIVE = (p) => `${MAC_SITE}:live:${p}`;
   const bay = createBay();
   addNodes(bay, S, [{ name: 'keys', variant: 'cc' }, 'patch'], { portLabel: 'node:port' });
-  bay.addNode({ id: `${S}:transport`, kind: 'person', label: 'tempo and play' });
+  bay.addNode({ id: `${S}:transport`, kind: 'person', label: 'tempo' });
   bay.addPort({ id: id('transport', 'value-out'), label: 'transport:value-out', dir: 'out', medium: 'value', shape: { of: 'param' } });
   bay.addNode({ id: `${MAC_SITE}:live`, kind: 'engine', label: 'Ableton Live on the Mac', place: ROOM });
 
@@ -94,12 +94,10 @@
       board.send(ev.d2 > 0 ? { type: 'note.on', node: 'live', note: ev.d1, vel: ev.d2 } : { type: 'note.off', node: 'live', note: ev.d1 });
     } else if (ev.cls === 'cc') board.send({ type: 'cc', node: 'live', ctrl: ev.d1, value: ev.d2 });
   }
-  // What reaches m1:live:value-in: Live's own play and its tempo.
+  // What reaches m1:live:value-in: Live's tempo, which its synced LFOs and delays follow.
   async function toTransport(ev) {
-    if (!board) return;
-    const body = ev.param === 'tempo' ? { tempo: ev.value } : ev.param === 'play' ? { play: !!ev.value } : null;
-    if (!body) return;
-    const r = await board.ask({ type: 'live.set', ...body }, 'live.state', 4000);
+    if (!board || ev.param !== 'tempo') return;
+    const r = await board.ask({ type: 'live.set', tempo: ev.value }, 'live.state', 4000);
     if (r) showLive(r);
   }
   const PORTS = [
@@ -179,11 +177,8 @@
   function showLive(r) {
     liveState = r;
     d.set('tempo', r?.ok ? r.tempo : '');
-    d.set('live', r?.ok ? (r.playing ? 'playing' : 'stopped') : 'not open');
-    if (r?.ok) {
-      if (Math.round(tempo.value()) !== Math.round(r.tempo)) tempo.receive(r.tempo);
-      song.button('song').textContent = r.playing ? 'Stop Live' : 'Play Live';
-    }
+    if (r?.ok && Math.round(tempo.value()) !== Math.round(r.tempo)) tempo.receive(r.tempo);
+    if (r?.ok) d.set('instrument', r.instrument || 'none');
   }
 
   // ── the instrument: a pick is one program change from patch:midi-out ─────
@@ -201,16 +196,14 @@
     const r = await board.ask({ type: 'live.instrument', name: ins.name, track: 0, ...(await sign('live.instrument', ins.name)) }, 'live.instrument', 15000);
     if (!r?.ok) { say(`Live did not load ${ins.name}${r?.why ? `: ${r.why}` : ''}`, 'warn'); return; }
     patchPick.show(ins.name, INSTRUMENTS.indexOf(ins));
+    d.set('instrument', ins.name);
     say(`${ins.name} on track 1 in Live, listening to IAC, armed`);
   }
 
-  // ── tempo and Live's own play, the transport node's value-out ────────────
+  // ── tempo, the transport node's value-out ────────────────────────────────
   const tempo = createKnob({ label: 'tempo', min: 60, max: 180, step: 1, value: 120, unit: '',
     onChange: (v) => bay.send(id('transport', 'value-out'), { param: 'tempo', value: Math.round(v) }) });
   const knobs = createKnobGrid(new Map([['tempo', tempo]]), { row: true });
-  const song = createButtonGroup({ buttons: [{ id: 'song', label: 'Play Live',
-    onPress: () => bay.send(id('transport', 'value-out'), { param: 'play', value: liveState?.playing ? 0 : 1 }) }] });
-  song.enableAll(false, 'press play first');
 
   // ── the keyboard, and a plugged in one through the same node ─────────────
   const host = el('div');
@@ -271,7 +264,6 @@
       armed = true;
       board.watchRtt(2000);
       openMidi();
-      song.enableAll(true);
       transport.setIcon('play', 'stop', 'stop');
       clearInterval(poll);
       poll = setInterval(async () => { if (armed) { const s = await board.ask({ type: 'live.get' }, 'live.state', 3000); if (s) showLive(s); } }, 3000);
@@ -284,7 +276,6 @@
     clearInterval(poll);
     board?.watchRtt(0);
     kb.panic?.();
-    song.enableAll(false, 'press play first');
     transport.setIcon('play', 'play', 'play');
     say('Stopped: notes released, and the Mac stops sending Live\'s sound');
   }
@@ -296,7 +287,7 @@
   setInterval(() => pb.refresh?.(), 500);
 
   const top = el('div', 'cc-top');
-  top.append(transport.el, song.el);
+  top.append(transport.el);
   d.stack.add(top, wave.el, knobs.el, patchPick.el, host, pb.el);
   window.__demo.bay = bay;
   window.__demo.probe = () => ({ armed, level, program, live: liveState, said: saidLast, stats: board ? board.stats() : null, lags: [...lags] });
