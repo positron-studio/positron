@@ -92,3 +92,10 @@ its own place (the video room announces no place at all, so it defaults to the s
 
 Media ports carry `transports: ['p2p']`. Checked in `nodes-test.mjs`: two tabs linked with no `via` get
 `p2p`, and inside one tab the same pair is refused `p2p` (negative control).
+
+Added the same day for screen sharing and watching a film together (plan §4, §5): `share` (a device: the screen,
+`video-out` with `p2p` or `sfu`, and `value-out` saying it presents), `stage` (a screen on every tab: the
+presenter's screen or the film), `transport` (a person: play, pause and seek, stamped on the shared clock), and
+`player-video` gained an optional `value-in` for that transport. All `place: 'site'` for the same reason as the
+three above. `/room/video/` and `/room/mesh/` build them inline; the catalogue is their record.
+

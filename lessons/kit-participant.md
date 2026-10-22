@@ -196,3 +196,119 @@ default; `?mesh=1` keeps the browser to browser mesh.
   played under a `connecting` label.
 - Not done: pulling only the tiles on screen (every tile in this grid is on screen until it scrolls), and the
   fallback above, which can leave a tile on a bigger layer than asked.
+
+<a id="stage"></a>
+
+## `createStage` and the grid's stage mode: somebody presents
+
+Asked 2026-10-22 (plan §4.3): while somebody presents, the camera column becomes the stage plus a strip.
+
+- `grid.stage(stageEl, order)` moves every tile into one row under the stage (`.pos-ptg-strip`, scrolls
+  sideways), `order` first; `grid.stage(null)` puts the same tiles back in the grid. Tiles move between parents;
+  each is told to play again after a move, though Chrome kept them playing in every run.
+- The stage takes the share's own shape: `aspect-ratio` from the picture's `videoWidth / videoHeight`, capped by
+  the height left over the strip. A wide share fills the width; a tall one is centred.
+- The strip takes what the stage leaves, between 72 px and two fifths of the box, so a desk column has no bare
+  band under it. MEASURED at 1280 x 860, a 457 x 386 column: stage 457 x 257, strip 128 px, tiles 4:3 (171 px), so
+  2.7 tiles show and the cut third says the row scrolls. A first version had a fixed 112 or 88 px strip and left
+  41 px of bare panel on the desk.
+- A tall box (a phone held upright) gets 3:4 strip tiles; MEASURED at 375 x 812: stage 341 x 192, strip 285 px.
+  A tall box below a wide share stays partly empty, because the share cannot be taller than its shape allows.
+- The presenter's stage shows "You are presenting" and a preview at most 240 px wide, never the screen full
+  size, which would be a hall of mirrors.
+- The `narrow` test is the box's shape (taller than wide), not a width: the desk camera column is 457 px, under
+  the 560 px a width test used, and was laid out as a phone in the first run.
+- `stage.film(url, { title })` plays a file in the stage's own `<video>`, with sound and the player's controls;
+  the tag moves to the top so the controls along the foot do not cover it.
+
+<a id="share"></a>
+
+## Presenting: one at a time, nobody admin
+
+- Share is `getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: false })`, the track gets
+  `contentHint = 'detail'` (text stays sharp, the frame rate gives way), and the browser's own Stop sharing bar
+  ends it too (`ended`).
+- Who presents is a light `*` link, `<me>:share:value-out -> *:stage:value-in`, `{ presenting, t }` with `t` the
+  press time. The presenter repeats it every 10 s and when a new tab joins, as `/room/broadcast/` repeated its
+  broadcast, so a late joiner learns it within one round (MEASURED: 3.5 to 5.6 s from Join to the stage playing,
+  most of it the SFU pull). A claim nobody repeated for 25 s is dropped.
+- Every tab picks the presenter from the same claims with `pickPresenter` (the earliest press, the site breaks a
+  tie), so two presses at once settle with nobody deciding: the later one sees it lost and stops its own share.
+  MEASURED: two tabs pressed in the same Playwright tick; every one of six tabs named the same presenter, and
+  only that tab was still sharing.
+- Share is off (disabled, with the reason) for everybody else while somebody presents, and off while a film is
+  on. Where `getDisplayMedia` does not exist (iOS Safari, Android Chrome) there is no Share button and no `share`
+  node on the tab. MEASURED by deleting it in a phone context: no button, no node, the stage still shown.
+- The patchbay draws `<presenter>:share:video-out -> <each>:stage:video-in` on the presenter's tab (one per
+  other tab, `sfu` or `p2p`) plus a `page` link into its own stage for the preview; a viewer holds the one link
+  from the presenter to its own stage, because everything a tab shows arrives on a link.
+- Headless Chromium captures a fake 1280 x 720 screen with only `--use-fake-ui-for-media-stream` (MEASURED
+  2026-10-22 with Playwright's chromium 145; `--auto-select-desktop-capture-source` was not needed).
+
+<a id="share-sfu"></a>
+
+## The screen through the SFU: a third kind, one layer
+
+`sfu.mjs` publishes `screen` as its own track, `<site>-screen`, the first time a share starts; a stop is
+`replaceTrack(null)` and the next share reuses the transceiver. The screen is announced in `sfu.pub` only while
+it is shared, or a late joiner would pull a track with nothing on it and retry forever on `empty_track_error`.
+One layer at 2.5 Mbit/s and `degradationPreference: 'maintain-resolution'`, no simulcast: every viewer draws the
+screen on its stage at the column's width, and a quarter size copy of a screen is text nobody can read. A phone
+pulling the full layer is the price; simulcast would be worth it only if a phone ever needs a smaller copy.
+MEASURED: a press to the share playing on every other stage in 1.8 to 2.3 s (three viewers, the deployed worker).
+
+<a id="share-mesh"></a>
+
+## The screen on the mesh: a third transceiver
+
+The offerer adds audio, video and a second video at once, and both sides tell them apart by POSITION
+(`ROLES[index]`), because two are video and the kind cannot. So a share is a `replaceTrack`, never a new offer.
+The presenter uploads the screen once per other tab (5 copies at the mesh's limit of 6); that is the mesh's
+lesson, drawn by the patchbay as N - 1 share links. MEASURED: 0.3 s from the press to every stage, three viewers.
+
+<a id="together"></a>
+
+## `demo/room/together.mjs`: the pure half
+
+`pickPresenter`, `stripOrder`, `filmTarget`, `steer` and `newer`, graded by `node demo/room/together-test.mjs`,
+24 checks of which 10 are negative controls. Sabotages MEASURED 2026-10-22: picking by when a claim was heard
+instead of when it was pressed takes 3 red; dropping the dead band 1; letting a state run before its `at` 1;
+reading an unheard claim as fresh 1; a never stamped state winning over a stamped one 1.
+
+<a id="film"></a>
+
+## Watching a file together
+
+Plan §5: a film is not sent through WebRTC. Every tab plays the same file from our bucket
+(`https://positron-station.kristjan-jansen.workers.dev/media/mimproject/party-container-vabaduse-valjak-2010.mp4`,
+MIMproject's own, 2:37, 854 x 480, 16.5 MB). Watch, play, pause and seek,
+pressed by anybody, go out as one event on a TIMED light link, `<me>:transport:value-out ->
+*:player-video:value-in` with `ahead: 400`: `bay-node.mjs` stamps `at` on the shared clock and every tab's bay
+delivers it when its clock reads `at`, this tab's own included. The shared clock is `proto/looper/peer.mjs`
+over the relay room `<code>-ntp`, the lowest site the reference, as the archived clock pages do.
+
+- The press is the player's own controls: a `play`, `pause` or `seeked` that the page did not cause is said to
+  everybody. The page's own play, pause and seek are counted (`ours`), so they are not said back.
+- Between events each tab steers its player to `filmTarget(state, sharedNow)`, every 250 ms.
+- Mics: a film's sound would go back out through an open microphone, so the film switches yours off (it starts
+  off at Join anyway).
+- A late joiner gets the state repeated (`rep`, with the state's own `at`) when the room grows.
+
+<a id="steer"></a>
+
+## Steering a player to the shared film
+
+- Near (20 to 250 ms) it plays 2, 5 or 10 per cent faster or slower, in STEPS. A smooth `1 - drift / 2` was
+  re-set every 100 ms and never caught up: MEASURED, tabs sat 30 ms behind at rate 1.015 for 8 s, because every
+  change of `playbackRate` costs the player a few ms. With steps the same moment read 6 ms spread.
+- Far (over 250 ms) it seeks, aiming AHEAD by what a seek takes (0.12 s inside what is buffered, else the last
+  measured cost, 0.4 s at least), then waits paused and plays on the dot. MEASURED: seeking to a spot not yet
+  buffered from workers.dev took 0.3 to 0.6 s, so a seek to the target itself landed 170 to 410 ms behind and
+  took 5 s of 10 per cent catching up.
+- MEASURED 2026-10-22, 5 tabs (4 desk, 1 phone) on `/room/video/`, spread = the largest minus the smallest film
+  position across tabs, read together and brought to one shared time: playing 7 to 15 ms; 2 s after a seek to
+  an unbuffered 60 s, 69 ms; 5 s after, 19 ms; after a pause 0 ms; after play 46 ms at 0.5 s, 6 ms at 5 s; a late
+  joiner 27 to 40 ms. `/room/mesh/` 4 tabs: 12 to 35 ms throughout. All inside the plan's 100 ms, except the
+  first second after a seek, while the tabs wait paused for the film to reach the place they aimed at.
+- Every tab here is one machine, one clock; across machines the peer clock adds its own error (measured
+  elsewhere at about 3 ms, `positron-streaming`). Not measured across machines.

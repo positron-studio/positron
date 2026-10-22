@@ -1,6 +1,6 @@
 // demo/room/sfu.mjs: the video room through Cloudflare Realtime's SFU, by way of workers/sfu (which holds the
 // secret). The same face as mesh.mjs, so the page swaps one for the other: want(sites), signal(m), retrack(),
-// leave(), peers(). Two peer connections: one sends this tab's camera and microphone once, whatever the room's
+// leave(), peers(). Two peer connections: one sends this tab's camera, microphone and screen once, whatever the room's
 // size; the other receives every other tab's. Each is driven by one queue, because the SFU refuses a call on a
 // session while the last one's offer and answer are unfinished. Who published what is said on the relay room as
 // `sfu.pub`, with the proof the worker signed, so a tab can pull only what was published in its own room.
@@ -13,6 +13,11 @@ const LAYERS = [{ rid: 'c', scaleResolutionDownBy: 1, maxBitrate: 900_000 },
   { rid: 'b', scaleResolutionDownBy: 2, maxBitrate: 300_000 }, { rid: 'a', scaleResolutionDownBy: 4, maxBitrate: 100_000 }];
 /** The layer for a tile this many CSS pixels wide, on this screen's pixel density. */
 export const ridFor = (w, dpr = 1) => (w * dpr >= 640 ? 'c' : w * dpr >= 320 ? 'b' : 'a');
+/** A screen share goes out as one layer: every viewer draws it on the stage, and a smaller copy of a
+ *  screen is text nobody can read. why: lessons/kit-participant.md#share-sfu */
+const SCREEN = [{ maxBitrate: 2_500_000 }];
+/** What this tab can publish: a camera, a microphone, a screen. */
+const KINDS = ['audio', 'video', 'screen'];
 
 /** One promise chain per session: each step starts when the last has finished, failed or not. */
 function queue() {
@@ -35,12 +40,13 @@ const gathered = (pc, ms = 1500) => new Promise((resolve) => {
  * @param {string} o.site       this tab's site
  * @param {(msg: object) => boolean} o.send   puts one JSON message on the relay room
  * @param {RTCIceServer[]} [o.iceServers]
- * @param {() => {audio: MediaStreamTrack|null, video: MediaStreamTrack|null}} o.tracks  what to send now
+ * @param {() => {audio: MediaStreamTrack|null, video: MediaStreamTrack|null, screen?: MediaStreamTrack|null}} o.tracks  what to send now
  * @param {(site: string, stream: MediaStream) => void} o.onStream
+ * @param {(site: string, stream: MediaStream|null) => void} [o.onShare]  a site's screen, null when it is gone
  * @param {(site: string, state: string, how?: string) => void} [o.onState]
  * @param {(line: string, kind?: string) => void} [o.log]
  */
-export function createSfu({ base, room, site, send, iceServers = [], tracks, onStream, onState = () => {}, log = () => {} }) {
+export function createSfu({ base, room, site, send, iceServers = [], tracks, onStream, onShare = () => {}, onState = () => {}, log = () => {} }) {
   const api = async (path, body) => {
     const r = await fetch(`${base}/room/${encodeURIComponent(room)}/${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
@@ -55,11 +61,19 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   const remotes = new Map();   // site -> { sessionId, proof, tracks: [{ trackName, kind }] }
   const pulled = new Map();    // `${site} ${trackName}` -> mid ('' while pending)
   const streams = new Map();   // site -> MediaStream
+  const shares = new Map();    // site -> MediaStream, its screen
+  const sending = new Set();   // kinds with a live track now
   let wanted = [], rid = 'b', closed = false, ready = null;
 
   inn.pc.ontrack = (e) => {
     const t = inn.mids.get(e.transceiver.mid);
     if (!t) { log(`a track arrived on mid ${e.transceiver.mid} that nothing asked for`, 'warn'); return; }
+    if (t.kind === 'screen') {
+      const s = new MediaStream([e.track]);
+      shares.set(t.site, s);
+      onShare(t.site, s);
+      return;
+    }
     let s = streams.get(t.site);
     if (!s) { s = new MediaStream(); streams.set(t.site, s); }
     for (const old of s.getTracks().filter((x) => x.kind === e.track.kind)) s.removeTrack(old);
@@ -93,11 +107,13 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     return ready;
   }
 
-  /** Say what this tab publishes, for every other tab; repeated for a late joiner. */
+  /** Say what this tab publishes, for every other tab; repeated for a late joiner. A screen is said
+   *  only while it is shared, or a late joiner would pull a track with nothing on it. */
   function announce() {
     if (!out.session || closed) return;
     send({ type: 'sfu.pub', site, sessionId: out.session.sessionId, proof: out.session.proof,
-      tracks: [...out.published].map(([kind, p]) => ({ trackName: p.trackName, kind })) });
+      tracks: [...out.published].filter(([kind]) => kind !== 'screen' || sending.has('screen'))
+        .map(([kind, p]) => ({ trackName: p.trackName, kind })) });
   }
 
   /** Publish a kind the first time it has a track; after that only swap the track (null stops sending). */
@@ -106,9 +122,22 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       if (closed) return;
       await start();
       const had = out.published.get(kind);
-      if (had) { await had.transceiver.sender.replaceTrack(track || null).catch(() => {}); return; }
+      const was = sending.has(kind);
+      if (track) sending.add(kind); else sending.delete(kind);
+      if (had) {
+        await had.transceiver.sender.replaceTrack(track || null).catch(() => {});
+        if (kind === 'screen' && was !== !!track) announce();
+        return;
+      }
       if (!track) return;
-      const transceiver = out.pc.addTransceiver(track, { direction: 'sendonly', ...(kind === 'video' ? { sendEncodings: LAYERS } : {}) });
+      const enc = kind === 'video' ? { sendEncodings: LAYERS } : kind === 'screen' ? { sendEncodings: SCREEN } : {};
+      const transceiver = out.pc.addTransceiver(track, { direction: 'sendonly', ...enc });
+      if (kind === 'screen') {
+        // Keep the text sharp and let the frame rate give: a screen is read, not watched.
+        const p = transceiver.sender.getParameters();
+        p.degradationPreference = 'maintain-resolution';
+        await transceiver.sender.setParameters(p).catch(() => {});
+      }
       await out.pc.setLocalDescription(await out.pc.createOffer());
       await gathered(out.pc);
       const trackName = `${site}-${kind}`;
@@ -118,7 +147,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       const bad = r.tracks.find((t) => t.errorCode);
       if (bad) throw new Error(`publish ${kind}: ${bad.errorCode} ${bad.errorDescription || ''}`);
       out.published.set(kind, { trackName, transceiver });
-      log(`sfu published ${kind}${kind === 'video' ? ' in three layers' : ''}`);
+      log(`sfu published ${kind}${kind === 'video' ? ' in three layers' : kind === 'screen' ? ' in one layer' : ''}`);
       announce();
     }).catch((e) => log(`sfu ${e.message}`, 'warn'));
   }
@@ -143,6 +172,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
         await api(`${inn.session.sessionId}/close`, { proof: inn.session.proof, mids: gone.map(([, mid]) => mid) }).catch((e) => log(`sfu ${e.message}`, 'warn'));
         for (const [k, mid] of gone) { pulled.delete(k); inn.mids.delete(mid); }
         for (const s of [...streams.keys()]) if (!wanted.includes(s)) { streams.delete(s); onState(s, 'closed'); }
+        for (const s of [...shares.keys()]) if (!wanted.includes(s)) { shares.delete(s); onShare(s, null); }
       }
       if (!ask.length) return;
       const r = await api(`${inn.session.sessionId}/pull`, { proof: inn.session.proof,
@@ -169,6 +199,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   /** A site said goodbye: stop forwarding its tracks and take its tile down now, not when its graph goes stale. */
   function drop(s) {
     if (streams.delete(s)) onState(s, 'closed');
+    if (shares.delete(s)) onShare(s, null);
     inn.q(async () => {
       const mine = [...pulled].filter(([k, mid]) => k.startsWith(`${s} `) && mid);
       for (const [k] of [...pulled]) if (k.startsWith(`${s} `)) pulled.delete(k);
@@ -188,12 +219,12 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       const had = remotes.get(m.site);
       // A new session from the same site is a reload: what was pulled from the old one is dead.
       if (had && had.sessionId !== m.sessionId) for (const k of [...pulled.keys()]) if (k.startsWith(`${m.site} `)) pulled.delete(k);
-      remotes.set(m.site, { sessionId: m.sessionId, proof: m.proof, tracks: m.tracks.filter((t) => t && /^(audio|video)$/.test(t.kind)) });
+      remotes.set(m.site, { sessionId: m.sessionId, proof: m.proof, tracks: m.tracks.filter((t) => t && KINDS.includes(t.kind)) });
       reconcile();
     },
     announce,
     /** Send the current tracks: a kind is published the first time it has one. */
-    retrack() { const t = tracks(); setTrack('audio', t.audio); setTrack('video', t.video); },
+    retrack() { const t = tracks(); for (const k of KINDS) setTrack(k, t[k] || null); },
     /** Every pulled camera at this layer; asked only when it changes. */
     layer(next) {
       if (next === rid) return;
@@ -208,11 +239,14 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       send({ type: 'sfu.bye', site });
       for (const pc of [out.pc, inn.pc]) try { pc.close(); } catch { /* gone */ }
       for (const s of streams.keys()) onState(s, 'closed');
-      streams.clear();
+      for (const s of shares.keys()) onShare(s, null);
+      streams.clear(); shares.clear();
     },
     peers: () => [...streams.keys()].map((s) => ({ site: s, state: inn.pc.connectionState, route: route.in })),
     layerNow: () => rid,
-    published: () => [...out.published.keys()],
+    published: () => [...out.published.keys()].filter((k) => k !== 'screen' || sending.has('screen')),
+    /** The screen this tab pulled from a site, if any. */
+    share: (s) => shares.get(s) || null,
     /** The two peer connections, for a page that reads their stats (/radio/return/); read only. */
     connections: () => ({ send: out.pc, receive: inn.pc }),
   };

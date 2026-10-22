@@ -462,6 +462,80 @@ Checked: four tabs on `/room/video/` through the SFU (every tile playing in 6.5 
 must point at the worker's workers.dev name with `?sfu=https://positron-sfu.kristjan-jansen.workers.dev`; a first
 run without it published nothing and looked like a broken page.
 
+### Step: anybody presents (done, local only)
+
+Asked 2026-10-22 as step 4 of the session (§4 here). On both demos, not deployed.
+- **Nodes**: `share` (the screen, `getDisplayMedia`, `contentHint = 'detail'`, 15 fps ideal) and `stage` (every
+  tab) in `nodes.mjs`; the page builds them inline. Links: `<presenter>:share:video-out -> <each>:stage:video-in`
+  (`sfu` or `p2p`), a `page` link into the presenter's own stage for the preview, and the light
+  `<me>:share:value-out -> *:stage:value-in` saying `{ presenting, t }`. `hand` was not built.
+- **One presenter, nobody admin**: every tab picks the earliest press (`pickPresenter`, `demo/room/together.mjs`);
+  Share is disabled for everybody else while somebody presents; the presenter stops it, or the browser's own
+  Stop sharing bar does. The claim is repeated every 10 s and when a tab joins; unrepeated for 25 s it is dropped.
+- **SFU**: `sfu.mjs` publishes `screen` as a third kind, one layer at 2.5 Mbit/s with
+  `degradationPreference: 'maintain-resolution'`, no simulcast (a smaller copy of a screen is unreadable, and every
+  viewer draws it at the column's width); announced only while shared. **Mesh**: a third transceiver, roles by
+  position; the presenter uploads one copy per other tab, which the patchbay draws.
+- **Layout** (`participant.mjs`, kit block STAGE AND STRIP on /kit/chat/): `createStage()` and
+  `grid.stage(el, order)`. The stage at the share's own shape, the strip of cameras under it in one row that
+  scrolls sideways (presenter's camera, then the speaker, then you), taking what the stage leaves (72 px to two
+  fifths of the box). The presenter sees "You are presenting" and a preview at most 240 px wide.
+- No Share button where `getDisplayMedia` is missing (phones).
+
+Checked (MEASURED 2026-10-22, Playwright 1.58.2, Chromium's fake camera and fake screen with only
+`--use-fake-ui-for-media-stream`, the local relay, `?turn=0`, the deployed SFU worker by its workers.dev name):
+- `/room/video/`, 4 tabs (3 desk, 1 phone with `getDisplayMedia` deleted), cameras on: a press to the share
+  playing on all three other stages 1.8 to 2.3 s (three runs); the presenter's stage `self`, the viewers 1280 x 720
+  in a 457 x 257 stage, strip 128 px on the desk and 285 px on the phone, presenter first; Share disabled on the
+  viewers, no Share button and no `share` node on the phone; no sideways overflow. A late joiner: presenter known
+  and stage playing 3.5 to 5.6 s after Join. Stop: every tab back to the grid, Share enabled again. Two tabs
+  pressing Share in the same tick: all six tabs named one presenter and only it kept sharing.
+- `/room/mesh/`, the same run: 0.3 s to every stage, late joiner 0.3 s, the same stop and race results.
+- `node demo/room/together-test.mjs` 24/24, 10 negative controls, five sabotages each taking its own check red;
+  `nodes-test` 73, `bay-test` 262/262; `/kit/chat/?selfcheck=1` 13/13 at 1280 and at 375 (two new asserts);
+  four tabs on `/room/video/` all tiles playing in 5.0 s with the old layers (desk 320x180, phone 640x360), four on
+  `/room/mesh/` connected.
+- Screenshots looked at: `shots/video-share-*.png`, `shots/mesh-share-*.png`, `shots/kit-stage-*.png` in the
+  agent's scratchpad (`agent-share/`).
+
+Not checked: a real screen (only the fake one), a real phone, Safari, a share with sound, a presenter whose
+network drops (the claim goes stale in 25 s, the SFU tile at `sfu.bye` or never).
+
+### Step: watching a file together (done, local only)
+
+Step 5, file mode (§5.1). Watch (the `cast` icon) puts one of MIMproject's own films on every tab's stage,
+played from our bucket through the station worker
+(`mimproject/party-container-vabaduse-valjak-2010.mp4`, 2:37, 854 x 480, 16.5 MB). The player's own controls
+are the press: play, pause and seek by anybody go out on a TIMED light link,
+`<me>:transport:value-out -> *:player-video:value-in` with `ahead: 400`, stamped `at` on the shared clock
+(`proto/looper/peer.mjs` over the room `<code>-ntp`), and every tab's bay delivers it when its clock reads `at`.
+Between events each tab steers its player (`steer`): seeks past 250 ms, aiming ahead by what a seek takes and
+waiting paused for the film to reach it; nearer, plays 2, 5 or 10 per cent faster or slower. A film switches your
+microphone off. The film and a presenter exclude each other: Share is off while a film is on and Watch while
+somebody presents. Patchbay: `cf-r2:film:file-out -> <me>:player-video:file-in` (https),
+`<me>:player-video:video-out -> <me>:stage:video-in`, and the timed `transport` links marked `ahead 400`.
+
+MEASURED drift (spread = largest minus smallest film position across tabs, read together and brought to one
+shared time), 2026-10-22, one machine:
+
+| | `/room/video/`, 5 tabs (4 desk, 1 phone) | `/room/mesh/`, 4 tabs |
+| --- | --- | --- |
+| playing, 1 to 10 s after Watch | 7 to 15 ms | 12 to 20 ms |
+| a seek to 60 s (not buffered) by another tab, +1 s | tabs waiting paused at the aimed spot | |
+| the same, +2 s, +3 s | 69, 59 ms | 23, 35 ms |
+| the same, +5 s, +8 s | 19, 32 ms | 23, 35 ms |
+| a pause by a third tab | 0 ms | |
+| a play by a fourth, +0.5 s, +1 s, +2 s, +5 s, +8 s | 46, 28, 31, 6, 6 ms | 8, -, 10, 19, 12 ms |
+| a late joiner, +3, +6, +10 s | 40, 36, 27 ms | -, 15, 13 ms |
+
+So after a seek the tabs are within 100 ms of each other from 2 s on; before, they wait paused at the place they
+aimed at. Two earlier versions were worse and are in `lessons/kit-participant.md#steer`: a smooth rate re-set
+every 100 ms held tabs 30 ms behind for 8 s (every rate change costs the player a few ms), and a seek straight to
+the target landed 170 to 410 ms behind, because fetching an unbuffered spot from workers.dev took 0.3 to 0.6 s.
+Not measured: several machines (the shared clock's own error adds), a real phone, a slow network, audio echo with
+an open microphone (the film switches it off), and the rights to show a film to a room (§10).
+
+
 ## 9. Steps, in order
 
 Sizes are effort, not time. Each says when it is done.
@@ -478,10 +552,10 @@ Sizes are effort, not time. Each says when it is done.
    Done when: 6 headless tabs show 6 tiles, and a phone-sized tab pulls 4.
 6. **Speaker view, pages and order (small).** Done when: a 12-tab run shows the speaker on the stage and pages of
    4 on the phone size.
-7. **Screen sharing (medium).** `share`, `stage`, `hand`; the stage and strip layout; one presenter at a time.
-   Done when: one tab shares, every other tab shows stage and strip, and the presenter stops it.
-8. **Watching together (medium).** Live feed on the stage; a file played in sync from R2 with watch mode. Done
-   when: 10 tabs stay within 100 ms of each other after a seek.
+7. **Done (local): screen sharing.** `share`, `stage` (`hand` not built); the stage and strip layout; one presenter
+   at a time (§8a). Done when: one tab shares, every other tab shows stage and strip, and the presenter stops it.
+8. **Watching together (medium).** File mode done (local, §8a): 5 tabs within 100 ms from 2 s after a seek.
+   Left: a live feed on the stage, and a 10 tab run. Done when: 10 tabs stay within 100 ms of each other after a seek.
 9. **A dress rehearsal (small).** 15 people on real networks, TURN on 443 forced once. Done when: the numbers in
    §3.3 are replaced by measured ones.
 

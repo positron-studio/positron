@@ -13,9 +13,24 @@ import { createBayNode, randomSite, ROOM_RE } from '/shell/bay-node.mjs';
 import { heldPicture } from '/shell/bay-view.mjs';
 import { createPatchbay } from '/shell/patchbay.mjs';
 import { fetchIceServers, STUN_ONLY, ICE_PROXY } from '/shell/live.mjs';
-import { createParticipant, createParticipantGrid } from '/shell/participant.mjs';
+import { createParticipant, createParticipantGrid, createStage } from '/shell/participant.mjs';
 import { createMesh } from '/room/mesh.mjs';
 import { createSfu, ridFor } from '/room/sfu.mjs';
+import { pickPresenter, stripOrder, CLAIM_STALE_MS, filmTarget, steer, newer } from '/room/together.mjs';
+import { createTimebase } from '/shell/timebase.mjs';
+import { RELAY_BASE } from '/shell/wire.mjs';
+import { createPeer, wsTransport, epochNow } from '/proto/looper/peer.mjs';
+
+// The film watched together: one of MIMproject's own recordings, played by every tab from our bucket
+// through the station worker (no media server, nobody else's server). 2:37, 854x480, 16.5 MB.
+// why: lessons/kit-participant.md#film
+const FILM = {
+  key: 'mimproject/party-container-vabaduse-valjak-2010.mp4',
+  title: 'Party container, Vabaduse väljak 2010',
+  base: 'https://positron-station.kristjan-jansen.workers.dev/media/',
+};
+/** How far ahead on the shared clock a play, pause or seek is stamped, so every tab acts at once. */
+const FILM_AHEAD = 400;
 
 const CSS = `
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
@@ -79,6 +94,16 @@ export function videoRoom({ via, name }) {
   const SELF_OUT = `${SITE}:controls:value-out`, GRID_IN = `${SITE}:grid:value-in`;
   const CAM_OUT = `${SITE}:camera:video-out`, MIC_OUT = `${SITE}:microphone:audio-out`;
   const VIDEO_IN = `${SITE}:grid:video-in`, AUDIO_IN = `${SITE}:grid:audio-in`;
+  // Presenting: this tab's screen out, the stage in, and the light link that says who presents.
+  const SHARE_OUT = `${SITE}:share:video-out`, SHARE_SAY = `${SITE}:share:value-out`;
+  const STAGE_IN = `${SITE}:stage:video-in`, STAGE_HEAR = `${SITE}:stage:value-in`;
+  // Watching together: this tab's player, its play, pause and seek, and the file in the bucket.
+  const PLAYER = `${SITE}:player-video`, PLAYER_FILE = `${PLAYER}:file-in`, PLAYER_OUT = `${PLAYER}:video-out`;
+  const PLAYER_IN = `${PLAYER}:value-in`, TRANSPORT = `${SITE}:transport:value-out`;
+  const FILM_OUT = 'cf-r2:film:file-out';
+  const FILM_URL = FILM.base + FILM.key;
+  // Phones have no getDisplayMedia: no Share button there, and no share node to draw.
+  const CAN_SHARE = typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 
   let since = 0;
   const selfGraph = () => ({
@@ -91,6 +116,10 @@ export function videoRoom({ via, name }) {
       { id: `${SITE}:microphone`, kind: 'device', label: 'microphone' },
       { id: `${SITE}:controls`, kind: 'person', label: 'mic and camera buttons' },
       { id: `${SITE}:grid`, kind: 'screen', label: 'grid' },
+      ...(CAN_SHARE ? [{ id: `${SITE}:share`, kind: 'device', label: 'screen share' }] : []),
+      { id: `${SITE}:stage`, kind: 'screen', label: 'stage' },
+      { id: PLAYER, kind: 'engine', label: 'player' },
+      { id: `${SITE}:transport`, kind: 'person', label: 'play, pause, seek' },
     ],
     ports: [
       { id: OUT, label: 'chat', dir: 'out', medium: 'value', transports: ['relay'] },
@@ -103,6 +132,16 @@ export function videoRoom({ via, name }) {
       // `page` too: this tab's own camera into its own tile.
       { id: VIDEO_IN, label: 'camera', dir: 'in', medium: 'video', transports: ['page', VIA] },
       { id: AUDIO_IN, label: 'microphone', dir: 'in', medium: 'audio', transports: [VIA] },
+      ...(CAN_SHARE ? [
+        { id: SHARE_OUT, label: 'screen', dir: 'out', medium: 'video', transports: ['page', VIA] },
+        { id: SHARE_SAY, label: 'presenting', dir: 'out', medium: 'value', transports: ['relay'] },
+      ] : []),
+      { id: STAGE_IN, label: 'screen', dir: 'in', medium: 'video', transports: ['page', VIA] },
+      { id: STAGE_HEAR, label: 'who presents', dir: 'in', medium: 'value', transports: ['relay'] },
+      { id: PLAYER_FILE, label: 'film', dir: 'in', medium: 'file', transports: ['https'] },
+      { id: PLAYER_OUT, label: 'picture', dir: 'out', medium: 'video', transports: ['page'] },
+      { id: PLAYER_IN, label: 'play, pause, seek', dir: 'in', medium: 'value', transports: ['relay', 'page'] },
+      { id: TRANSPORT, label: 'play, pause, seek', dir: 'out', medium: 'value', transports: ['relay', 'page'] },
     ],
   });
 
@@ -115,13 +154,39 @@ export function videoRoom({ via, name }) {
   // The links: chat and mute state are `*` links; a camera and a microphone are one named link
   // per other tab, because heavy media gets a session per receiver. N tabs draw N - 1 of each.
   function bay() {
-    const b = node.registry.fill(createBay());
+    // Timed links deliver when the shared clock reads their `at`; the timebase knows this tab's offset.
+    tb.setOffset(clock ? clock.offsetMs() : null);
+    const b = node.registry.fill(createBay({ timing: { timebase: tb } }));
     if (b.port(IN)) b.addPort({ ...b.port(IN), deliver: heard });
     if (b.port(GRID_IN)) b.addPort({ ...b.port(GRID_IN), deliver: heardState });
+    if (b.port(STAGE_HEAR)) b.addPort({ ...b.port(STAGE_HEAR), deliver: heardShare });
+    if (b.port(PLAYER_IN)) b.addPort({ ...b.port(PLAYER_IN), deliver: heardFilm });
+    // Play, pause and seek reach every tab's player, this one's too, stamped ahead on the shared
+    // clock so all act together. why: lessons/kit-participant.md#film
+    const timed = { options: { ahead: FILM_AHEAD } };
+    b.link(TRANSPORT, '*:player-video:value-in', [], timed);
+    b.link('*:transport:value-out', PLAYER_IN, [], timed);
+    b.link(TRANSPORT, PLAYER_IN, [], timed);
+    if (since && film.on) {
+      b.addNode({ id: 'cf-r2:film', kind: 'store', label: 'film', place: 'cloudflare', net: 'cloudflare' });
+      b.addPort({ id: FILM_OUT, label: 'mp4', dir: 'out', medium: 'file', transports: ['https'] });
+      b.link(FILM_OUT, PLAYER_FILE);
+      if (!presenter) b.link(PLAYER_OUT, STAGE_IN);
+    }
     b.link(OUT, '*:chat:value-in');
     b.link('*:chat:value-out', IN);
     b.link(SELF_OUT, '*:grid:value-in');
     b.link('*:controls:value-out', GRID_IN);
+    // Who presents is a light `*` link both ways; the screen is one heavy link per other tab, and a
+    // `page` link into this tab's own stage for the small preview. why: lessons/kit-participant.md#share
+    if (CAN_SHARE) b.link(SHARE_SAY, '*:stage:value-in');
+    b.link('*:share:value-out', STAGE_HEAR);
+    if (since && shareTrack) {
+      b.link(SHARE_OUT, STAGE_IN);
+      for (const s of others().slice(0, MAX - 1)) b.link(SHARE_OUT, `${s}:stage:video-in`);
+    } else if (since && presenter && presenter !== SITE && b.port(`${presenter}:share:video-out`)) {
+      b.link(`${presenter}:share:video-out`, STAGE_IN);
+    }
     // Your camera into your own tile, while it is on. The microphone has no such link: it is never
     // played back to you, which would be the echo.
     if (since && local && camOn) b.link(CAM_OUT, VIDEO_IN);
@@ -139,6 +204,8 @@ export function videoRoom({ via, name }) {
   let pb = null;
   const node = createBayNode({
     room: ROOM || 'none', graphs: [selfGraph()], bay,
+    // The shared clock a timed link (the film's play, pause and seek) is stamped with.
+    shared: () => (clock ? sharedNow() : null),
     log: (line, kind) => d.log(line, kind),
     onJoin: () => {
       since = Date.now();
@@ -160,9 +227,11 @@ export function videoRoom({ via, name }) {
 
   // ── media ─────────────────────────────────────────────────────────────────
   let local = null, media = null, micOn = false, camOn = false;
+  let shareTrack = null, shareStream = null;   // this tab's screen while it presents
   const tracks = () => ({
     audio: local?.getAudioTracks()[0] || null,
     video: camOn ? (local?.getVideoTracks()[0] || null) : null,
+    screen: shareTrack,
   });
 
   const grid = createParticipantGrid({ empty: ROOM ? 'Join to see the room' : 'Make a new room, or open a room\'s link' });
@@ -204,14 +273,22 @@ export function videoRoom({ via, name }) {
       base: SFU_BASE, room: ROOM,
       site: SITE, send: (m) => node.send(m), iceServers: ice.iceServers, tracks,
       onStream: (s, stream) => { const t = tileFor(s); t.stream(stream); watch(s, stream); },
+      onShare: (s, stream) => { if (stream) shares.set(s, stream); else shares.delete(s); showStage(); },
       onState: (s, state, how) => {
         const t = tiles.get(s);
-        if (state === 'closed') { if (t) { grid.remove(t); tiles.delete(s); unwatch(s); } return; }
+        if (state === 'closed') {
+          if (t) { grid.remove(t); tiles.delete(s); unwatch(s); }
+          if (claims.delete(s)) showStage();
+          return;
+        }
         if (t) t.state(state === 'connected' ? (how.startsWith('relay') ? 'relay' : '') : state);
         if (state === 'connected') d.log(`${s} connected`);
       },
       log: (line, kind) => d.log(`webrtc ${line}`, kind),
     });
+    // The shared clock: every tab agrees the time with the lowest site in the room, peer to peer
+    // over the relay, so a play stamped `at` happens at once everywhere. why: lessons/kit-participant.md#film
+    clock = createPeer({ id: SITE, transport: wsTransport(`${RELAY_BASE}/room/${ROOM}-ntp/ws`) });
     me.stream(local);
     grid.add(me);
     watch(SITE, local);
@@ -228,6 +305,11 @@ export function videoRoom({ via, name }) {
 
   function leave() {
     sayState(false);
+    if (shareTrack) stopShare(false);
+    claims.clear(); shares.clear();
+    film = { on: false };
+    showStage();
+    clock?.dispose?.(); clock = null;
     media?.leave();
     node.leave();
     for (const t of local?.getTracks() || []) t.stop();
@@ -251,8 +333,12 @@ export function videoRoom({ via, name }) {
       reconcile.warned = true;
       d.log(`${all.length + 1} in the room, and this page shows ${MAX} at most ${VIA === 'p2p' ? 'on a mesh' : ''}, so ${all.length + 1 - MAX} are not shown`, 'warn');
     }
-    // A newcomer has to hear what this tab publishes on the SFU.
-    if (all.length !== reconcile.seen) { reconcile.seen = all.length; media.announce?.(); }
+    // A newcomer has to hear what this tab publishes on the SFU, and who presents.
+    if (all.length !== reconcile.seen) {
+      const grew = all.length > (reconcile.seen || 0);
+      reconcile.seen = all.length; media.announce?.(); if (shareTrack) sayShare();
+      if (grew && film.on) sayFilm(film, true);
+    }
     media.want(want);
     for (const [s, t] of tiles) if (!want.includes(s) && !media.peers().some((p) => p.site === s)) { grid.remove(t); tiles.delete(s); unwatch(s); }
     sayState();
@@ -317,8 +403,210 @@ export function videoRoom({ via, name }) {
     pb?.refresh();
   }
 
+  // ── presenting: one at a time, nobody admin ───────────────────────────────
+  // Share captures this tab's screen and says so on a light link, repeated every 10 s for a late
+  // joiner. Every tab picks the same presenter from the same claims (the earliest press), so two
+  // presses at once settle without anybody deciding. why: lessons/kit-participant.md#share
+  const claims = new Map();   // site -> { t, last }
+  const shares = new Map();   // site -> the MediaStream of its screen, as received
+  let presenter = '', claimT = 0;
+  const stage = createStage();
+  function sayShare() {
+    if (!since || !CAN_SHARE) return;
+    const r = node.emit(SHARE_SAY, shareTrack ? { presenting: true, t: claimT } : { presenting: false });
+    if (r.sent) pb?.pulse(SHARE_SAY, '*:stage:value-in');
+  }
+  setInterval(() => { if (shareTrack) sayShare(); }, 10_000);
+  function heardShare(e, l, m) {
+    const by = String(m.speaker || m.from).split(':')[0];
+    pb?.pulse(l.from, l.to);
+    if (e.presenting && Number.isFinite(e.t)) claims.set(by, { t: e.t, last: Date.now() });
+    else claims.delete(by);
+    showStage();
+  }
+  async function startShare() {
+    let s;
+    try { s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: false }); }
+    catch (e) { d.log(`screen: ${e.message}`, 'warn'); return; }
+    // Somebody else started presenting while the browser's picker was open.
+    if (presenter && presenter !== SITE) { for (const t of s.getTracks()) t.stop(); d.log(`${presenter} presents already`, 'warn'); return; }
+    const track = s.getVideoTracks()[0];
+    // Text stays sharp and the frame rate gives way, which is what a screen needs.
+    if ('contentHint' in track) track.contentHint = 'detail';
+    // The browser's own Stop sharing bar ends it as well.
+    track.addEventListener('ended', () => { if (shareTrack === track) stopShare(); });
+    shareTrack = track;
+    shareStream = new MediaStream([track]);
+    claimT = Date.now();
+    claims.set(SITE, { t: claimT, last: Date.now() });
+    window.__room.shareStartedAt = performance.now();
+    media?.retrack();
+    sayShare();
+    d.log(`presenting your screen, ${track.getSettings().width}x${track.getSettings().height}`);
+    showStage();
+  }
+  function stopShare(say = true) {
+    const t = shareTrack;
+    shareTrack = null; shareStream = null;
+    claims.delete(SITE);
+    try { t?.stop(); } catch { /* gone */ }
+    media?.retrack();
+    if (say) sayShare();
+    d.log('stopped presenting');
+    showStage();
+  }
+  const toggleShare = () => (shareTrack ? stopShare() : startShare());
+
+  /** Who presents now, and the layout that follows: stage and strip, or the grid. */
+  function showStage() {
+    const now = Date.now();
+    if (shareTrack) claims.set(SITE, { t: claimT, last: now });
+    const was = presenter;
+    presenter = pickPresenter(claims, now);
+    // Two pressed at once and the other was first: this tab steps back.
+    if (shareTrack && presenter !== SITE) { d.log(`${presenter} pressed Share first, so this tab stops presenting`, 'warn'); stopShare(); return; }
+    if (presenter !== was) d.log(presenter ? `${presenter === SITE ? 'you present' : `${presenter} presents`}` : 'nobody presents');
+    if (ctl && since) {
+      ctl.enable('watch', !presenter, presenter ? `${presenter} is presenting` : '');
+      ctl.setIcon('watch', 'cast', film.on ? 'Stop the film for everybody' : 'Watch a film together');
+      ctl.button('watch').setAttribute('aria-pressed', String(!!film.on));
+    }
+    if (CAN_SHARE && ctl && since) {
+      const other = presenter && presenter !== SITE;
+      ctl.enable('share', !other && !film.on, other ? `${presenter} is presenting` : film.on ? 'a film is on' : '');
+      ctl.setIcon('share', 'screen', shareTrack ? 'Stop presenting your screen' : 'Present your screen');
+      ctl.button('share').setAttribute('aria-pressed', String(!!shareTrack));
+    }
+    if (presenter) {
+      stage.show(presenter === SITE ? shareStream : shares.get(presenter) || media?.share?.(presenter) || null,
+        { self: presenter === SITE, who: presenter });
+      const order = stripOrder([SITE, ...tiles.keys()], { presenter, speaker, self: SITE });
+      grid.stage(stage.el, order.map((s) => (s === SITE ? me : tiles.get(s))).filter(Boolean));
+    } else if (film.on) {
+      stage.film(FILM_URL, { title: FILM.title });
+      const order = stripOrder([SITE, ...tiles.keys()], { speaker, self: SITE });
+      grid.stage(stage.el, order.map((s) => (s === SITE ? me : tiles.get(s))).filter(Boolean));
+    } else {
+      stage.show(null);
+      grid.stage(null);
+    }
+    if (presenter !== was || film.on !== showStage.film) pb?.refresh();
+    showStage.film = film.on;
+  }
+  // A claim nobody repeated goes stale, and a tab that vanished stops presenting everywhere.
+  setInterval(() => {
+    if (!claims.size && !presenter) return;
+    if ([...claims].some(([s, c]) => s !== SITE && Date.now() - c.last > CLAIM_STALE_MS)) {
+      for (const [s, c] of [...claims]) if (s !== SITE && Date.now() - c.last > CLAIM_STALE_MS) claims.delete(s);
+      showStage();
+    }
+  }, 2000);
+
+  // ── a film watched together ───────────────────────────────────────────────
+  // Every tab plays the same file from the bucket. Watch, play, pause and seek, pressed by anybody, go out
+  // as one light event on a timed link: `at` on the shared clock, delivered everywhere when the clock reads
+  // it. Between events each tab steers its player to where the film should be, by seeking when it is far
+  // off and by playing up to 10 per cent faster or slower when it is near. why: lessons/kit-participant.md#film
+  let clock = null;
+  const tb = createTimebase();
+  let film = { on: false };      // { on, pos, playing, at, by }
+  const sharedNow = () => (clock ? epochNow() + clock.offsetMs() : epochNow());
+  const fv = stage.video;
+  // Our own play, pause and seek must not be read as somebody pressing the player's controls.
+  const ours = { play: 0, pause: 0, seekUntil: 0, seekAt: 0, seekCost: 0.6, settling: false, hold: 0 };
+  function sayFilm(next, repeat = false) {
+    const ev = repeat ? { ...next, rep: true } : { on: next.on, pos: next.pos, playing: next.playing };
+    const r = node.emit(TRANSPORT, ev);
+    if (r.sent) pb?.pulse(TRANSPORT, '*:player-video:value-in');
+    if (!r.sent && !Number.isFinite(r.at)) d.log('the film event was not stamped: no shared clock yet', 'warn');
+  }
+  function heardFilm(e, l, m) {
+    pb?.pulse(l.from, l.to);
+    const by = String(m.speaker || m.from || l.from).split(':')[0];
+    // A repeat carries its own at; a fresh press takes the at it was stamped with.
+    const at = e.rep && Number.isFinite(e.at) ? e.at : Number.isFinite(m.timing?.at) ? m.timing.at : sharedNow();
+    const next = { on: !!e.on, pos: Number(e.pos) || 0, playing: !!e.playing, at, by: e.rep ? e.by : by };
+    if (!newer(next, film)) return;
+    const opened = next.on && !film.on, closed = !next.on && film.on;
+    film = next;
+    if (opened) {
+      d.log(`${by === SITE ? 'you start' : `${by} starts`} the film`);
+      // A film's sound would come back through an open microphone: it goes off, and can be switched on.
+      if (micOn) toggleMic();
+    }
+    if (closed) d.log(`${by === SITE ? 'you stop' : `${by} stops`} the film`);
+    if (opened || closed) showStage();
+    steerFilm(true);
+    window.__room.filmEvents = (window.__room.filmEvents || 0) + 1;
+  }
+  /** Bring this tab's player to where the film should be now. */
+  function steerFilm(now = false) {
+    if (!film.on || presenter) return;
+    if (!fv.getAttribute('src')) return;
+    const S = sharedNow();
+    const target = filmTarget(film, S);
+    const due = !film.playing || S >= film.at;
+    if (!due) return;
+    if (film.playing) {
+      if (ours.hold) return;
+      if (fv.readyState < 2 || fv.seeking) return;
+      const drift = fv.currentTime - target;
+      // Just after a seek the player aimed ahead: it waits, paused, for the film's time to reach it,
+      // then plays on the dot. A seek that still landed behind seeks again with more lead.
+      if (ours.settling) {
+        ours.settling = false;
+        if (drift > 0.01 && drift < 2) {
+          if (!fv.paused) { ours.pause++; fv.pause(); }
+          ours.hold = setTimeout(() => { ours.hold = 0; ours.play++; fv.playbackRate = 1; fv.play().catch(() => {}); }, drift * 1000);
+          return;
+        }
+        if (drift < -0.1) { ours.seekCost = Math.min(2, ours.seekCost * 1.5 - drift); }
+      }
+      if (fv.paused) { ours.play++; fv.play().catch(() => { ours.play = Math.max(0, ours.play - 1); }); }
+      const st = steer(drift, { seekOver: 0.25 });
+      if (st.seek) {
+        // Aim as far ahead as a seek takes: a little inside what is buffered, as long as the last one outside.
+        const inside = [...Array(fv.buffered.length).keys()].some((i) => fv.buffered.start(i) <= target && target + 0.5 < fv.buffered.end(i));
+        ours.seekUntil = performance.now() + 1500; ours.seekAt = performance.now(); ours.settling = true;
+        fv.currentTime = target + (inside ? 0.12 : Math.max(0.4, ours.seekCost));
+        fv.playbackRate = 1; film.seeks = (film.seeks || 0) + 1;
+      } else if (fv.playbackRate !== st.rate) fv.playbackRate = st.rate;
+    } else {
+      if (ours.hold) { clearTimeout(ours.hold); ours.hold = 0; }
+      if (!fv.paused) { ours.pause++; fv.pause(); }
+      fv.playbackRate = 1;
+      if (Math.abs(fv.currentTime - target) > 0.04 && !fv.seeking) { ours.seekUntil = performance.now() + 1500; fv.currentTime = target; }
+    }
+    if (now) film.steered = S;
+  }
+  setInterval(() => steerFilm(), 250);
+  // A press on the player's own controls is a press for everybody.
+  fv.addEventListener('play', () => { if (!film.on || !fv.getAttribute('src')) return; if (ours.play > 0) { ours.play--; return; }
+    if (!film.playing) sayFilm({ on: true, pos: fv.currentTime, playing: true }); });
+  fv.addEventListener('pause', () => { if (!film.on || !fv.getAttribute('src')) return; if (ours.pause > 0) { ours.pause--; return; }
+    if (fv.ended) return;
+    if (film.playing) sayFilm({ on: true, pos: fv.currentTime, playing: false }); });
+  fv.addEventListener('seeked', () => {
+    // Only a seek outside what is buffered teaches the lead; one inside it is always quick.
+    if (ours.seekAt) { const took = (performance.now() - ours.seekAt) / 1000; if (took > 0.15) ours.seekCost = Math.min(2, Math.max(ours.seekCost * 0.5, took)); ours.seekAt = 0; }
+    if (!film.on || !fv.getAttribute('src')) return; if (performance.now() < ours.seekUntil) return;
+    sayFilm({ on: true, pos: fv.currentTime, playing: film.playing }); });
+  function toggleFilm() {
+    if (film.on) sayFilm({ on: false, pos: 0, playing: false });
+    else sayFilm({ on: true, pos: 0, playing: true });
+  }
+  /** For a harness: where this tab's film is, on the shared clock, so tabs can be compared. */
+  const filmNow = () => ({ on: film.on, pos: fv.currentTime, S: sharedNow(), playing: !fv.paused, rate: fv.playbackRate,
+    ready: fv.readyState, seeking: fv.seeking, target: filmTarget(film, sharedNow()), seeks: film.seeks || 0,
+    offset: clock ? clock.offsetMs() : null, peers: clock ? clock.peers().filter((p) => Number.isFinite(p.rttMs)).length : 0 });
+
   // ── the SFU's layer: every pulled camera at the size its tile is drawn ───
-  setInterval(() => { if (media?.layer && grid.last().n) media.layer(ridFor(grid.last().w, devicePixelRatio)); }, 2000);
+  // With a stage up the tiles are the strip's, about 200 px wide on a desk.
+  setInterval(() => {
+    const L = grid.last();
+    if (!media?.layer || !L.n) return;
+    media.layer(ridFor(L.mode === 'stage' ? L.strip.h * (L.narrow ? 3 / 4 : 4 / 3) : L.w, devicePixelRatio));
+  }, 2000);
 
   // ── who is speaking: the loudest level over a floor, held a moment ────────
   // why: lessons/kit-participant.md#speaker
@@ -335,6 +623,7 @@ export function videoRoom({ via, name }) {
   }
   function unwatch(s) { const m = meters.get(s); if (m) { try { m.src.disconnect(); } catch { /* gone */ } meters.delete(s); } }
   let speaker = '', speakerAt = 0;
+  const tick = { speaker: '' };
   setInterval(() => {
     if (!meters.size) return;
     let loud = '', top = 0;
@@ -353,6 +642,10 @@ export function videoRoom({ via, name }) {
     if (top > 0.02) speakerAt = now;
     me.speaking(speaker === SITE);
     for (const [s, t] of tiles) t.speaking(speaker === s);
+    if (presenter && speaker !== tick.speaker) {
+      grid.order(stripOrder([SITE, ...tiles.keys()], { presenter, speaker, self: SITE }).map((s) => (s === SITE ? me : tiles.get(s))).filter(Boolean));
+    }
+    tick.speaker = speaker;
   }, 150);
 
   // ── chat, as /room/broadcast/ ─────────────────────────────────────────────
@@ -397,6 +690,8 @@ export function videoRoom({ via, name }) {
   const ctl = createButtonGroup({ buttons: [
     { id: 'mic', label: 'Mute your microphone', icon: 'mic', onPress: toggleMic },
     { id: 'cam', label: 'Turn your camera off', icon: 'video', onPress: toggleCam },
+    ...(CAN_SHARE ? [{ id: 'share', label: 'Present your screen', icon: 'screen', onPress: toggleShare }] : []),
+    { id: 'watch', label: 'Watch a film together', icon: 'cast', onPress: toggleFilm },
     { id: 'leave', label: 'Leave', onPress: leave },
   ] });
   ctl.enableAll(false, 'join first');
@@ -441,6 +736,11 @@ export function videoRoom({ via, name }) {
     grid: () => grid.layout(),
     links: () => bay().links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport || ''} ${l.session?.where || ''}`.trim()),
     mic: () => micOn, cam: () => camOn,
+    canShare: CAN_SHARE, presenter: () => presenter, sharing: () => !!shareTrack, stage: () => stage.info(),
+    shareStartedAt: 0,
+    film: filmNow,
+    /** Press play, pause or seek as somebody would, for a harness. */
+    filmPress: (op, pos) => sayFilm({ on: true, pos: op === 'seek' ? pos : fv.currentTime, playing: op === 'pause' ? false : op === 'play' ? true : film.playing }),
     link: roomLink,
     show: (id) => (id ? tabs.go(id) : rv.dataset.show), unread: () => unread,
   };

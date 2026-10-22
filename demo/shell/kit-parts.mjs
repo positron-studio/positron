@@ -64,7 +64,7 @@ export const KIT_PARTS = [
   // `chat`: demo/shell/chat-ui.mjs, the pieces the /room/ concept pages draw their chat with.
   // why: lessons/kit-kit-parts.md#chat
   { part: 'chat', label: 'CHAT', ids: [
-    'participant-grid', 'chat-grid', 'chat-window', 'chat-column', 'chat-sign', 'chat-log', 'chat-compose',
+    'stage-and-strip', 'participant-grid', 'chat-grid', 'chat-window', 'chat-column', 'chat-sign', 'chat-log', 'chat-compose',
   ] },
   // `frontpage`: the site's faces and the sans faces measured against the brand mono. Archived:
   // still served, its blocks still resolve, listed on /archive/.
