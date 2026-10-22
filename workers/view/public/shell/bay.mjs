@@ -42,20 +42,26 @@ export const WHERE = ['machine', 'network', 'internet-one', 'internet-many'];
  * why: lessons/kit-bay.md#transports
  */
 export const RELAY = { msgPerSec: 1000, burst: 2000 };
+// A meeting's media: `p2p` browser to browser (a mesh), `sfu` through a media server. They sit after the
+// cell's own choice, so they are offered only to ports that name them; `notes` is what each says.
+// why: lessons/kit-bay.md#p2p-sfu
+const P2P = 'browser to browser WebRTC, one upload per receiver, no number measured';
+const SFU = 'through an SFU, one upload whatever the receivers, no number measured';
 const RELAY_CAP = `cap ${RELAY.msgPerSec} msg/s, ${RELAY.burst} burst`;
 export const TRANSPORTS = {
   audio: {
     'machine':       { transport: 'webaudio', says: 'WebAudio or Core Audio, no number measured' },
-    'network':       { transport: 'datachannel', says: 'board round trip 4 ms' },
-    'internet-one':  { transport: 'relay', says: `relay round trip p50 36 ms, ${RELAY_CAP}` },
-    'internet-many': { transport: 'moq', or: 'llhls', says: 'MoQ or LL-HLS, no number measured' },
+    'network':       { transport: 'datachannel', or: ['p2p'], says: 'board round trip 4 ms', notes: { p2p: P2P } },
+    'internet-one':  { transport: 'relay', or: ['p2p'], says: `relay round trip p50 36 ms, ${RELAY_CAP}`, notes: { p2p: P2P } },
+    'internet-many': { transport: 'moq', or: ['llhls', 'sfu', 'p2p'], says: 'MoQ or LL-HLS, no number measured',
+                       notes: { sfu: SFU, p2p: P2P } },
   },
   video: {
     'machine':       { transport: 'page', says: 'the page itself, nothing crosses a wire' },
-    'network':       { transport: 'datachannel', says: 'to measure' },
-    'internet-one':  { transport: 'whep', or: 'relay-h264',
-                       says: 'a VPN passes the WHEP handshake and drops the media, so count frames' },
-    'internet-many': { transport: 'llhls', says: 'LL-HLS, no number measured' },
+    'network':       { transport: 'datachannel', or: ['p2p'], says: 'to measure', notes: { p2p: P2P } },
+    'internet-one':  { transport: 'whep', or: ['relay-h264', 'p2p'],
+                       says: 'a VPN passes the WHEP handshake and drops the media, so count frames', notes: { p2p: P2P } },
+    'internet-many': { transport: 'llhls', or: ['sfu', 'p2p'], says: 'LL-HLS, no number measured', notes: { sfu: SFU, p2p: P2P } },
   },
   file: {
     'machine':       { transport: 'indexeddb', says: 'IndexedDB, no number measured' },
@@ -86,7 +92,7 @@ export const READS = {
 // `whip` is declared by ports but never chosen by the table; without it `addPort` throws.
 // why: lessons/kit-bay.md#transport-names
 export const TRANSPORT_NAMES = [...new Set([...Object.values(TRANSPORTS), READS]
-  .flatMap((row) => Object.values(row)).flatMap((c) => [c.transport, c.or]).filter(Boolean).concat('whip', 'jack', 'fbdev', 'icecast', 'websocket'))];
+  .flatMap((row) => Object.values(row)).flatMap((c) => [c.transport, c.or].flat()).filter(Boolean).concat('whip', 'jack', 'fbdev', 'icecast', 'websocket'))];
 // `websocket` is raw PCM to a Durable Object and back (/radio/edgecast/), asked for by name.
 // `jack` is chosen by the ports in `sessionFor`, never by a table cell.
 // why: lessons/kit-bay.md#machine-only
@@ -1199,7 +1205,7 @@ export function createBay({ now = () => Date.now(), timing = null } = {}) {
     const allows = (x) => legs.every((p) => p.transports.includes(x));
     const only = (p) => p.transports.join(' or ');
     const firstBar = (x) => legs.find((p) => !p.transports.includes(x));
-    const cell = [t.transport, t.or].filter(Boolean);
+    const cell = [t.transport, t.or].flat().filter(Boolean);
     let chosen;
     if (via) {
       if (!TRANSPORT_NAMES.includes(via)) {
@@ -1207,18 +1213,18 @@ export function createBay({ now = () => Date.now(), timing = null } = {}) {
                            fix: `Ask for one of ${TRANSPORT_NAMES.join(', ')}, or leave via off.` } };
       }
       if (MACHINE_ONLY.includes(via) && t.where !== 'machine') {
-        return { refuse: { why: `${via} never leaves one machine, and ${a.label} and ${b.label} are on two.`,
+        return { refuse: { why: `${via} never leaves one machine, and ${a.label ?? a.id} and ${b.label ?? b.id} are on two.`,
                            fix: `Leave via off and the link rides ${cell.find(allows) || t.transport}.` } };
       }
       // A wire transport between two ports of one site is refused; same site, not same place.
       // why: lessons/kit-bay.md#same-site
       if (!MACHINE_ONLY.includes(via) && t.where === 'machine' && siteOf(a) === siteOf(b)) {
-        return { refuse: { why: `${a.label} and ${b.label} are both on ${siteOf(a)}, so ${via} would send it out over a wire and back to where it started.`,
+        return { refuse: { why: `${a.label ?? a.id} and ${b.label ?? b.id} are both on ${siteOf(a)}, so ${via} would send it out over a wire and back to where it started.`,
                            fix: `Leave via off and the link rides ${cell.find(allows) || t.transport}.` } };
       }
       const bar = firstBar(via);
       if (bar) {
-        return { refuse: { why: `${bar.label} only travels by ${only(bar)}, and this link asks for ${via}.`,
+        return { refuse: { why: `${bar.label ?? bar.id} only travels by ${only(bar)}, and this link asks for ${via}.`,
                            fix: `Ask for ${bar.transports[0]} instead.` } };
       }
       chosen = via;
@@ -1226,11 +1232,11 @@ export function createBay({ now = () => Date.now(), timing = null } = {}) {
       chosen = cell.find(allows);
       if (!chosen) {
         const bar = firstBar(cell[0]);
-        return { refuse: { why: `${bar.label} only travels by ${only(bar)}, and at ${t.where} the table offers ${cell.join(' or ')}.`,
+        return { refuse: { why: `${bar.label ?? bar.id} only travels by ${only(bar)}, and at ${t.where} the table offers ${cell.join(' or ')}.`,
                            fix: `Ask for ${bar.transports[0]} by name with via, or link it to a receiver nearer to it.` } };
       }
     }
-    const says = cell.includes(chosen) ? t.says : `${chosen}, asked for on this link, no number measured`;
+    const says = t.notes?.[chosen] || (cell.includes(chosen) ? t.says : `${chosen}, asked for on this link, no number measured`);
     return { session: { transport: chosen, address: addressOf(into ? b : a), shape: { ...(a.shape || {}) },
              where: t.where, says, ...(t.or && chosen === t.transport ? { or: t.or } : {}),
              ...(via ? { via } : {}) } };

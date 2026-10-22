@@ -104,7 +104,7 @@ const CSS = `
     .pos-chat-win.two .pos-vp-stage { --vp-aspect: 3 / 5; }
     .pos-chat-win.one .pos-vp-stage { --vp-aspect: 4 / 5; }
     .pos-chat.two { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
-    .pos-chat-gwin .pos-vp-stage { --vp-aspect: 3 / 4; }
+    .pos-chat-gwin[data-n] .pos-vp-stage { --vp-aspect: 3 / 4; }
     .pos-chat-gwin[data-n="1"] .pos-vp-stage { --vp-aspect: 4 / 5; }
   }
   /* \`fixed: true\`: one shape at every count, so the frame keeps its height as

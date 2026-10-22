@@ -36,6 +36,7 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createStepper } from '/shell/stepper.mjs';
   import { createChatLog, createChatSign, createChatCompose, createChatColumn, createChatWindow, createChatGrid } from '/shell/chat-ui.mjs';
+  import { createParticipant, createParticipantGrid } from '/shell/participant.mjs';
 
   /**
    * Every piece of demo/shell/chat-ui.mjs, the module the /room/ pages draw chat with.
@@ -55,9 +56,56 @@
   ];
 
   // the blocks, newest first
+  const PEOPLE = ['web-2qm', 'web-7zd', 'web-k4p', 'web-91x', 'web-ab12', 'web-3fe'];
+  // PARTICIPANT GRID: demo/shell/participant.mjs, the tiles /room/video/ draws its cameras with.
+  // A painted canvas stands in for a camera, so the specimen opens no device.
+  let pgrid = null;
+  const pTiles = [];
+  section('PARTICIPANT GRID',
+    'One tile per person with a name, a muted mic, a camera-off face and a ring while they speak. The grid sizes every tile alike from its own box.',
+    `createParticipant({ name, self }) -> { el, stream(s), mic(on), cam(on), speaking(on), state(t) }
+createParticipantGrid({ gap, minW }) -> { el, add(tile), remove(tile), layout() }`,
+    (box) => {
+      const host = el('div', 'kc-tall');
+      host.style.height = '320px';
+      pgrid = createParticipantGrid({ empty: 'nobody yet' });
+      host.append(pgrid.el);
+      const paint = (hue) => {
+        const c = Object.assign(document.createElement('canvas'), { width: 320, height: 180 });
+        const g = c.getContext('2d');
+        let t = 0;
+        const draw = () => { g.fillStyle = `hsl(${hue} 30% 22%)`; g.fillRect(0, 0, 320, 180);
+          g.fillStyle = `hsl(${hue} 50% 55%)`; g.beginPath(); g.arc(160 + 40 * Math.sin(t / 20), 95, 40, 0, 7); g.fill(); t++; };
+        draw(); setInterval(draw, 100);
+        return c.captureStream ? c.captureStream(10) : null;
+      };
+      PEOPLE.forEach((who, i) => {
+        const t = createParticipant({ name: i ? who : `me ${who}`, self: !i });
+        t.video.muted = true;   // a specimen plays without a press
+        t.stream(paint(i * 50));
+        if (i === 1) t.mic(false);
+        if (i === 2) t.cam(false);
+        if (i === 3) t.speaking(true);
+        if (i === 4) t.state('relay');
+        pTiles.push(t);
+      });
+      const NAMES = PEOPLE.map((_, i) => `${i + 1} ${i ? 'people' : 'person'}`);
+      const to = (n) => {
+        const k = Math.max(1, Math.min(pTiles.length, n));
+        pTiles.forEach((t, i) => { if (i < k) pgrid.add(t); else pgrid.remove(t); });
+        step.show(NAMES[k - 1], k - 1);
+      };
+      const step = createStepper({ what: 'people', prev: () => to(pgrid.tiles().length - 1), next: () => to(pgrid.tiles().length + 1),
+        pick: { options: NAMES, at: 3, onPick: (i) => to(i + 1) } });
+      const wrap = el('div', 'kc-full');
+      wrap.style.display = 'flex'; wrap.style.flexDirection = 'column'; wrap.style.gap = '8px';
+      wrap.append(host, step.el);
+      box.append(wrap);
+      to(4);
+    });
+
   // CHAT GRID: six columns, logs and signs taking turns, the stepper showing
   // the first n of them. The layout is the multi typer's (/typist/score/).
-  const PEOPLE = ['web-2qm', 'web-7zd', 'web-k4p', 'web-91x', 'web-ab12', 'web-3fe'];
   const LINES = ['Is the Pi up today?', 'It answered a minute ago.', 'The Circuit is plugged in.',
     'Patching the keys to it now.', 'I hear it from here.', 'Doors open at eight'];
   let grid = null;
@@ -176,17 +224,25 @@
       for (const c of grid.grid.children) { const t = Math.round(c.getBoundingClientRect().top); tops.set(t, (tops.get(t) || 0) + 1); }
       return [...tops.entries()].sort((a, b) => a[0] - b[0]).map(([, k]) => k).join(',');
     };
-    const want = { 1: '1', 2: '2', 3: '3', 4: '2,2', 5: '3,2', 6: '3,3' };
+    // A desk and a phone lay the grid out differently (chat-ui.mjs): the rows ask the frame's own
+    // width (a container query at 560 px), the frame's shape asks the window's (a media query).
+    const narrow = grid.grid.parentElement.clientWidth <= 560;
+    const phone = matchMedia('(max-width: 560px)').matches;
+    const want = narrow
+      ? { 1: '1', 2: '1,1', 3: '1,1,1', 4: '2,2', 5: '2,2,1', 6: '2,2,2' }
+      : { 1: '1', 2: '2', 3: '3', 4: '2,2', 5: '3,2', 6: '3,3' };
     const got = {};
     for (let n = 1; n <= 6; n++) { grid.set(n); got[n] = rows(); }
     grid.set(3);
-    d.assert('the grid lays one to six cells out as 1, 2, 3, 2 by 2, 3 over 2 and 3 by 2 on a desk',
+    d.assert(narrow ? 'on a phone the grid stacks one to three cells and goes 2 by 2, 2, 2 and 1, and 2 by 3'
+      : 'the grid lays one to six cells out as 1, 2, 3, 2 by 2, 3 over 2 and 3 by 2 on a desk',
       Object.keys(want).every((n) => got[n] === want[n]), JSON.stringify(got));
     const ar = (n) => { grid.set(n); const r = grid.panel.stage.getBoundingClientRect(); return +(r.width / r.height).toFixed(2); };
     const a3 = ar(3), a4 = ar(4);
     grid.set(3);
-    d.assert('the frame is 16:9 for one row of cells and 4:3 for two',
-      Math.abs(a3 - 16 / 9) < 0.02 && Math.abs(a4 - 4 / 3) < 0.02, `${a3} at 3, ${a4} at 4`);
+    const [w3, w4] = phone ? [3 / 4, 3 / 4] : [16 / 9, 4 / 3];
+    d.assert(phone ? 'on a phone the frame is 3:4 for three cells and for four' : 'the frame is 16:9 for one row of cells and 4:3 for two',
+      Math.abs(a3 - w3) < 0.02 && Math.abs(a4 - w4) < 0.02, `${a3} at 3, ${a4} at 4`);
   }
   d.ready();
 </script>

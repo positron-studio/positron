@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Video room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Video room">
+<meta property="og:url" content="https://positron.studio/room/video/">
+<meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* /room/broadcast/ with the admin column taken out and a grid of cameras put in its place:
+     cameras on the left two thirds, the chat on the right, a phone stacks them.
+     A full mesh: every tab sends its camera to every other tab. plans/plan-video-room.md.
+     See lessons/kit-participant.md#page */
+  .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
+  /* A phone: the window is one screen tall, Video and Chat are tabs over it, the footer stays at
+     the bottom above the home bar. A desk keeps both columns and no tabs.
+     why: lessons/kit-participant.md#phone */
+  .rv > .pos-tabs { display: none; }
+  /* In the room the window never runs past the screen, so the footer stays in reach on a short one
+     (a phone on its side). 56 px is the footer row: 34 px controls and their padding. `width: 100%`,
+     or aspect-ratio carries the height cap over to the width and the window narrows. */
+  .rv[data-in] > .pos-vp > .pos-vp-stage { width: 100%;
+    max-height: calc(100vh - 56px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+  @media (max-width: 560px) {
+    .rv:not([data-in]) > .pos-vp > .pos-vp-stage { --vp-aspect: 4 / 5; }
+    .rv[data-in] { --pos-tabs-air: 10px; display: flex; flex-direction: column;
+          height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+          height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+          scroll-margin-top: env(safe-area-inset-top, 0px); }
+    .rv > .pos-tabs { display: block; flex: none; }
+    .rv[data-in] > .pos-vp { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .rv[data-in] > .pos-vp > .pos-vp-stage { flex: 1 1 auto; min-height: 0; aspect-ratio: auto; }
+    .rv .pos-chat-h { display: none; }
+    .rv .pos-chat.two { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+    .rv[data-show="video"] .pos-chat > :nth-child(2), .rv[data-show="chat"] .pos-chat > :nth-child(1) { display: none; }
+  }
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createChatLog, createChatCompose, createChatColumn, createChatWindow } from '/shell/chat-ui.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createIconButton } from '/shell/icon-button.mjs';
+  import { createTabs } from '/shell/tabs.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createBayNode, randomSite, ROOM_RE } from '/shell/bay-node.mjs';
+  import { heldPicture } from '/shell/bay-view.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { fetchIceServers, STUN_ONLY, ICE_PROXY } from '/shell/live.mjs';
+  import { createParticipant, createParticipantGrid } from '/shell/participant.mjs';
+  import { createMesh } from '/room/mesh.mjs';
+
+  const d = mount({ name: 'Video room', what: '', readout: null, index: '/', indexLabel: 'positron' });
+
+  // ── the sites ─────────────────────────────────────────────────────────────
+  // A room is a short random code, made by New room and shared as a link. With no room there is
+  // nothing to join. Nothing opens, and no camera is asked for, until Join is pressed.
+  // why: lessons/kit-participant.md#room
+  const q = new URLSearchParams(location.search);
+  const asked = q.get('room');
+  const ROOM = asked && ROOM_RE.test(asked) ? asked : '';
+  // ?turn=0 asks for no relay: for a local test that should not spend the worker's TURN hour.
+  const WANT_TURN = q.get('turn') !== '0';
+  // A mesh past this many is the wrong shape (plan §3): the page says so rather than melting.
+  const MESH_MAX = 6;
+  const SITE = randomSite('web');
+  const OUT = `${SITE}:chat:value-out`, IN = `${SITE}:chat:value-in`;
+  const SELF_OUT = `${SITE}:controls:value-out`, GRID_IN = `${SITE}:grid:value-in`;
+  const CAM_OUT = `${SITE}:camera:video-out`, MIC_OUT = `${SITE}:microphone:audio-out`;
+  const VIDEO_IN = `${SITE}:grid:video-in`, AUDIO_IN = `${SITE}:grid:audio-in`;
+
+  let since = 0;
+  const selfGraph = () => ({
+    // No `place`: it defaults to the site, so two tabs are two machines and their media rides p2p.
+    // `browser` would tell the bay every tab is one machine. why: lessons/kit-participant.md#page
+    v: 1, site: SITE, kind: 'browser', label: 'browser', ...(since ? { since } : {}),
+    nodes: [
+      { id: `${SITE}:chat`, kind: 'person', label: 'chat' },
+      { id: `${SITE}:camera`, kind: 'device', label: 'camera' },
+      { id: `${SITE}:microphone`, kind: 'device', label: 'microphone' },
+      { id: `${SITE}:controls`, kind: 'person', label: 'mic and camera buttons' },
+      { id: `${SITE}:grid`, kind: 'screen', label: 'grid' },
+    ],
+    ports: [
+      { id: OUT, label: 'chat', dir: 'out', medium: 'value', transports: ['relay'] },
+      { id: IN, label: 'chat', dir: 'in', medium: 'value', transports: ['relay'] },
+      { id: SELF_OUT, label: 'mic and camera on or off', dir: 'out', medium: 'value', transports: ['relay'] },
+      { id: GRID_IN, label: 'who is muted', dir: 'in', medium: 'value', transports: ['relay'] },
+      // Browser to browser WebRTC media, the mesh. `sfu` joins this list when the SFU client lands.
+      { id: CAM_OUT, label: 'camera', dir: 'out', medium: 'video', transports: ['page', 'p2p'] },
+      { id: MIC_OUT, label: 'microphone', dir: 'out', medium: 'audio', transports: ['p2p'] },
+      // `page` too: this tab's own camera into its own tile.
+      { id: VIDEO_IN, label: 'camera', dir: 'in', medium: 'video', transports: ['page', 'p2p'] },
+      { id: AUDIO_IN, label: 'microphone', dir: 'in', medium: 'audio', transports: ['p2p'] },
+    ],
+  });
+
+  /** The other tabs in the room that have a grid, live, joined. */
+  const others = () => node.registry.graphs()
+    .filter((g) => !g.stale && g.site !== SITE && g.graph.since && g.graph.nodes?.some((n) => n.id === `${g.site}:grid`))
+    .sort((a, b) => a.graph.since - b.graph.since || a.site.localeCompare(b.site))
+    .map((g) => g.site);
+
+  // The links: chat and mute state are `*` links; a camera and a microphone are one named link
+  // per other tab, because heavy media gets a session per receiver. N tabs draw N - 1 of each.
+  function bay() {
+    const b = node.registry.fill(createBay());
+    if (b.port(IN)) b.addPort({ ...b.port(IN), deliver: heard });
+    if (b.port(GRID_IN)) b.addPort({ ...b.port(GRID_IN), deliver: heardState });
+    b.link(OUT, '*:chat:value-in');
+    b.link('*:chat:value-out', IN);
+    b.link(SELF_OUT, '*:grid:value-in');
+    b.link('*:controls:value-out', GRID_IN);
+    // Your camera into your own tile, while it is on. The microphone has no such link: it is never
+    // played back to you, which would be the echo.
+    if (since && local && camOn) b.link(CAM_OUT, VIDEO_IN);
+    if (since && local) {
+      for (const s of others().slice(0, MESH_MAX - 1)) {
+        b.link(CAM_OUT, `${s}:grid:video-in`);
+        b.link(MIC_OUT, `${s}:grid:audio-in`);
+      }
+    }
+    return b;
+  }
+  /** The sites this tab holds a camera link to: the mesh connects to exactly these. */
+  const linked = () => bay().links().filter((l) => l.from === CAM_OUT && l.to !== VIDEO_IN).map((l) => l.to.split(':')[0]);
+
+  let pb = null;
+  const node = createBayNode({
+    room: ROOM || 'none', graphs: [selfGraph()], bay,
+    log: (line, kind) => d.log(line, kind),
+    onJoin: () => {
+      since = Date.now();
+      node.setGraphs([selfGraph()]);
+      chatBox.enable(true);
+      sayState();
+      reconcile();
+    },
+    onGraph: () => reconcile(),
+    onMessage: (m) => {
+      if (m.type !== 'rtc.sig') return;
+      // The site must be one this socket announced, or any tab could answer for another.
+      const theirs = node.registry.graphs().some((g) => g.from === m.from && g.site === m.site);
+      if (!theirs) { if (m.to === SITE) d.log(`refused signalling said as ${m.site} by a socket that never announced it`, 'warn'); return; }
+      mesh?.signal(m);
+    },
+    onEvent: (m, n) => { if (n < 0) d.log(`refused a line said as ${m.source} by a socket that never announced it`, 'warn'); },
+  });
+
+  // ── media ─────────────────────────────────────────────────────────────────
+  let local = null, mesh = null, micOn = false, camOn = false;
+  const tracks = () => ({
+    audio: local?.getAudioTracks()[0] || null,
+    video: camOn ? (local?.getVideoTracks()[0] || null) : null,
+  });
+
+  const grid = createParticipantGrid({ empty: ROOM ? 'Join to see the room' : 'Make a new room, or open a room\'s link' });
+  // Your own name is `me` and your id, as everybody else is their id.
+  const ME = `me ${SITE}`;
+  const me = createParticipant({ name: ME, self: true, id: SITE });
+  const tiles = new Map();    // site -> tile
+  const states = new Map();   // site -> { mic, cam } as last said
+
+  function tileFor(s) {
+    let t = tiles.get(s);
+    if (!t) {
+      t = createParticipant({ name: s, id: s });
+      t.state('connecting');
+      const st = states.get(s);
+      if (st) { t.mic(st.mic); t.cam(st.cam); }
+      tiles.set(s, t);
+      grid.add(t);
+    }
+    return t;
+  }
+
+  const AUDIO = { echoCancellation: true, noiseSuppression: true };
+  const VIDEO = { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } };
+
+  // Join with the camera and the microphone off: nothing is asked for until one is switched on.
+  // why: lessons/kit-participant.md#room
+  async function join() {
+    micOn = false; camOn = false;
+    local = new MediaStream();
+    showMic(); showCam();
+    // TURN counted per room, so people behind one public address are not refused at the 21st.
+    const iceUrl = `${ICE_PROXY}?room=${encodeURIComponent(ROOM)}`;
+    const ice = WANT_TURN ? await fetchIceServers({ url: iceUrl, log: (m) => d.log(`webrtc ${m}`) }) : { iceServers: STUN_ONLY, relay: false };
+    mesh = createMesh({
+      site: SITE, send: (m) => node.send(m), iceServers: ice.iceServers, tracks,
+      onStream: (s, stream) => { const t = tileFor(s); t.stream(stream); watch(s, stream); },
+      onState: (s, state, how) => {
+        const t = tiles.get(s);
+        if (state === 'closed') { if (t) { grid.remove(t); tiles.delete(s); unwatch(s); } return; }
+        if (t) t.state(state === 'connected' ? (how.startsWith('relay') ? 'relay' : '') : state);
+        if (state === 'connected') d.log(`${s} connected`);
+      },
+      log: (line, kind) => d.log(`webrtc ${line}`, kind),
+    });
+    me.stream(local);
+    grid.add(me);
+    watch(SITE, local);
+    ctl.enableAll(true);
+    showJoined(true);
+    // On a phone the room takes the screen once you are in it; before, Join stays on the first screen.
+    rv.dataset.in = '';
+    requestAnimationFrame(() => {
+      const r = rv.getBoundingClientRect();
+      if (PHONE.matches || r.top < 0 || r.bottom > innerHeight) rv.scrollIntoView({ block: 'start' });
+    });
+    await node.join();
+  }
+
+  function leave() {
+    sayState(false);
+    mesh?.leave();
+    node.leave();
+    for (const t of local?.getTracks() || []) t.stop();
+    local = null; since = 0;
+    for (const [s, t] of tiles) { grid.remove(t); unwatch(s); }
+    tiles.clear();
+    grid.remove(me); unwatch(SITE);
+    ctl.enableAll(false, 'join first');
+    showJoined(false);
+    delete rv.dataset.in;
+    chatBox.enable(false);
+    pb?.refresh();
+  }
+
+  /** Open and close peer connections so they match the camera links the bay holds. */
+  function reconcile() {
+    if (!mesh || !since) { pb?.refresh(); return; }
+    const want = linked();
+    const all = others();
+    if (all.length > MESH_MAX - 1 && !reconcile.warned) {
+      reconcile.warned = true;
+      d.log(`${all.length + 1} in the room, and a mesh holds ${MESH_MAX} at most here, so ${all.length + 1 - MESH_MAX} are not shown`, 'warn');
+    }
+    mesh.want(want);
+    for (const [s, t] of tiles) if (!want.includes(s) && !mesh.peers().some((p) => p.site === s)) { grid.remove(t); tiles.delete(s); unwatch(s); }
+    sayState();
+    pb?.refresh();
+  }
+
+  // ── mute: the tracks stop or go quiet, and the room hears it as a light event ─
+  // Camera off STOPS the camera, so its light goes out; on asks for it again. Mic off disables the
+  // track, which sends silence and keeps the device, so unmuting has no delay.
+  function sayState(live = true) {
+    if (!since) return;
+    const r = node.emit(SELF_OUT, { mic: live && micOn, cam: live && camOn });
+    if (r.sent) pb?.pulse(SELF_OUT, '*:grid:value-in');
+  }
+  function heardState(e, l, m) {
+    const by = String(m.speaker || m.from).split(':')[0];
+    pb?.pulse(l.from, l.to);
+    states.set(by, { mic: !!e.mic, cam: !!e.cam });
+    const t = tiles.get(by);
+    if (t) { t.mic(!!e.mic); t.cam(!!e.cam); }
+  }
+  const showMic = () => {
+    me.mic(micOn);
+    ctl.setIcon('mic', micOn ? 'mic' : 'mic-off', micOn ? 'Mute your microphone' : 'Unmute your microphone');
+    ctl.button('mic').setAttribute('aria-pressed', String(!micOn));
+  };
+  const showCam = () => {
+    me.cam(camOn);
+    ctl.setIcon('cam', camOn ? 'video' : 'video-off', camOn ? 'Turn your camera off' : 'Turn your camera on');
+    ctl.button('cam').setAttribute('aria-pressed', String(!camOn));
+  };
+  async function toggleMic() {
+    // Joined with the microphone off: the first unmute is the first time it is asked for.
+    if (!micOn && local && !local.getAudioTracks().length) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: AUDIO });
+        local.addTrack(s.getAudioTracks()[0]);
+        unwatch(SITE); watch(SITE, local);
+        mesh?.retrack();
+      } catch (e) { d.log(`microphone: ${e.message}`, 'warn'); return; }
+    }
+    micOn = !micOn;
+    for (const t of local?.getAudioTracks() || []) t.enabled = micOn;
+    showMic();
+    sayState();
+  }
+  async function toggleCam() {
+    if (camOn) {
+      camOn = false;
+      for (const t of local?.getVideoTracks() || []) { t.stop(); local.removeTrack(t); }
+    } else {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: VIDEO });
+        local.addTrack(s.getVideoTracks()[0]);
+        camOn = true;
+      } catch (e) { d.log(`camera: ${e.message}`, 'warn'); return; }
+    }
+    me.stream(null); me.stream(local);
+    mesh?.retrack();
+    showCam();
+    sayState();
+    pb?.refresh();
+  }
+
+  // ── who is speaking: the loudest level over a floor, held a moment ────────
+  // why: lessons/kit-participant.md#speaker
+  let ac = null;
+  const meters = new Map();   // site -> { an, src, buf }
+  function watch(s, stream) {
+    if (!stream.getAudioTracks().length || meters.has(s)) return;
+    ac ||= new AudioContext();
+    const src = ac.createMediaStreamSource(stream);
+    const an = ac.createAnalyser();
+    an.fftSize = 512;
+    src.connect(an);
+    meters.set(s, { an, src, buf: new Float32Array(an.fftSize) });
+  }
+  function unwatch(s) { const m = meters.get(s); if (m) { try { m.src.disconnect(); } catch { /* gone */ } meters.delete(s); } }
+  let speaker = '', speakerAt = 0;
+  setInterval(() => {
+    if (!meters.size) return;
+    let loud = '', top = 0;
+    for (const [s, m] of meters) {
+      if (s === SITE && !micOn) continue;
+      if (s !== SITE && states.get(s)?.mic === false) continue;
+      m.an.getFloatTimeDomainData(m.buf);
+      let sum = 0;
+      for (const v of m.buf) sum += v * v;
+      const rms = Math.sqrt(sum / m.buf.length);
+      if (rms > top) { top = rms; loud = s; }
+    }
+    const now = Date.now();
+    if (top > 0.02 && loud !== speaker) { speaker = loud; speakerAt = now; }
+    else if (top <= 0.02 && now - speakerAt > 1200) speaker = '';
+    if (top > 0.02) speakerAt = now;
+    me.speaking(speaker === SITE);
+    for (const [s, t] of tiles) t.speaking(speaker === s);
+  }, 150);
+
+  // ── chat, as /room/broadcast/ ─────────────────────────────────────────────
+  const short = (site) => (site === SITE ? ME : site);
+  const chats = createChatLog();
+  function heard(e, l, m) {
+    const by = String(m.speaker || m.from);
+    pb?.pulse(l.from, l.to);
+    chats.add({ who: short(by.split(':')[0]), at: Number(m.sent) || Date.now(), text: String(e.text || '') });
+    if (PHONE.matches && rv.dataset.show !== 'chat') { unread++; sayUnread(); }
+  }
+  function say(text) {
+    const r = node.emit(OUT, { text });
+    if (r.sent) pb?.pulse(OUT, '*:chat:value-in');
+    chats.add({ who: ME, at: Date.now(), text, me: true });
+  }
+
+  // ── the window: the camera grid where the admin column was, the chat beside ─
+  const camCol = { el: el('div', 'pos-chat-col') };
+  camCol.el.append(grid.el);
+  const chatBox = createChatCompose({ placeholder: `Message ${ROOM}`, onSend: say });
+  const chatCol = createChatColumn({ title: 'CHAT', body: chats, compose: chatBox });
+
+  // No room: the one thing to do is make one. Six letters and digits with none that read alike
+  // (no 0, o, 1, l or i), about a billion codes.
+  const CODE = 'abcdefghjkmnpqrstuvwxyz23456789';
+  function newRoom() {
+    const u = new URL(location.href);
+    u.searchParams.set('room', [...crypto.getRandomValues(new Uint8Array(6))].map((b) => CODE[b % CODE.length]).join(''));
+    location.assign(u);
+  }
+  /** The link somebody joins by: this page's address. */
+  const roomLink = () => location.href;
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(roomLink()); d.log('the room\'s link is copied'); }
+    catch { d.log(`the room's link: ${roomLink()}`); }
+  }
+  const join1 = createButtonGroup({ buttons: ROOM
+    ? [{ id: 'join', label: `Join ${ROOM}`, onPress: join }]
+    : [{ id: 'new', label: 'New room', onPress: newRoom }] });
+  const linkBtn = ROOM ? createIconButton({ icon: 'link', label: 'Copy the room\'s link', onPress: copyLink }) : null;
+  const ctl = createButtonGroup({ buttons: [
+    { id: 'mic', label: 'Mute your microphone', icon: 'mic', onPress: toggleMic },
+    { id: 'cam', label: 'Turn your camera off', icon: 'video', onPress: toggleCam },
+    { id: 'leave', label: 'Leave', onPress: leave },
+  ] });
+  ctl.enableAll(false, 'join first');
+  // One row either way: Join before, the mic, the camera and Leave after.
+  // A style, not `hidden`, because the group sets its own display.
+  function showJoined(on) {
+    join1.el.style.display = on ? 'none' : '';
+    ctl.el.style.display = on ? '' : 'none';
+  }
+  const foot = el('div', 'rv-foot');
+  foot.append(join1.el, ctl.el);
+  showJoined(false);
+  const panel = createChatWindow({ columns: [camCol, chatCol], footer: foot });
+  // On the right, beside full screen: a thing about the room, not about you.
+  if (linkBtn) panel.panel.slots.right.prepend(linkBtn.el);
+
+  // ── a phone: Video and Chat are tabs over one screen-tall window ─────────
+  // The same width chat-ui.mjs stacks its two columns at.
+  const PHONE = matchMedia('(max-width: 560px)');
+  const rv = el('div', 'rv');
+  rv.dataset.show = 'video';
+  let unread = 0;
+  const tabs = createTabs({ tabs: [{ id: 'video', label: 'Video' }, { id: 'chat', label: 'Chat' }], hash: false,
+    onPick: (id) => { rv.dataset.show = id; if (id === 'chat') { unread = 0; sayUnread(); } } });
+  tabs.panels.remove();
+  const sayUnread = () => { tabs.buttons[1].textContent = unread ? `Chat ${unread}` : 'Chat'; };
+  rv.append(tabs.el, panel.el);
+
+  addEventListener('pagehide', () => { mesh?.leave(); });
+
+  pb = createPatchbay(heldPicture(bay, SITE), {
+    ...(ROOM ? { room: ROOM } : {}),
+    detail: (n) => [{ text: n.label, sans: true }],
+  });
+
+  d.stack.add(rv, pb.el);
+  // For a harness: what the room looks like from this tab.
+  window.__room = {
+    site: SITE, room: ROOM,
+    peers: () => mesh?.peers() || [],
+    tiles: () => [me, ...tiles.values()].filter((t) => t.el.isConnected).map((t) => t.info()),
+    grid: () => grid.layout(),
+    links: () => bay().links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport || ''} ${l.session?.where || ''}`.trim()),
+    mic: () => micOn, cam: () => camOn,
+    link: roomLink,
+    show: (id) => (id ? tabs.go(id) : rv.dataset.show), unread: () => unread,
+  };
+  d.ready();
+</script>
