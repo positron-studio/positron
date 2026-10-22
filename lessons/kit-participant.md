@@ -165,3 +165,31 @@ random code if at all"*. So there is no admin and no key: everybody in a room is
 - TURN credentials are asked for with `?room=`, so they are counted per room (`workers/pub/ice-limit.mjs`).
 - What a short code does not do: it is not a password. Anybody holding the link is in the room, and the
   relay is tokenless.
+
+<a id="sfu"></a>
+
+## `demo/room/sfu.mjs`: the room through Cloudflare's SFU
+
+Asked 2026-10-22, *"build that too"*, after the answer that a mesh holds 4 to 6. `/room/video/` uses the SFU by
+default; `?mesh=1` keeps the browser to browser mesh.
+
+- Two peer connections per tab, as Cloudflare's own video room example: one sends, one receives. Each has one
+  queue, because the SFU refuses a call on a session while the last offer and answer are unfinished (its docs:
+  *"Serialize mutations that target the same SFU session"*).
+- A kind is published the first time it is switched on (Join asks for nothing); after that a camera off is
+  `replaceTrack(null)` and a mute is `enabled = false`, so nothing is renegotiated.
+- Video goes out in three layers, `f`, `h` and `q`, at 1, 1/2 and 1/4 of a 720p capture (900, 300 and 100
+  kbit/s caps). The mesh keeps 360p. Each pull asks for the layer its tile needs (`ridFor`: tile width times
+  device pixel ratio, 640 and up `f`, 320 and up `h`, else `q`), re-asked every 2 s through `tracks/update`
+  when it changes. MEASURED with a 640x360 fake camera first: a desk asking `q` got 640x360, because at that size
+  the quarter layer was not flowing and the SFU's fallback went elsewhere. With 720p capture the desk got
+  320x180 and a phone asking `h` got 640x360.
+- Who publishes what is a `sfu.pub` message on the relay room, `{ site, sessionId, proof, tracks }`, said after
+  each publish and whenever somebody new is in the room; it is accepted only from the socket that announced the
+  site, as `rtc.sig` is. `sfu.bye` on Leave takes the tile down at once rather than when the graph goes stale
+  (15 s), which a first run showed.
+- A track published a moment ago may not carry media yet (`empty_track_error`); the pull is asked again 3 s later.
+- A tile that arrives while the receiving connection is already up gets `connected` itself; without it the tiles
+  played under a `connecting` label.
+- Not done: pulling only the tiles on screen (every tile in this grid is on screen until it scrolls), and the
+  fallback above, which can leave a tile on a bigger layer than asked.

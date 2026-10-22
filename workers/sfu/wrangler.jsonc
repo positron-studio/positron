@@ -1,0 +1,11 @@
+// positron-sfu: Cloudflare Realtime SFU for /room/video/ (worker.mjs). Secrets, never in this file:
+// wrangler secret put CF_REALTIME_APP_SECRET and SFU_PROOF_KEY. The app id is not a credential.
+{
+  "name": "positron-sfu",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  "routes": [{ "pattern": "sfu.positron.studio", "custom_domain": true }],
+  "vars": { "CF_REALTIME_APP_ID": "8c2a974bb21528d398ff927116bcca9e" },
+  "observability": { "enabled": true }
+}

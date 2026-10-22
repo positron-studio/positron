@@ -66,3 +66,12 @@ patchbay"*. A `*` link (`web:chat:value-out -> *:chat:value-in`) was drawn as tw
 the hop to or from a `*` end is not drawn, and no `*:` node or port is. The `*` stays in the code, where it is
 the bay's address for every other tab. Pages drawn without `createPatchbay` (`/kit/patchbay/`'s specimens,
 `pair-examples.mjs`) still show their `*` boxes.
+
+<a id="sfu-box"></a>
+
+## `createPatchbay`: an `sfu` link is drawn through a `cf-sfu:<room>` box
+
+Added 2026-10-22 for `/room/video/` on Cloudflare's SFU. A link whose session says `sfu` is drawn as two hops
+through `cf-sfu:<room>` ("Cloudflare SFU"), the way a relayed link goes through `cf-relay:<room>`. So the picture
+shows what the SFU buys: one wire from your camera into the box, and the copies out to every grid, where a mesh
+draws one wire per person straight from your camera.

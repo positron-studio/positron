@@ -428,6 +428,28 @@ cover 100.00% of the grid with 0 px padding and gap on desk and phone; own tag `
 `*:` boxes in the patchbay of `/room/video/`, `/room/chat/` and `/room/broadcast/`; the link button in the right
 slot. `/kit/chat/` 11/11 at 1280 and 375; `bay-test` 261/261; `nodes-test` 73.
 
+### Step: the SFU (done, deployed worker; page on the next site deploy)
+
+Asked 2026-10-22: *"build that too"*. `/room/video/` now sends media through Cloudflare Realtime's SFU by default;
+`?mesh=1` keeps the mesh.
+- `workers/sfu/worker.mjs` (positron-sfu, https://sfu.positron.studio): holds the app secret; five room scoped
+  calls (session, publish, pull, answer, update, close); a session comes with a proof, HMAC(room, session), and a
+  pull must show the publisher's proof for the same room. `lessons/workers-sfu.md`.
+- `demo/room/sfu.mjs`: two connections per tab, one queue each; publishes a kind when first switched on; video in
+  three layers (720p, 360p, 180p); each pull asks the layer its tile needs and changes it with `tracks/update`;
+  `sfu.pub` and `sfu.bye` on the relay room. Same face as `mesh.mjs`.
+- `bay.mjs`: `sfu` offered to one receiver too; `patchbay.mjs`: an `sfu` link drawn through `cf-sfu:<room>`.
+- The page caps an SFU room at 25 tiles and a mesh at 6.
+
+Checked (MEASURED 2026-10-22, the deployed worker, the page served locally, the local relay, fake media): four
+tabs, three desk and one phone, three cameras and two mics on: every tile playing 5.0 s after the last camera
+went on, every connection `srflx` through Cloudflare, each tab publishing only what it had switched on; desk
+tiles asking `q` got 320x180, the phone asking `h` got 640x360; one desk tile stayed at 640x360 (the SFU's layer
+fallback, open); a tab leaving was gone from the others at once. `?mesh=1` re-run: three tabs connected, chat as
+before. `bay-test` 262/262, `nodes-test` 73.
+Not done: pulling only the visible tiles; a rate limit on the worker; TURN for the SFU when UDP is blocked (the
+page asks `pub /ice`, which is the same Cloudflare TURN key; untested through the SFU).
+
 ## 9. Steps, in order
 
 Sizes are effort, not time. Each says when it is done.

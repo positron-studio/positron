@@ -73,6 +73,10 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
     if (by) return String(by).startsWith('relay');
     return siteOf(l.from) !== siteOf(l.to) && !HEAVY.includes(mediumIn(ports, l));
   };
+  // A link through Cloudflare's SFU is drawn through a `cf-sfu:<room>` box the same way: one upload in, the
+  // copies out. why: lessons/kit-patchbay.md#sfu-box
+  const SFU_BOX = `cf-sfu:${room}`;
+  const boxOf = (ports, l) => (l.session?.transport === 'sfu' ? SFU_BOX : relayed(ports, l) ? RELAY : null);
   // A hop keeps one object across reads: traffic counts `sent` on the same object, and a new
   // object is a new wire that never pulses.
   // why: lessons/kit-patchbay.md#hop-cache
@@ -80,9 +84,10 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
   const drawn = () => {
     const ports = raw.ports(), links = [], extra = new Map(), hops = new Map();
     for (const l of raw.links()) {
-      if (!relayed(ports, l)) { links.push(l); continue; }
+      const box = boxOf(ports, l);
+      if (!box) { links.push(l); continue; }
       const md = mediumIn(ports, l);
-      const rin = `${RELAY}:${md}-in`, rout = `${RELAY}:${md}-out`;
+      const rin = `${box}:${md}-in`, rout = `${box}:${md}-out`;
       extra.set(rin, { id: rin, dir: 'in', medium: md }); extra.set(rout, { id: rout, dir: 'out', medium: md });
       for (const [from, to] of [[l.from, rin], [rout, l.to]]) {
         // A `*` end is every other tab, which is what the room box already says: the line stops there.
@@ -96,7 +101,7 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
         let hop = hopCache.get(k);
         if (!hop) { hop = {}; hopCache.set(k, hop); }
         for (const f of Object.keys(hop)) delete hop[f];
-        Object.assign(hop, l, { from, to, via: 'relay' });
+        Object.assign(hop, l, { from, to, via: box === RELAY ? 'relay' : 'sfu' });
         delete hop.id; delete hop.session;
         /* A timed link's option is drawn once, on the hop INTO the receiver,
            which is the end that waits (bay.mjs `schedule`). */
@@ -107,14 +112,16 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
       }
     }
     const nodes = raw.nodes().filter((n) => !isStar(n.id));
-    if (extra.size) nodes.push({ id: RELAY, label: 'Cloudflare', kind: 'service' });
+    const boxes = new Set([...extra.keys()].map((id) => id.split(':').slice(0, 2).join(':')));
+    if (boxes.has(RELAY)) nodes.push({ id: RELAY, label: 'Cloudflare', kind: 'service' });
+    if (boxes.has(SFU_BOX)) nodes.push({ id: SFU_BOX, label: 'Cloudflare SFU', kind: 'service' });
     return { nodes, ports: [...ports.filter((p) => !isStar(p.id)), ...extra.values()], links };
   };
   const source = { nodes: () => drawn().nodes, ports: () => drawn().ports, links: () => drawn().links };
   // The drawn patch as plain data, read by demo/resources/dump-bays.mjs for the social pictures.
   (window.__bays ??= []).push(() => {
     const b = drawn();
-    return { nodes: b.nodes.map((n) => ({ id: n.id, label: n.id === RELAY ? 'Cloudflare' : n.label || '' })),
+    return { nodes: b.nodes.map((n) => ({ id: n.id, label: n.id === RELAY ? 'Cloudflare' : n.id === SFU_BOX ? 'Cloudflare SFU' : n.label || '' })),
       ports: b.ports.map((p) => ({ id: p.id, dir: p.dir, medium: p.medium })),
       links: b.links.map((l) => ({ from: l.from, to: l.to })) };
   });
@@ -131,7 +138,8 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
   };
   const pending = new Map();       // key -> pulses a page asked for
   const fields = detail || ((n) => [{ text: n.label || '', sans: true }]);
-  const view = createBayView(keyed, { detail: (n) => (n.id === RELAY ? [{ text: 'Cloudflare', sans: true }] : fields(n)) });
+  const view = createBayView(keyed, { detail: (n) => (n.id === RELAY ? [{ text: 'Cloudflare', sans: true }]
+    : n.id === SFU_BOX ? [{ text: 'Cloudflare SFU', sans: true }] : fields(n)) });
   const ink = createPortInk(source, MEDIA);
   const traffic = createBayTraffic();
   const traced = new Set();

@@ -52,15 +52,15 @@ export const TRANSPORTS = {
   audio: {
     'machine':       { transport: 'webaudio', says: 'WebAudio or Core Audio, no number measured' },
     'network':       { transport: 'datachannel', or: ['p2p'], says: 'board round trip 4 ms', notes: { p2p: P2P } },
-    'internet-one':  { transport: 'relay', or: ['p2p'], says: `relay round trip p50 36 ms, ${RELAY_CAP}`, notes: { p2p: P2P } },
+    'internet-one':  { transport: 'relay', or: ['p2p', 'sfu'], says: `relay round trip p50 36 ms, ${RELAY_CAP}`, notes: { p2p: P2P, sfu: SFU } },
     'internet-many': { transport: 'moq', or: ['llhls', 'sfu', 'p2p'], says: 'MoQ or LL-HLS, no number measured',
                        notes: { sfu: SFU, p2p: P2P } },
   },
   video: {
     'machine':       { transport: 'page', says: 'the page itself, nothing crosses a wire' },
     'network':       { transport: 'datachannel', or: ['p2p'], says: 'to measure', notes: { p2p: P2P } },
-    'internet-one':  { transport: 'whep', or: ['relay-h264', 'p2p'],
-                       says: 'a VPN passes the WHEP handshake and drops the media, so count frames', notes: { p2p: P2P } },
+    'internet-one':  { transport: 'whep', or: ['relay-h264', 'p2p', 'sfu'],
+                       says: 'a VPN passes the WHEP handshake and drops the media, so count frames', notes: { p2p: P2P, sfu: SFU } },
     'internet-many': { transport: 'llhls', or: ['sfu', 'p2p'], says: 'LL-HLS, no number measured', notes: { sfu: SFU, p2p: P2P } },
   },
   file: {

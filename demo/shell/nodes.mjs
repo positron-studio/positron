@@ -449,7 +449,7 @@ export const NODES = {
   grid: {
     kind: 'screen', label: 'grid', place: 'site',
     instance: 'one per tab: every other tab\'s camera and microphone as tiles, and who is muted',
-    ports: { 'video-in': P({ transports: ['page', 'p2p'] }), 'audio-in': P({ transports: ['p2p'] }), 'value-in': P() },
+    ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'audio-in': P({ transports: ['p2p', 'sfu'] }), 'value-in': P() },
     pages: ['room/video'],
   },
   oled: {
@@ -472,7 +472,7 @@ export const NODES = {
   microphone: {
     kind: 'device', label: 'microphone', place: 'site',
     instance: 'one per tab, asked for on Join',
-    ports: { 'audio-out': P({ transports: ['p2p'] }) },
+    ports: { 'audio-out': P({ transports: ['p2p', 'sfu'] }) },
     pages: ['room/video'],
   },
   camera: {

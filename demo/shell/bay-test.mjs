@@ -1694,8 +1694,11 @@ console.log('\n== drummap read back ==');
   ok('a camera that can go either way to many receivers is offered sfu first', sfu.ok
     && sfu.session?.transport === 'sfu' && /SFU/.test(sfu.session.says), JSON.stringify(sfu.session || sfu.why));
   const one = meet(['p2p', 'sfu'], 2);
-  ok('and to one receiver, p2p, since the internet-one cell has no sfu', one.ok && one.session?.transport === 'p2p',
+  ok('and to one receiver, p2p, since the internet-one cell offers p2p before sfu', one.ok && one.session?.transport === 'p2p',
     JSON.stringify(one.session || one.why));
+  const sfuOne = meet(['page', 'sfu'], 2);
+  ok('a camera that goes only through the SFU is offered sfu to one receiver too', sfuOne.ok && sfuOne.session?.transport === 'sfu'
+    && sfuOne.session.where === 'internet-one', JSON.stringify(sfuOne.session || sfuOne.why));
   const plain = meet(null, 2);
   ok('NEGATIVE CONTROL: ports that name no transport still get the cell\'s own whep, never p2p', plain.ok
     && plain.session?.transport === 'whep', JSON.stringify(plain.session || plain.why));
