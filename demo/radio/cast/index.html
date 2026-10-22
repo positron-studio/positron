@@ -19,6 +19,9 @@
   .vc-cards > .pos-card[aria-pressed="true"] { border-color: var(--hi); }
   .vc-cards > .pos-card[aria-pressed="true"] .pos-card-t { color: var(--hi); }
   .vc-cards .pos-card-f { align-items: center; justify-content: space-between; }
+  /* The listener count on a line of its own above the live badge; nothing counted, no line. */
+  .vc-cards .vc-ears { flex: 1 0 100%; }
+  .vc-cards .vc-ears:empty { display: none; }
   .vc-eyebrow { font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim2); margin-bottom: -4px; }
   .vc-now2 { color: var(--dim2); }
   .vc-at { font: 12px var(--mono); font-variant-numeric: tabular-nums; }
@@ -301,7 +304,7 @@
     const now2 = el('span', 'pos-card-d vc-now2'), at = el('span', 'vc-dim vc-at');
     now2.hidden = true; c.el.querySelector('.pos-card-d').after(now2, at);
     badges[t] = presence(t);
-    c.el.querySelector('.pos-card-f').append(badges[t].el, stops, ears);
+    c.el.querySelector('.pos-card-f').append(ears, badges[t].el, stops);
     Object.assign(c.el.dataset, { station: t });
     c.el.setAttribute('role', 'button');
     c.el.addEventListener('click', () => pick(t));
