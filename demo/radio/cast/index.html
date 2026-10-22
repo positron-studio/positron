@@ -1135,7 +1135,8 @@
       if (chartKey !== key) return;
       if (j.error) throw new Error(j.error);
       const pts = (k) => j.rows.map((x) => [x.t, x[k]]);
-      chart.set({ from: j.from, to: j.to, series: [{ name: 'listening', points: pts('people') }, ...(t === 'preview' ? [] : [{ name: 'at Väin', points: pts('vain') }])] });
+      // three buckets apart is missing time (between broadcasts, or a read that failed), not a slope
+      chart.set({ from: j.from, to: j.to, maxGap: 3 * (j.step || 1) * 60_000, series: [{ name: 'listening', points: pts('people') }, ...(t === 'preview' ? [] : [{ name: 'at Väin', points: pts('vain') }])] });
       chartNote.textContent = j.rows.length ? '' : 'no readings in this range'; chartNote.hidden = !chartNote.textContent;
     } catch (e) { chart.set({ series: [] }); chartNote.textContent = `the chart did not load: ${e.message}`; chartNote.hidden = false; }
   }

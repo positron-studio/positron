@@ -51,5 +51,12 @@ check('all zeros: a chart with a top of 1, not a division by zero', !zero.empty 
 check('niceStep: 1, 2 or 5 times a power of ten', niceStep(7, 4) === 2 && niceStep(37, 4) === 10 && niceStep(3, 4) === 1 && niceStep(130, 4) === 50);
 check('TIME_STEPS run smallest first', TIME_STEPS.every((s, i) => !i || s > TIME_STEPS[i - 1]));
 
+// a gap between two broadcasts is not a slope
+const gapPts = [[base.from, 3], [base.from + 60_000, 3], [base.from + 3_600_000, 0], [base.from + 3_660_000, 1]];
+const gapped = chartLayout({ ...base, maxGap: 180_000, series: [{ points: gapPts }] });
+check('readings further apart than maxGap start a new stroke', (gapped.lines[0].d.match(/M/g) || []).length === 2);
+const joined = chartLayout({ ...base, series: [{ points: gapPts }] });
+check('NEGATIVE CONTROL: with no maxGap the same readings are one stroke', (joined.lines[0].d.match(/M/g) || []).length === 1);
+
 console.log(`\n${pass}/${pass + fail} ok`);
 process.exit(fail ? 1 : 0);

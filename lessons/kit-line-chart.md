@@ -26,3 +26,12 @@ so ticks and labels are text in the site's mono face and the picture scales with
 
 The chart's rules are one block at the foot of `shell.css`. `.pos-lc[hidden]` is said there because `.pos-lc` sets
 `display: flex`, which beats the UA's own `[hidden]`: an empty chart has to take no room (an empty box is a line).
+
+<a id="max-gap"></a>
+
+## `maxGap`: missing time is not a slope
+
+Asked 2026-10-22 with a crop of /radio/cast/: *"last diatonal makes no sense. its jsut missing data (no lsiteners on
+air)"*. Two radio1965 broadcasts, 13:49 to 13:53 and from 14:55, were drawn as one line, a diagonal from 3 down to 0
+across the hour nothing was recorded. `chartLayout` takes `maxGap` (ms): two readings further apart start a new
+stroke. The cast page passes three bucket steps, so one late reading still joins and an hour off air does not.
