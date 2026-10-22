@@ -23,7 +23,7 @@
 <style>
   /* /room/broadcast/ with the admin column taken out and a grid of cameras put in its place:
      cameras on the left two thirds, the chat on the right, a phone stacks them.
-     A full mesh: every tab sends its camera to every other tab. plans/plan-video-room.md.
+     Media through Cloudflare's SFU (demo/room/sfu.mjs), or a browser to browser mesh with ?mesh=1. plans/plan-video-room.md.
      See lessons/kit-participant.md#page */
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
   /* A phone: the window is one screen tall, Video and Chat are tabs over it, the footer stays at
@@ -63,6 +63,7 @@
   import { fetchIceServers, STUN_ONLY, ICE_PROXY } from '/shell/live.mjs';
   import { createParticipant, createParticipantGrid } from '/shell/participant.mjs';
   import { createMesh } from '/room/mesh.mjs';
+  import { createSfu, ridFor } from '/room/sfu.mjs';
 
   const d = mount({ name: 'Video room', what: '', readout: null, index: '/', indexLabel: 'positron' });
 
@@ -75,8 +76,12 @@
   const ROOM = asked && ROOM_RE.test(asked) ? asked : '';
   // ?turn=0 asks for no relay: for a local test that should not spend the worker's TURN hour.
   const WANT_TURN = q.get('turn') !== '0';
-  // A mesh past this many is the wrong shape (plan §3): the page says so rather than melting.
-  const MESH_MAX = 6;
+  // Media through Cloudflare's SFU, one upload per tab whatever the room's size; ?mesh=1 keeps the browser to
+  // browser mesh, which holds 6 (plan §3). ?sfu= points at another worker, for a local one.
+  // why: lessons/kit-participant.md#sfu
+  const VIA = q.get('mesh') === '1' ? 'p2p' : 'sfu';
+  const SFU_BASE = q.get('sfu') || 'https://sfu.positron.studio';
+  const MAX = VIA === 'sfu' ? 25 : 6;
   const SITE = randomSite('web');
   const OUT = `${SITE}:chat:value-out`, IN = `${SITE}:chat:value-in`;
   const SELF_OUT = `${SITE}:controls:value-out`, GRID_IN = `${SITE}:grid:value-in`;
@@ -100,12 +105,12 @@
       { id: IN, label: 'chat', dir: 'in', medium: 'value', transports: ['relay'] },
       { id: SELF_OUT, label: 'mic and camera on or off', dir: 'out', medium: 'value', transports: ['relay'] },
       { id: GRID_IN, label: 'who is muted', dir: 'in', medium: 'value', transports: ['relay'] },
-      // Browser to browser WebRTC media, the mesh. `sfu` joins this list when the SFU client lands.
-      { id: CAM_OUT, label: 'camera', dir: 'out', medium: 'video', transports: ['page', 'p2p'] },
-      { id: MIC_OUT, label: 'microphone', dir: 'out', medium: 'audio', transports: ['p2p'] },
+      // Media between tabs rides VIA: `sfu` through Cloudflare, `p2p` browser to browser.
+      { id: CAM_OUT, label: 'camera', dir: 'out', medium: 'video', transports: ['page', VIA] },
+      { id: MIC_OUT, label: 'microphone', dir: 'out', medium: 'audio', transports: [VIA] },
       // `page` too: this tab's own camera into its own tile.
-      { id: VIDEO_IN, label: 'camera', dir: 'in', medium: 'video', transports: ['page', 'p2p'] },
-      { id: AUDIO_IN, label: 'microphone', dir: 'in', medium: 'audio', transports: ['p2p'] },
+      { id: VIDEO_IN, label: 'camera', dir: 'in', medium: 'video', transports: ['page', VIA] },
+      { id: AUDIO_IN, label: 'microphone', dir: 'in', medium: 'audio', transports: [VIA] },
     ],
   });
 
@@ -129,7 +134,7 @@
     // played back to you, which would be the echo.
     if (since && local && camOn) b.link(CAM_OUT, VIDEO_IN);
     if (since && local) {
-      for (const s of others().slice(0, MESH_MAX - 1)) {
+      for (const s of others().slice(0, MAX - 1)) {
         b.link(CAM_OUT, `${s}:grid:video-in`);
         b.link(MIC_OUT, `${s}:grid:audio-in`);
       }
@@ -152,17 +157,17 @@
     },
     onGraph: () => reconcile(),
     onMessage: (m) => {
-      if (m.type !== 'rtc.sig') return;
+      if (m.type !== (VIA === 'sfu' ? 'sfu.pub' : 'rtc.sig') && !(VIA === 'sfu' && m.type === 'sfu.bye')) return;
       // The site must be one this socket announced, or any tab could answer for another.
       const theirs = node.registry.graphs().some((g) => g.from === m.from && g.site === m.site);
       if (!theirs) { if (m.to === SITE) d.log(`refused signalling said as ${m.site} by a socket that never announced it`, 'warn'); return; }
-      mesh?.signal(m);
+      media?.signal(m);
     },
     onEvent: (m, n) => { if (n < 0) d.log(`refused a line said as ${m.source} by a socket that never announced it`, 'warn'); },
   });
 
   // ── media ─────────────────────────────────────────────────────────────────
-  let local = null, mesh = null, micOn = false, camOn = false;
+  let local = null, media = null, micOn = false, camOn = false;
   const tracks = () => ({
     audio: local?.getAudioTracks()[0] || null,
     video: camOn ? (local?.getVideoTracks()[0] || null) : null,
@@ -189,7 +194,10 @@
   }
 
   const AUDIO = { echoCancellation: true, noiseSuppression: true };
-  const VIDEO = { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } };
+  // Through the SFU the camera is sent once in three layers, so it is asked for at 720p (the layers are 720p, 360p
+  // and 180p); a mesh sends one copy per peer and keeps it at 360p.
+  const VIDEO = VIA === 'sfu' ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24 } }
+    : { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } };
 
   // Join with the camera and the microphone off: nothing is asked for until one is switched on.
   // why: lessons/kit-participant.md#room
@@ -200,7 +208,8 @@
     // TURN counted per room, so people behind one public address are not refused at the 21st.
     const iceUrl = `${ICE_PROXY}?room=${encodeURIComponent(ROOM)}`;
     const ice = WANT_TURN ? await fetchIceServers({ url: iceUrl, log: (m) => d.log(`webrtc ${m}`) }) : { iceServers: STUN_ONLY, relay: false };
-    mesh = createMesh({
+    media = (VIA === 'sfu' ? createSfu : createMesh)({
+      base: SFU_BASE, room: ROOM,
       site: SITE, send: (m) => node.send(m), iceServers: ice.iceServers, tracks,
       onStream: (s, stream) => { const t = tileFor(s); t.stream(stream); watch(s, stream); },
       onState: (s, state, how) => {
@@ -227,7 +236,7 @@
 
   function leave() {
     sayState(false);
-    mesh?.leave();
+    media?.leave();
     node.leave();
     for (const t of local?.getTracks() || []) t.stop();
     local = null; since = 0;
@@ -243,15 +252,17 @@
 
   /** Open and close peer connections so they match the camera links the bay holds. */
   function reconcile() {
-    if (!mesh || !since) { pb?.refresh(); return; }
+    if (!media || !since) { pb?.refresh(); return; }
     const want = linked();
     const all = others();
-    if (all.length > MESH_MAX - 1 && !reconcile.warned) {
+    if (all.length > MAX - 1 && !reconcile.warned) {
       reconcile.warned = true;
-      d.log(`${all.length + 1} in the room, and a mesh holds ${MESH_MAX} at most here, so ${all.length + 1 - MESH_MAX} are not shown`, 'warn');
+      d.log(`${all.length + 1} in the room, and this page shows ${MAX} at most ${VIA === 'p2p' ? 'on a mesh' : ''}, so ${all.length + 1 - MAX} are not shown`, 'warn');
     }
-    mesh.want(want);
-    for (const [s, t] of tiles) if (!want.includes(s) && !mesh.peers().some((p) => p.site === s)) { grid.remove(t); tiles.delete(s); unwatch(s); }
+    // A newcomer has to hear what this tab publishes on the SFU.
+    if (all.length !== reconcile.seen) { reconcile.seen = all.length; media.announce?.(); }
+    media.want(want);
+    for (const [s, t] of tiles) if (!want.includes(s) && !media.peers().some((p) => p.site === s)) { grid.remove(t); tiles.delete(s); unwatch(s); }
     sayState();
     pb?.refresh();
   }
@@ -288,7 +299,7 @@
         const s = await navigator.mediaDevices.getUserMedia({ audio: AUDIO });
         local.addTrack(s.getAudioTracks()[0]);
         unwatch(SITE); watch(SITE, local);
-        mesh?.retrack();
+        media?.retrack();
       } catch (e) { d.log(`microphone: ${e.message}`, 'warn'); return; }
     }
     micOn = !micOn;
@@ -308,11 +319,14 @@
       } catch (e) { d.log(`camera: ${e.message}`, 'warn'); return; }
     }
     me.stream(null); me.stream(local);
-    mesh?.retrack();
+    media?.retrack();
     showCam();
     sayState();
     pb?.refresh();
   }
+
+  // ── the SFU's layer: every pulled camera at the size its tile is drawn ───
+  setInterval(() => { if (media?.layer && grid.last().n) media.layer(ridFor(grid.last().w, devicePixelRatio)); }, 2000);
 
   // ── who is speaking: the loudest level over a floor, held a moment ────────
   // why: lessons/kit-participant.md#speaker
@@ -419,7 +433,7 @@
   const sayUnread = () => { tabs.buttons[1].textContent = unread ? `Chat ${unread}` : 'Chat'; };
   rv.append(tabs.el, panel.el);
 
-  addEventListener('pagehide', () => { mesh?.leave(); });
+  addEventListener('pagehide', () => { media?.leave(); });
 
   pb = createPatchbay(heldPicture(bay, SITE), {
     ...(ROOM ? { room: ROOM } : {}),
@@ -430,7 +444,7 @@
   // For a harness: what the room looks like from this tab.
   window.__room = {
     site: SITE, room: ROOM,
-    peers: () => mesh?.peers() || [],
+    via: VIA, peers: () => media?.peers() || [], layer: () => media?.layerNow?.() || '', published: () => media?.published?.() || [],
     tiles: () => [me, ...tiles.values()].filter((t) => t.el.isConnected).map((t) => t.info()),
     grid: () => grid.layout(),
     links: () => bay().links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport || ''} ${l.session?.where || ''}`.trim()),
