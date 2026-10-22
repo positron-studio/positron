@@ -58,9 +58,10 @@ const MACHINES = {
       ['Preferences > Audio > Output = BlackHole', '🔴 THE LIVE OBJECT MODEL HAS NO AUDIO-DEVICE API. This one cannot be scripted at all'],
     ],
     files: [
-      ['~/positron-rack/live-check.mjs', 'the checkup; copied by hand, not deployed by anything'],
-      ['~/positron-rack/rack-agent.mjs', 'answers rack.status over the relay. ⚠️ must be started from a terminal IN the login session — a capture started over ssh is deaf'],
-      ['/tmp/midisend',            'CoreMIDI sender, built from rig/m1/midisend.c. ⚠️ IN /tmp, so it does NOT survive a reboot — live-check.mjs rebuilds it'],
+      ['~/positron-studio/rig/m1/studio-agent.mjs', 'the studio agent, site m1 in room m1-1, a LaunchAgent (studio.positron.studio-agent); rig/m1/push-studio.sh copies it'],
+      ['~/positron-studio/bin/midisend', 'CoreMIDI sender, built on the Mac from rig/m1/midisend.c (host-time stamps)'],
+      ['~/positron-rack/bin/audiotap', 'the Core Audio tap; its capture grant is keyed to this path, so it stays here'],
+      ['~/.positron/studio-key', 'the studio key (mode 600), the same as STUDIO_KEY in .env'],
     ],
   },
 };

@@ -14,6 +14,7 @@
 // pays CoreMIDI client setup per note — measured elsewhere in this repo as the
 // difference between an instrument and a demonstration. It also means note-off
 // can never be lost to a process that has already gone.
+#include <mach/mach_time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,7 +63,7 @@ static void send3(unsigned char a, unsigned char b, unsigned char c) {
   unsigned char data[3] = { a, b, c };
   // Timestamp 0 = "now". This tool exists to be played, not sequenced; a
   // schedule belongs to whatever is upstream of it.
-  MIDIPacketListAdd(&list, sizeof list, p, 0, 3, data);
+  MIDIPacketListAdd(&list, sizeof list, p, mach_absolute_time(), 3, data);
   MIDISend(port, dest, &list);
 }
 

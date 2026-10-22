@@ -11,6 +11,24 @@
 
 ---
 
+# The studio agent: the Mac as site `m1` (2026-10-22, replaces the rack)
+
+`rig/m1/studio-agent.mjs` runs on the studio Mac (`ssh mbp`) as a LaunchAgent (`studio.positron.studio-agent.plist`),
+in the owner's login session, in room `m1-1` as site `m1` (`macGraph` in `demo/shell/graph-registry.mjs`). It speaks
+the board's wire, so a page opens it with `createBoard({ room: 'm1-1' })`: notes in to Ableton Live over IAC,
+Live's sound back through the tap only while a page asks, transport and tempo over AbletonOSC, and `app.open` /
+`live.instrument` signed with the studio key (`~/.positron/studio-key` on the Mac, `STUDIO_KEY` in `.env`).
+`./rig/m1/push-studio.sh` copies it there. The old `live-agent.mjs` and `rack-agent` were removed the same day.
+
+MEASURED 2026-10-22 through the relay: a held chord came back at -4.6 dBFS against silence before.
+What it took is in `lessons/rig-m1.md#studio-agent`: Live's output on the speakers (not the Multi-Output Device),
+the IAC port re-ticked in Live's Preferences, and the owner's Mosaiik remote script removed (it caught notes 57,
+60, 62, 65, 67, 69).
+
+The tap binary stays at `~/positron-rack/bin/audiotap`: its capture grant is keyed to that path.
+
+---
+
 # The rack — play Ableton Live from a browser (2026-09-12)
 
 **Live at <https://positron.studio/able/>.** Press a key in a browser anywhere:

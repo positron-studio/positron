@@ -13,6 +13,46 @@ export const BOARD_SITE = 'pi-1';
 /** A port on the Pi, `pi-1:<node>:<medium>-<dir>`. */
 export const boardPort = (node, name, site = BOARD_SITE) => `${site}:${node}:${name}`;
 
+/**
+ * The studio Mac (`ssh mbp`) is site `m1` in its own room, `m1-1`: its sound frames and the Pi's must
+ * not share a socket. Its apps are nodes: Ableton Live (`live`), OBS (`encoder`).
+ * why: lessons/kit-graph-registry.md#mac
+ */
+export const MAC_SITE = 'm1';
+export const MAC_ROOM = 'm1-1';
+/**
+ * The Mac as a graph, from what its agent (rig/m1/studio-agent.mjs) knows: which apps run.
+ * @param {object} o
+ * @param {boolean} [o.live]  Ableton Live is open
+ * @param {boolean} [o.obs]   OBS is open with its remote control answering
+ */
+export function macGraph({ room = MAC_ROOM, site = MAC_SITE, live = false, obs = false, frameMs = 20, label = 'studio Mac' } = {}) {
+  const place = room;
+  const nodes = [], ports = [];
+  const node = (n, kind, l) => { nodes.push({ id: `${site}:${n}`, kind, label: l, place }); };
+  const port = (n, p, o) => { ports.push({ id: `${site}:${n}:${p}`, ...o }); };
+  node('apps', 'endpoint', 'apps');
+  port('apps', 'value-in', { label: 'open an app', dir: 'in', medium: 'value', shape: { of: 'app', names: ['live', 'obs'] }, address: room });
+  port('apps', 'value-out', { label: 'which apps run', dir: 'out', medium: 'value', address: room });
+  if (live) {
+    node('live', 'engine', 'Ableton Live');
+    port('live', 'midi-in', { label: 'Ableton Live', dir: 'in', medium: 'midi', accepts: ['note', 'cc', 'program'], never: ['sysex'], address: room });
+    port('live', 'audio-out', { label: 'Ableton Live', dir: 'out', medium: 'audio', shape: { rate: 48000, channels: 1, frameMs }, address: room,
+      transports: ['relay'] });
+    port('live', 'value-in', { label: 'transport, tempo, instrument', dir: 'in', medium: 'value',
+      shape: { of: 'param', names: ['play', 'tempo', 'metronome', 'instrument'] }, address: room });
+    port('live', 'value-out', { label: 'tempo, playing, beat', dir: 'out', medium: 'value', address: room });
+  }
+  if (obs) {
+    node('encoder', 'engine', 'OBS');
+    port('encoder', 'value-in', { label: 'stream into a room', dir: 'in', medium: 'value', shape: { of: 'room' }, address: room });
+    port('encoder', 'value-out', { label: 'idle or live', dir: 'out', medium: 'value', address: room });
+    port('encoder', 'video-out', { label: 'OBS', dir: 'out', medium: 'video', transports: ['whip', 'sfu'] });
+    port('encoder', 'audio-out', { label: 'OBS', dir: 'out', medium: 'audio', transports: ['whip', 'sfu'] });
+  }
+  return { v: GRAPH_V, site, kind: 'mac', label, place: room, nodes, ports };
+}
+
 /** What a site may say it is. Absent is allowed; anything else is refused. */
 export const SITE_KINDS = ['board', 'browser', 'store', 'node', 'mac', 'service'];
 /**

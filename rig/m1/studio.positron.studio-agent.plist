@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The studio agent (rig/m1/studio-agent.mjs), a LaunchAgent: the tap and OBS need the owner's GUI session.
+     node by full path: launchd's PATH has none. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>studio.positron.studio-agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/kristjanjansen/positron-studio/rig/m1/studio-agent.mjs</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/studio-agent.log</string>
+  <key>StandardErrorPath</key><string>/tmp/studio-agent.log</string>
+</dict>
+</plist>

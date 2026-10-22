@@ -1,6 +1,6 @@
 # plan-studio-mac: the M1 as a site in the patchbay, its apps as nodes: OBS and a new Ableton Live control
 
-Status (2026-10-22 night): a plan, nothing built. Asked: *"can the room trigger obs"*, *"assuming its running"*, then
+Status (2026-10-22 night): step 1 and step 3 built and running on the Mac (site `m1`, room `m1-1`); the old agent removed. The owner's decisions on §7: Start m1 streams the current OBS scene; a new studio key; Live 11; the agent opens Live; a new `/remote/live/` page. Room `m1-1`, not `studio-1`: the Pi's and the Mac's sound frames must not share a socket. Asked: *"can the room trigger obs"*, *"assuming its running"*, then
 *"actually plan that remote app control together with new version of ableton live control"*.
 
 Tags: **READ** (code or a document), **MEASURED** (where the number lives), **INFERRED** (reasoned, not checked).
@@ -117,3 +117,26 @@ answers differently from 2026-09-12.
 
 Recording (the brief's rule: nothing records), screen sharing of the Mac (that is OBS's scene), and any control of
 the owner's other apps.
+
+## 9. The owner's Mosaiik remote script (removed 2026-10-22, kept here as the record)
+
+Asked: *"Rm mosaiik script"*, *"Archive mosaiik script knowledge to plan"*. The script was the owner's own Python, a
+Live control surface installed INSIDE the app bundle (`Ableton Live 11 Standard.app/Contents/App-Resources/MIDI Remote
+Scripts/Mosaiik/__init__.py`, 287 lines, dated 2025-11-24), selected in slot 1 with input MK-425C. Moved out to
+`~/.positron/removed/Mosaiik-remote-script/` on the Mac, not deleted.
+
+What it did: a looper-style grid driven from keys. It forwarded six notes on all 16 channels to itself
+(`Live.MidiMap.forward_midi_note`), so those notes never reached a track:
+
+| note | did |
+| --- | --- |
+| C4 60 | previous track: unarm the current one, select and arm the new one, highlight the slot in the current scene |
+| D4 62 | next track, the same |
+| F4 65 | scene up, highlight the slot |
+| G4 67 | scene down, highlight the slot |
+| A4 69 | on the highlighted slot: empty, stop every other row and record a new clip named `<column letter> <row>` (A 1, B 3); recording, finish and play; playing, stop; stopped, stop every other row and play |
+| A3 57 | delete the clip in the highlighted slot |
+
+Why it mattered here: the agent's test chord was C E G (60 64 67), so two of three notes were Mosaiik commands and
+moved the arm off the Drift track. Remote-script grids like this are what `m1:live`'s `value-in` could offer as
+patchbay controls (track, scene, record cell) instead of reserved notes.

@@ -708,3 +708,29 @@ Above `const ROOM = process.env.WS_ROOM || 'audio-probe';`, lines 1 to 19 before
 // The relay echoes to the sender, so round trip and loss are both measured on
 // ONE clock and carry no clock offset.
 ~~~
+
+<a id="studio-agent"></a>
+
+## `studio-agent.mjs`: what it took to make Live sound again, 2026-10-22
+
+Every link was "configured" and Live was silent for an hour. Four separate causes, each found by splitting, none by
+reading settings:
+
+1. **A GUI app opened from an ssh-started process is outside the login session.** Live opened by the agent started
+   over `nohup` from ssh rendered nothing. The agent runs as a LaunchAgent (`gui/<uid>`), and opens Live from there.
+2. **Killing Live leaves a crash-recovery dialog at the next launch** ("Live unexpectedly quit... recover?"), which
+   nothing over ssh can click (no UI scripting). Moving `CrashDetection.cfg` and `CrashRecoveryInfo.cfg` out of
+   `~/Library/Preferences/Ableton/Live 11.3.43/` before relaunching starts it clean.
+3. **Output on the Multi-Output Device**: the metronome (cue out) sounded, the tracks (master) did not. Live's output
+   is the MacBook Pro Speakers now; the tap does not need a loopback device.
+4. **Live's IAC subscription had gone stale**: IAC carried the notes (`midilisten` printed `90 3C 64`), Live listed
+   the port with Track on, and Live's MIDI-in light stayed dark. Unticking and reticking Track on `In: IAC Driver
+   (Bus 1)` in Preferences fixed it. And the owner's Mosaiik control surface ate notes 57 60 62 65 67 69
+   (plans/plan-studio-mac.md §9), which made the earlier tests contradict each other.
+
+The control that split it was the owner's ears plus the computer keyboard with the track's input on All Ins: the
+keyboard sounded, IAC did not, so the instrument and output were fine and the port was not.
+
+MEASURED after, through the relay: a held chord -4.6 dBFS, silence before. `midisend` now stamps notes with
+`mach_absolute_time()` instead of 0 (no effect on this fault, kept because 0 relies on CoreMIDI rewriting it), and
+a bare `panic` line was ignored by its parser (`got < 2`), so the agent sends `panic 0`.

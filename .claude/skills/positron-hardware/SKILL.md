@@ -72,6 +72,12 @@ or checking it tells you nothing about what is running. Compare `md5sum` against
 
 ## The instruments
 
+- **The studio Mac is site `m1` in room `m1-1` since 2026-10-22**: `rig/m1/studio-agent.mjs` as a LaunchAgent, the
+  board's wire, Ableton Live as `m1:live` (notes over IAC, sound back through the tap only while a page asks, transport
+  over AbletonOSC), opening an app or loading an instrument signed with the studio key. `live-agent.mjs` and
+  `rack-agent` are gone. When Live is silent, read `lessons/rig-m1.md#studio-agent` first: output device, a stale IAC
+  port, a crash dialog, a control surface eating notes.
+
 - 🔴 **THE CIRCUIT SHIPS WITH `Save` DISABLED, AND THAT IS A PROTECTION RATHER
   THAN A FAULT. 📄 DOCUMENTED, NOT MEASURED ON THIS DESK.** Circuit User Guide
   v1.6 page 18, verified verbatim 2026-09-21 against the copy at
