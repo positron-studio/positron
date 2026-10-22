@@ -60,6 +60,8 @@ const CSS = `
   .pos-ptg-strip { flex: none; width: 100%; height: var(--strip-h, 112px); display: flex; overflow-x: auto;
                    overflow-y: hidden; overscroll-behavior-x: contain; min-width: 0; }
   .pos-ptg-strip > .pos-pt { flex: none; height: 100%; aspect-ratio: var(--strip-ar, 16 / 9); border-radius: 0; }
+  .pos-ptg-strip.wrap { flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; align-content: center; justify-content: center; }
+  .pos-ptg-strip.wrap > .pos-pt { width: var(--strip-tw); height: var(--strip-th); aspect-ratio: auto; }
   .pos-stg { position: relative; overflow: hidden; background: #000; box-sizing: border-box; }
   .pos-stg > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block;
                      background: #000; border: 0; border-radius: 0; max-width: none; }
@@ -175,8 +177,10 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
   const shown = () => (self ? preview : video);
   const api = {
     el: root, video, preview,
-    show(s, { self: isSelf = false, who = '' } = {}) {
+    /** `sound`: play the stream's audio too (a live stream on /room/stage/); `verb` names what `who` does. */
+    show(s, { self: isSelf = false, who = '', sound = false, verb = 'presenting' } = {}) {
       if (film) api.film(null);
+      video.muted = !sound;
       self = !!isSelf;
       root.classList.toggle('self', self);
       src = s || null;
@@ -185,19 +189,21 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
       if (v.srcObject !== src) v.srcObject = src;
       if (src) v.play?.().catch(() => {});
       waitEl.hidden = self || !!src;
-      tag.textContent = self ? '' : who ? `${who} presenting` : '';
+      tag.textContent = self ? '' : who ? `${who} ${verb}` : '';
     },
     /**
      * A film on the stage: a file played by this tab's own <video>, with sound and the player's
      * controls. null takes it off. The page keeps it in step with the other tabs.
      */
-    film(url, { title = '' } = {}) {
+    film(url, { title = '', cors = false } = {}) {
       film = url || '';
       root.classList.toggle('film', !!film);
       if (film) {
         self = false; root.classList.remove('self');
         if (preview.srcObject) preview.srcObject = null;
         if (video.srcObject) video.srcObject = null;
+        // `cors`: a page that captures the picture (captureStream) needs it read with CORS, set before src.
+        if (cors && video.crossOrigin !== 'anonymous') { video.crossOrigin = 'anonymous'; video.removeAttribute('src'); }
         if (video.getAttribute('src') !== film) video.src = film;
         video.muted = false; video.controls = true;
         waitEl.hidden = true;
@@ -205,7 +211,7 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
       } else {
         video.pause();
         video.removeAttribute('src'); video.load();
-        video.muted = true; video.controls = false;
+        video.muted = true; video.controls = false; video.loop = false; video.removeAttribute('crossorigin');
         tag.textContent = '';
       }
     },
@@ -278,9 +284,17 @@ export function createParticipantGrid({ gap = 0, minW = 120, empty = 'nobody yet
     const ar = m && +m[2] ? +m[1] / +m[2] : 16 / 9;
     const minStrip = 72, maxStrip = Math.max(minStrip, Math.round(H * 0.4));
     const stageH = Math.min(W / ar, H - minStrip);
-    const stripH = Math.max(minStrip, Math.min(maxStrip, Math.floor(H - stageH - 2)));
+    // A tall box (a phone) fills all the space under the stage with tiles sized by fit(), as the grid does;
+    // a wide one keeps one row that scrolls sideways. why: lessons/kit-participant.md#strip-phone
+    const stripH = narrow ? Math.max(minStrip, Math.floor(H - stageH - 2)) : Math.max(minStrip, Math.min(maxStrip, Math.floor(H - stageH - 2)));
     root.style.setProperty('--strip-h', `${stripH}px`);
     root.style.setProperty('--strip-ar', narrow ? '3 / 4' : '4 / 3');
+    strip.classList.toggle('wrap', narrow);
+    if (narrow) {
+      // fit() picks the columns and rows; the tiles then split the space exactly, cropped, as the grid's do.
+      const f = fit(W, stripH, Math.max(1, n), tileAspect(W, stripH), 0);
+      root.style.setProperty('--strip-tw', `${Math.floor(W / f.cols)}px`); root.style.setProperty('--strip-th', `${Math.floor(stripH / f.rows)}px`);
+    }
     const first = (order || []).filter((t) => list.includes(t));
     const want = [...first, ...list.filter((t) => !first.includes(t))];
     // Re-append only when the order changed: moving a <video> is cheap, but not free.

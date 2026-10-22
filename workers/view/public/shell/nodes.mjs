@@ -133,15 +133,7 @@ export const NODES = {
     kind: 'person', label: 'mic and camera buttons', place: 'site',
     instance: 'one per tab: whether this tab\'s microphone and camera are on, said to every other tab',
     ports: { 'value-out': P() },
-    pages: ['room/video', 'room/mesh'],
-  },
-  // Play, pause and seek on a film watched together, said to every tab on the shared clock.
-  // why: lessons/kit-nodes.md#video-room
-  transport: {
-    kind: 'person', label: 'play, pause, seek', place: 'site',
-    instance: 'one per tab in a video room: what this tab pressed, stamped with `at` on the shared clock',
-    ports: { 'value-out': P() },
-    pages: ['room/video', 'room/mesh'],
+    pages: ['room/present', 'room/stage', 'room/mesh'],
   },
 
   // ── engines: what makes or changes a sound, a picture or an event ───────
@@ -255,9 +247,8 @@ export const NODES = {
   },
   'player-video': {
     node: 'player', kind: 'engine', label: 'player',
-    // value-in: play, pause and seek from a room's `transport` (room/video, room/mesh).
     ports: { 'file-in': P(), 'video-out': P({ ...PAGE }), 'value-in': P({ optional: true }) },
-    pages: ['video/recorder', 'room/video', 'room/mesh'],
+    pages: ['video/recorder'],
   },
   level: {
     kind: 'engine', label: 'level',
@@ -459,15 +450,15 @@ export const NODES = {
     kind: 'screen', label: 'grid', place: 'site',
     instance: 'one per tab: every other tab\'s camera and microphone as tiles, and who is muted',
     ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'audio-in': P({ transports: ['p2p', 'sfu'] }), 'value-in': P() },
-    pages: ['room/video', 'room/mesh'],
+    pages: ['room/present', 'room/stage', 'room/mesh'],
   },
-  // The big picture while somebody presents or a film plays, on every tab of a video room.
+  // The big picture while somebody presents (room/present) or streams (room/stage, with its sound), on every tab.
   // why: lessons/kit-nodes.md#video-room
   stage: {
     kind: 'screen', label: 'stage', place: 'site',
-    instance: 'one per tab: the presenter\'s screen, or the film; value-in hears who presents',
-    ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'value-in': P() },
-    pages: ['room/video', 'room/mesh'],
+    instance: 'one per tab: the presenter\'s screen or the live stream; value-in hears who leads',
+    ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'audio-in': P({ transports: ['sfu'], optional: true }), 'value-in': P() },
+    pages: ['room/present', 'room/stage'],
   },
   oled: {
     kind: 'screen', label: 'OLED',
@@ -490,7 +481,7 @@ export const NODES = {
     kind: 'device', label: 'microphone', place: 'site',
     instance: 'one per tab, asked for on Join',
     ports: { 'audio-out': P({ transports: ['p2p', 'sfu'] }) },
-    pages: ['room/video', 'room/mesh'],
+    pages: ['room/present', 'room/stage', 'room/mesh'],
   },
   // A tab's screen, from getDisplayMedia: one presenter at a time in a video room.
   // why: lessons/kit-nodes.md#video-room
@@ -498,7 +489,15 @@ export const NODES = {
     kind: 'device', label: 'screen share', place: 'site',
     instance: 'one per tab where the browser can capture a screen (not a phone); value-out says it presents',
     ports: { 'video-out': P({ transports: ['page', 'p2p', 'sfu'] }), 'value-out': P() },
-    pages: ['room/video', 'room/mesh'],
+    pages: ['room/present'],
+  },
+  // A live stream on room/stage: a film from the bucket played in one tab and sent with captureStream(), picture
+  // and sound, one streamer at a time. why: lessons/kit-nodes.md#video-room
+  stream: {
+    kind: 'engine', label: 'stream', place: 'site',
+    instance: 'one per tab where the browser can capture a <video> (not an iPhone); value-out says it streams',
+    ports: { 'file-in': P({ ...HTTPS }), 'video-out': P({ transports: ['page', 'sfu'] }), 'audio-out': P({ transports: ['sfu'] }), 'value-out': P() },
+    pages: ['room/stage'],
   },
   camera: {
     kind: 'device', label: 'camera',
@@ -508,7 +507,7 @@ export const NODES = {
     // Drawn in this tab; the three loopback pages send it away and leave transports to the link.
     variants: { page: { 'video-out': { ...PAGE } } },
     variantPages: { page: ['video/camera', 'video/shader', 'video/recorder', 'drums/camera'] },
-    pages: ['video/camera', 'video/shader', 'video/recorder', 'video/webrtc', 'video/llhls', 'video/moq', 'drums/camera', 'room/video', 'room/mesh'],
+    pages: ['video/camera', 'video/shader', 'video/recorder', 'video/webrtc', 'video/llhls', 'video/moq', 'drums/camera', 'room/present', 'room/stage', 'room/mesh'],
   },
 
   // ── somewhere else: a bucket, a store, a broadcaster ────────────────────
