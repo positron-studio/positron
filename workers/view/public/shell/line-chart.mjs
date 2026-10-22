@@ -28,10 +28,10 @@ function tickLabel(t, step, offMs) {
 
 /**
  * Everything the picture needs, from data and a size. `series` is `[{ name, points: [[t, v | null], ...], tone }]`,
- * `t` in ms; a null value breaks the line. `offsetMin` is minutes east of UTC for the tick labels (local by default).
+ * `t` in ms; a null value breaks the line, and so does a gap longer than `maxGap` ms between two readings. `offsetMin` is minutes east of UTC for the tick labels (local by default).
  * The peak is series 0's largest value, the earliest if it repeats. `empty` when no series has a value in range.
  */
-export function chartLayout({ series = [], from, to, width, height, offsetMin = null, unit = '' }) {
+export function chartLayout({ series = [], from, to, width, height, offsetMin = null, unit = '', maxGap = Infinity }) {
   const all = series.flatMap((s) => (s.points || []).filter(([t, v]) => Number.isFinite(v) && t >= from && t <= to));
   const empty = !all.length || !(to > from) || !(width > 0) || !(height > 0);
   if (empty) return { empty: true, width, height, lines: [], xTicks: [], yTicks: [], peak: null };
@@ -50,11 +50,14 @@ export function chartLayout({ series = [], from, to, width, height, offsetMin = 
   const xTicks = [];
   for (let t = Math.ceil((from + off) / step) * step - off; t <= to; t += step) xTicks.push({ t, x: x(t), label: tickLabel(t, step, off) });
   const lines = series.map((s, i) => {
-    let d = '', pen = false;
+    // Two readings further apart than maxGap are not joined: the time between is missing, not a slope.
+    // why: lessons/kit-line-chart.md#max-gap
+    let d = '', pen = false, last = -Infinity;
     for (const [t, v] of s.points || []) {
       if (t < from || t > to) continue;
       if (!Number.isFinite(v)) { pen = false; continue; }
-      d += `${pen ? 'L' : 'M'}${x(t).toFixed(1)} ${y(v).toFixed(1)}`; pen = true;
+      if (t - last > maxGap) pen = false;
+      d += `${pen ? 'L' : 'M'}${x(t).toFixed(1)} ${y(v).toFixed(1)}`; pen = true; last = t;
     }
     return { d, name: s.name || `series ${i + 1}`, tone: s.tone || (i ? 'faint' : 'main'), i };
   });
@@ -72,7 +75,7 @@ const svg = (name, attrs = {}, text) => {
 };
 
 /**
- * `{ el, set({ series, from, to }), layout(), destroy() }`. Height is `--lc-h` (CSS); width is the box's own. Nothing
+ * `{ el, set({ series, from, to, maxGap }), layout(), destroy() }`. Height is `--lc-h` (CSS); width is the box's own. Nothing
  * is drawn and the box is hidden while there is nothing to show. A pointer over it marks the nearest reading of series 0.
  */
 export function createLineChart({ label = 'line chart', unit = '' } = {}) {
@@ -142,7 +145,7 @@ export function createLineChart({ label = 'line chart', unit = '' } = {}) {
   return {
     el,
     set(next) {
-      data = { series: next.series || [], from: next.from, to: next.to };
+      data = { series: next.series || [], from: next.from, to: next.to, ...(next.maxGap ? { maxGap: next.maxGap } : {}) };
       const any = data.series.some((s) => (s.points || []).some(([t, v]) => Number.isFinite(v) && t >= data.from && t <= data.to));
       el.hidden = !any;
       paintKey();
