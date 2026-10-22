@@ -14,7 +14,7 @@
 <script type="module">
   // Ableton Live on the studio Mac, site `m1` in room `m1-1` (rig/m1/studio-agent.mjs). Notes go to Live over IAC,
   // Live's sound comes back through a Core Audio tap only while this page plays, tempo and Live's own play over
-  // AbletonOSC (Live's transport is not started from here: the keys do not need it). Opening Live and loading an instrument need the studio key (?key= once, kept in this browser).
+  // AbletonOSC, over the relay or direct (`?path=direct`, data channels `pcm` and `ctl`, as the Pi). (Live's transport is not started from here: the keys do not need it). Opening Live and loading an instrument need the studio key (?key= once, kept in this browser).
   // why: lessons/page-remote.md#live
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
@@ -26,6 +26,7 @@
   import { createPicker } from '/shell/picker.mjs';
   import { createKnob } from '/shell/knob.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createChoice } from '/shell/choice.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { addNodes } from '/shell/nodes.mjs';
@@ -42,6 +43,8 @@
   const q = new URLSearchParams(location.search);
   const ROOM = q.get('room') || MAC_ROOM;
   const MAY_PLAY = !SELFCHECK || q.get('board') === '1';
+  let mode = q.get('path') === 'direct' ? 'direct' : 'relay';
+  const DIRECT_FRAME_MS = q.get('frame') === '20' ? 20 : 10;
 
   // ── the studio key: from ?key= once, then this browser only; never in the page ──
   const KEY_STORE = 'positron-studio-key';
@@ -160,6 +163,20 @@
     d.set('key to sound', lastLag == null ? '' : Math.round(lastLag));
     d.set('round trip', st?.rttMs == null ? '' : Math.round(st.rttMs));
   }, 250);
+  // Every link to the Mac is remade with `via` when the path changes, so the patchbay draws the wire that carries it.
+  let wiredVia = null;
+  function rewire(path) {
+    const via = path === 'direct' || path === 'turn' ? 'datachannel' : 'relay';
+    if (via === wiredVia) return;
+    wiredVia = via;
+    for (const l of bay.links()) {
+      if (!l.from.startsWith(`${MAC_SITE}:`) && !l.to.startsWith(`${MAC_SITE}:`)) continue;
+      bay.unlink(l.id);
+      const r = bay.link(l.from, l.to, l.transforms || [], { via });
+      if (!r.ok) d.log(`${l.from} -> ${l.to} via ${via} refused: ${r.why}`, 'warn');
+    }
+    pb?.refresh?.();
+  }
   function showLive(r) {
     liveState = r;
     d.set('tempo', r?.ok ? r.tempo : '');
@@ -216,7 +233,10 @@
   function makeBoard() {
     let open;
     opened = new Promise((r) => { open = r; });
-    board = createBoard({ room: ROOM, of: 'studio Mac', showName: false, cushionMs: 160, maxCushionMs: 400,
+    const direct = mode === 'direct'
+      ? { cushionMs: 80, maxCushionMs: 250, direct: true, directCushionMs: Number(q.get('cushion')) || 40 }
+      : { cushionMs: 160, maxCushionMs: 400 };
+    board = createBoard({ room: ROOM, of: 'studio Mac', showName: false, ...direct,
       log: (line, kind) => d.log(line, kind), onOpen: () => open(true) });
     announceOn(board, bay, { label: 'Live on Mac' });
   }
@@ -247,6 +267,18 @@
       showLive(st);
       const r = await board.ask({ type: 'audio.start', node: 'live' }, 'audio.started', 8000);
       if (!r?.ok) { say(`The Mac could not send Live's sound${r?.reason ? `: ${r.reason}` : ''}`, 'bad'); return; }
+      if (mode === 'direct') {
+        // Before the first note, so the keys never start on the relay and switch mid phrase; back to the relay after 3 s.
+        say('Opening a direct path to the Mac');
+        pathChoice.pending(1);
+        let path;
+        try { path = await board.goDirect({ frameMs: DIRECT_FRAME_MS }); } finally { pathChoice.pending(null); }
+        rewire(path);
+        if (path === 'relay') fellBack();
+        say(path === 'direct' ? 'Direct to the Mac, the relay only carries presence now'
+          : path === 'turn' ? 'Direct to the Mac through a TURN server, so not on one network'
+          : 'No direct path, so the relay carries everything', path === 'relay' ? 'warn' : undefined);
+      } else rewire('relay');
       armed = true;
       board.watchRtt(2000);
       openMidi();
@@ -266,16 +298,44 @@
     say('Stopped: notes released, and the Mac stops sending Live\'s sound');
   }
   const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => (armed ? stop() : start()) }] });
+  // Relay or direct. A change while playing stops, makes a new board for the new path and plays again.
+  async function setMode(m) {
+    if (m === mode) return;
+    mode = m;
+    const u = new URL(location.href);
+    if (m === 'direct') u.searchParams.set('path', 'direct'); else u.searchParams.delete('path');
+    history.replaceState(null, '', u);
+    const was = armed;
+    if (armed) stop();
+    if (board) { board.close(); board = null; analyser = null; buf = null; }
+    if (was) await start();
+  }
+  function fellBack() {
+    mode = 'relay';
+    pathChoice.set(0, true);
+    const u = new URL(location.href);
+    u.searchParams.delete('path');
+    history.replaceState(null, '', u);
+  }
+  const pathChoice = createChoice({ label: 'path', options: [['relay', 'relay'], ['direct', 'direct']],
+    at: mode === 'direct' ? 1 : 0, onPick: (v) => setMode(v) });
 
   // ── the patchbay ────────────────────────────────────────────────────────
   const flowing = (l) => (l.from === LIVE('audio-out') ? armed && level > 0.002 : armed);
   const pb = createPatchbay(bay, { room: ROOM, flowing });
-  setInterval(() => pb.refresh?.(), 500);
+  setInterval(() => {
+    if (board && armed) {
+      const via = board.stats().via;
+      rewire(via);
+      if (mode === 'direct' && via === 'relay') { d.log('the direct path dropped, the relay carries everything now', 'warn'); fellBack(); }
+    }
+    pb.refresh?.();
+  }, 500);
 
   const top = el('div', 'cc-top');
-  top.append(transport.el);
+  top.append(transport.el, pathChoice.el);
   d.stack.add(top, wave.el, knobs.el, patchPick.el, host, pb.el);
   window.__demo.bay = bay;
-  window.__demo.probe = () => ({ armed, level, program, live: liveState, said: saidLast, stats: board ? board.stats() : null, lags: [...lags] });
+  window.__demo.probe = () => ({ armed, mode, level, program, live: liveState, said: saidLast, stats: board ? board.stats() : null, lags: [...lags] });
   d.ready();
 </script>

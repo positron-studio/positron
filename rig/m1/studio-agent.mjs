@@ -13,6 +13,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { format, parse, randomId } from '../../demo/shell/wire.mjs';
 import { macGraph, MAC_ROOM } from '../../demo/shell/graph-registry.mjs';
+import { createMainDirect } from '../board/rtc.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 const RELAY = arg('relay', 'wss://ws.positron.studio');
@@ -102,6 +103,7 @@ function stopTap(why) {
   log(`sound off: ${why}`);
 }
 function sendPcm(int16) {
+  mainDirect?.frame(int16);
   if (ws?.readyState !== 1) return;
   const out = Buffer.allocUnsafe(12 + int16.byteLength);
   out.writeUInt32LE(aseq++ >>> 0, 0);
@@ -159,7 +161,7 @@ async function liveState() {
 
 // ── the wire ───────────────────────────────────────────────────────────────
 const hello = () => ({ type: 'board.hello', name: 'studio Mac', id: ID, since: SINCE, audioChannels: CH, frameMs: FRAME_MS,
-  instruments: { live: running.live }, direct: false, graph: graph() });
+  instruments: { live: running.live }, direct: !!mainDirect?.direct, graph: graph() });
 const alive = () => ({ type: 'board.alive', name: 'studio Mac', id: ID, upSec: Math.round((Date.now() - SINCE) / 1000),
   audio: tap ? 'live' : null, frames: sent, apps: running, graph: graph() });
 
@@ -230,6 +232,8 @@ function connect() {
     const m = got.msg;
     if (m.from === FROM) return;
     if (typeof m.from === 'string') clientSeen.set(m.from, Date.now());
+    // The direct path's offers and candidates, answered or refused out loud (rig/board/rtc.mjs).
+    if (mainDirect?.signalling(m)) return;
     const reply = (type, body) => send({ type, re: m.id, ...body });
     Promise.resolve().then(() => handle(m, reply)).catch((err) => { log('handler threw:', err.message); send({ type: 'board.error', re: m.id, error: err.message }); });
   };
@@ -240,7 +244,9 @@ function connect() {
 // The heartbeat with the graph; the quiet sweep stops the sound nobody hears.
 setInterval(() => {
   const last = Math.max(0, ...clientSeen.values());
-  if (tap && Date.now() - last > QUIET_MS) { stopTap('no page has spoken for 20 s'); if (held.size) { held.clear(); midiLine('panic 0'); } }
+  mainDirect?.sweep();
+  // A direct peer's pings never reach handle(), so an open peer counts as somebody listening.
+  if (tap && !mainDirect?.size && Date.now() - last > QUIET_MS) { stopTap('no page has spoken for 20 s'); if (held.size) { held.clear(); midiLine('panic 0'); } }
   send(alive());
 }, 5000);
 // The relay echoes every message: three missing heartbeats mean a dead socket, whatever readyState says.
@@ -249,6 +255,19 @@ setInterval(look, 5000);
 
 process.on('SIGTERM', () => { midiLine('panic 0'); stopTap('stopping'); setTimeout(() => process.exit(0), 150); });
 process.on('SIGINT', () => { midiLine('panic 0'); stopTap('stopping'); setTimeout(() => process.exit(0), 150); });
-log(`tap ${TAP}, midisend ${MIDISEND}, key ${key ? 'present' : 'missing'}`);
+// The direct path, as the Pi's: node-datachannel when it is installed, the relay only without it. Notes and asks over
+// `ctl` go through the same handle(); Live's sound goes out on `pcm` in half-relay frames.
+// why: lessons/rig-m1.md#studio-direct
+let PeerConnection = null;
+try { PeerConnection = (await import('node-datachannel')).default.PeerConnection; } catch (e) { log('no direct path:', e.code || e.message); }
+const mainDirect = createMainDirect({
+  PeerConnection, signal: send, frame: FRAME, rate: RATE, log: (...a) => log('direct:', ...a),
+  handle: (m, reply, peer) => {
+    const from = typeof m.from === 'string' ? m.from : `rtc-${peer}`;
+    clientSeen.set(from, Date.now());
+    return handle({ ...m, from }, reply);
+  },
+});
+log(`tap ${TAP}, midisend ${MIDISEND}, key ${key ? 'present' : 'missing'}, direct ${mainDirect.direct ? 'yes' : 'no'}`);
 await look();
 connect();

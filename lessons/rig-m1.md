@@ -734,3 +734,16 @@ keyboard sounded, IAC did not, so the instrument and output were fine and the po
 MEASURED after, through the relay: a held chord -4.6 dBFS, silence before. `midisend` now stamps notes with
 `mach_absolute_time()` instead of 0 (no effect on this fault, kept because 0 relies on CoreMIDI rewriting it), and
 a bare `panic` line was ignored by its parser (`got < 2`), so the agent sends `panic 0`.
+
+<a id="studio-direct"></a>
+
+## The studio agent's direct path
+
+The Pi's `createMainDirect` (`rig/board/rtc.mjs`) unchanged, on `node-datachannel` 0.33.4 installed on the Mac from its
+prebuilt binary (`rig/m1/package.json`, `push-studio.sh` runs `npm install`). Signalling is checked before
+`handle()`; Live's frames go to the relay and to every open peer in half frames. An open peer counts as somebody
+listening, because its `rtc.ping`s are answered inside rtc.mjs and never reach `handle()`, so the 20 s quiet sweep
+would otherwise stop the tap under a page that is playing.
+
+MEASURED 2026-10-22, this laptop to the M1 through TURN (two networks): key to sound 174 ms (relay 347 to 455),
+round trip 28 ms (relay 84 to 90), 1432 frames, 0 lost; the first note 695 ms while the path settled.

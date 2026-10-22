@@ -1,0 +1,7 @@
+{
+  "name": "positron-studio",
+  "private": true,
+  "type": "module",
+  "description": "The studio agent's one npm dependency, the Pi's: node-datachannel, for the direct path in rig/board/rtc.mjs.",
+  "dependencies": { "node-datachannel": "0.33.4" }
+}

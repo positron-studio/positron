@@ -674,7 +674,7 @@ The `/remote/piano/` pattern pointed at the Mac: `createBoard({ room: 'm1-1' })`
 `rig/m1/studio-agent.mjs` answering the board's wire, Live's ports from `macGraph`. Tempo and Live's own play are a
 `web:transport:value-out` linked to `m1:live:value-in` (`{ of: 'param' }`, so a knob can link to it). Opening Live and
 loading an instrument are signed with the studio key, taken from `?key=` once into localStorage and stripped from the
-address. Relay only: the agent answers no `rtc.offer`.
+address. Relay or direct (`?path=direct`), as `/remote/piano/`; the agent answers `rtc.offer` since the same evening (`lessons/rig-m1.md#studio-direct`): key to sound 174 ms direct through TURN.
 
 MEASURED 2026-10-22 headless against the Mac, notes sent along the bay: key to sound 353 to 455 ms (relay round trip
 84 ms, cushion 160 ms, Live's own 13.7 ms output latency), 720 frames, 0 lost; tempo 97 set from the port and read
