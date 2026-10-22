@@ -103,6 +103,8 @@
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el, createReport } from '/shell/shell.mjs';
   import { createTable } from '/shell/table.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createLineChart } from '/shell/line-chart.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours, MEDIUM_COLOURS } from '/shell/patchbay.mjs';
@@ -1103,23 +1105,65 @@
   // LISTENERS: the broadcast on air (from the mount's own Icecast, less our relay's one connection plus who hears through it)
   // and the last broadcasts; the cast reads them, the page only reads the status it already polls
   const ears = createReport({ readout: { listening: '', peak: '', heard: 'min', counted: 's ago' }, joined: false, showLog: false });
+  // a row is a past broadcast: pressing one charts it
   const pastTbl = createTable({ columns: [
     { key: 'when', label: 'when', grow: true },
-    { key: 'length', label: 'length', width: 72, align: 'right' },
-    { key: 'peak', label: 'peak', width: 56, align: 'right', hi: true },
-    { key: 'heard', label: 'heard', width: 80, align: 'right', hover: 'heardT' },
-  ], empty: '' });
-  const earsSec = sec('listeners', ears.readoutEl, pastTbl.el);
+    { key: 'length', label: 'length', width: 60, align: 'right' },
+    { key: 'peak', label: 'peak', width: 44, align: 'right', hi: true },
+    { key: 'heard', label: 'heard', width: 64, align: 'right', hover: 'heardT' },
+  ], empty: '', onPick: (r) => { pickedPast = r.rec; rangeCh.set(3, true); loadChart(true); } });
+  // LISTENERS OVER TIME: the points the cast wrote to Analytics Engine, read back through GET /listens; asked only
+  // once this section shows for a station with a broadcast, then once a minute while that station is on air
+  const chart = createLineChart({ label: 'listeners over time' });
+  const RANGES = [['2 h', 2], ['24 h', 24], ['48 h', 48], ['broadcast', 'past']];
+  const rangeCh = createChoice({ options: RANGES, at: 0, onPick: () => loadChart(true) });
+  const csvLink = el('a', 'vc-url', 'csv'); csvLink.target = '_blank'; csvLink.rel = 'noopener';
+  rangeCh.el.classList.add('vc-range');
+  const chartHead = el('div', 'vc-head'); chartHead.append(rangeCh.el, csvLink);
+  const chartNote = el('span', 'vc-dim', ''); chartNote.hidden = true;
+  const earsSec = sec('listeners', ears.readoutEl, chartHead, chart.el, chartNote, pastTbl.el);
+  let pickedPast = null, chartAt = 0, chartKey = '', chartFor = '', pastKey = '';
+  let getListens = async (url) => (await fetch(url)).json();
   const hm = (ms) => { const m = Math.round(ms / 60_000); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
   const day = (t) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  /** The range asked for: the last hours, or the pickedPast past broadcast (the newest when none was pickedPast). */
+  function rangeOf(t) {
+    const v = rangeCh.value(), past = status[t]?.listens || [];
+    if (v === 'past') { const r = pickedPast && past.some((x) => x.startedAt === pickedPast.startedAt) ? pickedPast : past[0]; return r ? { from: r.startedAt, to: r.endedAt } : null; }
+    const to = Date.now(); return { from: to - v * 3600_000, to };
+  }
+  async function loadChart(force = false) {
+    const t = target, r = rangeOf(t);
+    if (!r || earsSec.hidden) return;
+    const live = rangeCh.value() !== 'past' && !!status[t]?.onAir;
+    if (!force && chartFor === t && (!live || Date.now() - chartAt < 60_000)) return;
+    chartAt = Date.now(); chartFor = t;
+    const q = `from=${Math.round(r.from)}&to=${Math.round(r.to)}`, key = `${t}?${q}`;
+    chartKey = key;
+    csvLink.href = `${BASE}/listens/${t}?${q}&format=csv`;
+    try {
+      const j = await getListens(`${BASE}/listens/${t}?${q}`);
+      if (chartKey !== key) return;
+      if (j.error) throw new Error(j.error);
+      const pts = (k) => j.rows.map((x) => [x.t, x[k]]);
+      chart.set({ from: j.from, to: j.to, series: [{ name: 'listening', points: pts('people') }, ...(t === 'preview' ? [] : [{ name: 'at Väin', points: pts('vain') }])] });
+      chartNote.textContent = j.rows.length ? '' : 'no readings in this range'; chartNote.hidden = !chartNote.textContent;
+    } catch (e) { chart.set({ series: [] }); chartNote.textContent = `the chart did not load: ${e.message}`; chartNote.hidden = false; }
+  }
   function paintListeners() {
     const st = target === LOCAL ? null : status[target], on = st?.onAir ? st.listeners : null, past = st?.listens || [];
     earsSec.hidden = !on && !past.length;
     const num = (v) => (Number.isFinite(v) ? v : '');
     ears.set('listening', num(on?.now)); ears.set('peak', num(on?.peak)); ears.set('heard', num(on?.minutes)); ears.set('counted', num(on?.ageS));
     ears.readoutEl.hidden = !on;
-    pastTbl.set(past.map((x) => ({ when: day(x.startedAt), length: hm(x.endedAt - x.startedAt), peak: x.peak ?? '', heard: `${x.minutes} min`, heardT: 'listener minutes' })));
+    // rebuilt only when the list changes, so a row keeps its focus across the status polls
+    const pk = `${target}|${past.map((x) => x.startedAt).join()}`;
+    if (pk !== pastKey) { pastKey = pk; pastTbl.set(past.map((x) => ({ rec: x, when: day(x.startedAt), length: hm(x.endedAt - x.startedAt), peak: x.peak ?? '', heard: `${x.minutes} min`, heardT: 'listener minutes' }))); }
     pastTbl.el.hidden = !past.length;
+    rangeCh.buttons[3].disabled = !past.length;
+    // off air with only past broadcasts, the newest one is what there is to see
+    if (chartFor !== target && !on && past.length && rangeCh.value() !== 'past') rangeCh.set(3, true);
+    if (!earsSec.hidden) loadChart(chartFor !== target);
   }
   const stations = sec('stations', cardRow);
   const detail = el('div', 'vc-detail');
@@ -1147,6 +1191,11 @@
     links: bay.links().map((l) => `${l.from} -> ${l.to}`) });
 
   if (SELFCHECK) {
+    // a stand-in for GET /listens: the checks never ask the cast's SQL anything
+    const listenAsks = [];
+    getListens = async (url) => { listenAsks.push(url); const u = new URL(url), to = +u.searchParams.get('to'), from = +u.searchParams.get('from');
+      return { from, to, step: 5, rows: Array.from({ length: 12 }, (_, i) => ({ t: from + ((to - from) * i) / 12, people: [1, 2, 4, 3, 5, 6, 4, 3, 2, 2, 1, 0][i], vain: 1, readings: 5 })) }; };
+    window.__listenAsks = listenAsks;
     const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
     const linked = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
     const audioReqs = () => performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/listen\/|\/file\/|shout\.|eccm\.ee|uuu\.ee/.test(u));
@@ -1165,7 +1214,7 @@
     const seen = [];
     for (const t of STATIONS) {
       rowOf(t).click();
-      seen.push([t, dName.textContent, detail.contains(soundSec) ? 'box' : 'none', detail.querySelectorAll('.pos-choice, .sld-lane:not(.vc-wet .sld-lane), .vc-votes, textarea').length, isOn(t)]);
+      seen.push([t, dName.textContent, detail.contains(soundSec) ? 'box' : 'none', detail.querySelectorAll('.pos-choice:not(.vc-range), .sld-lane:not(.vc-wet .sld-lane), .vc-votes, textarea').length, isOn(t)]);
     }
     d.assert('selecting a station opens it, live only: no copy, mix or grains controls, and no scene box or vote box on the page',
       seen.every(([t, n, disp, ctl, on]) => n === t && disp === 'none' && ctl === 0 && on) && !Object.keys(sockets).length, JSON.stringify(seen));
@@ -1379,6 +1428,15 @@
     take('preview', { target: 'preview', onAir: true, playing: true, now: { id: 'x', title: 'a file', at: 61 }, lines: [],
       listeners: { now: 5, peak: 8, minutes: 42, ageS: 12 }, listens: [{ startedAt: H0, endedAt: H0 + 130 * 60_000, peak: 3, minutes: 17 }] });
     const cell = (k) => ears.cells.get(k).firstChild?.textContent ?? '';
+    await tick(50);
+    const asked0 = listenAsks.slice();
+    d.assert('the listeners section asks GET /listens for the last 2 hours once it shows, and draws the chart with its peak and a csv link',
+      asked0.length === 1 && /\/listens\/preview\?from=\d+&to=\d+$/.test(asked0[0]) && (+new URL(asked0[0]).searchParams.get('to') - +new URL(asked0[0]).searchParams.get('from')) === 2 * 3600_000
+      && !chart.el.hidden && chart.layout()?.peak?.v === 6 && /format=csv$/.test(csvLink.href), JSON.stringify({ asked0, peak: chart.layout()?.peak?.v }));
+    pastTbl.el.querySelector('.pos-tbl-row:not(.pos-tbl-head)')?.click(); await tick(50);
+    const pastAsk = listenAsks.at(-1), pu = new URL(pastAsk);
+    d.assert('pressing a past broadcast charts exactly that broadcast and lights "broadcast"',
+      +pu.searchParams.get('from') === H0 && +pu.searchParams.get('to') === H0 + 130 * 60_000 && rangeCh.value() === 'past', pastAsk);
     const pastRows = () => [...pastTbl.el.querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')].map((r) => r.textContent);
     d.assert('on air: listening, peak, listener minutes and how long ago, the card says how many, and the last broadcast is a row',
       cell('listening') === '5' && cell('peak') === '8' && cell('heard') === '42' && cell('counted') === '12' && cards.preview.ears.textContent === '5 listening'
@@ -1390,10 +1448,14 @@
     take('preview', { target: 'preview', onAir: false, playing: false, lines: [], listeners: null, listens: [] });
     d.assert('NEGATIVE CONTROL: a station never counted shows no listeners section at all',
       earsSec.hidden && getComputedStyle(earsSec).display === 'none' && !cards.preview.ears.textContent);
+    const asksNow = listenAsks.length;
+    rowOf('user4').click(); take('user4', { target: 'user4', onAir: false, playing: false, lines: [], listeners: null, listens: [] }); await tick(50);
+    d.assert('NEGATIVE CONTROL: a station with no broadcast asks GET /listens nothing', listenAsks.length === asksNow, String(listenAsks.length - asksNow));
     // put it all back
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
     live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); if (t !== LOCAL) badges[t].set('unknown'); cards[t].card.set({ desc: '' }); cards[t].stops.textContent = ''; cards[t].ears.textContent = ''; }
+    rangeCh.set(0, true); chartFor = ''; pastKey = ''; chart.set({ series: [] });
     rowOf(LOCAL).click(); say(''); paintRow(LOCAL); paintDetail();
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !localOn() && !audioReqs().length, audioReqs().join(' '));

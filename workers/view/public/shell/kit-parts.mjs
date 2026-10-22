@@ -12,7 +12,7 @@ export const KIT_PARTS = [
     'picker',
   ] },
   { part: 'status', label: 'STATUS', ids: [
-    'midi-log', 'presence', 'readout-and-log', 'table',
+    'line-chart', 'midi-log', 'presence', 'readout-and-log', 'table',
   ] },
   { part: 'timeline', label: 'TIMELINE', ids: [
     'live-run', 'note-grid', 'transport-bar', 'glued-transport-bar',
