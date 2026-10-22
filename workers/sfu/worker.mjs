@@ -10,11 +10,14 @@
 //   POST /room/<room>/<sid>/answer    { proof, answer }
 //   POST /room/<room>/<sid>/update    { proof, tracks: [{ mid, rid }] }
 //   POST /room/<room>/<sid>/close     { proof, mids: [..] }
+//   POST /room/<room>/film/start|stop, GET /room/<room>/film/status: the room's film, sent into the SFU by a container
+//   (film/server.mjs) as one more publisher. -> { sessionId, proof, tracks } like a tab's sfu.pub. why: lessons/workers-sfu.md#film
 // Secrets: CF_REALTIME_APP_SECRET (the SFU's), SFU_PROOF_KEY (signs proofs). CF_REALTIME_APP_ID is a var.
 // why: lessons/workers-sfu.md#header
 // SfuAdmin (below the public handler) is a second, PRIVATE entry point: WebSocket adapters, reached only over a
 // service binding with "entrypoint": "SfuAdmin" from positron-edgecast. why: lessons/workers-edgecast-adapter.md#sfu-admin
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { Container, getContainer } from '@cloudflare/containers';
 
 const SFU = 'https://rtc.live.cloudflare.com/v1/apps';
 // Cloudflare's edge 1010-blocks a generic user agent on a server-to-server fetch.
@@ -61,7 +64,7 @@ async function sfu(env, method, path, body) {
 function cors(origin) {
   return {
     'access-control-allow-origin': origin || '*',
-    'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type',
     'access-control-max-age': '600',
     vary: 'origin',
@@ -92,6 +95,8 @@ export default {
       return reply(origin, 200, { sfu: 'positron-sfu', usage: 'POST /room/<room>/session, then publish, pull, answer, update, close' });
     }
     if (!env.CF_REALTIME_APP_SECRET || !env.SFU_PROOF_KEY) return reply(origin, 503, { error: 'no SFU secret on this worker' });
+    const f = url.pathname.match(/^\/room\/([^/]+)\/film\/(start|stop|status)$/);
+    if (f && ROOM_RE.test(f[1])) return film(env, url, origin, f[1], f[2], request.method);
     if (request.method !== 'POST') return reply(origin, 405, { error: 'POST' });
 
     const m = url.pathname.match(/^\/room\/([^/]+)\/(?:(session)|([^/]+)\/(publish|pull|answer|update|close))$/);
@@ -160,6 +165,39 @@ export default {
     return reply(origin, 200, { tracks: r.json?.tracks || [] });
   },
 };
+
+// ── the film: one container per room, at most FILM_ROOMS at once ──────────────
+// The container is a participant like a tab: it asks this worker's public routes for a session and publishes with
+// its proof, so it holds no secret. The room code is the gate, as for a tab. why: lessons/workers-sfu.md#film
+const FILM = 'mimproject/party-container-vabaduse-valjak-2010-webrtc.mp4';
+const BASE_OK = /^https:\/\/(sfu\.positron\.studio|positron-sfu\.kristjan-jansen\.workers\.dev)$/;
+export class Film extends Container {
+  defaultPort = 8080;
+  // The film is 2:37 and plays once; the box goes a little after it ends or is stopped.
+  sleepAfter = '90s';
+}
+async function film(env, url, origin, room, verb, method) {
+  if (verb === 'status' ? method !== 'GET' : method !== 'POST') return reply(origin, 405, { error: verb === 'status' ? 'GET' : 'POST' });
+  const box = getContainer(env.FILM, `room-${room}`);
+  try {
+    // A cold box answers "There is no container instance" until server.mjs listens.
+    if (verb === 'start') await box.startAndWaitForPorts();
+    if (verb === 'status') {
+      const r = await box.fetch(new Request('http://c/status'));
+      return reply(origin, 200, await r.json());
+    }
+    if (verb === 'stop') {
+      const r = await box.fetch(new Request('http://c/stop', { method: 'POST', body: '{}' }));
+      return reply(origin, 200, await r.json());
+    }
+    const base = BASE_OK.test(url.origin) ? url.origin : 'https://sfu.positron.studio';
+    const r = await box.fetch(new Request('http://c/start', { method: 'POST', body: JSON.stringify({ room, base, film: FILM }) }));
+    return reply(origin, r.status === 200 ? 201 : 502, await r.json());
+  } catch (e) {
+    // max_instances reached, or the box is still waking.
+    return reply(origin, 503, { error: `film: ${String(e.message || e).slice(0, 160)}` });
+  }
+}
 
 // An adapter makes Cloudflare open a WebSocket to `endpoint` on this account's bill, so only edgecast's adapter
 // routes are allowed, and only over the binding. why: lessons/workers-edgecast-adapter.md#sfu-admin

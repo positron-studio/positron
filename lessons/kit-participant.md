@@ -338,6 +338,9 @@ The `transport` node left `nodes.mjs` with it, and `player-video` lists only `vi
 
 ## `/room/stage/`: a live stream on everybody's stage
 
+> Superseded 2026-10-22 by [film](#film): the stream comes from a container now and the in-tab path below is gone
+> (*"and ?stream=tab keeps the old in-tab path. - no need"*). Kept as the record.
+
 Stream is its own button, beside the camera and the microphone. The streamer's tab plays one of MIMproject's own
 films on its own stage from our bucket (`https://positron-station.kristjan-jansen.workers.dev/media/mimproject/
 party-container-vabaduse-valjak-2010.mp4`, `crossorigin="anonymous"`, which the station answers with
@@ -387,3 +390,22 @@ Asked 2026-10-22 on /room/stage/: *"replace cast button with separste start stre
 joined row (microphone, camera, Leave), where a picture had to say "stream a film to everybody". It is its own button
 group now, after the call's controls, reading "Start stream" and "Stop stream". Its `min-width` holds the wider word so
 the row does not move when it changes (button-group.mjs warns that a label change resizes a button).
+
+<a id="film"></a>
+
+## The film comes from a container on positron-sfu
+
+Asked 2026-10-22: *"is it webrtc container running the video?"* (it was the streamer's tab), then *"can you do contaner
+webetc cast?"* and *"do it"*. Start stream now asks `POST sfu.positron.studio/room/<room>/film/start`; a container
+(workers/sfu/film/) publishes the film into the SFU in its own session and answers `{ sessionId, proof, tracks }`.
+The tab announces those tracks in its `sfu.pub` as its own stream and sound, each track carrying the container's
+session and proof (`createSfu().film(pub)`), and every tab pulls them, the streamer's too. So the stage needs nothing
+of the browser (an iPhone can start one), the streamer's laptop sends nothing, and a tab closing does not cut it for
+the others until its claim goes stale.
+
+- The film plays once (2:37). The streamer's tab reads `/film/status` every 5 s and stops at `ended`.
+- Each start names its tracks anew (`film-<tag>-video`), so a tab that pulled the last film pulls this one; a pulled
+  container track no longer announced is closed (`ext` in `inn.mids`).
+- MEASURED 2026-10-22, 4 tabs plus a late joiner, harness `PAGE=stage`: press to every other stage playing 6.9 s
+  (container start plus connect; it was about 1 to 2 s from a tab), late joiner 4.6 s, sound on every stage
+  (rms 0.28 to 0.34), stop clears every stage, two presses at once settle on the first.

@@ -25,3 +25,24 @@ Built 2026-10-22 for `/room/video/` (split 2026-10-22 into `/room/present/` and 
 - MEASURED 2026-10-22 on the deploy: `GET /` 200; a session 201; publish with no proof 403, with another room's
   proof 403; a pull naming a forged publisher proof refused in words; a request from another origin 403. Four
   Playwright tabs with fake cameras through it: every tile playing in 5.0 s, routes `srflx`.
+
+<a id="film"></a>
+
+## `Film` and `film/server.mjs`: the room's film from a container
+
+One container per room (`getContainer(env.FILM, 'room-<room>')`, `max_instances` 3, instance `basic`, `sleepAfter`
+90 s). It is a participant like a tab: it asks this worker's public `session` and `publish` routes, so it holds no
+secret. ffmpeg copies the film to RTP on loopback (no encode) and werift 0.22.9 sends it.
+
+Why not ffmpeg's own WHIP muxer, which pub uses into Stream. MEASURED 2026-10-22 on this desk, ffmpeg 9.0.1 and the
+pub image's 8.1.2, through a shim to `tracks/new`:
+- ffmpeg offers `a=setup:passive` and the SFU answers `a=setup:passive` too, which RFC 5763 does not allow: both
+  sides wait.
+- With `-whip_flags dtls_active` ffmpeg sends its ClientHello after `ICE STUN ok` and the SFU never answers it
+  ("DTLS session failed" at the handshake timeout). An ECDSA P-256 certificate (`-cert_file`) changed nothing.
+- werift's DTLS client to the same SFU from the same desk connects at once, so the network is not it.
+
+The film is a WebRTC shaped copy made once, as pub's: `party-container-vabaduse-valjak-2010-webrtc.mp4` in
+`positron-station`, H.264 constrained baseline 3.1, no B-frames, 2 s GOP at 25 fps, 1.1 Mbit/s, Opus 128 kbit/s 48 kHz,
+23 MB. MEASURED in Docker: 13 % of a core, 145 MiB. A cold box answers "There is no container instance" until the
+server listens, so `start` awaits `startAndWaitForPorts()`.

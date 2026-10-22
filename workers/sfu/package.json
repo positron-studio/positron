@@ -1,0 +1,5 @@
+{
+  "name": "positron-sfu",
+  "private": true,
+  "dependencies": { "@cloudflare/containers": "0.0.28" }
+}

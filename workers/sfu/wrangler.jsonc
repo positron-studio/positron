@@ -1,4 +1,4 @@
-// positron-sfu: Cloudflare Realtime SFU for /room/video/ (worker.mjs). Secrets, never in this file:
+// positron-sfu: Cloudflare Realtime SFU for the /room/ demos (worker.mjs). Secrets, never in this file:
 // wrangler secret put CF_REALTIME_APP_SECRET and SFU_PROOF_KEY. The app id is not a credential.
 {
   "name": "positron-sfu",
@@ -7,5 +7,10 @@
   "workers_dev": true,
   "routes": [{ "pattern": "sfu.positron.studio", "custom_domain": true }],
   "vars": { "CF_REALTIME_APP_ID": "8c2a974bb21528d398ff927116bcca9e" },
+  // The room's film (worker.mjs Film, film/server.mjs): ffmpeg copies, werift sends, no encode. "basic" is a quarter
+  // of a vCPU and 1 GiB; the box used 13 % of a core and 145 MiB in Docker. Three rooms at once.
+  "containers": [{ "class_name": "Film", "image": "./film/Dockerfile", "instance_type": "basic", "max_instances": 3 }],
+  "durable_objects": { "bindings": [{ "name": "FILM", "class_name": "Film" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Film"] }],
   "observability": { "enabled": true }
 }
