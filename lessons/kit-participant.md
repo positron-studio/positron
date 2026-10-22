@@ -378,3 +378,12 @@ box), two tiles cut at the right and about 236 px of empty panel under them. In 
 height under the stage: `fit()` picks the columns and rows and the tiles split the space exactly, cropped, as the
 plain grid does; a wide box keeps one row that
 scrolls sideways under the stage.
+
+<a id="stream-button"></a>
+
+## Start stream is a word button of its own
+
+Asked 2026-10-22 on /room/stage/: *"replace cast button with separste start stream"*. The cast icon sat inside the call's
+joined row (microphone, camera, Leave), where a picture had to say "stream a film to everybody". It is its own button
+group now, after the call's controls, reading "Start stream" and "Stop stream". Its `min-width` holds the wider word so
+the row does not move when it changes (button-group.mjs warns that a label change resizes a button).

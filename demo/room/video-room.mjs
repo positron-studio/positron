@@ -295,6 +295,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     grid.add(me);
     watch(SITE, local);
     ctl.enableAll(true);
+    streamGrp?.enableAll(true);
     showJoined(true);
     // On a phone the room takes the screen once you are in it; before, Join stays on the first screen.
     rv.dataset.in = '';
@@ -318,6 +319,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     tiles.clear();
     grid.remove(me); unwatch(SITE);
     ctl.enableAll(false, 'join first');
+    streamGrp?.enableAll(false, 'join first');
     showJoined(false);
     delete rv.dataset.in;
     chatBox.enable(false);
@@ -499,13 +501,12 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     // Two pressed at once and the other was first: this tab steps back.
     if (leadTrack && presenter !== SITE) { d.log(`${presenter} pressed first, so this tab stops ${VERB}`, 'warn'); stopLead(); return; }
     if (presenter !== was) d.log(presenter ? `${presenter === SITE ? `you are ${VERB}` : `${presenter} is ${VERB}`}` : `nobody is ${VERB}`);
-    if (CAN_LEAD && ctl && since) {
+    if (CAN_LEAD && leadCtl && since) {
       const other = presenter && presenter !== SITE;
-      ctl.enable(SRC, !other, other ? `${presenter} is ${VERB}` : '');
-      ctl.setIcon(SRC, present ? 'screen' : 'cast', present
-        ? (leadTrack ? 'Stop presenting your screen' : 'Present your screen')
-        : (leadTrack ? 'Stop the stream' : 'Stream a film to everybody'));
-      ctl.button(SRC).setAttribute('aria-pressed', String(!!leadTrack));
+      leadCtl.enable(SRC, !other, other ? `${presenter} is ${VERB}` : '');
+      if (present) ctl.setIcon(SRC, 'screen', leadTrack ? 'Stop presenting your screen' : 'Present your screen');
+      else streamGrp.button(SRC).textContent = leadTrack ? 'Stop stream' : 'Start stream';
+      leadCtl.button(SRC).setAttribute('aria-pressed', String(!!leadTrack));
     }
     if (starting) return;
     if (presenter) {
@@ -621,18 +622,23 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     { id: 'mic', label: 'Mute your microphone', icon: 'mic', onPress: toggleMic },
     { id: 'cam', label: 'Turn your camera off', icon: 'video', onPress: toggleCam },
     ...(CAN_SHARE ? [{ id: 'share', label: 'Present your screen', icon: 'screen', onPress: toggleLead }] : []),
-    ...(CAN_STREAM ? [{ id: 'stream', label: 'Stream a film to everybody', icon: 'cast', onPress: toggleLead }] : []),
     { id: 'leave', label: 'Leave', onPress: leave },
   ] });
   ctl.enableAll(false, 'join first');
+  // Stream is its own word button, apart from the call's controls (*"replace cast button with separste start
+  // stream"*). Its width is held so Start and Stop do not move the row. why: lessons/kit-participant.md#stream-button
+  const streamGrp = CAN_STREAM ? createButtonGroup({ buttons: [{ id: 'stream', label: 'Start stream', onPress: toggleLead }] }) : null;
+  if (streamGrp) { streamGrp.button('stream').style.minWidth = '13ch'; streamGrp.enableAll(false, 'join first'); }
+  const leadCtl = present ? ctl : streamGrp;
   // One row either way: Join before, the mic, the camera and Leave after.
   // A style, not `hidden`, because the group sets its own display.
   function showJoined(on) {
     join1.el.style.display = on ? 'none' : '';
     ctl.el.style.display = on ? '' : 'none';
+    if (streamGrp) streamGrp.el.style.display = on ? '' : 'none';
   }
   const foot = el('div', 'rv-foot');
-  foot.append(join1.el, ctl.el);
+  foot.append(join1.el, ctl.el, ...(streamGrp ? [streamGrp.el] : []));
   showJoined(false);
   const panel = createChatWindow({ columns: [camCol, chatCol], footer: foot });
   // On the right, beside full screen: a thing about the room, not about you.
