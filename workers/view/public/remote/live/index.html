@@ -41,6 +41,7 @@
   import { createKnob } from '/shell/knob.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
   import { createChoice } from '/shell/choice.mjs';
+  import { makeCcSend } from '/shell/cc-adapter.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { addNodes } from '/shell/nodes.mjs';
@@ -101,10 +102,11 @@
       board.send(ev.d2 > 0 ? { type: 'note.on', node: 'live', note: ev.d1, vel: ev.d2 } : { type: 'note.off', node: 'live', note: ev.d1 });
     } else if (ev.cls === 'cc') board.send({ type: 'cc', node: 'live', ctrl: ev.d1, value: ev.d2 });
   }
-  // What reaches m1:live:value-in: one of the instrument's own parameters, by Live's index, in Live's range.
+  // What reaches m1:live:value-in: the instrument's own parameters as [Live's index, 0 to 127] pairs; the Mac maps each
+  // onto the parameter's range in Live.
   function toSound(ev) {
-    if (!board || !armed || !Number.isInteger(ev.i) || !Number.isFinite(ev.value)) return;
-    board.send({ type: 'live.param', i: ev.i, value: ev.value });
+    if (!board || !armed || !Array.isArray(ev.set) || !ev.set.length) return;
+    board.send({ type: 'live.param', set: ev.set });
   }
   const PORTS = [
     { id: LIVE('midi-in'), dir: 'in', medium: 'midi', accepts: ['note', 'cc', 'program'], deliver: toLive },
@@ -223,23 +225,34 @@
   }
 
   // ── the instrument's knobs: sound:value-out, read from Live for whatever is loaded ──
-  // 0 to 100 on screen, Live's own min to max on the wire; one message per move, Live smooths nothing so it is heard.
+  // Each knob has an invisible hand. Every move goes through the kit's send gate (makeCcSend, keyed by the knob's slot):
+  // one message per 20 ms frame for all knobs that moved, the last value of a gesture never held, the set restated
+  // every 500 ms. why: lessons/kit-cc-adapter.md#send-gate-ms
   const knobsHost = el('div');
+  const gate = makeCcSend();
+  let slots = [];            // slot -> Live's parameter index
   let knobsFor = null;
+  setInterval(() => {
+    if (!armed || !slots.length) return;
+    const msg = gate.tick(performance.now());
+    if (msg) bay.send(id('sound', 'value-out'), { set: msg.set.map(([k, v]) => [slots[k], v]) });
+  }, 20);
   async function loadKnobs() {
     const r = await board?.ask({ type: 'live.params' }, 'live.params', 6000);
     if (!r?.ok) return;
     const ins = INSTRUMENTS.find((x) => x.name === r.device);
     knobsFor = r.device;
     knobsHost.replaceChildren();
+    gate.reset();
+    slots = [];
     if (!ins) { d.log(`${r.device} has no knobs chosen on this page`); return; }
     const map = new Map();
     for (const [label, live] of ins.knobs) {
       const p = r.params.find((x) => x.name === live);
       if (!p || !Number.isFinite(p.min) || !Number.isFinite(p.max) || p.max <= p.min) continue;
-      const pct = (v) => Math.round(100 * (v - p.min) / (p.max - p.min));
-      map.set(label, createKnob({ label, min: 0, max: 100, step: 1, value: pct(p.value), title: live,
-        onInput: (v) => bay.send(id('sound', 'value-out'), { param: live, i: p.i, value: p.min + (v / 100) * (p.max - p.min) }) }));
+      const slot = slots.push(p.i) - 1;
+      map.set(label, createKnob({ label, min: 0, max: 127, value: Math.round(127 * (p.value - p.min) / (p.max - p.min)),
+        title: live, hand: true, onInput: (v) => gate.put(slot, v), onChange: (v) => gate.put(slot, v, { end: true }) }));
     }
     if (map.size) knobsHost.append(createKnobGrid(map, { row: true }).el);
   }
