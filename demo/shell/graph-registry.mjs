@@ -39,8 +39,8 @@ export function macGraph({ room = MAC_ROOM, site = MAC_SITE, live = false, obs =
     port('live', 'midi-in', { label: 'Ableton Live', dir: 'in', medium: 'midi', accepts: ['note', 'cc', 'program'], never: ['sysex'], address: room });
     port('live', 'audio-out', { label: 'Ableton Live', dir: 'out', medium: 'audio', shape: { rate: 48000, channels: 1, frameMs }, address: room,
       transports: ['relay'] });
-    port('live', 'value-in', { label: 'transport, tempo, instrument', dir: 'in', medium: 'value',
-      shape: { of: 'param', names: ['play', 'tempo', 'metronome', 'instrument'] }, address: room });
+    // `{ of: 'param' }` only: a knob's port links to it, and a names list must match exactly.
+    port('live', 'value-in', { label: 'transport, tempo', dir: 'in', medium: 'value', shape: { of: 'param' }, address: room });
     port('live', 'value-out', { label: 'tempo, playing, beat', dir: 'out', medium: 'value', address: room });
   }
   if (obs) {

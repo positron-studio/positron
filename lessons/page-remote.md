@@ -665,3 +665,17 @@ The full comments cut from the code under demo/ for remote, verbatim. Each headi
         // until it is up, light relay if it falls back.
 ````
 
+
+<a id="live"></a>
+
+## /remote/live/: Ableton Live on the studio Mac (2026-10-22)
+
+The `/remote/piano/` pattern pointed at the Mac: `createBoard({ room: 'm1-1' })`, the agent in
+`rig/m1/studio-agent.mjs` answering the board's wire, Live's ports from `macGraph`. Tempo and Live's own play are a
+`web:transport:value-out` linked to `m1:live:value-in` (`{ of: 'param' }`, so a knob can link to it). Opening Live and
+loading an instrument are signed with the studio key, taken from `?key=` once into localStorage and stripped from the
+address. Relay only: the agent answers no `rtc.offer`.
+
+MEASURED 2026-10-22 headless against the Mac, notes sent along the bay: key to sound 353 to 455 ms (relay round trip
+84 ms, cushion 160 ms, Live's own 13.7 ms output latency), 720 frames, 0 lost; tempo 97 set from the port and read
+back from Live.

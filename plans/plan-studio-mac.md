@@ -1,6 +1,6 @@
 # plan-studio-mac: the M1 as a site in the patchbay, its apps as nodes: OBS and a new Ableton Live control
 
-Status (2026-10-22 night): step 1 and step 3 built and running on the Mac (site `m1`, room `m1-1`); the old agent removed. The owner's decisions on §7: Start m1 streams the current OBS scene; a new studio key; Live 11; the agent opens Live; a new `/remote/live/` page. Room `m1-1`, not `studio-1`: the Pi's and the Mac's sound frames must not share a socket. Asked: *"can the room trigger obs"*, *"assuming its running"*, then
+Status (2026-10-22 night): steps 1, 3 and 4 built (the agent on the Mac as site `m1` in room `m1-1`, the old agent removed, https://positron.studio/remote/live/); step 2 (Start m1 on the stage) next. The owner's decisions on §7: Start m1 streams the current OBS scene; a new studio key; Live 11; the agent opens Live; a new `/remote/live/` page. Room `m1-1`, not `studio-1`: the Pi's and the Mac's sound frames must not share a socket. Asked: *"can the room trigger obs"*, *"assuming its running"*, then
 *"actually plan that remote app control together with new version of ableton live control"*.
 
 Tags: **READ** (code or a document), **MEASURED** (where the number lives), **INFERRED** (reasoned, not checked).
