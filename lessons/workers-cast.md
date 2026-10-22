@@ -847,3 +847,13 @@ deploys, each on one complaint and none listened to first (HANDOFF session 85): 
 - The MP3 goes to R2 (`positron-station/cast-renders/<name>.mp3`, served immutable by the station worker's
   `/media/`, so a new render is a new name), the report into `demo/radio/cast/renders/renders.json`, shown at
   `/radio/cast/renders/` after a site deploy.
+
+<a id="description"></a>
+
+### `sourceHead`: the description
+
+The source header had no `ice-description` (asked *"rm heliorje"*, when it carried another text), and Icecast 2.4.4
+then reported "Unspecified description". Asked 2026-10-22: *"add 'Mixed by positron.studio' as descripiton"*. Both
+sources to Väin send `ice-description: Mixed by positron.studio`: the cast container (`container/server.mjs`
+`sourceHead`) and edgecast's relay (`workers/edgecast-relay/icecast.mjs`), whose test holds the two to the same lines.
+It is plain ASCII, so the Latin-1 encoding the relay uses for `Väin` does not touch it.

@@ -88,9 +88,9 @@ if (ICE_PW) iceStart();
 
 function sourceHead(t, title) {
   return [`PUT /${t.mount} HTTP/1.0`, `Authorization: Basic ${Buffer.from(`source:${t.pw}`).toString('base64')}`, 'Content-Type: audio/mpeg',
-    // Väin's app shows "<ice-name> on <channel>"; no description, asked (*"rm heliorje"*): Icecast 2.4.4 then reports
-    // "Unspecified description", which their icecast_on_connect.sh would need to treat as empty
-    'ice-name: Väin',
+    // Väin's app shows "<ice-name> on <channel>". The description was left out (*"rm heliorje"*), then asked for
+    // 2026-10-22 as *"add 'Mixed by positron.studio' as descripiton"*. why: lessons/workers-cast.md#description
+    'ice-name: Väin', 'ice-description: Mixed by positron.studio',
     'ice-genre: archive', `ice-url: ${t.mount}`, 'ice-audio-info: send_notification=0;save_stream=0'];
 }
 

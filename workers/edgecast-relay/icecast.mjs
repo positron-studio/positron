@@ -6,7 +6,7 @@ import { frameAt } from '../cast/mp3.mjs';
 /** The request head, byte for byte what workers/cast/container/server.mjs sourceHead sends, as Latin-1 bytes. */
 export function sourceHead({ mount, pw }) {
   const lines = [`PUT /${mount} HTTP/1.0`, `Authorization: Basic ${btoa(`source:${pw}`)}`, 'Content-Type: audio/mpeg',
-    'ice-name: Väin', 'ice-genre: archive', `ice-url: ${mount}`, 'ice-audio-info: send_notification=0;save_stream=0', '', ''];
+    'ice-name: Väin', 'ice-description: Mixed by positron.studio', 'ice-genre: archive', `ice-url: ${mount}`, 'ice-audio-info: send_notification=0;save_stream=0', '', ''];
   return latin1(lines.join('\r\n'));
 }
 

@@ -21,7 +21,7 @@ const tick = () => new Promise((r) => setImmediate(r));
   ok('the request line is PUT /<mount> HTTP/1.0', lines[0] === 'PUT /radio1965 HTTP/1.0', lines[0]);
   ok('Basic auth is source:<password>', Buffer.from(lines[1].split(' ')[2], 'base64').toString() === 'source:p:w');
   ok('ice-name is Väin in Latin-1 (one byte 0xE4, not UTF-8 C3 A4)', b.includes(0xe4) && !b.includes(0xc3) && lines.includes('ice-name: Väin'));
-  ok('the same lines as the cast sends, in order, and no ice-description', JSON.stringify(lines.slice(2, 7)) === JSON.stringify(['Content-Type: audio/mpeg', 'ice-name: Väin', 'ice-genre: archive', 'ice-url: radio1965', 'ice-audio-info: send_notification=0;save_stream=0']) && !s.includes('ice-description'));
+  ok('the same lines as the cast sends, in order, with the description', JSON.stringify(lines.slice(2, 8)) === JSON.stringify(['Content-Type: audio/mpeg', 'ice-name: Väin', 'ice-description: Mixed by positron.studio', 'ice-genre: archive', 'ice-url: radio1965', 'ice-audio-info: send_notification=0;save_stream=0']));
   ok('the head ends with an empty line', s.endsWith('\r\n\r\n'));
 }
 
