@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Mic return">
+<meta property="og:description" content="Your microphone goes through Cloudflare&apos;s SFU to edgecast and back. Hear what the trip adds.">
+<meta property="og:url" content="https://positron.studio/radio/return/">
+<meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Mic return</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<link rel="stylesheet" href="/shell/concept.css">
+<style>
+  .rt-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  /* inside the panel the scope gives up its page margin and its own border: the panel's edge is the edge (as /radio/edgecast/) */
+  .rt-scope .pos-scope { margin: 0; }
+  .rt-scope .pos-scope-c { border: 0; display: block; }
+  .pos-vp-foot:has(.rt-line) { padding: 12px; display: block; }
+  .pos-vp-foot:has(.rt-line) .pos-vp-c { justify-content: flex-start; }
+  /* one height whatever the line says */
+  .rt-line { font: 12.5px/1.45 var(--sans); color: var(--dim); white-space: normal; text-align: left;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; height: calc(1.45em * 2); }
+  @media (max-width: 560px) { .rt-line { -webkit-line-clamp: 3; height: calc(1.45em * 3); } }
+</style>
+<script type="module">
+  // This tab's microphone published to Cloudflare's SFU (demo/room/sfu.mjs), taken out of the SFU by its WebSocket
+  // adapter into edgecast (workers/edgecast/adapter.mjs), through a chain (echo, ring or full), put back into the SFU
+  // and pulled here again. Nothing opens on a visit: the microphone, the SFU and edgecast wait for Start, which needs
+  // the cast's key (?key= once, kept in this browser). why: lessons/workers-edgecast-adapter.md#page
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createGrainScope } from '/shell/grain-scope.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createSfu } from '/room/sfu.mjs';
+  useMediumColours();
+
+  const q = new URLSearchParams(location.search);
+  // ?edgecast= and ?sfu= point at another worker (the workers.dev names, or a local one)
+  const EDGE = (q.get('edgecast') || 'https://edgecast.positron.studio').replace(/\/$/, '');
+  const SFU = (q.get('sfu') || 'https://sfu.positron.studio').replace(/\/$/, '');
+  let KEY = q.get('key') || '';
+  try { if (KEY) localStorage.setItem('vain-cast-key', KEY); else KEY = localStorage.getItem('vain-cast-key') || ''; } catch { /* no storage */ }
+  const MODES = [['echo', 'echo'], ['ring', 'ring'], ['full', 'full']];
+  const SAYS = { echo: 'echo, nothing done to it', ring: 'the cast\'s grain ring', full: 'the cast\'s whole chain' };
+
+  const d = mount({ name: 'Mic return', what: '', index: '/', indexLabel: 'positron',
+    // the cells under the title, the log alone at the foot, as /radio/edgecast/
+    joined: false,
+    readout: { delay: 'ms', 'to sfu': 'ms', packets: '', level: 'dB' } });
+  conceptNav('radio/return');
+
+  // ── the bay: the microphone into the SFU, out on the egress adapter, through edgecast, back on the ingest adapter ──
+  const MIC = 'web:mic', EG = 'cf-sfu:egress', CH = 'cf-edgecast:chain', IN = 'cf-sfu:ingest', SP = 'web:speaker';
+  const bay = createBay();
+  bay.addNode({ id: MIC, kind: 'device', label: 'microphone' });
+  bay.addNode({ id: EG, kind: 'endpoint', label: 'egress adapter', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: CH, kind: 'engine', label: 'edgecast echo', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: IN, kind: 'endpoint', label: 'ingest adapter', place: 'cloudflare', net: 'cloudflare' });
+  bay.addNode({ id: SP, kind: 'screen', label: 'speaker' });
+  bay.addPort({ id: `${MIC}:audio-out`, dir: 'out', medium: 'audio', label: 'opus', shape: { codec: 'opus' } });
+  bay.addPort({ id: `${EG}:audio-in`, dir: 'in', medium: 'audio', label: 'opus', shape: { codec: 'opus' } });
+  bay.addPort({ id: `${EG}:audio-out`, dir: 'out', medium: 'audio', label: 'pcm 48 kHz', shape: { codec: 'pcm' } });
+  bay.addPort({ id: `${CH}:audio-in`, dir: 'in', medium: 'audio', label: 'pcm 48 kHz', shape: { codec: 'pcm' } });
+  bay.addPort({ id: `${CH}:audio-out`, dir: 'out', medium: 'audio', label: 'pcm 48 kHz', shape: { codec: 'pcm' } });
+  bay.addPort({ id: `${IN}:audio-in`, dir: 'in', medium: 'audio', label: 'pcm 48 kHz', shape: { codec: 'pcm' } });
+  bay.addPort({ id: `${IN}:audio-out`, dir: 'out', medium: 'audio', label: 'opus', shape: { codec: 'opus' } });
+  bay.addPort({ id: `${SP}:audio-in`, dir: 'in', medium: 'audio', label: 'audio' });
+  // the browser's legs ride the SFU (drawn through its box); edgecast's legs are the adapter's WebSockets
+  const WANT = [[`${MIC}:audio-out`, `${EG}:audio-in`, 'sfu'], [`${EG}:audio-out`, `${CH}:audio-in`, 'websocket'],
+    [`${CH}:audio-out`, `${IN}:audio-in`, 'websocket'], [`${IN}:audio-out`, `${SP}:audio-in`, 'sfu']];
+  for (const [a, b, via] of WANT) { const r = bay.link(a, b, [], { via }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); }
+  const pb = createPatchbay(bay, { room: 'edge', flowing: (l, medium) => medium === 'audio' && running
+    && (l.to === `${SP}:audio-in` || l.from === `${IN}:audio-out` ? backFlowing : true) });
+
+  // ── the picture: the microphone on top, what comes back underneath, on one clock ──
+  const scopeHost = el('div', 'rt-scope');
+  const scope = createGrainScope(scopeHost, { seconds: 6, height: 140, split: true });
+  const line = el('span', 'rt-line', KEY ? 'Press Start: the microphone is asked for then, and nothing before.' : 'Start needs the cast\'s key, given once in the address as key.');
+  const panel = createVideoPanel({ media: scopeHost, left: false, right: false, centre: line, aspect: 'auto', fullMode: 'bare' });
+
+  // ── state ──
+  let running = false, busy = false, backFlowing = false, fetches = 0;
+  let mic = null, ctx = null, node = null, sfu = null, pub = null, audio = null, statsT = 0, room = '';
+  let lastPackets = 0, lastLevel = null, lastDelay = null;
+  const env = { mic: [], ret: [], max: 0 };   // one mean absolute value per 128 frame block, the last few seconds
+
+  const edge = async (path, body) => {
+    fetches++;
+    // a text body is a simple request, so no preflight: edgecast reads it as JSON either way
+    const r = await fetch(`${EDGE}${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(KEY)}`,
+      { method: body ? 'POST' : 'GET', cache: 'no-store', ...(body ? { body: JSON.stringify(body) } : {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error(`${path.split('?')[0]} ${r.status} ${j.error || ''}`.trim());
+    return j;
+  };
+
+  /**
+   * The delay between two envelopes (one value per block of `block` frames): the lag of the highest correlation,
+   * or null when it is weak or the source is quiet. Pure, so the self-check grades it on made up signals.
+   */
+  function lagOf(a, b, { maxLag, rate = 48000, block = 128, floor = 0.5 } = {}) {
+    const n = Math.min(a.length, b.length);
+    if (n < maxLag * 2) return null;
+    const mean = (x, i0, i1) => { let s = 0; for (let i = i0; i < i1; i++) s += x[i]; return s / (i1 - i0); };
+    let best = { r: -1, k: -1 };
+    for (let k = 0; k <= maxLag; k++) {
+      const len = n - k, ma = mean(a, 0, len), mb = mean(b, k, n);
+      let sab = 0, saa = 0, sbb = 0;
+      for (let i = 0; i < len; i++) { const x = a[i] - ma, y = b[i + k] - mb; sab += x * y; saa += x * x; sbb += y * y; }
+      if (saa < 1e-9 || sbb < 1e-9) continue;
+      const r = sab / Math.sqrt(saa * sbb);
+      if (r > best.r) best = { r, k };
+    }
+    return best.r >= floor ? { ms: (best.k * block * 1000) / rate, r: best.r } : null;
+  }
+
+  // the worklet hands over both inputs every 8 blocks: the microphone as sent, and what came back
+  const WORKLET = `registerProcessor('rt-pair', class extends AudioWorkletProcessor {
+    constructor() { super(); this.a = new Float32Array(1024); this.b = new Float32Array(1024); this.n = 0; }
+    process(ins) {
+      const x = ins[0][0], y = ins[1][0];
+      if (x) this.a.set(x, this.n); else this.a.fill(0, this.n, this.n + 128);
+      if (y) this.b.set(y, this.n); else this.b.fill(0, this.n, this.n + 128);
+      this.n += 128;
+      if (this.n === 1024) { this.port.postMessage([this.a.slice(), this.b.slice()]); this.n = 0; }
+      return true;
+    }
+  });`;
+  const envOf = (x) => { const out = []; for (let i = 0; i < x.length; i += 128) { let s = 0; for (let j = i; j < i + 128; j++) s += Math.abs(x[j]); out.push(s / 128); } return out; };
+  let sumSq = 0, sumN = 0;
+  function onBlocks([a, b]) {
+    if (!ctx) return;   // a message still in flight when Stop closed the context
+    scope.feedIn(a, ctx.sampleRate); scope.feed(b, ctx.sampleRate);
+    env.mic.push(...envOf(a)); env.ret.push(...envOf(b));
+    for (const v of b) sumSq += v * v; sumN += b.length;
+    const keep = Math.round((8 * ctx.sampleRate) / 128);
+    if (env.mic.length > keep) { env.mic.splice(0, env.mic.length - keep); env.ret.splice(0, env.ret.length - keep); }
+  }
+
+  /** Every second: the round trip to the SFU, the packets that came back, their level; the delay every other second. */
+  async function stats() {
+    if (!running || !sfu) return;
+    const { send, receive } = sfu.connections();
+    let rtt = null, packets = null;
+    for (const [pc, side] of [[send, 'out'], [receive, 'in']]) {
+      const s = await pc.getStats().catch(() => null);
+      s?.forEach((r) => {
+        if (side === 'out' && r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && r.currentRoundTripTime != null) rtt = r.currentRoundTripTime * 1000;
+        if (side === 'in' && r.type === 'inbound-rtp' && r.kind === 'audio') packets = (packets || 0) + r.packetsReceived;
+      });
+    }
+    d.set('to sfu', rtt == null ? '' : Math.round(rtt));
+    d.set('packets', packets ?? '');
+    backFlowing = packets != null && packets > lastPackets;
+    if (backFlowing && !lastPackets) d.log('edgecast\'s sound is arriving');
+    lastPackets = packets || 0;
+    lastLevel = sumN && sumSq > 0 ? 10 * Math.log10(sumSq / sumN) : null;
+    d.set('level', lastLevel == null ? '' : lastLevel.toFixed(0));
+    sumSq = 0; sumN = 0;
+    if ((statsT = (statsT + 1) % 2) === 0 && ctx) {
+      const lag = lagOf(env.mic, env.ret, { maxLag: Math.round((1.5 * ctx.sampleRate) / 128), rate: ctx.sampleRate });
+      lastDelay = lag ? lag.ms : null;
+      d.set('delay', lag ? Math.round(lag.ms) : '');
+    }
+    pb.refresh();
+  }
+  let statsTimer = 0;
+
+  async function start() {
+    if (running || busy) return;
+    busy = true; buttons.enable('start', false, 'starting');
+    const mode = MODES[choice.get()][1];
+    try {
+      // the microphone, asked for now and not before; echo cancelling on, or a speaker feeds it back in
+      line.textContent = 'asking for the microphone';
+      mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+      ctx = new AudioContext({ sampleRate: 48000 });
+      ctx.resume().catch(() => { /* sound may be late, the measurement is not */ });
+      await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' })));
+      node = new AudioWorkletNode(ctx, 'rt-pair', { numberOfInputs: 2, numberOfOutputs: 1 });
+      node.port.onmessage = (e) => onBlocks(e.data);
+      const hush = ctx.createGain(); hush.gain.value = 0; node.connect(hush).connect(ctx.destination);
+      ctx.createMediaStreamSource(mic).connect(node, 0, 0);
+      // a private room per press, so nobody else's tab and no other run shares it
+      room = `edge-${crypto.getRandomValues(new Uint32Array(1))[0].toString(16).padStart(8, '0').slice(0, 6)}`;
+      line.textContent = 'publishing the microphone to the SFU';
+      const published = new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('the SFU took no microphone in 15 s')), 15000);
+        sfu = createSfu({ base: SFU, room, site: 'web',
+          // the SFU client says what it published on the room; here that is the session the egress adapter reads
+          send: (m) => { if (m.type === 'sfu.pub' && m.tracks?.length) { pub = m; clearTimeout(t); resolve(m); } return true; },
+          tracks: () => ({ audio: mic.getAudioTracks()[0], video: null }),
+          onStream: (site, stream) => { if (site === 'edgecast') heard(stream); },
+          onState: (site, state) => { if (site === 'edgecast' && state === 'failed') d.log('the SFU connection back failed: a network that drops UDP?', 'warn'); },
+          log: (s, k) => d.log(s, k) });
+      });
+      sfu.retrack();
+      await published;
+      d.log(`the microphone is on the SFU in room ${room}`);
+      await pair(mode);
+      running = true;
+      buttons.enable('stop', true);
+      statsTimer = setInterval(stats, 1000);
+    } catch (e) {
+      d.log(e.message, 'bad');
+      await stop(true);
+    } finally {
+      busy = false;
+      if (!running) buttons.enable('start', !!KEY, 'needs the cast\'s key');
+      pb.refresh();
+    }
+  }
+
+  /** Ask edgecast for a pair in this mode, and pull what its ingest adapter publishes. */
+  async function pair(mode) {
+    line.textContent = `asking edgecast for ${SAYS[mode]}`;
+    const t0 = performance.now();
+    const r = await edge('/adapter/start', { room, sessionId: pub.sessionId, proof: pub.proof, trackName: pub.tracks[0].trackName, mode });
+    d.log(`edgecast is in the room, ${mode}, in ${Math.round(performance.now() - t0)} ms (the adapters ${r.adaptersMs} ms)`);
+    bay.addNode({ ...bay.nodes().find((n) => n.id === CH), label: `edgecast ${mode}` });
+    lastPackets = 0; backFlowing = false;
+    sfu.signal({ type: 'sfu.pub', site: 'edgecast', sessionId: r.ingest.sessionId, proof: r.ingest.proof, tracks: [{ trackName: r.ingest.trackName, kind: 'audio' }] });
+    sfu.want(['edgecast']);
+    line.textContent = `your microphone through the SFU and edgecast, ${SAYS[mode]}; headphones keep it from feeding back`;
+    pb.refresh();
+  }
+
+  function heard(stream) {
+    audio ||= Object.assign(document.createElement('audio'), { autoplay: true });
+    audio.srcObject = stream;
+    audio.play().catch(() => { /* the press allowed it; a browser that did not says so in the console */ });
+    // the same stream into the measurement; the element plays it
+    ctx.createMediaStreamSource(stream).connect(node, 0, 1);
+  }
+
+  async function stop(quiet = false) {
+    const was = running;
+    running = false; backFlowing = false;
+    clearInterval(statsTimer);
+    if (pub) { try { const r = await edge('/adapter/stop', {}); if (!quiet || r.stopped) d.log(`edgecast stopped the pair${r.why ? ` (${r.why})` : ''}`); } catch (e) { d.log(`stop did not reach edgecast: ${e.message}`, 'warn'); } }
+    sfu?.leave(); sfu = null; pub = null;
+    for (const t of mic?.getTracks() || []) t.stop();
+    mic = null;
+    if (audio) { audio.srcObject = null; }
+    await ctx?.close().catch(() => {}); ctx = null; node = null;
+    env.mic.length = 0; env.ret.length = 0; scope.clear();
+    for (const k of ['delay', 'to sfu', 'packets', 'level']) d.set(k, '');
+    buttons.enable('stop', false, 'nothing running');
+    if (was || !quiet) line.textContent = 'stopped: the microphone, the SFU and edgecast\'s pair are closed';
+    pb.refresh();
+  }
+
+  const choice = createChoice({ options: MODES, at: 0, onPick: (mode) => {
+    if (!running || busy) return;
+    // a new mode is a new pair on the same microphone; edgecast replaces the old one
+    busy = true;
+    pair(mode).catch((e) => d.log(e.message, 'bad')).finally(() => { busy = false; });
+  } });
+  const buttons = createButtonGroup({ buttons: [
+    { id: 'start', label: 'Start', primary: true, onPress: () => start() },
+    { id: 'stop', label: 'Stop', onPress: () => stop() },
+  ] });
+  buttons.enable('start', !!KEY, 'needs the cast\'s key');
+  buttons.enable('stop', false, 'nothing running');
+  const top = el('div', 'rt-top');
+  top.append(buttons.el, choice.el);
+  d.stack.add(top, panel.el, pb.el);
+  addEventListener('pagehide', () => { if (running) navigator.sendBeacon?.(`${EDGE}/adapter/stop?key=${encodeURIComponent(KEY)}`, ''); });
+
+  window.__demo.bay = bay;
+  window.__demo.ret = { start, stop, lagOf, edge: EDGE, sfu: SFU,
+    probe: () => ({ fetches, running, mic: !!mic, ctx: !!ctx, sfu: !!sfu, room, packets: lastPackets, backFlowing, keyed: !!KEY,
+      level: lastLevel, delay: lastDelay }) };
+
+  // ── the self-check, only under ?selfcheck=1: nothing it grades leaves this tab ──
+  if (SELFCHECK) {
+    const A = d.assert;
+    A('a visit opens nothing: no microphone, no sound, no SFU, no edgecast', fetches === 0 && !mic && !ctx && !sfu);
+    const got = bay.links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport}`);
+    A('the microphone reaches the egress adapter and the ingest adapter the speaker by sfu, and edgecast\'s two legs ride websockets',
+      WANT.every(([a, b, via]) => got.includes(`${a} -> ${b} ${via}`)), got.join(', '));
+    {
+      // NEGATIVE CONTROL: the bay refuses a link out of an input, so the four above are not waved through
+      const r = bay.link(`${SP}:audio-in`, `${IN}:audio-out`, [], { via: 'sfu' });
+      A('NEGATIVE CONTROL: a link out of the speaker\'s input is refused', !r.ok, r.why || 'linked');
+      if (r.ok) bay.unlink(r.id);
+    }
+    {
+      // NEGATIVE CONTROL: the codec is in the picture, so opus from the microphone cannot go straight into the pcm chain
+      const r = bay.link(`${MIC}:audio-out`, `${CH}:audio-in`, [], { via: 'websocket' });
+      A('NEGATIVE CONTROL: the microphone straight into edgecast is refused; the adapter turns it into pcm', !r.ok, r.why || 'linked');
+      if (r.ok) bay.unlink(r.id);
+    }
+    // the delay finder on made up envelopes: bursts every 0.9 s, the copy 410 ms late with noise on it
+    const rate = 48000, blocks = Math.round((6 * rate) / 128), lagB = Math.round((0.41 * rate) / 128);
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const a = Array.from({ length: blocks }, (_, i) => ((i % 337) < 15 ? 0.3 : 0.01 * rnd()));
+    const b = a.map((_, i) => (i >= lagB ? a[i - lagB] * 0.8 : 0) + 0.02 * rnd());
+    const f = lagOf(a, b, { maxLag: Math.round((1.5 * rate) / 128), rate });
+    A('the delay finder reads a copy 410 ms late as 410 ms, within one block', f && Math.abs(f.ms - 410) < 3, f ? `${f.ms.toFixed(1)} ms, r ${f.r.toFixed(2)}` : 'none');
+    const c = a.map(() => 0.02 * rnd());
+    const g = lagOf(a, c, { maxLag: Math.round((1.5 * rate) / 128), rate });
+    A('NEGATIVE CONTROL: against noise that is not a copy, it finds no delay', g === null, g ? `${g.ms} ms r ${g.r}` : 'none');
+    A('without the key, Start is switched off', KEY ? true : !buttons.enabled('start'));
+  }
+  d.ready();
+</script>
+</html>

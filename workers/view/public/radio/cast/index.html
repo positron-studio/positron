@@ -48,6 +48,8 @@
   .vc-votes > [aria-pressed="true"] { position: relative; z-index: 1; }
   .vc-votes { display: flex; width: 100%; }
   .vc-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  /* the section's own display beats the UA [hidden]: a station never counted shows no listeners box */
+  .vc-sec[hidden] { display: none; }
   .vc-detail { display: flex; flex-direction: column; gap: 28px; }
   .vc-k { color: var(--dim); text-transform: uppercase; font: 12px var(--mono); }
   .vc-v { font: 13px var(--mono); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -99,7 +101,8 @@
   // `local` is a station played in this browser off /file/<id> (local.mjs): free, nothing on air.
   // Control needs ?key= once; it is kept in this browser.
   import { conceptNav } from '/shell/concept-nav.mjs';
-  import { mount, el } from '/shell/shell.mjs';
+  import { mount, el, createReport } from '/shell/shell.mjs';
+  import { createTable } from '/shell/table.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay, useMediumColours, MEDIUM_COLOURS } from '/shell/patchbay.mjs';
@@ -303,14 +306,14 @@
   // STATIONS: a card each (name, what plays, the badge, when it stops); arrows move, Enter or Space opens
   const cardRow = el('div', 'vc-cards'), cards = {};
   for (const t of STATIONS) {
-    const c = createCard({ title: t, minH: 92 }), stops = el('span', 'vc-dim', '');
+    const c = createCard({ title: t, minH: 92 }), stops = el('span', 'vc-dim', ''), ears = el('span', 'vc-dim vc-ears', '');
     // where the station is heard: here in this browser, on our own stream, or on Väin's
     c.el.querySelector('.pos-card-t').before(el('span', 'vc-eyebrow', t === LOCAL ? 'local positron' : t === 'preview' ? 'live positron' : 'live väin'));
     // under what plays: the second file while two blend, and how far into the file
     const now2 = el('span', 'pos-card-d vc-now2'), at = el('span', 'vc-dim vc-at');
     now2.hidden = true; c.el.querySelector('.pos-card-d').after(now2, at);
     badges[t] = presence(t);
-    c.el.querySelector('.pos-card-f').append(badges[t].el, stops);
+    c.el.querySelector('.pos-card-f').append(badges[t].el, stops, ears);
     Object.assign(c.el.dataset, { station: t });
     c.el.setAttribute('role', 'button');
     c.el.addEventListener('click', () => pick(t));
@@ -325,7 +328,7 @@
       }
     });
     cardRow.append(c.el);
-    cards[t] = { el: c.el, card: c, stops, now2, at };
+    cards[t] = { el: c.el, card: c, stops, now2, at, ears };
   }
   const nowOf = (t) => cards[t].el.querySelector('.pos-card-d').textContent;
   const markOpen = () => { for (const [t, x] of Object.entries(cards)) { x.el.setAttribute('aria-pressed', String(t === target)); x.el.tabIndex = t === target ? 0 : -1; } };
@@ -495,6 +498,9 @@
     badges[t].set(st.onAir || them ? 'online' : st.playing ? 'coming' : 'offline');
     badges[t].busy(them ? 'page' : null);
     paintNow(t, them ? (live[t].title || '') : st.now?.title || '', '', them ? NaN : st.now?.at);
+    // who hears it, read off the mount's own Icecast by the cast (once a minute, on air only)
+    const n = st.onAir ? st.listeners?.now : null;
+    cards[t].ears.textContent = Number.isInteger(n) ? `${n} listening` : '';
   }
   function paintDetail() {
     const t = target, st = status[t] || {}, them = theirs(t), here = t === LOCAL;
@@ -524,7 +530,7 @@
     const refused = (st.lines || []).at(-1)?.includes('refused: ') ? st.lines.at(-1).split('refused: ')[1] : '';
     if (refused) say(refused);
     else if (!them && note.textContent === 'Väin is streaming here') say('');
-    paintSound(); paintScene(); paintLife(); paintFooter();
+    paintSound(); paintScene(); paintLife(); paintFooter(); paintListeners();
   }
   const said = {};
   function log(t) {
@@ -1094,6 +1100,27 @@
   }
 
   const sec = (h, ...parts) => { const s = el('section', 'vc-sec'); if (h) s.append(el('h3', 'pos-sec-h', h)); s.append(...parts); return s; };
+  // LISTENERS: the broadcast on air (from the mount's own Icecast, less our relay's one connection plus who hears through it)
+  // and the last broadcasts; the cast reads them, the page only reads the status it already polls
+  const ears = createReport({ readout: { listening: '', peak: '', heard: 'min', counted: 's ago' }, joined: false, showLog: false });
+  const pastTbl = createTable({ columns: [
+    { key: 'when', label: 'when', grow: true },
+    { key: 'length', label: 'length', width: 72, align: 'right' },
+    { key: 'peak', label: 'peak', width: 56, align: 'right', hi: true },
+    { key: 'heard', label: 'heard', width: 80, align: 'right', hover: 'heardT' },
+  ], empty: '' });
+  const earsSec = sec('listeners', ears.readoutEl, pastTbl.el);
+  const hm = (ms) => { const m = Math.round(ms / 60_000); return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`; };
+  const day = (t) => new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  function paintListeners() {
+    const st = target === LOCAL ? null : status[target], on = st?.onAir ? st.listeners : null, past = st?.listens || [];
+    earsSec.hidden = !on && !past.length;
+    const num = (v) => (Number.isFinite(v) ? v : '');
+    ears.set('listening', num(on?.now)); ears.set('peak', num(on?.peak)); ears.set('heard', num(on?.minutes)); ears.set('counted', num(on?.ageS));
+    ears.readoutEl.hidden = !on;
+    pastTbl.set(past.map((x) => ({ when: day(x.startedAt), length: hm(x.endedAt - x.startedAt), peak: x.peak ?? '', heard: `${x.minutes} min`, heardT: 'listener minutes' })));
+    pastTbl.el.hidden = !past.length;
+  }
   const stations = sec('stations', cardRow);
   const detail = el('div', 'vc-detail');
   // next sits on the program's heading: it steps through the program
@@ -1103,7 +1130,7 @@
   const stationCard = createGlueRows({ full: true }); stationCard.row([head], { cls: 'vc-top' });
   wetRow = stationCard.row([wetSld.el], { cls: 'vc-wet' }); wetRow.hidden = target !== LOCAL;
   stationCard.row([scopePanel.el], { pad: false });
-  detail.append(sec('', stationCard.el, listenLink, playing.el), sec('', progHead, progEmpty, progHost));
+  detail.append(sec('', stationCard.el, listenLink, playing.el), earsSec, sec('', progHead, progEmpty, progHost));
   localWanted(); wire(); markOpen(); paintRow(LOCAL); paintDetail();
   d.stack.add(stations, detail, sec('archive', archList.el), pb.el);
   await loadFeed();
@@ -1346,10 +1373,27 @@
     rowOf('user2').click();
     take('user2', { target: 'user2', onAir: false, playing: false, lines: ['09:00:00 refused: Väin is streaming here: Live on user2'] });
     d.assert('a refusal from the caster shows on the open station', note.textContent === 'Väin is streaming here: Live on user2', note.textContent);
+    // listeners: what the cast read off the mount, in the status the page already polls
+    const H0 = Date.UTC(2026, 9, 20, 18, 0);
+    rowOf('preview').click();
+    take('preview', { target: 'preview', onAir: true, playing: true, now: { id: 'x', title: 'a file', at: 61 }, lines: [],
+      listeners: { now: 5, peak: 8, minutes: 42, ageS: 12 }, listens: [{ startedAt: H0, endedAt: H0 + 130 * 60_000, peak: 3, minutes: 17 }] });
+    const cell = (k) => ears.cells.get(k).firstChild?.textContent ?? '';
+    const pastRows = () => [...pastTbl.el.querySelectorAll('.pos-tbl-row:not(.pos-tbl-head)')].map((r) => r.textContent);
+    d.assert('on air: listening, peak, listener minutes and how long ago, the card says how many, and the last broadcast is a row',
+      cell('listening') === '5' && cell('peak') === '8' && cell('heard') === '42' && cell('counted') === '12' && cards.preview.ears.textContent === '5 listening'
+      && !earsSec.hidden && pastRows().length === 1 && /2:10/.test(pastRows()[0]) && /17 min/.test(pastRows()[0]),
+      JSON.stringify({ cells: ['listening', 'peak', 'heard', 'counted'].map(cell), card: cards.preview.ears.textContent, rows: pastRows() }));
+    take('preview', { target: 'preview', onAir: false, playing: false, lines: [], listeners: null, listens: [{ startedAt: H0, endedAt: H0 + 130 * 60_000, peak: 3, minutes: 17 }] });
+    d.assert('off air: no count on the card and no readout, the past broadcast stays',
+      !cards.preview.ears.textContent && ears.readoutEl.hidden && !earsSec.hidden && pastRows().length === 1);
+    take('preview', { target: 'preview', onAir: false, playing: false, lines: [], listeners: null, listens: [] });
+    d.assert('NEGATIVE CONTROL: a station never counted shows no listeners section at all',
+      earsSec.hidden && getComputedStyle(earsSec).display === 'none' && !cards.preview.ears.textContent);
     // put it all back
     for (const t of Object.keys(sockets)) delete sockets[t];
     openSocket = realOpen; key = realKey;
-    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); if (t !== LOCAL) badges[t].set('unknown'); cards[t].card.set({ desc: '' }); cards[t].stops.textContent = ''; }
+    live = {}; for (const t of STATIONS) { delete status[t]; delete progs[t]; badges[t].busy(null); if (t !== LOCAL) badges[t].set('unknown'); cards[t].card.set({ desc: '' }); cards[t].stops.textContent = ''; cards[t].ears.textContent = ''; }
     rowOf(LOCAL).click(); say(''); paintRow(LOCAL); paintDetail();
     d.assert('after the checks nothing is open: no socket, no player, no file playing',
       !Object.keys(sockets).length && !player && !prelistening() && !localOn() && !audioReqs().length, audioReqs().join(' '));

@@ -52,6 +52,7 @@ export const CONCEPTS = [
   { id: 'radio/key', title: 'Live key', say: 'Hear a live station, see the key a detector finds in it lit on a keyboard, and play along in it.' },
   { id: 'radio/cast', title: 'Väin cast', say: 'Väin\'s archive played live into an Icecast channel from Cloudflare.' },
   { id: 'radio/edgecast', title: 'Edgecast', say: 'The radio1965 cast, played by one object on Cloudflare. Hear it and watch what each scene does.' },
+  { id: 'radio/return', title: 'Mic return', say: 'Your microphone goes through Cloudflare\'s SFU to edgecast and back. Hear what the trip adds.' },
   { id: 'radio/scenery', title: 'Radio landscape', say: 'Live radio, granulated, blends slowly from station to station through tuning noise. The waves rise.' },
   // why: lessons/kit-concept-list.md#clock
   { id: 'video/camera', title: 'Camera', say: 'Turn on your camera and see it on the page while the patchbay holds the link from camera to screen.' },
