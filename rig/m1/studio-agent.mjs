@@ -149,9 +149,12 @@ function ask(addr, args = [], tries = 3) {
 const tell = (addr, args = []) => { if (oscUp) osc.send(oscEncode(addr, args), 11000, '127.0.0.1'); };
 async function liveState() {
   if (!running.live) return { ok: false, why: 'Ableton Live is not open' };
-  const [tempo, playing, metro] = await Promise.all([ask('/live/song/get/tempo'), ask('/live/song/get/is_playing'), ask('/live/song/get/metronome')]);
+  const [tempo, playing, metro, devices] = await Promise.all([ask('/live/song/get/tempo'), ask('/live/song/get/is_playing'),
+    ask('/live/song/get/metronome'), ask('/live/track/get/devices/name', [0])]);
   if (!tempo) return { ok: false, why: 'Live does not answer on AbletonOSC' };
-  return { ok: true, tempo: +Number(tempo.at(-1)).toFixed(2), playing: !!playing?.at(-1), metronome: !!metro?.at(-1) };
+  // The instrument is track 1's first device, the one notes from IAC reach.
+  return { ok: true, tempo: +Number(tempo.at(-1)).toFixed(2), playing: !!playing?.at(-1), metronome: !!metro?.at(-1),
+    instrument: devices?.[1] ?? null };
 }
 
 // ── the wire ───────────────────────────────────────────────────────────────
