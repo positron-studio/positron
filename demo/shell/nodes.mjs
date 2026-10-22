@@ -127,6 +127,14 @@ export const NODES = {
     ports: { 'value-out': P() },
     pages: ['room/broadcast', 'room/history'],
   },
+  // A video room's tab. `place: 'site'`: two tabs may be two machines, so neither says `browser`.
+  // why: lessons/kit-nodes.md#video-room
+  controls: {
+    kind: 'person', label: 'mic and camera buttons', place: 'site',
+    instance: 'one per tab: whether this tab\'s microphone and camera are on, said to every other tab',
+    ports: { 'value-out': P() },
+    pages: ['room/video'],
+  },
 
   // ── engines: what makes or changes a sound, a picture or an event ───────
   synth: {
@@ -438,6 +446,12 @@ export const NODES = {
     labels: { 'video/shader': 'original', 'video/webrtc': 'original', 'video/llhls': 'original', 'video/moq': 'original',
       'drums/camera': 'original', 'shader/remote': 'picture here' },
   },
+  grid: {
+    kind: 'screen', label: 'grid', place: 'site',
+    instance: 'one per tab: every other tab\'s camera and microphone as tiles, and who is muted',
+    ports: { 'video-in': P({ transports: ['page', 'p2p'] }), 'audio-in': P({ transports: ['p2p'] }), 'value-in': P() },
+    pages: ['room/video'],
+  },
   oled: {
     kind: 'screen', label: 'OLED',
     ports: { 'video-in': P() },
@@ -455,6 +469,12 @@ export const NODES = {
     ports: { 'value-in': P() },
     pages: ['room/broadcast', 'room/history'],
   },
+  microphone: {
+    kind: 'device', label: 'microphone', place: 'site',
+    instance: 'one per tab, asked for on Join',
+    ports: { 'audio-out': P({ transports: ['p2p'] }) },
+    pages: ['room/video'],
+  },
   camera: {
     kind: 'device', label: 'camera',
     // relabel() gives it the device's name.
@@ -463,7 +483,7 @@ export const NODES = {
     // Drawn in this tab; the three loopback pages send it away and leave transports to the link.
     variants: { page: { 'video-out': { ...PAGE } } },
     variantPages: { page: ['video/camera', 'video/shader', 'video/recorder', 'drums/camera'] },
-    pages: ['video/camera', 'video/shader', 'video/recorder', 'video/webrtc', 'video/llhls', 'video/moq', 'drums/camera'],
+    pages: ['video/camera', 'video/shader', 'video/recorder', 'video/webrtc', 'video/llhls', 'video/moq', 'drums/camera', 'room/video'],
   },
 
   // ── somewhere else: a bucket, a store, a broadcaster ────────────────────

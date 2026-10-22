@@ -272,6 +272,21 @@ check('NEGATIVE CONTROL: a deliver for a port the type does not have throws', /n
 const m3 = throws(() => addNodes(createBay(), 'web', [{ name: 'knob-cutoff' }]));
 check('NEGATIVE CONTROL: the object form takes only a catalogue name, not an instance', /nodes\.mjs/.test(m3), m3);
 
+// ── a video room: two tabs are two machines, and media between them is p2p ──
+{
+  const b = createBay();
+  for (const s of ['web-ab12', 'web-cd34']) addNodes(b, s, ['microphone', 'grid', 'controls']);
+  const mic = b.link('web-ab12:microphone:audio-out', 'web-cd34:grid:audio-in');
+  check('a microphone in one tab and a grid in another are linked p2p with no via', mic.ok && mic.session?.transport === 'p2p'
+    && mic.session.where === 'internet-one', JSON.stringify(mic.session || mic.why));
+  check('microphone, grid and controls take their tab\'s site as their place', ['microphone', 'grid', 'controls']
+    .every((n) => b.node(`web-ab12:${n}`)?.place === 'web-ab12'), b.nodes().map((n) => `${n.id}@${n.place}`).join(' '));
+  const one = createBay();
+  addNodes(one, 'web-ab12', ['microphone', 'grid']);
+  const self = one.validate('web-ab12:microphone:audio-out', 'web-ab12:grid:audio-in');
+  check('NEGATIVE CONTROL: inside one tab the same pair is one machine, and p2p is refused there', !self.ok && /p2p/.test(self.why), self.why);
+}
+
 // ── every page listed exists on disk ──────────────────────────────────────
 const root = new URL('../', import.meta.url);
 const listed = new Set(names.flatMap((n) => [...NODES[n].pages, ...Object.keys(NODES[n].labels || {}), ...Object.values(NODES[n].variantPages || {}).flat()]));

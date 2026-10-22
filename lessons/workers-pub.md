@@ -843,3 +843,15 @@ Above `async scheduled(_event, env, ctx) {`, lines 1168 to 1175 before the cut.
  * loop role's /sweep, which starts no container.
  */
 ~~~
+
+<a id="ice-room"></a>
+
+## `/ice?room=`: credentials counted per room
+
+Added 2026-10-22 for `/room/video/` (`plans/plan-video-room.md` §8a). Per address alone, the 21st person
+behind one public address in an hour is refused, and many people share one (an office, a café, a mobile
+carrier's NAT). With a room name the rule is 60 an hour for the room and 40 per address; without one it
+is 20 per address as before; 120 an hour overall either way, which is what bounds somebody inventing room
+names. The rule is `iceVerdict` in `workers/pub/ice-limit.mjs`, pure, tested by
+`node workers/pub/ice-limit-test.mjs` (6 checks, 4 negative controls). Not deployed: the live `/ice` ignores
+`room` until it is.

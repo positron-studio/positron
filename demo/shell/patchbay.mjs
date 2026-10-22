@@ -66,6 +66,7 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
   // A heavy link with no session is not guessed at.
   // why: lessons/kit-patchbay.md#relay-box
   const RELAY = `cf-relay:${room}`;
+  const isStar = (id) => String(id).startsWith('*:');
   const mediumIn = (ports, l) => mediumOf(ports, l.from) || mediumOf(ports, l.to);
   const relayed = (ports, l) => {
     const by = l.session?.transport || l.via;
@@ -84,6 +85,9 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
       const rin = `${RELAY}:${md}-in`, rout = `${RELAY}:${md}-out`;
       extra.set(rin, { id: rin, dir: 'in', medium: md }); extra.set(rout, { id: rout, dir: 'out', medium: md });
       for (const [from, to] of [[l.from, rin], [rout, l.to]]) {
+        // A `*` end is every other tab, which is what the room box already says: the line stops there.
+        // why: lessons/kit-patchbay.md#star-ends
+        if (isStar(from) || isStar(to)) continue;
         const k = `${from} -> ${to}`;
         const h = hops.get(k);
         if (h) { h.origs.push(l); h.sent += l.sent || 0; continue; }
@@ -102,9 +106,9 @@ export function createPatchbay(raw, { title = 'patchbay', detail, flowing = () =
         hops.set(k, hop); links.push(hop);
       }
     }
-    const nodes = raw.nodes();
+    const nodes = raw.nodes().filter((n) => !isStar(n.id));
     if (extra.size) nodes.push({ id: RELAY, label: 'Cloudflare', kind: 'service' });
-    return { nodes, ports: [...ports, ...extra.values()], links };
+    return { nodes, ports: [...ports.filter((p) => !isStar(p.id)), ...extra.values()], links };
   };
   const source = { nodes: () => drawn().nodes, ports: () => drawn().ports, links: () => drawn().links };
   // The drawn patch as plain data, read by demo/resources/dump-bays.mjs for the social pictures.

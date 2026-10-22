@@ -1669,5 +1669,45 @@ console.log('\n== drummap read back ==');
     apply([L.transforms[0]], { cls: 'note', ch: 1, d1: 60, d2: 90 }) === null && apply([L.transforms[0]], { cls: 'note', ch: 10, d1: 60, d2: 90 })?.d1 === 36);
 }
 
+{
+  // V. A meeting between tabs: p2p browser to browser, sfu through a media server.
+  // why: lessons/kit-bay.md#p2p-sfu
+  const meet = (transports, n, place) => {
+    const b = createBay();
+    const sites = ['web-ab12', 'web-cd34', 'web-ef56', 'web-gh78'].slice(0, n);
+    for (const s of sites) {
+      b.addNode({ id: `${s}:camera`, kind: 'device', label: 'camera', ...(place ? { place } : {}) });
+      b.addNode({ id: `${s}:grid`, kind: 'screen', label: 'grid', ...(place ? { place } : {}) });
+      b.addPort({ id: `${s}:camera:video-out`, label: 'camera', dir: 'out', medium: 'video', ...(transports ? { transports } : {}) });
+      b.addPort({ id: `${s}:grid:video-in`, label: 'grid', dir: 'in', medium: 'video', ...(transports ? { transports } : {}) });
+    }
+    return sites.slice(1).map((s) => b.link(`${sites[0]}:camera:video-out`, `${s}:grid:video-in`)).at(-1);
+  };
+  const two = meet(['p2p'], 2);
+  ok('two tabs whose cameras travel by p2p are offered p2p with no via, over the internet', two.ok
+    && two.session?.transport === 'p2p' && two.session.where === 'internet-one' && /browser to browser/.test(two.session.says),
+    JSON.stringify(two.session || two.why));
+  const mesh = meet(['p2p'], 4);
+  ok('three receivers make it internet-many, and a p2p-only camera is still offered p2p: a mesh', mesh.ok
+    && mesh.session?.transport === 'p2p' && mesh.session.where === 'internet-many', JSON.stringify(mesh.session || mesh.why));
+  const sfu = meet(['p2p', 'sfu'], 4);
+  ok('a camera that can go either way to many receivers is offered sfu first', sfu.ok
+    && sfu.session?.transport === 'sfu' && /SFU/.test(sfu.session.says), JSON.stringify(sfu.session || sfu.why));
+  const one = meet(['p2p', 'sfu'], 2);
+  ok('and to one receiver, p2p, since the internet-one cell has no sfu', one.ok && one.session?.transport === 'p2p',
+    JSON.stringify(one.session || one.why));
+  const plain = meet(null, 2);
+  ok('NEGATIVE CONTROL: ports that name no transport still get the cell\'s own whep, never p2p', plain.ok
+    && plain.session?.transport === 'whep', JSON.stringify(plain.session || plain.why));
+  const shared = meet(['p2p'], 2, 'browser');
+  ok('NEGATIVE CONTROL: two tabs that both say place browser are one machine to the bay, so p2p is refused there',
+    !shared.ok && /p2p/.test(shared.why), shared.why || JSON.stringify(shared.session));
+  ok('p2p and sfu are transport names that leave the machine, and datachannel is still one',
+    ['p2p', 'sfu', 'datachannel'].every((x) => TRANSPORT_NAMES.includes(x)) && !MACHINE_ONLY.includes('p2p') && !MACHINE_ONLY.includes('sfu'),
+    TRANSPORT_NAMES.join(', '));
+  ok('NEGATIVE CONTROL: the board\'s network audio is still datachannel first',
+    chooseTransport('audio', 'network').transport === 'datachannel', JSON.stringify(chooseTransport('audio', 'network')));
+}
+
 console.log(`\n${pass}/${pass + fail} green${fail ? `  (${fail} FAILED)` : ''}\n`);
 process.exit(fail ? 1 : 0);

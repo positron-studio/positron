@@ -55,3 +55,14 @@ so no MIDI ever pulsed on a relayed link (found 2026-10-11 on
 of patchbay component. revisit later"*. The link and the two tables are
 built as before and left off the page unless a caller passes
 `details: true`. BACKLOG.md carries the revisit.
+
+<a id="star-ends"></a>
+
+## `createPatchbay`: a `*` end stops at the room box
+
+Asked 2026-10-22 on `/room/video/`: *"*:chat / grid. they are weird, we prefixed them in chat room demo, no in
+patchbay"*. A `*` link (`web:chat:value-out -> *:chat:value-in`) was drawn as two hops with a box called
+`*:chat`, "every other tab", at the far end. The `cf-relay:<room>` box already says where a light link goes, so
+the hop to or from a `*` end is not drawn, and no `*:` node or port is. The `*` stays in the code, where it is
+the bay's address for every other tab. Pages drawn without `createPatchbay` (`/kit/patchbay/`'s specimens,
+`pair-examples.mjs`) still show their `*` boxes.

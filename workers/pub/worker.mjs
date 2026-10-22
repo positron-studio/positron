@@ -2,6 +2,7 @@
 // Viewers are reference counted, not left to sleepAfter: ffmpeg publishing makes no requests.
 // why: lessons/workers-pub.md#header
 
+import { iceVerdict } from './ice-limit.mjs';
 import { Container, getContainer } from '@cloudflare/containers';
 import { DurableObject } from 'cloudflare:workers';
 import { json, OPEN, keyMatches } from '../_lib/http.mjs';
@@ -9,8 +10,7 @@ import { LOOP_CLEAN_MS, LOOP_OLD_MS, loopCeil, loopReady, storage, loopVideos, l
 
 const SWEEP_MS = 30_000;   // alarm cadence
 const WHIP_PER_HOUR = 20;  // browser publishes allowed per hour, DO-counted
-const ICE_PER_HOUR = 120;        // relay credentials minted per hour, overall
-const ICE_PER_ADDRESS_HOUR = 20; // and per address, so one caller cannot spend the hour
+// Relay credentials an hour: 120 overall, 20 per address, or per room with ?room=. ice-limit.mjs.
 const ICE_TTL_S = 4 * 3600;      // longer than a camera is left on; a credential cannot be refreshed mid-call here
 const GRACE_TICKS = 2;     // ~60 s of nobody watching before we stop
 // The main instance publishes nothing: it holds the device log and the /ice rate limits.
@@ -392,10 +392,10 @@ const pubOn = (Base, NEXT) => class extends Base {
       // Hashed, because the stamps are now kept in storage for the hour.
       const who = await shortHash(request.headers.get('cf-connecting-ip') || 'unknown');
       const iceHits = await this.#getHits('ice');
-      if (iceHits.length >= ICE_PER_HOUR
-        || iceHits.filter((h) => h.who === who).length >= ICE_PER_ADDRESS_HOUR) {
-        return json({ error: 'too many relay requests this hour', limit: ICE_PER_ADDRESS_HOUR }, 429);
-      }
+      // A room counts for everybody in it, who may share one public address.
+      // why: lessons/workers-pub.md#ice-room
+      const v = iceVerdict(iceHits, { who, room: url.searchParams.get('room') });
+      if (!v.ok) return json({ error: v.why, limit: v.limit }, 429);
       let up;
       try {
         up = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`, {
@@ -407,7 +407,7 @@ const pubOn = (Base, NEXT) => class extends Base {
         return json({ error: `turn upstream: ${e.message}`, iceServers: null }, 502);
       }
       if (!up.ok) return json({ error: `turn upstream ${up.status}`, iceServers: null }, 502);
-      await this.#addHit('ice', { at: now, who });
+      await this.#addHit('ice', { at: now, who, ...(v.room ? { room: v.room } : {}) });
       const got = await up.json();
       // Port 53 is refused by browsers and only costs a gathering timeout,
       // which is Cloudflare's own advice. Nothing else is filtered: ICE picks.

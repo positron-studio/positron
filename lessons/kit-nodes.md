@@ -74,3 +74,21 @@ NEGATIVE CONTROL must refuse something, so a check that cannot fail is caught.
 ## nodes-test.mjs, merges
 
 ── merges (2026-10-14): one name per thing, and the pages keep their ids ──
+
+<a id="video-room"></a>
+
+## `microphone`, `grid`, `controls`: a video room's tab
+
+Added 2026-10-22 for `/room/video/`. `microphone` is the tab's audio out, `grid` takes every other tab's
+camera and microphone and who is muted, `controls` says whether this tab's microphone and camera are on (called `self` until
+*"self is hard to undestand. controls?"*, 2026-10-22). `grid`'s video in also takes `page`, for this tab's own
+camera in its own tile.
+
+All three are `place: 'site'`, so `addNodes` makes each tab its own machine. Every older entry defaults
+to `browser`, which is right inside one tab and wrong between two: two tabs both placed `browser` are one
+machine to the bay, and a video link between them was offered `page`. `camera` keeps `browser` because
+its other pages link it to a `screen` in the same tab; a page that links a camera to another tab declares
+its own place (the video room announces no place at all, so it defaults to the site).
+
+Media ports carry `transports: ['p2p']`. Checked in `nodes-test.mjs`: two tabs linked with no `via` get
+`p2p`, and inside one tab the same pair is refused `p2p` (negative control).

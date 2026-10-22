@@ -1714,3 +1714,31 @@ A port whose `drums.map` is not null (not General MIDI) gets a warning on every 
 ## `drummapFor` read back
 
 2026-10-15. A drummap is resolved against the RECEIVING port first, as before. When that port does not list the named map and the SENDING port does (`pi-1:circuit:midi-out` publishes `drums: circuit`), the link resolves to that map read back (`readBack`, `lessons/kit-drum-maps.md#read-back`), and only into a port that plays General MIDI: into a port with its own non-GM map it is refused in words, since one map cannot carry both. The text form is unchanged, `{ drummap circuit }`. The resolved transform carries `only` (the source's drum channel) and `back: true`; `run` drops any event on another channel before anything else, so it stays pure and never sees a port. bay-test's read back block has 15 asserts, most negative controls; removing the `only` line took 4 of them red.
+
+<a id="p2p-sfu"></a>
+
+## `bay.mjs` TRANSPORTS: `p2p` and `sfu`
+
+Added 2026-10-22 for the video room (`plans/plan-video-room.md` §2.3). `p2p` is browser to browser WebRTC
+media, a mesh; `sfu` is through a media server, one upload whatever the number of receivers.
+
+- They are NOT the cell's first choice anywhere. They sit after it in `or`, which may now be a list, so a
+  port that names no transports is offered exactly what it was before (bay-test V, negative control), and
+  only a port that lists `p2p` or `sfu` gets one. Order inside a cell is the preference: `internet-many`
+  offers `sfu` before `p2p`, so a camera that can do both goes through the SFU once there are several
+  receivers.
+- `p2p` is in all three wire columns, `internet-many` included, because a mesh to five tabs is five
+  one-receiver legs that the bay counts as five receivers from one port. Its note says what that costs:
+  one upload per receiver.
+- `datachannel` stays. The Pi pages really do carry PCM and frames on an `RTCDataChannel`
+  (`graph-registry.mjs` `BOARD_TRANSPORTS`, `remote/path.mjs`), so it is the right word there. It was the
+  wrong word only on `/room/video/`, whose media is RTP tracks.
+- `notes` gives each alternative its own `says`, so a `p2p` link does not print the WHEP cell's warning
+  about a VPN. The test that no cell quotes an unplanned number reads `says` only, so the notes carry none.
+- A refusal names a port by its id when it has no label (a port added by `addNodes` has none), where it
+  used to print `undefined only travels by p2p`.
+
+Two tabs read as one machine was not a bay bug: `place` is the machine (`#addnode`), and the page told
+the bay every tab was on the machine called `browser`. `whereOf` was left alone on purpose, because one tab
+can hold several sites placed `browser` (MIDI devices, engines, `/patchbay/`), and for those "one machine"
+is true and picks `webaudio`.
