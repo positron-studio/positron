@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Live on Mac">
+<meta property="og:description" content="Keys here play Ableton Live on the studio Mac. Its sound comes back over the relay.">
+<meta property="og:url" content="https://positron.studio/remote/live/">
+<meta property="og:image" content="https://positron.studio/og/site-98871a52.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Live on Mac</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<link rel="stylesheet" href="/shell/concept.css">
+<style>
+  .cc-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+</style>
+<script type="module">
+  // Ableton Live on the studio Mac, site `m1` in room `m1-1` (rig/m1/studio-agent.mjs). Notes go to Live over IAC,
+  // Live's sound comes back through a Core Audio tap only while this page plays, tempo and Live's own play over
+  // AbletonOSC. Opening Live and loading an instrument need the studio key (?key= once, kept in this browser).
+  // why: lessons/page-remote.md#live
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { createKeyboard, keyRange } from '/shell/keyboard.mjs';
+  import { createMidi } from '/shell/midi.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createWaveShape } from '/shell/synth-view.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { addNodes } from '/shell/nodes.mjs';
+  import { createBoard } from '/shell/board.mjs';
+  import { announceOn } from '/shell/announce.mjs';
+  import { MAC_SITE, MAC_ROOM } from '/shell/graph-registry.mjs';
+
+  const d = mount({ name: 'Live on Mac', what: '', index: '/', indexLabel: 'positron',
+    // The lag cells under the title, the log alone at the foot, as /remote/piano/.
+    joined: false,
+    readout: { 'key to sound': 'ms', 'round trip': 'ms', tempo: 'bpm', live: '' } });
+  conceptNav('remote/live');
+
+  const q = new URLSearchParams(location.search);
+  const ROOM = q.get('room') || MAC_ROOM;
+  const MAY_PLAY = !SELFCHECK || q.get('board') === '1';
+
+  // ── the studio key: from ?key= once, then this browser only; never in the page ──
+  const KEY_STORE = 'positron-studio-key';
+  try { if (q.get('key')) { localStorage.setItem(KEY_STORE, q.get('key')); const u = new URL(location.href); u.searchParams.delete('key'); history.replaceState(null, '', u); } } catch { /* private window */ }
+  const studioKey = () => { try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; } };
+  /** `{ t, sig }` for a command that starts something: HMAC-SHA256(key, `${type}\n${t}\n${what}`) in hex. */
+  async function sign(type, what) {
+    const k = studioKey();
+    if (!k) return {};
+    const t = Date.now(), enc = new TextEncoder();
+    const ck = await crypto.subtle.importKey('raw', enc.encode(k), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', ck, enc.encode(`${type}\n${t}\n${what}`)));
+    return { t, sig: [...mac].map((b) => b.toString(16).padStart(2, '0')).join('') };
+  }
+
+  /** What Live 11 Standard's browser loads by name onto track 1 (abletonosc-ext/browser.py). */
+  const INSTRUMENTS = [{ name: 'Drift', program: 0 }, { name: 'Grand Piano', program: 1 }];
+
+  // ── the bay: this page's nodes and Live's ports as the Mac announces them (macGraph) ──
+  const S = 'web';
+  const id = (n, p) => `${S}:${n}:${p}`;
+  const LIVE = (p) => `${MAC_SITE}:live:${p}`;
+  const bay = createBay();
+  addNodes(bay, S, [{ name: 'keys', variant: 'cc' }, 'patch'], { portLabel: 'node:port' });
+  bay.addNode({ id: `${S}:transport`, kind: 'person', label: 'tempo and play' });
+  bay.addPort({ id: id('transport', 'value-out'), label: 'transport:value-out', dir: 'out', medium: 'value', shape: { of: 'param' } });
+  bay.addNode({ id: `${MAC_SITE}:live`, kind: 'engine', label: 'Ableton Live on the Mac', place: ROOM });
+
+  let board = null, armed = false, program = 0, liveState = null;
+  // What reaches m1:live:midi-in leaves for the Mac, and only once playing.
+  function toLive(ev) {
+    if (ev.cls === 'program') return choose(ev.d1);
+    if (!armed || !board) return;
+    if (ev.cls === 'note') {
+      if (ev.d2 > 0) pressed(ev.d1);
+      board.send(ev.d2 > 0 ? { type: 'note.on', node: 'live', note: ev.d1, vel: ev.d2 } : { type: 'note.off', node: 'live', note: ev.d1 });
+    } else if (ev.cls === 'cc') board.send({ type: 'cc', node: 'live', ctrl: ev.d1, value: ev.d2 });
+  }
+  // What reaches m1:live:value-in: Live's own play and its tempo.
+  async function toTransport(ev) {
+    if (!board) return;
+    const body = ev.param === 'tempo' ? { tempo: ev.value } : ev.param === 'play' ? { play: !!ev.value } : null;
+    if (!body) return;
+    const r = await board.ask({ type: 'live.set', ...body }, 'live.state', 4000);
+    if (r) showLive(r);
+  }
+  const PORTS = [
+    { id: LIVE('midi-in'), dir: 'in', medium: 'midi', accepts: ['note', 'cc', 'program'], deliver: toLive },
+    { id: LIVE('value-in'), dir: 'in', medium: 'value', shape: { of: 'param' }, deliver: toTransport },
+    { id: LIVE('audio-out'), dir: 'out', medium: 'audio' },
+  ];
+  for (const p of PORTS) bay.addPort({ label: p.id.split(':').slice(1).join(':'), ...p });
+  addNodes(bay, S, ['scope', 'speaker'], { portLabel: 'node:port' });
+  for (const [from, to] of [
+    [id('keys', 'midi-out'), LIVE('midi-in')],
+    [id('patch', 'midi-out'), LIVE('midi-in')],
+    [id('transport', 'value-out'), LIVE('value-in')],
+    [LIVE('audio-out'), id('scope', 'audio-in')],
+    [LIVE('audio-out'), id('speaker', 'audio-in')],
+  ]) {
+    const r = bay.link(from, to);
+    if (!r.ok) d.log(`${from} -> ${to} refused: ${r.why}`, 'warn');
+  }
+
+  // ── the scope, full width ────────────────────────────────────────────────
+  const WINDOW = 512, FULL = 0.25;
+  const wave = createWaveShape({ reason: null, colour: '--hi', height: 120, name: '' });
+  let analyser = null, buf = null, level = 0;
+  function frame() {
+    if (analyser) {
+      analyser.getFloatTimeDomainData(buf);
+      let i0 = 0, hi = 0;
+      for (let i = 1; i < buf.length - WINDOW; i++) if (buf[i - 1] < 0 && buf[i] >= 0) { i0 = i; break; }
+      for (const v of buf) { const a = v < 0 ? -v : v; if (a > hi) hi = a; }
+      level = hi;
+      wave.set({ points: Array.from(buf.subarray(i0, i0 + WINDOW), (v) => Math.max(-1, Math.min(1, v / FULL))), reason: '', name: '' });
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // Key to sound per press, measured on the speaker's clock as /remote/piano/ does: the first 1 ms block over ONSET
+  // and three times the 30 ms before it.
+  const KEEP_MS = 200, ONSET = 0.02, WAIT_MS = 1500;
+  const env = [], pending = [], lags = [];
+  let lastLag = null, readUpTo = 0;
+  function pressed(note) { pending.push({ note, at: performance.now() }); while (pending.length > 8) pending.shift(); }
+  function listen() {
+    if (!analyser || !buf) return;
+    const ctx = board.ctx();
+    const ts = ctx.getOutputTimestamp?.();
+    if (!ts || !ts.performanceTime) return;
+    analyser.getFloatTimeDomainData(buf);
+    const sr = ctx.sampleRate, N = buf.length, blk = Math.round(sr / 1000);
+    const tEnd = ts.performanceTime + (ctx.currentTime - ts.contextTime) * 1000;
+    const t0 = tEnd - (N / sr) * 1000;
+    for (let i = 0; i + blk <= N; i += blk) {
+      const at = t0 + (i / sr) * 1000;
+      if (at <= readUpTo) continue;
+      let pk = 0;
+      for (let j = i; j < i + blk; j++) { const a = buf[j] < 0 ? -buf[j] : buf[j]; if (a > pk) pk = a; }
+      env.push({ at, peak: pk });
+      readUpTo = at;
+      let before = 0;
+      for (let k = env.length - 31; k < env.length - 1; k++) if (k >= 0 && env[k].peak > before) before = env[k].peak;
+      if (pk > ONSET && pk > before * 3) {
+        const p = pending.find((x) => x.at < at);
+        if (p) { pending.splice(pending.indexOf(p), 1); lastLag = at - p.at; lags.push(lastLag); if (lags.length > 20) lags.shift(); }
+      }
+    }
+    const now = performance.now();
+    while (env.length && env[0].at < now - KEEP_MS) env.shift();
+    for (let k = pending.length - 1; k >= 0; k--) if (now - pending[k].at > WAIT_MS) pending.splice(k, 1);
+  }
+  function lagFrame() { listen(); requestAnimationFrame(lagFrame); }
+  setInterval(() => {
+    if (!board) return;
+    const st = board.stats();
+    d.set('key to sound', lastLag == null ? '' : Math.round(lastLag));
+    d.set('round trip', st?.rttMs == null ? '' : Math.round(st.rttMs));
+  }, 250);
+  function showLive(r) {
+    liveState = r;
+    d.set('tempo', r?.ok ? r.tempo : '');
+    d.set('live', r?.ok ? (r.playing ? 'playing' : 'stopped') : 'not open');
+    if (r?.ok) {
+      if (Math.round(tempo.value()) !== Math.round(r.tempo)) tempo.receive(r.tempo);
+      song.button('song').textContent = r.playing ? 'Stop Live' : 'Play Live';
+    }
+  }
+
+  // ── the instrument: a pick is one program change from patch:midi-out ─────
+  let patchAt = 0;
+  const pick = (i) => { patchAt = i; bay.send(id('patch', 'midi-out'), { cls: 'program', ch: 1, d1: INSTRUMENTS[i].program }); };
+  const step = (by) => pick((patchAt + by + INSTRUMENTS.length) % INSTRUMENTS.length);
+  const patchPick = createPicker({ what: 'instrument', cls: 'cc-patch', prev: () => step(-1), next: () => step(+1), onPick: (i) => pick(i) });
+  patchPick.options(INSTRUMENTS.map((x) => x.name), 0);
+  async function choose(p) {
+    const ins = INSTRUMENTS.find((x) => x.program === p);
+    if (!ins) return;
+    program = p;
+    if (!armed || !board) { patchPick.show(ins.name, INSTRUMENTS.indexOf(ins)); return; }
+    if (!studioKey()) { say(`Loading ${ins.name} into Live needs the studio key: open this page once with ?key=`, 'warn'); return; }
+    const r = await board.ask({ type: 'live.instrument', name: ins.name, track: 0, ...(await sign('live.instrument', ins.name)) }, 'live.instrument', 15000);
+    if (!r?.ok) { say(`Live did not load ${ins.name}${r?.why ? `: ${r.why}` : ''}`, 'warn'); return; }
+    patchPick.show(ins.name, INSTRUMENTS.indexOf(ins));
+    say(`${ins.name} on track 1 in Live, listening to IAC, armed`);
+  }
+
+  // ── tempo and Live's own play, the transport node's value-out ────────────
+  const tempo = createKnob({ label: 'tempo', min: 60, max: 180, step: 1, value: 120, unit: '',
+    onChange: (v) => bay.send(id('transport', 'value-out'), { param: 'tempo', value: Math.round(v) }) });
+  const knobs = createKnobGrid(new Map([['tempo', tempo]]), { row: true });
+  const song = createButtonGroup({ buttons: [{ id: 'song', label: 'Play Live',
+    onPress: () => bay.send(id('transport', 'value-out'), { param: 'play', value: liveState?.playing ? 0 : 1 }) }] });
+  song.enableAll(false, 'press play first');
+
+  // ── the keyboard, and a plugged in one through the same node ─────────────
+  const host = el('div');
+  const send = (note, vel) => bay.send(id('keys', 'midi-out'), { cls: 'note', ch: 1, d1: note, d2: vel });
+  const kb = createKeyboard(host, {
+    ...keyRange(21), base: 48,
+    onDown: (note, how) => { if (how !== 'midi') send(note, 100); },
+    onUp: (note, how) => { if (how !== 'midi') send(note, 0); },
+  });
+  let midiOpen = false;
+  function openMidi() {
+    if (midiOpen) return;
+    midiOpen = true;
+    createMidi({ log: (line, kind) => d.log(line, kind),
+      onDown: (n, vel) => { kb.lightNote?.(n, true); send(n, vel); },
+      onUp: (n) => { kb.lightNote?.(n, false); send(n, 0); } });
+  }
+
+  // ── play: reach the Mac, open Live if the key allows, ask for its sound ──
+  let saidLast = '';
+  const say = (text, kind) => { saidLast = text; d.log(text, kind); };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  let opened = null, starting = false, looping = false, poll = 0;
+  function makeBoard() {
+    let open;
+    opened = new Promise((r) => { open = r; });
+    board = createBoard({ room: ROOM, of: 'studio Mac', showName: false, cushionMs: 160, maxCushionMs: 400,
+      log: (line, kind) => d.log(line, kind), onOpen: () => open(true) });
+    announceOn(board, bay, { label: 'Live on Mac' });
+  }
+  async function start() {
+    if (starting) return;
+    starting = true;
+    try {
+      if (!board) makeBoard();
+      say(`Reaching ${ROOM}`);
+      if (!await Promise.race([opened, wait(8000).then(() => false)])) { say(`The relay did not open ${ROOM} within eight seconds`, 'warn'); return; }
+      await board.startAudio();
+      const pl = board.playout();
+      if (pl && !analyser) {
+        analyser = board.ctx().createAnalyser(); analyser.fftSize = 2048; buf = new Float32Array(analyser.fftSize);
+        pl.connect(analyser);
+        if (!looping) { looping = true; requestAnimationFrame(frame); requestAnimationFrame(lagFrame); }
+      }
+      if (!MAY_PLAY) { say('A check is running, so nothing was sent to the Mac. Add ?board=1 to let it through', 'warn'); return; }
+      let st = await board.ask({ type: 'live.get' }, 'live.state', 6000);
+      if (!st) { say('The studio Mac is not answering in m1-1, so the keys go nowhere', 'warn'); return; }
+      if (!st.ok && /not open/.test(st.why || '')) {
+        if (!studioKey()) { say('Ableton Live is not open on the Mac, and opening it needs the studio key (?key= once)', 'warn'); return; }
+        say('Opening Ableton Live on the Mac, about half a minute');
+        await board.ask({ type: 'app.open', app: 'live', ...(await sign('app.open', 'live')) }, 'app.open', 6000);
+        for (let i = 0; i < 20 && !st?.ok; i++) { await wait(3000); st = await board.ask({ type: 'live.get' }, 'live.state', 4000); }
+        if (!st?.ok) { say(`Live did not come up${st?.why ? `: ${st.why}` : ''}`, 'warn'); return; }
+      }
+      showLive(st);
+      const r = await board.ask({ type: 'audio.start', node: 'live' }, 'audio.started', 8000);
+      if (!r?.ok) { say(`The Mac could not send Live's sound${r?.reason ? `: ${r.reason}` : ''}`, 'bad'); return; }
+      armed = true;
+      board.watchRtt(2000);
+      openMidi();
+      song.enableAll(true);
+      transport.setIcon('play', 'stop', 'stop');
+      clearInterval(poll);
+      poll = setInterval(async () => { if (armed) { const s = await board.ask({ type: 'live.get' }, 'live.state', 3000); if (s) showLive(s); } }, 3000);
+      say(`Ableton Live on the studio Mac at ${st.tempo} bpm, play the keys`);
+    } finally { starting = false; }
+  }
+  function stop() {
+    if (armed && board) { board.send({ type: 'note.panic', node: 'live' }); board.send({ type: 'audio.stop', node: 'live' }); }
+    armed = false;
+    clearInterval(poll);
+    board?.watchRtt(0);
+    kb.panic?.();
+    song.enableAll(false, 'press play first');
+    transport.setIcon('play', 'play', 'play');
+    say('Stopped: notes released, and the Mac stops sending Live\'s sound');
+  }
+  const transport = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => (armed ? stop() : start()) }] });
+
+  // ── the patchbay ────────────────────────────────────────────────────────
+  const flowing = (l) => (l.from === LIVE('audio-out') ? armed && level > 0.002 : armed);
+  const pb = createPatchbay(bay, { room: ROOM, flowing });
+  setInterval(() => pb.refresh?.(), 500);
+
+  const top = el('div', 'cc-top');
+  top.append(transport.el, song.el);
+  d.stack.add(top, wave.el, knobs.el, patchPick.el, host, pb.el);
+  window.__demo.bay = bay;
+  window.__demo.probe = () => ({ armed, level, program, live: liveState, said: saidLast, stats: board ? board.stats() : null, lags: [...lags] });
+  d.ready();
+</script>

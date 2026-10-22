@@ -29,6 +29,7 @@ export const CONCEPTS = [
   { id: 'remote/circuit', title: 'Circuit on Pi', say: 'A Novation Circuit in another building, played from here through its Pi. Keys, MIDI and 8 macros.' },
   { id: 'remote/collide', title: 'Collide on Pi', say: 'SuperCollider here and on a Pi in another building at once. Crossfade between the two.' },
   { id: 'remote/piano', title: 'Piano and Rhodes on Pi', say: 'A piano and a Rhodes on a Pi in another building, played from here over the relay or direct.' },
+  { id: 'remote/live', title: 'Live on Mac', say: 'Keys here play Ableton Live on the studio Mac. Its sound comes back over the relay.' },
   { id: 'remote/plaits', title: 'Plaits on Pi', say: "Emilie Gillet's Plaits running on a Pi in another building. Play it and turn its knobs from here." },
   { id: 'devices/text', title: 'Text on Pi screen', say: 'Type a line and it shows on a small screen on the Pi. Its four keys show up here.' },
   { id: 'devices/dots', title: 'Dots on Pi screen', say: 'A short score plays as rings of dots on the Pi\'s small screen, the dot piano of the Pico.' },

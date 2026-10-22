@@ -25,7 +25,7 @@ export const NODES = {
       'midi-in': P({ ...TAKES_NOTE, optional: true }),
     },
     variants: { cc: { 'midi-out': { emits: ['note', 'cc'] } } },
-    variantPages: { cc: ['code/piano', 'remote/piano'] },
+    variantPages: { cc: ['code/piano', 'remote/piano', 'remote/live'] },
     pages: ['synth/keyboard', 'synth/recorder', 'synth/timeline', 'synth/dots', 'synth/sound', 'code/faust',
       'code/collide', 'code/plaits', 'code/piano', 'remote/circuit', 'remote/collide', 'remote/piano',
       'remote/plaits', 'radio/key', 'room/words', 'code/wish'],
