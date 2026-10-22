@@ -19,13 +19,9 @@ import { createMesh } from '/room/mesh.mjs';
 import { createSfu, ridFor } from '/room/sfu.mjs';
 import { pickPresenter, stripOrder, CLAIM_STALE_MS } from '/room/together.mjs';
 
-// What a stream on /room/stage/ carries: one of MIMproject's own recordings, played in the streamer's tab from
-// our bucket and sent with captureStream(), picture and sound. 2:37, 854x480, 16.5 MB. why: lessons/kit-participant.md#stream
-const FILM = {
-  key: 'mimproject/party-container-vabaduse-valjak-2010.mp4',
-  title: 'Party container, Vabaduse väljak 2010',
-  base: 'https://positron-station.kristjan-jansen.workers.dev/media/',
-};
+// What a stream on /room/stage/ carries: one of MIMproject's own recordings, 2:37, 854x480, sent into the SFU by a
+// container on positron-sfu (workers/sfu/film/). why: lessons/kit-participant.md#film
+const FILM = { title: 'Party container, Vabaduse väljak 2010' };
 
 const CSS = `
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
@@ -97,15 +93,14 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   const HAS_STAGE = present || stream;
   const SRC = present ? 'share' : 'stream';
   const LEAD_OUT = `${SITE}:${SRC}:video-out`, LEAD_SAY = `${SITE}:${SRC}:value-out`;
-  const SOUND_OUT = `${SITE}:stream:audio-out`, STREAM_FILE = `${SITE}:stream:file-in`;
   const STAGE_IN = `${SITE}:stage:video-in`, STAGE_SOUND = `${SITE}:stage:audio-in`, STAGE_HEAR = `${SITE}:stage:value-in`;
   const FILM_OUT = 'cf-r2:film:file-out';
-  const FILM_URL = FILM.base + FILM.key;
   const VERB = present ? 'presenting' : 'streaming';
-  // Phones have no getDisplayMedia: no Share button there, and no share node to draw. iPhone Safari has no
-  // captureStream on a <video>: no Stream button there.
+  // Phones have no getDisplayMedia: no Share button there, and no share node to draw.
   const CAN_SHARE = present && typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
-  const CAN_STREAM = stream && typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.captureStream === 'function';
+  // The film comes from a container and needs nothing of the browser, so every phone can start one.
+  const CAN_STREAM = stream;
+  const FILM_NODE = 'cf-sfu:film', FILM_IN = 'cf-sfu:film:file-in', FILM_V = 'cf-sfu:film:video-out', FILM_A = 'cf-sfu:film:audio-out';
   const CAN_LEAD = CAN_SHARE || CAN_STREAM;
 
   let since = 0;
@@ -139,12 +134,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
         { id: LEAD_SAY, label: 'presenting', dir: 'out', medium: 'value', transports: ['relay'] },
       ] : []),
       // The stream: a film from the bucket in, its picture and sound out to every stage.
-      ...(CAN_STREAM ? [
-        { id: STREAM_FILE, label: 'film', dir: 'in', medium: 'file', transports: ['https'] },
-        { id: LEAD_OUT, label: 'picture', dir: 'out', medium: 'video', transports: ['page', VIA] },
-        { id: SOUND_OUT, label: 'sound', dir: 'out', medium: 'audio', transports: [VIA] },
-        { id: LEAD_SAY, label: 'streaming', dir: 'out', medium: 'value', transports: ['relay'] },
-      ] : []),
+      ...(CAN_STREAM ? [{ id: LEAD_SAY, label: 'streaming', dir: 'out', medium: 'value', transports: ['relay'] }] : []),
       ...(HAS_STAGE ? [
         { id: STAGE_IN, label: present ? 'screen' : 'picture', dir: 'in', medium: 'video', transports: ['page', VIA] },
         ...(stream ? [{ id: STAGE_SOUND, label: 'sound', dir: 'in', medium: 'audio', transports: [VIA] }] : []),
@@ -175,20 +165,24 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     if (HAS_STAGE) {
       if (CAN_LEAD) b.link(LEAD_SAY, '*:stage:value-in');
       b.link(`*:${SRC}:value-out`, STAGE_HEAR);
-      if (since && leadTrack) {
-        if (stream) {
-          b.addNode({ id: 'cf-r2:film', kind: 'store', label: 'film', place: 'cloudflare', net: 'cloudflare' });
-          b.addPort({ id: FILM_OUT, label: 'mp4', dir: 'out', medium: 'file', transports: ['https'] });
-          b.link(FILM_OUT, STREAM_FILE);
+      if (stream && since && presenter) {
+        // The film: the bucket into the container, the container into every stage through the SFU.
+        b.addNode({ id: 'cf-r2:film', kind: 'store', label: 'film', place: 'cloudflare', net: 'cloudflare' });
+        b.addPort({ id: FILM_OUT, label: 'mp4', dir: 'out', medium: 'file', transports: ['https'] });
+        b.addNode({ id: FILM_NODE, kind: 'engine', label: 'film player', place: 'cloudflare', net: 'cloudflare' });
+        b.addPort({ id: FILM_IN, label: 'mp4', dir: 'in', medium: 'file', transports: ['https'] });
+        b.addPort({ id: FILM_V, label: 'picture', dir: 'out', medium: 'video', transports: ['sfu'] });
+        b.addPort({ id: FILM_A, label: 'sound', dir: 'out', medium: 'audio', transports: ['sfu'] });
+        b.link(FILM_OUT, FILM_IN);
+        for (const s of presenter === SITE ? [SITE, ...others().slice(0, MAX - 1)] : [SITE]) {
+          b.link(FILM_V, `${s}:stage:video-in`);
+          b.link(FILM_A, `${s}:stage:audio-in`);
         }
+      } else if (since && leadTrack) {
         b.link(LEAD_OUT, STAGE_IN);
-        for (const s of others().slice(0, MAX - 1)) {
-          b.link(LEAD_OUT, `${s}:stage:video-in`);
-          if (stream && leadSound) b.link(SOUND_OUT, `${s}:stage:audio-in`);
-        }
+        for (const s of others().slice(0, MAX - 1)) b.link(LEAD_OUT, `${s}:stage:video-in`);
       } else if (since && presenter && presenter !== SITE && b.port(`${presenter}:${SRC}:video-out`)) {
         b.link(`${presenter}:${SRC}:video-out`, STAGE_IN);
-        if (stream && b.port(`${presenter}:stream:audio-out`)) b.link(`${presenter}:stream:audio-out`, STAGE_SOUND);
       }
     }
     // Your camera into your own tile, while it is on. The microphone has no such link: it is never
@@ -230,13 +224,14 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   // ── media ─────────────────────────────────────────────────────────────────
   let local = null, media = null, micOn = false, camOn = false;
   // What this tab puts on the stage while it leads: its screen, or a stream's picture and sound.
-  let leadTrack = null, leadSound = null, leadStream = null;
+  let leadTrack = null, leadStream = null;
+  // The film this tab started on the container: { sessionId, proof, tracks }.
+  let leadFilm = null;
+  const leading = () => !!(leadTrack || leadFilm);
   const tracks = () => ({
     audio: local?.getAudioTracks()[0] || null,
     video: camOn ? (local?.getVideoTracks()[0] || null) : null,
     screen: present ? leadTrack : null,
-    stream: stream ? leadTrack : null,
-    sound: stream ? leadSound : null,
   });
 
   const grid = createParticipantGrid({ empty: ROOM ? 'Join to see the room' : 'Make a new room, or open a room\'s link' });
@@ -308,7 +303,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
 
   function leave() {
     sayState(false);
-    if (leadTrack) stopLead(false);
+    if (leading()) stopLead(false);
     claims.clear(); shares.clear();
     showStage();
     media?.leave();
@@ -337,7 +332,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     }
     // A newcomer has to hear what this tab publishes on the SFU, and who presents or streams.
     if (all.length !== reconcile.seen) {
-      reconcile.seen = all.length; media.announce?.(); if (leadTrack) sayShare();
+      reconcile.seen = all.length; media.announce?.(); if (leading()) sayShare();
     }
     media.want(want);
     for (const [s, t] of tiles) if (!want.includes(s) && !media.peers().some((p) => p.site === s)) { grid.remove(t); tiles.delete(s); unwatch(s); }
@@ -413,10 +408,10 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   const stage = createStage();
   function sayShare() {
     if (!since || !CAN_LEAD) return;
-    const r = node.emit(LEAD_SAY, leadTrack ? { presenting: true, t: claimT } : { presenting: false });
+    const r = node.emit(LEAD_SAY, leading() ? { presenting: true, t: claimT } : { presenting: false });
     if (r.sent) pb?.pulse(LEAD_SAY, '*:stage:value-in');
   }
-  setInterval(() => { if (leadTrack) sayShare(); }, 10_000);
+  setInterval(() => { if (leading()) sayShare(); }, 10_000);
   function heardShare(e, l, m) {
     const by = String(m.speaker || m.from).split(':')[0];
     pb?.pulse(l.from, l.to);
@@ -425,11 +420,11 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     showStage();
   }
   /** Lead with these tracks: claim the stage, send them, say so. */
-  function lead(video, sound = null) {
+  function lead(video) {
     // The browser's own Stop sharing bar, or a capture that ends, ends it as well.
     video.addEventListener('ended', () => { if (leadTrack === video) stopLead(); });
-    leadTrack = video; leadSound = sound;
-    leadStream = new MediaStream([video, ...(sound ? [sound] : [])]);
+    leadTrack = video;
+    leadStream = new MediaStream([video]);
     claimT = Date.now();
     claims.set(SITE, { t: claimT, last: Date.now() });
     media?.retrack();
@@ -449,71 +444,85 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     lead(track);
     d.log(`presenting your screen, ${track.getSettings().width}x${track.getSettings().height}`);
   }
-  // The stream: this tab plays the film on its own stage, with sound and the player's controls, and sends what
-  // the player shows with captureStream(). Pausing it pauses the stream for everybody. why: lessons/kit-participant.md#stream
   let starting = false;
-  async function startStream() {
+  // The film: the container on positron-sfu publishes it and this tab announces it as its own stream, so every
+  // stage, this one too, pulls it from the SFU. It plays once; the tab asks how it is going and stops at the end.
+  // why: lessons/kit-participant.md#film
+  const FILM_API = `${SFU_BASE}/room/${encodeURIComponent(ROOM)}/film`;
+  let filmWatch = 0;
+  async function startFilm() {
     if (presenter && presenter !== SITE) { d.log(`${presenter} streams already`, 'warn'); return; }
     starting = true;
     window.__room.streamStartedAt = Date.now();
-    const v = stage.video;
-    stage.film(FILM_URL, { title: FILM.title, cors: true });
-    v.loop = true;
-    grid.stage(stage.el, [me, ...tiles.values()]);
+    leadCtl?.enable(SRC, false, 'starting');
     try {
-      await v.play();
-      if (v.readyState < 3) await new Promise((ok, no) => { v.addEventListener('canplay', ok, { once: true }); v.addEventListener('error', () => no(new Error('the film did not load')), { once: true }); });
-      const cap = v.captureStream();
-      // The sound track arrives a moment after the picture's, once the player has decoded some.
-      for (let i = 0; i < 40 && !(cap.getVideoTracks().length && cap.getAudioTracks().length); i++) await new Promise((r) => setTimeout(r, 50));
-      const pic = cap.getVideoTracks()[0];
-      if (!pic) throw new Error('no picture to send');
-      if ('contentHint' in pic) pic.contentHint = 'motion';
+      const r = await fetch(`${FILM_API}/start`, { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.sessionId) throw new Error(j.error || `start ${r.status}`);
       starting = false;
-      // The film's sound would come back through an open microphone: it goes off, and can be switched on.
       if (micOn) { await toggleMic(); d.log('your microphone is off while you stream'); }
-      lead(pic, cap.getAudioTracks()[0] || null);
-      d.log(`streaming ${FILM.title}, ${v.videoWidth}x${v.videoHeight}${leadSound ? ' with sound' : ', no sound'}`);
+      leadFilm = j;
+      claimT = Date.now();
+      claims.set(SITE, { t: claimT, last: Date.now() });
+      media?.film?.(j);
+      sayShare();
+      d.log(`streaming ${FILM.title} from the film player`);
+      clearInterval(filmWatch);
+      filmWatch = setInterval(async () => {
+        if (!leadFilm) return clearInterval(filmWatch);
+        const st = await fetch(`${FILM_API}/status`).then((x) => x.json()).catch(() => null);
+        if (st && st.sessionId === leadFilm?.sessionId && ['ended', 'failed', 'stopped'].includes(st.state)) {
+          d.log(st.state === 'ended' ? 'the film ended' : `the film player ${st.state}${st.error ? `: ${st.error}` : ''}`, st.state === 'ended' ? 'info' : 'warn');
+          stopLead();
+        }
+      }, 5000);
     } catch (e) {
       starting = false;
       d.log(`stream: ${e.message}`, 'warn');
-      showStage();
     }
+    showStage();
   }
   function stopLead(say = true) {
-    const ts = [leadTrack, leadSound];
-    leadTrack = null; leadSound = null; leadStream = null;
+    if (leadFilm) {
+      leadFilm = null;
+      clearInterval(filmWatch);
+      media?.film?.(null);
+      fetch(`${FILM_API}/stop`, { method: 'POST' }).catch(() => {});
+    }
+    const t = leadTrack;
+    leadTrack = null; leadStream = null;
     claims.delete(SITE);
-    for (const t of ts) try { t?.stop(); } catch { /* gone */ }
+    try { t?.stop(); } catch { /* gone */ }
     media?.retrack();
     if (say) sayShare();
     d.log(present ? 'stopped presenting' : 'stopped streaming');
     showStage();
   }
-  const toggleLead = () => (leadTrack ? stopLead() : present ? startShare() : startStream());
+  const toggleLead = () => (leading() ? stopLead() : present ? startShare() : startFilm());
 
   /** Who leads now, and the layout that follows: stage and strip, or the grid. */
   function showStage() {
     const now = Date.now();
-    if (leadTrack) claims.set(SITE, { t: claimT, last: now });
+    if (leading()) claims.set(SITE, { t: claimT, last: now });
     const was = presenter;
     presenter = pickPresenter(claims, now);
     // Two pressed at once and the other was first: this tab steps back.
-    if (leadTrack && presenter !== SITE) { d.log(`${presenter} pressed first, so this tab stops ${VERB}`, 'warn'); stopLead(); return; }
+    if (leading() && presenter !== SITE) { d.log(`${presenter} pressed first, so this tab stops ${VERB}`, 'warn'); stopLead(); return; }
     if (presenter !== was) d.log(presenter ? `${presenter === SITE ? `you are ${VERB}` : `${presenter} is ${VERB}`}` : `nobody is ${VERB}`);
     if (CAN_LEAD && leadCtl && since) {
       const other = presenter && presenter !== SITE;
       leadCtl.enable(SRC, !other, other ? `${presenter} is ${VERB}` : '');
-      if (present) ctl.setIcon(SRC, 'screen', leadTrack ? 'Stop presenting your screen' : 'Present your screen');
-      else streamGrp.button(SRC).textContent = leadTrack ? 'Stop stream' : 'Start stream';
-      leadCtl.button(SRC).setAttribute('aria-pressed', String(!!leadTrack));
+      if (present) ctl.setIcon(SRC, 'screen', leading() ? 'Stop presenting your screen' : 'Present your screen');
+      else streamGrp.button(SRC).textContent = leading() ? 'Stop stream' : 'Start stream';
+      leadCtl.button(SRC).setAttribute('aria-pressed', String(leading()));
     }
     if (starting) return;
     if (presenter) {
       // The streamer watches the player itself; everybody else the stream, with its sound.
-      if (stream && presenter === SITE) stage.film(FILM_URL, { title: FILM.title, cors: true });
-      else stage.show(presenter === SITE ? leadStream : shares.get(presenter) || media?.share?.(presenter) || null,
-        { self: presenter === SITE, who: presenter, sound: stream, verb: VERB });
+      // The film from the container comes back to its streamer like to everybody else.
+      const mine = presenter === SITE && present;
+      stage.show(mine ? leadStream : shares.get(presenter) || media?.share?.(presenter) || null,
+        { self: mine, who: presenter, sound: stream, verb: VERB });
       const order = stripOrder([SITE, ...tiles.keys()], { presenter, speaker, self: SITE });
       grid.stage(stage.el, order.map((s) => (s === SITE ? me : tiles.get(s))).filter(Boolean));
     } else {
@@ -672,8 +681,8 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     grid: () => grid.layout(),
     links: () => bay().links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport || ''} ${l.session?.where || ''}`.trim()),
     mic: () => micOn, cam: () => camOn,
-    canShare: CAN_SHARE, canStream: CAN_STREAM, presenter: () => presenter, sharing: () => !!leadTrack,
-    sound: () => !!leadSound, stage: () => stage.info(), stageVideo: stage.video,
+    canShare: CAN_SHARE, canStream: CAN_STREAM, presenter: () => presenter, sharing: () => leading(), film: () => leadFilm?.sessionId || null,
+    sound: () => !!leadFilm, stage: () => stage.info(), stageVideo: stage.video,
     shareStartedAt: 0, streamStartedAt: 0,
     link: roomLink,
     show: (id) => (id ? tabs.go(id) : rv.dataset.show), unread: () => unread,

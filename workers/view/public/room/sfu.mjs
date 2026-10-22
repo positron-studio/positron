@@ -69,6 +69,9 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   const streams = new Map();   // site -> MediaStream
   const shares = new Map();    // site -> MediaStream, its screen, or its stream's picture and sound
   const sending = new Set();   // kinds with a live track now
+  // Tracks this tab announces but did not publish: the room's film, sent by a container in its own session.
+  // Every tab pulls them as this site's, this tab as well. why: lessons/kit-participant.md#film
+  let external = [];           // [{ trackName, kind, sessionId, proof }]
   let wanted = [], rid = 'b', closed = false, ready = null;
 
   inn.pc.ontrack = (e) => {
@@ -122,7 +125,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     if (!out.session || closed) return;
     send({ type: 'sfu.pub', site, sessionId: out.session.sessionId, proof: out.session.proof,
       tracks: [...out.published].filter(([kind]) => !STAGED.includes(kind) || sending.has(kind))
-        .map(([kind, p]) => ({ trackName: p.trackName, kind })) });
+        .map(([kind, p]) => ({ trackName: p.trackName, kind })).concat(external) });
   }
 
   /** Publish a kind the first time it has a track; after that only swap the track (null stops sending). */
@@ -168,21 +171,25 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       if (closed) return;
       await start();
       const ask = [];
-      for (const s of wanted) {
-        const r = remotes.get(s);
+      const live = new Set();
+      for (const [s, r] of [...wanted.map((w) => [w, remotes.get(w)]), [site, { tracks: external }]]) {
         for (const t of r?.tracks || []) {
           const k = `${s} ${t.trackName}`;
+          live.add(k);
           if (pulled.has(k)) continue;
-          ask.push({ site: s, kind: t.kind, sessionId: r.sessionId, proof: r.proof, trackName: t.trackName, ...(t.kind === 'video' ? { rid } : {}) });
+          ask.push({ site: s, kind: t.kind, sessionId: t.sessionId || r.sessionId, proof: t.proof || r.proof, trackName: t.trackName,
+            ext: !!t.sessionId, ...(t.kind === 'video' ? { rid } : {}) });
         }
       }
-      // Sites that left: stop forwarding their tracks.
-      const gone = [...pulled].filter(([k, mid]) => mid && !wanted.includes(k.split(' ')[0]));
+      // Sites that left, and a film that ended: stop forwarding their tracks.
+      const gone = [...pulled].filter(([k, mid]) => mid && ((!wanted.includes(k.split(' ')[0]) && k.split(' ')[0] !== site)
+        || (inn.mids.get(mid)?.ext && !live.has(k))));
       if (gone.length) {
         await api(`${inn.session.sessionId}/close`, { proof: inn.session.proof, mids: gone.map(([, mid]) => mid) }).catch((e) => log(`sfu ${e.message}`, 'warn'));
+        const filmGone = new Set(gone.filter(([, mid]) => inn.mids.get(mid)?.ext).map(([k]) => k.split(' ')[0]));
         for (const [k, mid] of gone) { pulled.delete(k); inn.mids.delete(mid); }
         for (const s of [...streams.keys()]) if (!wanted.includes(s)) { streams.delete(s); onState(s, 'closed'); }
-        for (const s of [...shares.keys()]) if (!wanted.includes(s)) { shares.delete(s); onShare(s, null); }
+        for (const s of [...shares.keys()]) if ((!wanted.includes(s) && s !== site) || filmGone.has(s)) { shares.delete(s); onShare(s, null); }
       }
       if (!ask.length) return;
       const r = await api(`${inn.session.sessionId}/pull`, { proof: inn.session.proof,
@@ -192,7 +199,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
         const a = ask[i];
         if (t.errorCode || !t.mid) { retry = true; log(`sfu pull ${a.trackName}: ${t.errorCode || 'no mid'}`, 'warn'); return; }
         // The mid is mapped before the offer is applied: ontrack fires while it is.
-        inn.mids.set(t.mid, { site: a.site, kind: a.kind, trackName: a.trackName });
+        inn.mids.set(t.mid, { site: a.site, kind: a.kind, trackName: a.trackName, ext: a.ext });
         pulled.set(`${a.site} ${a.trackName}`, t.mid);
       });
       if (r.offer) {
@@ -229,10 +236,17 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       const had = remotes.get(m.site);
       // A new session from the same site is a reload: what was pulled from the old one is dead.
       if (had && had.sessionId !== m.sessionId) for (const k of [...pulled.keys()]) if (k.startsWith(`${m.site} `)) pulled.delete(k);
-      remotes.set(m.site, { sessionId: m.sessionId, proof: m.proof, tracks: m.tracks.filter((t) => t && KINDS.includes(t.kind)) });
+      remotes.set(m.site, { sessionId: m.sessionId, proof: m.proof, tracks: m.tracks.filter((t) => t && KINDS.includes(t.kind)
+        && (t.sessionId === undefined || (typeof t.sessionId === 'string' && typeof t.proof === 'string'))) });
       reconcile();
     },
     announce,
+    /** The room's film as this site's stream and sound, or null when it ended: { sessionId, proof, tracks }. */
+    film(pub) {
+      external = pub ? pub.tracks.map((t) => ({ trackName: t.trackName, kind: t.kind, sessionId: pub.sessionId, proof: pub.proof })) : [];
+      start().then(announce);
+      reconcile();
+    },
     /** Send the current tracks: a kind is published the first time it has one. */
     retrack() { const t = tracks(); for (const k of KINDS) setTrack(k, t[k] || null); },
     /** Every pulled camera at this layer; asked only when it changes. */
