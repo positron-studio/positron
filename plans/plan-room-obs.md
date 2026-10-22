@@ -1,6 +1,7 @@
 # plan-room-obs: OBS on a Mac streams into a room's stage over WHIP, and the film container goes
 
-Status (2026-10-22 evening): a plan, nothing built. Asked: *"how m1 could stream to sfu via obs?"*, then
+Status (2026-10-22 evening): built and deployed, all four steps; step 3 passed with OBS 32.2.2 on the M1 Pro
+(lessons/kit-participant.md#live-input). The control is a section under the window, not a foot button. Asked: *"how m1 could stream to sfu via obs?"*, then
 *"yes. if this works remove the r2->sfu part. it needs new patchbay nodes, remove obs etc? plan first"*.
 
 Tags: **READ** (code or a document), **MEASURED** (where the number lives), **INFERRED** (reasoned, not checked).

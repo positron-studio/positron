@@ -105,3 +105,7 @@ from the bucket in, `video-out` and `audio-out` by `sfu`, `value-out` saying it 
 optional `audio-in` for the stream's sound and is on present and stage, not the mesh. `transport` left the
 catalogue because no page plays a film together any more, and `player-video` lists only `video/recorder`.
 
+
+`encoder` (2026-10-22) replaced `stream`: a machine streaming into /room/stage/ over WHIP is its own site (`?site=m1`
+on the URL), and its node is named for what it does, never for the software (*"remove obs etc?"*); the label carries
+`OBS 32.2.2`. Ports `whip` and `sfu`, so a link to a tab's stage resolves to `sfu` through the SFU box.

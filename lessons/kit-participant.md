@@ -395,6 +395,9 @@ the row does not move when it changes (button-group.mjs warns that a label chang
 
 ## The film comes from a container on positron-sfu
 
+> Superseded the same evening by [live-input](#live-input): OBS streams into the room over WHIP, and the film
+> container, its R2 copy and Start stream were removed (*"if this works remove the r2->sfu part"*). Kept as the record.
+
 Asked 2026-10-22: *"is it webrtc container running the video?"* (it was the streamer's tab), then *"can you do contaner
 webetc cast?"* and *"do it"*. Start stream now asks `POST sfu.positron.studio/room/<room>/film/start`; a container
 (workers/sfu/film/) publishes the film into the SFU in its own session and answers `{ sessionId, proof, tracks }`.
@@ -409,3 +412,22 @@ the others until its claim goes stale.
 - MEASURED 2026-10-22, 4 tabs plus a late joiner, harness `PAGE=stage`: press to every other stage playing 6.9 s
   (container start plus connect; it was about 1 to 2 s from a tab), late joiner 4.6 s, sound on every stage
   (rms 0.28 to 0.34), stop clears every stage, two presses at once settle on the first.
+
+<a id="live-input"></a>
+
+## /room/stage/: the room's live input, OBS over WHIP
+
+Asked 2026-10-22: *"how m1 could stream to sfu via obs?"*, plan `plans/plan-room-obs.md`, *"one live"*. The stage
+has no lead button now. Whatever streams to the room's WHIP URL (shown under the window once you join, with a Copy
+button) is on every stage with its sound. Every tab reads `GET /room/<room>/live` every 5 s and makes the same claim
+from it (`t` = when it went live), so all tabs agree without a press; `createSfu().live(pub)` pulls its tracks as
+the sender's site (`?site=` on the URL, `m1`). Nothing is announced on the relay.
+
+- The patchbay draws `<site>:encoder` (label `OBS 32.2.2`, from OBS's user agent `Mozilla/5.0 (OBS-Studio/32.2.2;
+  Mac OS X; en-GB)`) into each stage through the SFU box.
+- A pull refused as a whole (502 in the input's first second) is asked again every 3 s, five times: one tab of three
+  stayed dark without it.
+- MEASURED 2026-10-22 with OBS 32.2.2 on the M1 Pro (driven over ssh and obs-websocket on its own profile and scene
+  collection, the owner's put back after): 3 tabs (one phone) play 1280x720 with sound (rms 0.28 to 0.30); OBS's
+  WebRTC connect 285 ms; stop to every stage clear 4.5 s. A late joiner waited **12.2 s** with OBS's default
+  keyframe spacing and **3.7 to 7.2 s** with a keyframe every 2 s, hence the setting on the page.

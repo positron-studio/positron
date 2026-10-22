@@ -10,14 +10,14 @@
 //   POST /room/<room>/<sid>/answer    { proof, answer }
 //   POST /room/<room>/<sid>/update    { proof, tracks: [{ mid, rid }] }
 //   POST /room/<room>/<sid>/close     { proof, mids: [..] }
-//   POST /room/<room>/film/start|stop, GET /room/<room>/film/status: the room's film, sent into the SFU by a container
-//   (film/server.mjs) as one more publisher. -> { sessionId, proof, tracks } like a tab's sfu.pub. why: lessons/workers-sfu.md#film
+//   POST /whip/<room>/<key>[?site=]  application/sdp: OBS (or any WHIP sender) streams into the room's stage. One live
+//   input per room, remembered by the Live object; DELETE <Location> ends it. GET /room/<room>/live -> the live input
+//   and the room's WHIP URL. why: lessons/workers-sfu.md#whip
 // Secrets: CF_REALTIME_APP_SECRET (the SFU's), SFU_PROOF_KEY (signs proofs). CF_REALTIME_APP_ID is a var.
 // why: lessons/workers-sfu.md#header
 // SfuAdmin (below the public handler) is a second, PRIVATE entry point: WebSocket adapters, reached only over a
 // service binding with "entrypoint": "SfuAdmin" from positron-edgecast. why: lessons/workers-edgecast-adapter.md#sfu-admin
-import { WorkerEntrypoint } from 'cloudflare:workers';
-import { Container, getContainer } from '@cloudflare/containers';
+import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
 
 const SFU = 'https://rtc.live.cloudflare.com/v1/apps';
 // Cloudflare's edge 1010-blocks a generic user agent on a server-to-server fetch.
@@ -64,7 +64,7 @@ async function sfu(env, method, path, body) {
 function cors(origin) {
   return {
     'access-control-allow-origin': origin || '*',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
     'access-control-allow-headers': 'content-type',
     'access-control-max-age': '600',
     vary: 'origin',
@@ -95,8 +95,14 @@ export default {
       return reply(origin, 200, { sfu: 'positron-sfu', usage: 'POST /room/<room>/session, then publish, pull, answer, update, close' });
     }
     if (!env.CF_REALTIME_APP_SECRET || !env.SFU_PROOF_KEY) return reply(origin, 503, { error: 'no SFU secret on this worker' });
-    const f = url.pathname.match(/^\/room\/([^/]+)\/film\/(start|stop|status)$/);
-    if (f && ROOM_RE.test(f[1])) return film(env, url, origin, f[1], f[2], request.method);
+    const w = url.pathname.match(/^\/whip\/([^/]+)\/([A-Za-z0-9_-]{24})(?:\/([A-Za-z0-9_-]{8,128}))?$/);
+    if (w && ROOM_RE.test(w[1])) return whip(env, request, url, w[1], w[2], w[3]);
+    const lv = url.pathname.match(/^\/room\/([^/]+)\/live$/);
+    if (lv && ROOM_RE.test(lv[1])) {
+      if (request.method !== 'GET') return reply(origin, 405, { error: 'GET' });
+      const rec = await env.LIVE.get(env.LIVE.idFromName(lv[1])).read();
+      return reply(origin, 200, { ...(rec || { live: false }), whip: `${url.origin}/whip/${lv[1]}/${await whipKey(env, lv[1])}` });
+    }
     if (request.method !== 'POST') return reply(origin, 405, { error: 'POST' });
 
     const m = url.pathname.match(/^\/room\/([^/]+)\/(?:(session)|([^/]+)\/(publish|pull|answer|update|close))$/);
@@ -166,36 +172,59 @@ export default {
   },
 };
 
-// ── the film: one container per room, at most FILM_ROOMS at once ──────────────
-// The container is a participant like a tab: it asks this worker's public routes for a session and publishes with
-// its proof, so it holds no secret. The room code is the gate, as for a tab. why: lessons/workers-sfu.md#film
-const FILM = 'mimproject/party-container-vabaduse-valjak-2010-webrtc.mp4';
-const BASE_OK = /^https:\/\/(sfu\.positron\.studio|positron-sfu\.kristjan-jansen\.workers\.dev)$/;
-export class Film extends Container {
-  defaultPort = 8080;
-  // The film is 2:37 and plays once; the box goes a little after it ends or is stopped.
-  sleepAfter = '90s';
+// ── WHIP: one live input per room ──────────────────────────────────────────────
+// The key is the room's own, so only a URL the room page hands out streams into it. why: lessons/workers-sfu.md#whip
+async function whipKey(env, room) {
+  const key = await crypto.subtle.importKey('raw', enc.encode(env.SFU_PROOF_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return b64u(await crypto.subtle.sign('HMAC', key, enc.encode(`whip\n${room}`))).slice(0, 24);
 }
-async function film(env, url, origin, room, verb, method) {
-  if (verb === 'status' ? method !== 'GET' : method !== 'POST') return reply(origin, 405, { error: verb === 'status' ? 'GET' : 'POST' });
-  const box = getContainer(env.FILM, `room-${room}`);
-  try {
-    // A cold box answers "There is no container instance" until server.mjs listens.
-    if (verb === 'start') await box.startAndWaitForPorts();
-    if (verb === 'status') {
-      const r = await box.fetch(new Request('http://c/status'));
-      return reply(origin, 200, await r.json());
+const SITE_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
+const sdpReply = (status, body, headers = {}) => new Response(body, { status, headers: { 'content-type': 'application/sdp', 'cache-control': 'no-store', ...headers } });
+async function whip(env, request, url, room, key, sid) {
+  if (!same(key, await whipKey(env, room))) return new Response('not this room\'s key', { status: 403 });
+  const live = env.LIVE.get(env.LIVE.idFromName(room));
+  if (request.method === 'DELETE' && sid) { await live.end(sid); return new Response(null, { status: 200 }); }
+  if (request.method !== 'POST' || sid) return new Response('POST an offer, DELETE the Location', { status: 405 });
+  const sdp = await request.text();
+  if (sdp.length > MAX_BODY) return new Response('too big', { status: 413 });
+  // One audio and one video section, each with its mid.
+  const media = [...sdp.matchAll(/^m=(audio|video) [^\r\n]*[\s\S]*?^a=mid:(\S+)/gm)].map((m) => ({ kind: m[1], mid: m[2] }));
+  if (media.length !== 2 || media.filter((m) => m.kind === 'video').length !== 1) return new Response('send one picture and one sound', { status: 400 });
+  const made = await sfu(env, 'POST', 'sessions/new');
+  if (made.status !== 201 || !made.json?.sessionId) return new Response(`sfu sessions/new ${made.status}`, { status: 502 });
+  const sessionId = made.json.sessionId;
+  const tag = Math.random().toString(36).slice(2, 8);
+  const tracks = media.map((m) => ({ mid: m.mid, trackName: `live-${tag}-${m.kind === 'video' ? 'video' : 'sound'}`, kind: m.kind === 'video' ? 'stream' : 'sound' }));
+  const r = await sfu(env, 'POST', `sessions/${sessionId}/tracks/new`, { sessionDescription: { type: 'offer', sdp },
+    tracks: tracks.map((t) => ({ location: 'local', mid: t.mid, trackName: t.trackName })) });
+  if (r.status !== 200 || !r.json?.sessionDescription?.sdp) return new Response(`sfu publish ${r.status}`, { status: 502 });
+  const bad = r.json.tracks?.find((t) => t.errorCode);
+  if (bad) return new Response(`sfu publish ${bad.errorCode}`, { status: 502 });
+  const site = SITE_RE.test(url.searchParams.get('site') || '') ? url.searchParams.get('site') : 'encoder';
+  await live.begin({ live: true, sessionId, proof: await proofOf(env, room, sessionId), tracks: tracks.map(({ trackName, kind }) => ({ trackName, kind })),
+    since: Date.now(), site, agent: (request.headers.get('user-agent') || '').slice(0, 60) });
+  return sdpReply(201, r.json.sessionDescription.sdp, { location: `/whip/${room}/${key}/${sessionId}` });
+}
+// A sender that vanished without a DELETE: its tracks leave `active`, and the next read after a quiet 15 s drops it.
+const LIVE_CHECK_MS = 15_000;
+export class Live extends DurableObject {
+  async begin(rec) { await this.ctx.storage.put('live', { ...rec, checked: Date.now() }); }
+  async end(sid) {
+    const rec = await this.ctx.storage.get('live');
+    if (rec?.sessionId === sid) await this.ctx.storage.delete('live');
+  }
+  async read() {
+    const rec = await this.ctx.storage.get('live');
+    if (!rec) return null;
+    if (Date.now() - rec.checked > LIVE_CHECK_MS) {
+      const r = await sfu(this.env, 'GET', `sessions/${rec.sessionId}`);
+      const on = r.status === 200 && (r.json?.tracks || []).some((t) => t.status === 'active');
+      if (!on) { await this.ctx.storage.delete('live'); return null; }
+      rec.checked = Date.now();
+      await this.ctx.storage.put('live', rec);
     }
-    if (verb === 'stop') {
-      const r = await box.fetch(new Request('http://c/stop', { method: 'POST', body: '{}' }));
-      return reply(origin, 200, await r.json());
-    }
-    const base = BASE_OK.test(url.origin) ? url.origin : 'https://sfu.positron.studio';
-    const r = await box.fetch(new Request('http://c/start', { method: 'POST', body: JSON.stringify({ room, base, film: FILM }) }));
-    return reply(origin, r.status === 200 ? 201 : 502, await r.json());
-  } catch (e) {
-    // max_instances reached, or the box is still waking.
-    return reply(origin, 503, { error: `film: ${String(e.message || e).slice(0, 160)}` });
+    const { checked, ...out } = rec;
+    return out;
   }
 }
 

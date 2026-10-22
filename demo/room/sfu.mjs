@@ -69,10 +69,11 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   const streams = new Map();   // site -> MediaStream
   const shares = new Map();    // site -> MediaStream, its screen, or its stream's picture and sound
   const sending = new Set();   // kinds with a live track now
-  // Tracks this tab announces but did not publish: the room's film, sent by a container in its own session.
-  // Every tab pulls them as this site's, this tab as well. why: lessons/kit-participant.md#film
-  let external = [];           // [{ trackName, kind, sessionId, proof }]
-  let wanted = [], rid = 'b', closed = false, ready = null;
+  // The room's live input (OBS over WHIP): not announced, every tab reads it from the worker and pulls it as the
+  // sender's site. why: lessons/kit-participant.md#live-input
+  let liveSrc = null;          // { site, tracks: [{ trackName, kind, sessionId, proof }] }
+  const isLive = (s) => !!liveSrc && s === liveSrc.site;
+  let wanted = [], rid = 'b', closed = false, ready = null, failed = 0;
 
   inn.pc.ontrack = (e) => {
     const t = inn.mids.get(e.transceiver.mid);
@@ -125,7 +126,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     if (!out.session || closed) return;
     send({ type: 'sfu.pub', site, sessionId: out.session.sessionId, proof: out.session.proof,
       tracks: [...out.published].filter(([kind]) => !STAGED.includes(kind) || sending.has(kind))
-        .map(([kind, p]) => ({ trackName: p.trackName, kind })).concat(external) });
+        .map(([kind, p]) => ({ trackName: p.trackName, kind })) });
   }
 
   /** Publish a kind the first time it has a track; after that only swap the track (null stops sending). */
@@ -172,7 +173,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       await start();
       const ask = [];
       const live = new Set();
-      for (const [s, r] of [...wanted.map((w) => [w, remotes.get(w)]), [site, { tracks: external }]]) {
+      for (const [s, r] of [...wanted.map((w) => [w, remotes.get(w)]), ...(liveSrc ? [[liveSrc.site, liveSrc]] : [])]) {
         for (const t of r?.tracks || []) {
           const k = `${s} ${t.trackName}`;
           live.add(k);
@@ -181,15 +182,15 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
             ext: !!t.sessionId, ...(t.kind === 'video' ? { rid } : {}) });
         }
       }
-      // Sites that left, and a film that ended: stop forwarding their tracks.
-      const gone = [...pulled].filter(([k, mid]) => mid && ((!wanted.includes(k.split(' ')[0]) && k.split(' ')[0] !== site)
+      // Sites that left, and a live input that ended: stop forwarding their tracks.
+      const gone = [...pulled].filter(([k, mid]) => mid && ((!wanted.includes(k.split(' ')[0]) && k.split(' ')[0] !== site && !isLive(k.split(' ')[0]))
         || (inn.mids.get(mid)?.ext && !live.has(k))));
       if (gone.length) {
         await api(`${inn.session.sessionId}/close`, { proof: inn.session.proof, mids: gone.map(([, mid]) => mid) }).catch((e) => log(`sfu ${e.message}`, 'warn'));
-        const filmGone = new Set(gone.filter(([, mid]) => inn.mids.get(mid)?.ext).map(([k]) => k.split(' ')[0]));
+        const liveGone = new Set(gone.filter(([, mid]) => inn.mids.get(mid)?.ext).map(([k]) => k.split(' ')[0]));
         for (const [k, mid] of gone) { pulled.delete(k); inn.mids.delete(mid); }
         for (const s of [...streams.keys()]) if (!wanted.includes(s)) { streams.delete(s); onState(s, 'closed'); }
-        for (const s of [...shares.keys()]) if ((!wanted.includes(s) && s !== site) || filmGone.has(s)) { shares.delete(s); onShare(s, null); }
+        for (const s of [...shares.keys()]) if ((!wanted.includes(s) && s !== site && !isLive(s)) || liveGone.has(s)) { shares.delete(s); onShare(s, null); }
       }
       if (!ask.length) return;
       const r = await api(`${inn.session.sessionId}/pull`, { proof: inn.session.proof,
@@ -210,7 +211,12 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       }
       // A track published a moment ago may not carry media yet (empty_track_error): ask again shortly.
       if (retry) setTimeout(() => reconcile(), 3000);
-    }).catch((e) => log(`sfu ${e.message}`, 'warn'));
+      failed = 0;
+    }).catch((e) => {
+      log(`sfu ${e.message}`, 'warn');
+      // The whole pull refused (a live input in its first second answers 502): ask again, a few times.
+      if (!closed && ++failed <= 5) setTimeout(() => reconcile(), 3000);
+    });
   }
 
   /** A site said goodbye: stop forwarding its tracks and take its tile down now, not when its graph goes stale. */
@@ -241,10 +247,9 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       reconcile();
     },
     announce,
-    /** The room's film as this site's stream and sound, or null when it ended: { sessionId, proof, tracks }. */
-    film(pub) {
-      external = pub ? pub.tracks.map((t) => ({ trackName: t.trackName, kind: t.kind, sessionId: pub.sessionId, proof: pub.proof })) : [];
-      start().then(announce);
+    /** The room's live input, read from the worker: { site, sessionId, proof, tracks }, or null when it ended. */
+    live(pub) {
+      liveSrc = pub ? { site: pub.site, tracks: pub.tracks.map((t) => ({ trackName: t.trackName, kind: t.kind, sessionId: pub.sessionId, proof: pub.proof })) } : null;
       reconcile();
     },
     /** Send the current tracks: a kind is published the first time it has one. */

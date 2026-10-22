@@ -19,12 +19,12 @@ import { createMesh } from '/room/mesh.mjs';
 import { createSfu, ridFor } from '/room/sfu.mjs';
 import { pickPresenter, stripOrder, CLAIM_STALE_MS } from '/room/together.mjs';
 
-// What a stream on /room/stage/ carries: one of MIMproject's own recordings, 2:37, 854x480, sent into the SFU by a
-// container on positron-sfu (workers/sfu/film/). why: lessons/kit-participant.md#film
-const FILM = { title: 'Party container, Vabaduse väljak 2010' };
 
 const CSS = `
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
+  .rv-whip-row { display: flex; gap: var(--ctl-gap, 8px); align-items: center; }
+  .rv-whip-url { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font: 400 12px/1.5 var(--mono); }
+  .rv-whip-how { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
   /* A phone: the window is one screen tall, Video and Chat are tabs over it, the footer stays at
      the bottom above the home bar. A desk keeps both columns and no tabs.
      why: lessons/kit-participant.md#phone */
@@ -94,14 +94,13 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   const SRC = present ? 'share' : 'stream';
   const LEAD_OUT = `${SITE}:${SRC}:video-out`, LEAD_SAY = `${SITE}:${SRC}:value-out`;
   const STAGE_IN = `${SITE}:stage:video-in`, STAGE_SOUND = `${SITE}:stage:audio-in`, STAGE_HEAR = `${SITE}:stage:value-in`;
-  const FILM_OUT = 'cf-r2:film:file-out';
   const VERB = present ? 'presenting' : 'streaming';
   // Phones have no getDisplayMedia: no Share button there, and no share node to draw.
   const CAN_SHARE = present && typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
-  // The film comes from a container and needs nothing of the browser, so every phone can start one.
-  const CAN_STREAM = stream;
-  const FILM_NODE = 'cf-sfu:film', FILM_IN = 'cf-sfu:film:file-in', FILM_V = 'cf-sfu:film:video-out', FILM_A = 'cf-sfu:film:audio-out';
-  const CAN_LEAD = CAN_SHARE || CAN_STREAM;
+  // The room's live input: a machine streaming over WHIP (OBS) into the SFU; one per room. why: lessons/kit-participant.md#live-input
+  const LIVE_API = `${SFU_BASE}/room/${encodeURIComponent(ROOM)}/live`;
+  // /room/stage/ has no lead button: what is on its stage comes from the room's live input (OBS).
+  const CAN_LEAD = CAN_SHARE;
 
   let since = 0;
   const selfGraph = () => ({
@@ -115,7 +114,6 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       { id: `${SITE}:controls`, kind: 'person', label: 'mic and camera buttons' },
       { id: `${SITE}:grid`, kind: 'screen', label: 'grid' },
       ...(CAN_SHARE ? [{ id: `${SITE}:share`, kind: 'device', label: 'screen share' }] : []),
-      ...(CAN_STREAM ? [{ id: `${SITE}:stream`, kind: 'engine', label: 'stream' }] : []),
       ...(HAS_STAGE ? [{ id: `${SITE}:stage`, kind: 'screen', label: 'stage' }] : []),
     ],
     ports: [
@@ -134,7 +132,6 @@ export function videoRoom({ via, name, present = false, stream = false }) {
         { id: LEAD_SAY, label: 'presenting', dir: 'out', medium: 'value', transports: ['relay'] },
       ] : []),
       // The stream: a film from the bucket in, its picture and sound out to every stage.
-      ...(CAN_STREAM ? [{ id: LEAD_SAY, label: 'streaming', dir: 'out', medium: 'value', transports: ['relay'] }] : []),
       ...(HAS_STAGE ? [
         { id: STAGE_IN, label: present ? 'screen' : 'picture', dir: 'in', medium: 'video', transports: ['page', VIA] },
         ...(stream ? [{ id: STAGE_SOUND, label: 'sound', dir: 'in', medium: 'audio', transports: [VIA] }] : []),
@@ -164,20 +161,15 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     // per other tab, and a `page` link into this tab's own stage. why: lessons/kit-participant.md#share
     if (HAS_STAGE) {
       if (CAN_LEAD) b.link(LEAD_SAY, '*:stage:value-in');
-      b.link(`*:${SRC}:value-out`, STAGE_HEAR);
-      if (stream && since && presenter) {
-        // The film: the bucket into the container, the container into every stage through the SFU.
-        b.addNode({ id: 'cf-r2:film', kind: 'store', label: 'film', place: 'cloudflare', net: 'cloudflare' });
-        b.addPort({ id: FILM_OUT, label: 'mp4', dir: 'out', medium: 'file', transports: ['https'] });
-        b.addNode({ id: FILM_NODE, kind: 'engine', label: 'film player', place: 'cloudflare', net: 'cloudflare' });
-        b.addPort({ id: FILM_IN, label: 'mp4', dir: 'in', medium: 'file', transports: ['https'] });
-        b.addPort({ id: FILM_V, label: 'picture', dir: 'out', medium: 'video', transports: ['sfu'] });
-        b.addPort({ id: FILM_A, label: 'sound', dir: 'out', medium: 'audio', transports: ['sfu'] });
-        b.link(FILM_OUT, FILM_IN);
-        for (const s of presenter === SITE ? [SITE, ...others().slice(0, MAX - 1)] : [SITE]) {
-          b.link(FILM_V, `${s}:stage:video-in`);
-          b.link(FILM_A, `${s}:stage:audio-in`);
-        }
+      if (present) b.link(`*:${SRC}:value-out`, STAGE_HEAR);
+      if (stream && since && liveIn && presenter === liveIn.site) {
+        // The sending machine is a site of its own; its encoder reaches this stage through the SFU.
+        const enc = `${liveIn.site}:encoder`;
+        b.addNode({ id: enc, kind: 'engine', label: liveName(liveIn) });
+        b.addPort({ id: `${enc}:video-out`, label: 'picture', dir: 'out', medium: 'video', transports: ['sfu'] });
+        b.addPort({ id: `${enc}:audio-out`, label: 'sound', dir: 'out', medium: 'audio', transports: ['sfu'] });
+        b.link(`${enc}:video-out`, STAGE_IN);
+        b.link(`${enc}:audio-out`, STAGE_SOUND);
       } else if (since && leadTrack) {
         b.link(LEAD_OUT, STAGE_IN);
         for (const s of others().slice(0, MAX - 1)) b.link(LEAD_OUT, `${s}:stage:video-in`);
@@ -225,9 +217,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   let local = null, media = null, micOn = false, camOn = false;
   // What this tab puts on the stage while it leads: its screen, or a stream's picture and sound.
   let leadTrack = null, leadStream = null;
-  // The film this tab started on the container: { sessionId, proof, tracks }.
-  let leadFilm = null;
-  const leading = () => !!(leadTrack || leadFilm);
+  const leading = () => !!leadTrack;
   const tracks = () => ({
     audio: local?.getAudioTracks()[0] || null,
     video: camOn ? (local?.getVideoTracks()[0] || null) : null,
@@ -290,8 +280,8 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     grid.add(me);
     watch(SITE, local);
     ctl.enableAll(true);
-    streamGrp?.enableAll(true);
     showJoined(true);
+    setTimeout(readLive, 500);
     // On a phone the room takes the screen once you are in it; before, Join stays on the first screen.
     rv.dataset.in = '';
     requestAnimationFrame(() => {
@@ -305,6 +295,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     sayState(false);
     if (leading()) stopLead(false);
     claims.clear(); shares.clear();
+    liveIn = null;
     showStage();
     media?.leave();
     node.leave();
@@ -314,8 +305,8 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     tiles.clear();
     grid.remove(me); unwatch(SITE);
     ctl.enableAll(false, 'join first');
-    streamGrp?.enableAll(false, 'join first');
     showJoined(false);
+    whipSec.hidden = true;
     delete rv.dataset.in;
     chatBox.enable(false);
     pb?.refresh();
@@ -444,51 +435,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     lead(track);
     d.log(`presenting your screen, ${track.getSettings().width}x${track.getSettings().height}`);
   }
-  let starting = false;
-  // The film: the container on positron-sfu publishes it and this tab announces it as its own stream, so every
-  // stage, this one too, pulls it from the SFU. It plays once; the tab asks how it is going and stops at the end.
-  // why: lessons/kit-participant.md#film
-  const FILM_API = `${SFU_BASE}/room/${encodeURIComponent(ROOM)}/film`;
-  let filmWatch = 0;
-  async function startFilm() {
-    if (presenter && presenter !== SITE) { d.log(`${presenter} streams already`, 'warn'); return; }
-    starting = true;
-    window.__room.streamStartedAt = Date.now();
-    leadCtl?.enable(SRC, false, 'starting');
-    try {
-      const r = await fetch(`${FILM_API}/start`, { method: 'POST' });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.sessionId) throw new Error(j.error || `start ${r.status}`);
-      starting = false;
-      if (micOn) { await toggleMic(); d.log('your microphone is off while you stream'); }
-      leadFilm = j;
-      claimT = Date.now();
-      claims.set(SITE, { t: claimT, last: Date.now() });
-      media?.film?.(j);
-      sayShare();
-      d.log(`streaming ${FILM.title} from the film player`);
-      clearInterval(filmWatch);
-      filmWatch = setInterval(async () => {
-        if (!leadFilm) return clearInterval(filmWatch);
-        const st = await fetch(`${FILM_API}/status`).then((x) => x.json()).catch(() => null);
-        if (st && st.sessionId === leadFilm?.sessionId && ['ended', 'failed', 'stopped'].includes(st.state)) {
-          d.log(st.state === 'ended' ? 'the film ended' : `the film player ${st.state}${st.error ? `: ${st.error}` : ''}`, st.state === 'ended' ? 'info' : 'warn');
-          stopLead();
-        }
-      }, 5000);
-    } catch (e) {
-      starting = false;
-      d.log(`stream: ${e.message}`, 'warn');
-    }
-    showStage();
-  }
   function stopLead(say = true) {
-    if (leadFilm) {
-      leadFilm = null;
-      clearInterval(filmWatch);
-      media?.film?.(null);
-      fetch(`${FILM_API}/stop`, { method: 'POST' }).catch(() => {});
-    }
     const t = leadTrack;
     leadTrack = null; leadStream = null;
     claims.delete(SITE);
@@ -498,7 +445,29 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     d.log(present ? 'stopped presenting' : 'stopped streaming');
     showStage();
   }
-  const toggleLead = () => (leading() ? stopLead() : present ? startShare() : startFilm());
+  const toggleLead = () => (leading() ? stopLead() : startShare());
+
+  // The live input: every tab reads the worker every 5 s and makes the same claim from it, so all agree without a
+  // press. Its picture and sound are pulled from the SFU as the sender's site. why: lessons/kit-participant.md#live-input
+  let liveIn = null, whipUrl = '';
+  // OBS says `Mozilla/5.0 (OBS-Studio/32.2.2; Mac OS X; en-GB)`: the label is `OBS 32.2.2`.
+  const liveName = (l) => { const m = /OBS-Studio\/([\d.]+)/.exec(l?.agent || ''); return m ? `OBS ${m[1]}` : 'encoder'; };
+  async function readLive() {
+    if (!since || !stream) return;
+    const j = await fetch(LIVE_API).then((r) => r.json()).catch(() => null);
+    if (!j || !since) return;
+    if (j.whip && j.whip !== whipUrl) { whipUrl = j.whip; showWhip(); }
+    const was = liveIn;
+    liveIn = j.live ? j : null;
+    if (liveIn) claims.set(liveIn.site, { t: liveIn.since, last: Date.now() });
+    if (was?.sessionId === liveIn?.sessionId) return;
+    if (was) claims.delete(was.site);
+    media?.live?.(liveIn);
+    d.log(liveIn ? `${liveIn.site} is live from ${liveName(liveIn)}` : `${was.site} stopped`);
+    showStage();
+    pb?.refresh();
+  }
+  setInterval(readLive, 5000);
 
   /** Who leads now, and the layout that follows: stage and strip, or the grid. */
   function showStage() {
@@ -509,14 +478,12 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     // Two pressed at once and the other was first: this tab steps back.
     if (leading() && presenter !== SITE) { d.log(`${presenter} pressed first, so this tab stops ${VERB}`, 'warn'); stopLead(); return; }
     if (presenter !== was) d.log(presenter ? `${presenter === SITE ? `you are ${VERB}` : `${presenter} is ${VERB}`}` : `nobody is ${VERB}`);
-    if (CAN_LEAD && leadCtl && since) {
+    if (CAN_LEAD && since) {
       const other = presenter && presenter !== SITE;
-      leadCtl.enable(SRC, !other, other ? `${presenter} is ${VERB}` : '');
-      if (present) ctl.setIcon(SRC, 'screen', leading() ? 'Stop presenting your screen' : 'Present your screen');
-      else streamGrp.button(SRC).textContent = leading() ? 'Stop stream' : 'Start stream';
-      leadCtl.button(SRC).setAttribute('aria-pressed', String(leading()));
+      ctl.enable(SRC, !other, other ? `${presenter} is ${VERB}` : '');
+      ctl.setIcon(SRC, 'screen', leading() ? 'Stop presenting your screen' : 'Present your screen');
+      ctl.button(SRC).setAttribute('aria-pressed', String(leading()));
     }
-    if (starting) return;
     if (presenter) {
       // The streamer watches the player itself; everybody else the stream, with its sound.
       // The film from the container comes back to its streamer like to everybody else.
@@ -634,20 +601,14 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     { id: 'leave', label: 'Leave', onPress: leave },
   ] });
   ctl.enableAll(false, 'join first');
-  // Stream is its own word button, apart from the call's controls (*"replace cast button with separste start
-  // stream"*). Its width is held so Start and Stop do not move the row. why: lessons/kit-participant.md#stream-button
-  const streamGrp = CAN_STREAM ? createButtonGroup({ buttons: [{ id: 'stream', label: 'Start stream', onPress: toggleLead }] }) : null;
-  if (streamGrp) { streamGrp.button('stream').style.minWidth = '13ch'; streamGrp.enableAll(false, 'join first'); }
-  const leadCtl = present ? ctl : streamGrp;
   // One row either way: Join before, the mic, the camera and Leave after.
   // A style, not `hidden`, because the group sets its own display.
   function showJoined(on) {
     join1.el.style.display = on ? 'none' : '';
     ctl.el.style.display = on ? '' : 'none';
-    if (streamGrp) streamGrp.el.style.display = on ? '' : 'none';
   }
   const foot = el('div', 'rv-foot');
-  foot.append(join1.el, ctl.el, ...(streamGrp ? [streamGrp.el] : []));
+  foot.append(join1.el, ctl.el);
   showJoined(false);
   const panel = createChatWindow({ columns: [camCol, chatCol], footer: foot });
   // On the right, beside full screen: a thing about the room, not about you.
@@ -672,7 +633,21 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     detail: (n) => [{ text: n.label, sans: true }],
   });
 
-  d.stack.add(rv, pb.el);
+  // Stream from OBS: the room's WHIP URL, shown once you are in the room. why: lessons/kit-participant.md#live-input
+  const whipSec = el('section', 'rv-whip');
+  const whipH = el('h2', 'pos-sec-h', 'stream from obs');
+  const whipCode = el('code', 'rv-whip-url', '');
+  const whipCopy = createButtonGroup({ buttons: [{ id: 'copy', label: 'Copy', onPress: async () => {
+    try { await navigator.clipboard.writeText(whipUrl); d.log('the WHIP URL is copied'); } catch { d.log(`WHIP URL: ${whipUrl}`); }
+  } }] });
+  const whipHow = el('p', 'rv-whip-how', 'OBS 30 or newer. Settings, Stream: Service WHIP, Server this URL, Bearer Token empty. '
+    + 'Output: Apple VT H264 Hardware Encoder, CBR 3000 kbps, keyframe interval 2 s, no B-frames. Add ?site=m1 to name the machine.');
+  const whipRow = el('div', 'rv-whip-row');
+  whipRow.append(whipCode, whipCopy.el);
+  whipSec.append(whipH, whipRow, whipHow);
+  whipSec.hidden = true;
+  function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; }
+  d.stack.add(rv, ...(stream ? [whipSec] : []), pb.el);
   // For a harness: what the room looks like from this tab.
   window.__room = {
     site: SITE, room: ROOM,
@@ -681,8 +656,8 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     grid: () => grid.layout(),
     links: () => bay().links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport || ''} ${l.session?.where || ''}`.trim()),
     mic: () => micOn, cam: () => camOn,
-    canShare: CAN_SHARE, canStream: CAN_STREAM, presenter: () => presenter, sharing: () => leading(), film: () => leadFilm?.sessionId || null,
-    sound: () => !!leadFilm, stage: () => stage.info(), stageVideo: stage.video,
+    canShare: CAN_SHARE, presenter: () => presenter, sharing: () => leading(),
+    live: () => liveIn, whip: () => whipUrl, stage: () => stage.info(), stageVideo: stage.video,
     shareStartedAt: 0, streamStartedAt: 0,
     link: roomLink,
     show: (id) => (id ? tabs.go(id) : rv.dataset.show), unread: () => unread,

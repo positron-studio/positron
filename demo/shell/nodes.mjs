@@ -491,12 +491,12 @@ export const NODES = {
     ports: { 'video-out': P({ transports: ['page', 'p2p', 'sfu'] }), 'value-out': P() },
     pages: ['room/present'],
   },
-  // A live stream on room/stage: a film from the bucket played in one tab and sent with captureStream(), picture
-  // and sound, one streamer at a time. why: lessons/kit-nodes.md#video-room
-  stream: {
-    kind: 'engine', label: 'stream', place: 'site',
-    instance: 'one per tab where the browser can capture a <video> (not an iPhone); value-out says it streams',
-    ports: { 'file-in': P({ ...HTTPS }), 'video-out': P({ transports: ['page', 'sfu'] }), 'audio-out': P({ transports: ['sfu'] }), 'value-out': P() },
+  // A machine streaming into room/stage over WHIP (OBS): its own site, named on the WHIP URL (?site=m1), one per
+  // room; the label is the sender, `OBS 32.2.2`. why: lessons/kit-nodes.md#video-room
+  encoder: {
+    kind: 'engine', label: 'encoder', place: 'site',
+    instance: 'one per room, <site>:encoder, the site from ?site= on the WHIP URL (default encoder)',
+    ports: { 'video-out': P({ transports: ['whip', 'sfu'] }), 'audio-out': P({ transports: ['whip', 'sfu'] }) },
     pages: ['room/stage'],
   },
   camera: {

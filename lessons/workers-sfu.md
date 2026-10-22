@@ -30,6 +30,9 @@ Built 2026-10-22 for `/room/video/` (split 2026-10-22 into `/room/present/` and 
 
 ## `Film` and `film/server.mjs`: the room's film from a container
 
+> Removed the same evening (class deleted in migration v3, container application deleted, R2 copy deleted) for the
+> [WHIP input](#whip). The DTLS finding below stands: it is why the WHIP route is tested with OBS or werift, never ffmpeg.
+
 One container per room (`getContainer(env.FILM, 'room-<room>')`, `max_instances` 3, instance `basic`, `sleepAfter`
 90 s). It is a participant like a tab: it asks this worker's public `session` and `publish` routes, so it holds no
 secret. ffmpeg copies the film to RTP on loopback (no encode) and werift 0.22.9 sends it.
@@ -46,3 +49,17 @@ The film is a WebRTC shaped copy made once, as pub's: `party-container-vabaduse-
 `positron-station`, H.264 constrained baseline 3.1, no B-frames, 2 s GOP at 25 fps, 1.1 Mbit/s, Opus 128 kbit/s 48 kHz,
 23 MB. MEASURED in Docker: 13 % of a core, 145 MiB. A cold box answers "There is no container instance" until the
 server listens, so `start` awaits `startAndWaitForPorts()`.
+
+<a id="whip"></a>
+
+## `POST /whip/<room>/<key>` and `Live`: one live input per room
+
+The key is `HMAC(SFU_PROOF_KEY, "whip\n" + room)` cut to 24 characters, so only the URL the room page shows streams
+into that room; a wrong key is 403. The worker makes a session, publishes the offer's one audio and one video `m=`
+line as `live-<tag>-sound` and `live-<tag>-video`, answers 201 with the SDP and `Location: /whip/<room>/<key>/<sid>`,
+and stores `{ sessionId, proof, tracks, since, site, agent }` in the room's `Live` object. A second POST replaces
+the first. DELETE on the Location forgets it. A sender gone without a DELETE is dropped on the first read 15 s after
+the last check, when `GET sessions/<id>` shows no `active` track.
+
+MEASURED 2026-10-22: OBS 32.2.2 (macOS, `obs-webrtc`, libdatachannel) finishes DTLS with the SFU where ffmpeg could not
+(`PeerConnection state is now: Connected`, connect 285 ms); werift's WHIP client too.
