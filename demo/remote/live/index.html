@@ -28,6 +28,7 @@
   import { createKnobGrid } from '/shell/knob-grid.mjs';
   import { createChoice } from '/shell/choice.mjs';
   import { makeCcSend } from '/shell/cc-adapter.mjs';
+  import { takeStudioKey, studioKey, signStudio } from '/shell/studio-key.mjs';
   import { createWaveShape } from '/shell/synth-view.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { addNodes } from '/shell/nodes.mjs';
@@ -47,19 +48,8 @@
   let mode = q.get('path') === 'direct' ? 'direct' : 'relay';
   const DIRECT_FRAME_MS = q.get('frame') === '20' ? 20 : 10;
 
-  // ── the studio key: from ?key= once, then this browser only; never in the page ──
-  const KEY_STORE = 'positron-studio-key';
-  try { if (q.get('key')) { localStorage.setItem(KEY_STORE, q.get('key')); const u = new URL(location.href); u.searchParams.delete('key'); history.replaceState(null, '', u); } } catch { /* private window */ }
-  const studioKey = () => { try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; } };
-  /** `{ t, sig }` for a command that starts something: HMAC-SHA256(key, `${type}\n${t}\n${what}`) in hex. */
-  async function sign(type, what) {
-    const k = studioKey();
-    if (!k) return {};
-    const t = Date.now(), enc = new TextEncoder();
-    const ck = await crypto.subtle.importKey('raw', enc.encode(k), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', ck, enc.encode(`${type}\n${t}\n${what}`)));
-    return { t, sig: [...mac].map((b) => b.toString(16).padStart(2, '0')).join('') };
-  }
+  takeStudioKey();
+  const sign = signStudio;
 
   /** What Live 11 Standard's browser loads by name onto track 1 (abletonosc-ext/browser.py), and the four of its own
    *  parameters this page turns, by Live's names (live.params lists them all). */

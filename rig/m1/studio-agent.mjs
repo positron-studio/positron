@@ -14,6 +14,8 @@ import { join } from 'node:path';
 import { format, parse, randomId } from '../../demo/shell/wire.mjs';
 import { macGraph, MAC_ROOM } from '../../demo/shell/graph-registry.mjs';
 import { createMainDirect } from '../board/rtc.mjs';
+import { ObsClient } from './obs-control.mjs';
+import { writeFileSync } from 'node:fs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 const RELAY = arg('relay', 'wss://ws.positron.studio');
@@ -160,11 +162,65 @@ async function liveState() {
     instrument: devices?.[1] ?? null };
 }
 
+// ── OBS: stream the owner's current scene into a room's stage over WHIP ─────
+// Its own profile, `positron-whip`, holds the encoder settings (hardware H.264, CBR 3000, a keyframe every 2 s, no
+// B-frames); the scene collection is the owner's. Stop puts the owner's profile back. One room at a time.
+// why: lessons/rig-m1.md#studio-obs
+const SFU = arg('sfu', 'https://sfu.positron.studio');
+const OBS_PROFILE = 'positron-whip';
+const OBS_DIR = join(homedir(), 'Library', 'Application Support', 'obs-studio');
+let obsState = { state: 'idle', room: null, why: null }, obsPrev = null, obsBusy = false;
+const ROOM_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+async function obsCall() {
+  const pw = JSON.parse(readFileSync(join(OBS_DIR, 'plugin_config', 'obs-websocket', 'config.json'), 'utf8')).server_password;
+  const c = new ObsClient({ password: pw });
+  await c.connect({ timeoutMs: 4000 });
+  return { call: async (t, d = {}) => (await c.call(t, d)).data, close: () => c.close() };
+}
+const pause = (ms) => new Promise((ok) => setTimeout(ok, ms));
+function obsSay(next) { obsState = { ...obsState, ...next }; log('obs:', JSON.stringify(obsState)); send({ type: 'obs.state', ...obsState }); }
+async function obsStart(room) {
+  obsSay({ state: 'starting', room, why: null });
+  if (!running.obs) execFile('/usr/bin/open', ['-a', APPS.obs.open]);
+  let o = null;
+  for (let i = 0; i < 20 && !o; i++) { try { o = await obsCall(); } catch { await pause(1500); } }
+  if (!o) throw new Error('OBS did not answer on its remote control: is it open, or waiting on a dialog?');
+  try {
+    const live = await fetch(`${SFU}/room/${room}/live`).then((r) => r.json());
+    if (!live?.whip) throw new Error('the room has no WHIP URL');
+    if ((await o.call('GetStreamStatus')).outputActive) { await o.call('StopStream'); await pause(2000); }
+    const prof = await o.call('GetProfileList');
+    if (prof.currentProfileName !== OBS_PROFILE) obsPrev = prof.currentProfileName;
+    if (!prof.profiles.includes(OBS_PROFILE)) await o.call('CreateProfile', { profileName: OBS_PROFILE });
+    else if (prof.currentProfileName !== OBS_PROFILE) await o.call('SetCurrentProfile', { profileName: OBS_PROFILE });
+    await pause(1500);
+    writeFileSync(join(OBS_DIR, 'basic', 'profiles', OBS_PROFILE.replace(/[^A-Za-z0-9]/g, ''), 'streamEncoder.json'),
+      JSON.stringify({ rate_control: 'CBR', bitrate: 3000, keyint_sec: 2, bframes: false, profile: 'main' }));
+    await o.call('SetProfileParameter', { parameterCategory: 'Output', parameterName: 'Mode', parameterValue: 'Advanced' });
+    await o.call('SetProfileParameter', { parameterCategory: 'AdvOut', parameterName: 'Encoder', parameterValue: 'com.apple.videotoolbox.videoencoder.ave.avc' });
+    // The encoder file is read when the profile loads, so it is loaded again.
+    if (obsPrev) { await o.call('SetCurrentProfile', { profileName: obsPrev }); await pause(1500); await o.call('SetCurrentProfile', { profileName: OBS_PROFILE }); await pause(1500); }
+    await o.call('SetStreamServiceSettings', { streamServiceType: 'whip_custom', streamServiceSettings: { server: `${live.whip}?site=m1`, bearer_token: '' } });
+    await o.call('StartStream');
+    for (let i = 0; i < 15; i++) { await pause(1000); if ((await o.call('GetStreamStatus')).outputActive) return obsSay({ state: 'live', room }); }
+    throw new Error('OBS did not start streaming');
+  } finally { o.close(); }
+}
+async function obsStop(why = 'stopped') {
+  let o = null;
+  try { o = await obsCall(); } catch { return obsSay({ state: 'idle', room: null, why: 'OBS is not answering' }); }
+  try {
+    if ((await o.call('GetStreamStatus')).outputActive) { await o.call('StopStream'); await pause(1500); }
+    if (obsPrev) { await o.call('SetCurrentProfile', { profileName: obsPrev }); obsPrev = null; }
+  } finally { o.close(); }
+  obsSay({ state: 'idle', room: null, why });
+}
+
 // ── the wire ───────────────────────────────────────────────────────────────
 const hello = () => ({ type: 'board.hello', name: 'studio Mac', id: ID, since: SINCE, audioChannels: CH, frameMs: FRAME_MS,
   instruments: { live: running.live }, direct: !!mainDirect?.direct, graph: graph() });
 const alive = () => ({ type: 'board.alive', name: 'studio Mac', id: ID, upSec: Math.round((Date.now() - SINCE) / 1000),
-  audio: tap ? 'live' : null, frames: sent, apps: running, graph: graph() });
+  audio: tap ? 'live' : null, frames: sent, apps: running, obs: obsState, graph: graph() });
 
 async function handle(m, reply) {
   switch (m.type) {
@@ -231,6 +287,22 @@ async function handle(m, reply) {
       const [input, armed, devices] = await Promise.all([ask('/live/track/get/input_routing_type', [track]),
         ask('/live/track/get/arm', [track]), ask('/live/track/get/devices/name', [track])]);
       return reply('live.instrument', { ok: true, name, track, input: input?.at(-1) ?? null, armed: !!armed?.at(-1), devices: devices?.slice(1) ?? [] });
+    }
+    // Stream the current OBS scene into a room's stage, or stop. Signed with the studio key over the room's name.
+    case 'obs.start': case 'obs.stop': {
+      const room = String(m.room || '');
+      if (m.type === 'obs.start' && !ROOM_RE.test(room)) return reply('obs.state', { ...obsState, ok: false, why: 'not a room' });
+      const no = signedOk(m, m.type === 'obs.start' ? room : 'stop');
+      if (no) return reply('obs.state', { ...obsState, ok: false, why: no });
+      if (obsBusy) return reply('obs.state', { ...obsState, ok: false, why: 'OBS is busy with the last ask' });
+      obsBusy = true;
+      try {
+        if (m.type === 'obs.start') await obsStart(room); else await obsStop();
+        return reply('obs.state', { ...obsState, ok: true });
+      } catch (e) {
+        obsSay({ state: 'failed', why: e.message });
+        return reply('obs.state', { ...obsState, ok: false });
+      } finally { obsBusy = false; }
     }
     case 'app.open': {
       const app = APPS[m.app];
