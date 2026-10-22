@@ -452,6 +452,16 @@ before. `bay-test` 262/262, `nodes-test` 73.
 Not done: pulling only the visible tiles; a rate limit on the worker; TURN for the SFU when UDP is blocked (the
 page asks `pub /ice`, which is the same Cloudflare TURN key; untested through the SFU).
 
+### Two demos (done)
+
+Asked 2026-10-22: *"split into two demos"*. `/room/video/` is the SFU, `/room/mesh/` (title Video mesh) the browser
+to browser mesh; both are one module, `demo/room/video-room.mjs`, `videoRoom({ via, name })`, and `?mesh=1` is gone.
+Checked: four tabs on `/room/video/` through the SFU (every tile playing in 6.5 s, desk tiles 320x180, the phone
+640x360, a tab leaving gone at once); three tabs on `/room/mesh/` connected with chat. ⚠️ From this desk on
+2026-10-22 DNS answered every `*.positron.studio` name with a Fortiguard block page (208.91.112.55), so a local run
+must point at the worker's workers.dev name with `?sfu=https://positron-sfu.kristjan-jansen.workers.dev`; a first
+run without it published nothing and looked like a broken page.
+
 ## 9. Steps, in order
 
 Sizes are effort, not time. Each says when it is done.

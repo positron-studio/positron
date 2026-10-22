@@ -449,3 +449,42 @@ shared files.
   (`cf-edgecast:grains`, `collide`, `master`, `collide-2`, today's `Edgecast` class) is the first user. Files:
   workers/cast/container/live.mjs, workers/edgecast/gen-live.mjs, workers/edgecast/rt/*. Done when: live-test, grains-test, local-test, life-test and
   station-test read their current counts, and a 20 min edge listen matches step 5's numbers.
+
+## 5. The SFU adapter, built 2026-10-22 (step 8)
+
+Asked: *"can edgecast use the new sfu worker?"*, then *"do all, parallelize if ypu can. inclu edgecast"*. Built by a
+background agent, committed by the session. `lessons/workers-edgecast-adapter.md` has the design.
+
+- positron-sfu (`workers/sfu/worker.mjs`) has a private entry point, `SfuAdmin` (`adapterNew(room, tracks)`,
+  `adapterClose(ids)`), reached only over edgecast's service binding `SFU_ADMIN`; endpoints only
+  `wss://edgecast.positron.studio/adapter/ws/(egress|ingest)?t=...` or its workers.dev name. An egress must show the
+  publisher's room proof; an ingest's new session comes back with a room proof, so a page pulls it with the public
+  pull route. Deployed version `356406a9`.
+- edgecast: `POST /adapter/start?key=` (room, session, proof, track, mode echo, ring or full), `/adapter/stop`,
+  `/adapter/status`; `/adapter/ws/egress` and `/adapter/ws/ingest` take a 24 byte per pair token kept only in the
+  object's memory. One pair at a time in the object `adapter`; it stops itself after 10 minutes, or 20 s after the
+  egress drops. `packet.mjs` is the adapter's protobuf Packet by hand, `packet-test.mjs` 19/19 (12 negative
+  controls). Deployed version `6ac60292`, station off air at the time.
+
+MEASURED (headless Chromium, a 1 kHz 40 ms burst every 2 s, one AudioContext clock for both pulls):
+
+| run | the SFU loop alone, onset lag median (min to max) | through edgecast, echo | the pair adds |
+| --- | --- | --- | --- |
+| 1, 25 s | 245 ms (176 to 298) | 472 ms (374 to 524) | about 226 ms |
+| 2, 40 s | 134 ms (72 to 164) | 395 ms (294 to 395) | about 261 ms |
+| 3, 40 s | 155 ms (65 to 175) | 489 ms (320 to 492) | about 334 ms |
+
+- Egress: every packet 3840 bytes (20 ms of 48 kHz stereo s16), no sequence gaps, timestamp step 960; arrival gaps
+  median 19 to 21 ms, p99 27 to 77 ms, worst 109 to 170 ms. Ingest: one packet out per packet in, none dropped.
+- Echo keeps the level (RMS 0.068 to 0.071 against 0.071 in); ring and full make the bursts continuous (0.094 to 0.098).
+- Both adapters up in 1.18 to 1.76 s; the start call 1.34 to 2.03 s.
+- The lag through edgecast rose in steps within a run (294 to 395, 320 to 492 ms): ingest buffer, jitter buffer or
+  clock rate, not separated. The pulled edgecast track arrives at about 25 packets a second against 50 (INFERRED:
+  40 ms Opus frames on ingest).
+- No CPU figure: an object's clock does not move during synchronous work, so `workMs` read 0.
+- Cost (READ): adapter egress about $0.035 a live hour (0.69 GB at $0.05 per GB past the shared 1,000 GB); ingest free.
+- The per pair token can appear in Workers Logs (upgrade URLs are logged); it dies with the pair.
+
+Not done: the plan's chains (`cf-sfu -> encoder -> shout` and back) and a page with a patchbay link; no page opens
+`/adapter` yet. Where the 230 to 330 ms goes.
+

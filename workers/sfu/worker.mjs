@@ -12,6 +12,9 @@
 //   POST /room/<room>/<sid>/close     { proof, mids: [..] }
 // Secrets: CF_REALTIME_APP_SECRET (the SFU's), SFU_PROOF_KEY (signs proofs). CF_REALTIME_APP_ID is a var.
 // why: lessons/workers-sfu.md#header
+// SfuAdmin (below the public handler) is a second, PRIVATE entry point: WebSocket adapters, reached only over a
+// service binding with "entrypoint": "SfuAdmin" from positron-edgecast. why: lessons/workers-edgecast-adapter.md#sfu-admin
+import { WorkerEntrypoint } from 'cloudflare:workers';
 
 const SFU = 'https://rtc.live.cloudflare.com/v1/apps';
 // Cloudflare's edge 1010-blocks a generic user agent on a server-to-server fetch.
@@ -157,3 +160,50 @@ export default {
     return reply(origin, 200, { tracks: r.json?.tracks || [] });
   },
 };
+
+// An adapter makes Cloudflare open a WebSocket to `endpoint` on this account's bill, so only edgecast's adapter
+// routes are allowed, and only over the binding. why: lessons/workers-edgecast-adapter.md#sfu-admin
+const ADAPTER_ENDPOINT = /^wss:\/\/(edgecast\.positron\.studio|positron-edgecast\.kristjan-jansen\.workers\.dev)\/adapter\/ws\/(egress|ingest)\?t=[A-Za-z0-9_-]{16,128}$/;
+const ADAPTER_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
+
+export class SfuAdmin extends WorkerEntrypoint {
+  /**
+   * Create 1 to 4 WebSocket adapters for one room. Each entry is
+   *   { location: 'remote', sessionId, proof, trackName, endpoint }  egress: a publication in this room, as PCM
+   *   { location: 'local', trackName, endpoint }                     ingest: PCM in, published as a new session
+   * Answers { status, tracks }, an ingest track with `proof` for its new session so a page can pull it in the room.
+   */
+  async adapterNew(room, list) {
+    const env = this.env;
+    if (!env.CF_REALTIME_APP_SECRET || !env.SFU_PROOF_KEY) return { status: 503, error: 'no SFU secret on this worker' };
+    if (!ROOM_RE.test(room || '')) return { status: 400, error: 'not a room' };
+    if (!Array.isArray(list) || !list.length || list.length > 4) return { status: 400, error: '1 to 4 adapters' };
+    const tracks = [];
+    for (const t of list) {
+      if (!ADAPTER_ENDPOINT.test(t?.endpoint || '') || !NAME_RE.test(t.trackName || '')) return { status: 400, error: 'endpoint or trackName refused' };
+      if (t.location === 'remote') {
+        if (!SID_RE.test(t.sessionId || '')) return { status: 400, error: 'egress needs a session' };
+        if (!same(t.proof, await proofOf(env, room, t.sessionId))) return { status: 403, error: `${t.trackName} was not published in this room` };
+        tracks.push({ location: 'remote', sessionId: t.sessionId, trackName: t.trackName, endpoint: t.endpoint, outputCodec: 'pcm' });
+      } else if (t.location === 'local') {
+        tracks.push({ location: 'local', trackName: t.trackName, endpoint: t.endpoint, inputCodec: 'pcm' });
+      } else return { status: 400, error: 'location is remote or local' };
+    }
+    const r = await sfu(env, 'POST', 'adapters/websocket/new', { tracks });
+    const out = [];
+    for (const x of r.json?.tracks || []) {
+      // never hand the endpoint (it carries edgecast's token) back further than the caller
+      const y = { trackName: x.trackName, adapterId: x.adapterId, sessionId: x.sessionId, errorCode: x.errorCode, errorDescription: x.errorDescription };
+      if (x.sessionId && !x.errorCode) y.proof = await proofOf(env, room, x.sessionId);
+      out.push(y);
+    }
+    return { status: r.status, tracks: out, ...(r.status >= 300 ? { error: (r.json?.errorDescription || r.text || '').slice(0, 200) } : {}) };
+  }
+
+  /** Close adapters by id; closing one already closed counts as success. */
+  async adapterClose(ids) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 4 || ids.some((x) => !ADAPTER_ID_RE.test(x || ''))) return { status: 400, error: 'adapter ids' };
+    const r = await sfu(this.env, 'POST', 'adapters/websocket/close', { tracks: ids.map((adapterId) => ({ adapterId })) });
+    return { status: r.status, tracks: r.json?.tracks || [], ...(r.status >= 300 ? { error: (r.text || '').slice(0, 200) } : {}) };
+  }
+}

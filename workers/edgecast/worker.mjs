@@ -10,6 +10,7 @@
 // Station mode (station.mjs): GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key= play
 // radio1965's cast program on the object's own clock to any number of listeners, from one object, station-preview.
 // /radio/edgecast/ is the station's page; /ws is kept for client.mjs and the experiment and no page opens it.
+// /adapter/*: the Realtime SFU WebSocket adapter both ways, in the object 'adapter' (adapter.mjs), started with CAST_KEY.
 // One session at a time in one object: the engine's wasm memory is 73 MB of an isolate's 128 MB, and objects of
 // one class may share an isolate, so a second engine is refused rather than risked.
 import { DurableObject } from 'cloudflare:workers';
@@ -18,6 +19,7 @@ import glue from './glue.gen.mjs';
 import { QUANTUM, MEM } from './engine.mjs';
 import { startChain, createInserts, SLOTS, LIMITS } from './chain.mjs';
 export { Station } from './station.mjs';
+import { createAdapter } from './adapter.mjs';
 
 // who may open a socket: the site, a local dev server on any port, and a client with no Origin (client.mjs)
 const ORIGIN_OK = /^(https:\/\/positron\.studio|https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
@@ -26,6 +28,11 @@ const SESSION_MS = 15 * 60 * 1000, IDLE_MS = 10 * 1000;
 
 export class Edgecast extends DurableObject {
   async fetch(req) {
+    // the SFU adapter pair, in the object named 'adapter'. why: lessons/workers-edgecast-adapter.md#flow
+    if (new URL(req.url).pathname.startsWith('/adapter/')) {
+      this.adapter ||= createAdapter({ env: this.env, boot: (mode, seed) => startChain({ wasmModule, glue, mode, seed }) });
+      return this.adapter.fetch(req);
+    }
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('edgecast: WebSocket only', { status: 426 });
     const origin = req.headers.get('Origin');
     if (origin && !ORIGIN_OK.test(origin)) return new Response('edgecast: not from this origin', { status: 403 });
@@ -128,6 +135,13 @@ export class Edgecast extends DurableObject {
 }
 
 const CORS = { 'access-control-allow-origin': '*' };
+const keyOk = (env, k) => {
+  const want = env.CAST_KEY;
+  if (typeof want !== 'string' || !want || typeof k !== 'string' || k.length !== want.length) return false;
+  let d = 0;
+  for (let i = 0; i < k.length; i++) d |= k.charCodeAt(i) ^ want.charCodeAt(i);
+  return d === 0;
+};
 async function relay(req, env, u) {
   const want = u.pathname === '/relay/status' ? 'GET' : 'POST';
   if (req.method !== want) return Response.json({ error: `${want} ${u.pathname}` }, { status: 405, headers: CORS });
@@ -144,10 +158,16 @@ export default {
   async fetch(req, env) {
     const u = new URL(req.url);
     if (u.pathname === '/ws') return env.EDGECAST.get(env.EDGECAST.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
+    // the adapter's sockets carry their own token; start, stop and status need CAST_KEY (start makes Cloudflare dial us)
+    if (u.pathname.startsWith('/adapter/')) {
+      if (!u.pathname.startsWith('/adapter/ws/') && !keyOk(env, u.searchParams.get('key'))) return Response.json({ error: 'key' }, { status: 403 });
+      if (!env.SFU_ADMIN) return Response.json({ error: 'no SFU_ADMIN binding' }, { status: 500 });
+      return env.EDGECAST.get(env.EDGECAST.idFromName('adapter')).fetch(req);
+    }
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST' } });
     if (['/listen', '/status', '/start', '/stop'].includes(u.pathname)) return env.STATION.get(env.STATION.idFromName('station-preview')).fetch(req);
     // the relay to radio1965 through the RELAY binding, so a page never talks to its workers.dev name; the relay checks the key
     if (['/relay/start', '/relay/stop', '/relay/status'].includes(u.pathname)) return relay(req, env, u);
-    return new Response('edgecast: an experiment; GET /ws with a WebSocket, or the station: GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key=; the relay: GET /relay/status, POST /relay/start?key=&min=, POST /relay/stop?key=\n');
+    return new Response('edgecast: an experiment; GET /ws with a WebSocket, or the station: GET /listen, GET /status, POST /start?key=&cap=<minutes>, POST /stop?key=; the relay: GET /relay/status, POST /relay/start?key=&min=, POST /relay/stop?key=; the SFU adapter: POST /adapter/start?key=, POST /adapter/stop?key=, GET /adapter/status?key=\n');
   },
 };

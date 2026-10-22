@@ -133,7 +133,7 @@ export const NODES = {
     kind: 'person', label: 'mic and camera buttons', place: 'site',
     instance: 'one per tab: whether this tab\'s microphone and camera are on, said to every other tab',
     ports: { 'value-out': P() },
-    pages: ['room/video'],
+    pages: ['room/video', 'room/mesh'],
   },
 
   // ── engines: what makes or changes a sound, a picture or an event ───────
@@ -450,7 +450,7 @@ export const NODES = {
     kind: 'screen', label: 'grid', place: 'site',
     instance: 'one per tab: every other tab\'s camera and microphone as tiles, and who is muted',
     ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'audio-in': P({ transports: ['p2p', 'sfu'] }), 'value-in': P() },
-    pages: ['room/video'],
+    pages: ['room/video', 'room/mesh'],
   },
   oled: {
     kind: 'screen', label: 'OLED',
@@ -473,7 +473,7 @@ export const NODES = {
     kind: 'device', label: 'microphone', place: 'site',
     instance: 'one per tab, asked for on Join',
     ports: { 'audio-out': P({ transports: ['p2p', 'sfu'] }) },
-    pages: ['room/video'],
+    pages: ['room/video', 'room/mesh'],
   },
   camera: {
     kind: 'device', label: 'camera',
@@ -483,7 +483,7 @@ export const NODES = {
     // Drawn in this tab; the three loopback pages send it away and leave transports to the link.
     variants: { page: { 'video-out': { ...PAGE } } },
     variantPages: { page: ['video/camera', 'video/shader', 'video/recorder', 'drums/camera'] },
-    pages: ['video/camera', 'video/shader', 'video/recorder', 'video/webrtc', 'video/llhls', 'video/moq', 'drums/camera', 'room/video'],
+    pages: ['video/camera', 'video/shader', 'video/recorder', 'video/webrtc', 'video/llhls', 'video/moq', 'drums/camera', 'room/video', 'room/mesh'],
   },
 
   // ── somewhere else: a bucket, a store, a broadcaster ────────────────────
