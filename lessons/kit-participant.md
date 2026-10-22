@@ -439,4 +439,6 @@ the sender's site (`?site=` on the URL, `m1`). Nothing is announced on the relay
 Reported 2026-10-22 on /room/stage/ with OBS live: *"no video"*, while a headless tab on the deployed page played the
 same room at 1280x720 with sound. INFERRED cause: `play()` of a stream with sound, seconds after Join, refused by a
 browser that wants a fresh gesture (Safari does unless the page captures the camera or microphone, and both start
-off). A refused `play()` left the stage paused and black. Now it plays muted and shows **Tap for sound**.
+off). A refused `play()` left the stage paused and black. Now it plays muted, and the stage's mute button (bottom
+right, asked the same evening: *"rm system controls, add mute button on active, bottom right"*) shows it muted. The
+label stays bottom left in every mode, and the film mode lost the player's own controls.

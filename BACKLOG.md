@@ -1,6 +1,6 @@
 ## Open
 - **The M1 as site `m1`: OBS and a new Ableton Live control as nodes, the room starts OBS** (2026-10-22). Asked: *"can the room trigger obs"*, *"assuming its running"*, *"actually plan that remote app control together with new version of ableton live control"*. Plan: plans/plan-studio-mac.md, waiting on the owner (§7).
-- **/room/stage/: label bottom left, no system controls, mute button bottom right on the active stage** (2026-10-22). Asked with a screenshot of the old film mode. demo/shell/participant.mjs; written, not yet verified or deployed.
+- ~~**/room/stage/: label bottom left, no system controls, mute button bottom right on the active stage** (2026-10-22). Asked with a screenshot of the old film mode. DONE 2026-10-22, demo/shell/participant.mjs.~~
 - ~~**/room/stage/: OBS on the M1 streams into the stage over WHIP; then remove the film container** (2026-10-22). Asked: *"how m1 could stream to sfu via obs?"*, *"yes. if this works remove the r2->sfu part"*, *"one live"*. DONE 2026-10-22, plans/plan-room-obs.md.~~
 - ~~**/room/stage/: a container that sends the film over WebRTC instead of a tab** (2026-10-22). Asked: *"can you do contaner webetc cast?"*, *"do it"*, *"?stream=tab ... no need"*. DONE 2026-10-22: workers/sfu/film/, positron-sfu Film.~~
 - ~~**/room/stage/: a separate "Start stream" button instead of the cast icon** (2026-10-22). Asked: *"replace cast button with separste start stream"*. demo/room/video-room.mjs. DONE 2026-10-22.~~

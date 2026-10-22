@@ -7,6 +7,7 @@
 
 import { el } from './shell.mjs';
 import { icon } from './icons.mjs';
+import { createIconButton } from './icon-button.mjs';
 
 const CSS = `
   .pos-pt { position: relative; overflow: hidden; background: var(--bg); border-radius: var(--r, 4px);
@@ -68,8 +69,6 @@ const CSS = `
   .pos-stg-tag { position: absolute; left: 6px; bottom: 6px; padding: 3px 7px; border-radius: var(--r, 4px);
                  background: rgb(0 0 0 / 0.55); font: 500 11px/1.3 var(--mono); color: var(--fg); }
   .pos-stg-tag:empty { display: none; }
-  /* A film has the player's own controls along its foot, so its tag goes to the top. */
-  .pos-stg.film .pos-stg-tag { bottom: auto; top: 6px; }
   /* Your own share is never drawn full size: a small preview and the words, or it is a hall of
      mirrors. why: lessons/kit-participant.md#stage */
   .pos-stg.self { background: var(--bg); }
@@ -84,8 +83,9 @@ const CSS = `
   .pos-stg-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
                   font: 400 12px/1.4 var(--mono); color: var(--dim2); }
   .pos-stg-wait[hidden] { display: none; }
-  .pos-stg-sound { position: absolute; right: 6px; top: 6px; }
-  .pos-stg-sound[hidden] { display: none; }
+  /* The stage's own sound switch, bottom right, while something with sound is on it. */
+  .pos-stg > .pos-stg-mute { position: absolute; right: 6px; bottom: 6px; background: rgb(0 0 0 / 0.55); }
+  .pos-stg > .pos-stg-mute[hidden] { display: none; }
 `;
 let styled = false;
 const style = () => {
@@ -171,12 +171,17 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
   const say = el('div', 'pos-stg-say', 'You are presenting');
   mine.append(preview, say);
   const tag = el('div', 'pos-stg-tag', '');
-  // A browser that will not start a stream with sound without a fresh tap (Safari, with no camera or microphone on)
-  // plays it muted, and this asks for the tap. why: lessons/kit-participant.md#tap-for-sound
-  const soundBtn = el('button', 'pos-stg-sound', 'Tap for sound');
-  soundBtn.type = 'button'; soundBtn.hidden = true;
-  soundBtn.addEventListener('click', () => { video.muted = false; video.play?.().catch(() => {}); soundBtn.hidden = true; });
-  root.append(video, waitEl, mine, tag, soundBtn);
+  // Mute and unmute the stage, bottom right. A browser that refuses to start sound without a fresh tap (Safari, with
+  // no camera or microphone on) gets the picture muted and this button showing it. why: lessons/kit-participant.md#tap-for-sound
+  const mute = createIconButton({ icon: 'volume', label: 'Mute the stage', small: true, onPress: () => setMuted(!video.muted) });
+  mute.el.classList.add('pos-stg-mute'); mute.el.hidden = true;
+  function setMuted(m) {
+    video.muted = m;
+    if (!m) video.play?.().catch(() => {});
+    mute.set(m ? 'mute' : 'volume', m ? 'Unmute the stage' : 'Mute the stage');
+    mute.pressed(m);
+  }
+  root.append(video, waitEl, mine, tag, mute.el);
   let self = false, src = null, film = '';
   // The stage takes the share's own shape, read off whichever picture is showing.
   const shape = (v) => { if (v.videoWidth && v.videoHeight) root.style.setProperty('--stage-ar', `${v.videoWidth} / ${v.videoHeight}`); };
@@ -187,18 +192,21 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
     /** `sound`: play the stream's audio too (a live stream on /room/stage/); `verb` names what `who` does. */
     show(s, { self: isSelf = false, who = '', sound = false, verb = 'presenting' } = {}) {
       if (film) api.film(null);
-      video.muted = !sound;
       self = !!isSelf;
       root.classList.toggle('self', self);
       src = s || null;
       const v = shown(), other = self ? video : preview;
       if (other.srcObject) other.srcObject = null;
-      if (v.srcObject !== src) v.srcObject = src;
-      soundBtn.hidden = true;
-      if (src) v.play?.().catch(() => {
+      // A new stream starts with sound; the same one keeps what the viewer chose.
+      const fresh = v.srcObject !== src;
+      if (fresh) v.srcObject = src;
+      mute.el.hidden = !(src && sound && !self);
+      if (mute.el.hidden) video.muted = true;
+      else if (fresh) setMuted(false);
+      if (src && fresh) v.play?.().catch(() => {
         if (v !== video || !sound) return;
-        video.muted = true;
-        video.play?.().then(() => { soundBtn.hidden = false; }).catch(() => {});
+        setMuted(true);
+        video.play?.().catch(() => {});
       });
       waitEl.hidden = self || !!src;
       tag.textContent = self ? '' : who ? `${who} ${verb}` : '';
@@ -217,13 +225,13 @@ export function createStage({ wait = 'waiting for the picture' } = {}) {
         // `cors`: a page that captures the picture (captureStream) needs it read with CORS, set before src.
         if (cors && video.crossOrigin !== 'anonymous') { video.crossOrigin = 'anonymous'; video.removeAttribute('src'); }
         if (video.getAttribute('src') !== film) video.src = film;
-        video.muted = false; video.controls = true;
+        video.controls = false; setMuted(false); mute.el.hidden = false;
         waitEl.hidden = true;
         tag.textContent = title;
       } else {
         video.pause();
         video.removeAttribute('src'); video.load();
-        video.muted = true; video.controls = false; video.loop = false; video.removeAttribute('crossorigin');
+        video.muted = true; video.controls = false; video.loop = false; video.removeAttribute('crossorigin'); mute.el.hidden = true;
         tag.textContent = '';
       }
     },
