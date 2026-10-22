@@ -178,12 +178,15 @@ default; `?mesh=1` keeps the browser to browser mesh.
   *"Serialize mutations that target the same SFU session"*).
 - A kind is published the first time it is switched on (Join asks for nothing); after that a camera off is
   `replaceTrack(null)` and a mute is `enabled = false`, so nothing is renegotiated.
-- Video goes out in three layers, `f`, `h` and `q`, at 1, 1/2 and 1/4 of a 720p capture (900, 300 and 100
+- Video goes out in three layers, `c`, `b` and `a`, at 1, 1/2 and 1/4 of a 720p capture (900, 300 and 100
   kbit/s caps). The mesh keeps 360p. Each pull asks for the layer its tile needs (`ridFor`: tile width times
-  device pixel ratio, 640 and up `f`, 320 and up `h`, else `q`), re-asked every 2 s through `tracks/update`
+  device pixel ratio, 640 and up `c`, 320 and up `b`, else `a`), re-asked every 2 s through `tracks/update`
   when it changes. MEASURED with a 640x360 fake camera first: a desk asking `q` got 640x360, because at that size
   the quarter layer was not flowing and the SFU's fallback went elsewhere. With 720p capture the desk got
-  320x180 and a phone asking `h` got 640x360.
+  320x180 and a phone asking `h` got 640x360, but on the deploy one tab got 1280x720 for 228 px tiles: with
+  `ridNotAvailable: asciibetical` the SFU takes the next name in alphabetical order when the asked layer is not
+  flowing yet, and `f` came first. The layers are named smallest first now (`a` quarter, `b` half, `c` full), and
+  `priorityOrdering: none` keeps the asked layer under bandwidth pressure.
 - Who publishes what is a `sfu.pub` message on the relay room, `{ site, sessionId, proof, tracks }`, said after
   each publish and whenever somebody new is in the room; it is accepted only from the socket that announced the
   site, as `rtc.sig` is. `sfu.bye` on Leave takes the tile down at once rather than when the graph goes stale

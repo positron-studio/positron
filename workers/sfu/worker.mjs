@@ -19,7 +19,10 @@ const UA = 'positron-sfu/1.0';
 const ROOM_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const SID_RE = /^[A-Za-z0-9_-]{8,128}$/;
 const NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
-const RID_RE = /^[fhq]$/;
+// a, b, c: quarter, half and full size, smallest first (demo/room/sfu.mjs LAYERS)
+const RID_RE = /^[abc]$/;
+// Keep the layer asked for; when it is not flowing take the next in name order, which is the next bigger.
+const SIMULCAST = (rid) => ({ preferredRid: rid, priorityOrdering: 'none', ridNotAvailable: 'asciibetical' });
 // the site, a local dev server on any port, and a script with no Origin
 const ORIGIN_OK = /^(https:\/\/positron\.studio|https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?)$/;
 const MAX_BODY = 64 * 1024;           // an SDP with three layers is about 6 KB
@@ -124,7 +127,7 @@ export default {
         // Only a publisher in this room: its proof is for this room.
         if (!same(t.proof, await proofOf(env, room, t.sessionId))) return reply(origin, 403, { error: `${t.trackName} was not published in this room` });
         tracks.push({ location: 'remote', sessionId: t.sessionId, trackName: t.trackName,
-          ...(RID_RE.test(t.rid || '') ? { simulcast: { preferredRid: t.rid, priorityOrdering: 'asciibetical', ridNotAvailable: 'asciibetical' } } : {}) });
+          ...(RID_RE.test(t.rid || '') ? { simulcast: SIMULCAST(t.rid) } : {}) });
       }
       r = await sfu(env, 'POST', `sessions/${sid}/tracks/new`, { tracks });
       if (r.status !== 200) return reply(origin, 502, { error: `sfu pull ${r.status}`, detail: r.json || r.text.slice(0, 200) });
@@ -142,7 +145,7 @@ export default {
         return reply(origin, 400, { error: 'update needs mids and rids' });
       }
       r = await sfu(env, 'PUT', `sessions/${sid}/tracks/update`, { tracks: list.map((t) => ({ location: 'remote', mid: t.mid,
-        simulcast: { preferredRid: t.rid, priorityOrdering: 'asciibetical', ridNotAvailable: 'asciibetical' } })) });
+        simulcast: SIMULCAST(t.rid) })) });
       if (r.status !== 200) return reply(origin, 502, { error: `sfu update ${r.status}`, detail: r.json || r.text.slice(0, 200) });
       return reply(origin, 200, { tracks: r.json?.tracks || [] });
     }

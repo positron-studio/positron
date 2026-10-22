@@ -6,11 +6,13 @@
 // `sfu.pub`, with the proof the worker signed, so a tab can pull only what was published in its own room.
 // why: lessons/kit-participant.md#sfu
 
-/** Three layers of the camera, full, half and quarter size; a tile pulls the one its size needs. */
-const LAYERS = [{ rid: 'f', scaleResolutionDownBy: 1, maxBitrate: 900_000 },
-  { rid: 'h', scaleResolutionDownBy: 2, maxBitrate: 300_000 }, { rid: 'q', scaleResolutionDownBy: 4, maxBitrate: 100_000 }];
+/** Three layers of the camera, named smallest first (a quarter, b half, c full), because the SFU's fallback
+ *  when a layer is not flowing takes the next name in alphabetical order: named f, h, q it jumped to full size.
+ *  why: lessons/kit-participant.md#sfu */
+const LAYERS = [{ rid: 'c', scaleResolutionDownBy: 1, maxBitrate: 900_000 },
+  { rid: 'b', scaleResolutionDownBy: 2, maxBitrate: 300_000 }, { rid: 'a', scaleResolutionDownBy: 4, maxBitrate: 100_000 }];
 /** The layer for a tile this many CSS pixels wide, on this screen's pixel density. */
-export const ridFor = (w, dpr = 1) => (w * dpr >= 640 ? 'f' : w * dpr >= 320 ? 'h' : 'q');
+export const ridFor = (w, dpr = 1) => (w * dpr >= 640 ? 'c' : w * dpr >= 320 ? 'b' : 'a');
 
 /** One promise chain per session: each step starts when the last has finished, failed or not. */
 function queue() {
@@ -53,7 +55,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   const remotes = new Map();   // site -> { sessionId, proof, tracks: [{ trackName, kind }] }
   const pulled = new Map();    // `${site} ${trackName}` -> mid ('' while pending)
   const streams = new Map();   // site -> MediaStream
-  let wanted = [], rid = 'h', closed = false, ready = null;
+  let wanted = [], rid = 'b', closed = false, ready = null;
 
   inn.pc.ontrack = (e) => {
     const t = inn.mids.get(e.transceiver.mid);

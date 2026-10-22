@@ -436,7 +436,7 @@ Asked 2026-10-22: *"build that too"*. `/room/video/` now sends media through Clo
   calls (session, publish, pull, answer, update, close); a session comes with a proof, HMAC(room, session), and a
   pull must show the publisher's proof for the same room. `lessons/workers-sfu.md`.
 - `demo/room/sfu.mjs`: two connections per tab, one queue each; publishes a kind when first switched on; video in
-  three layers (720p, 360p, 180p); each pull asks the layer its tile needs and changes it with `tracks/update`;
+  three layers (720p, 360p, 180p, named c, b, a); each pull asks the layer its tile needs and changes it with `tracks/update`;
   `sfu.pub` and `sfu.bye` on the relay room. Same face as `mesh.mjs`.
 - `bay.mjs`: `sfu` offered to one receiver too; `patchbay.mjs`: an `sfu` link drawn through `cf-sfu:<room>`.
 - The page caps an SFU room at 25 tiles and a mesh at 6.
@@ -444,8 +444,10 @@ Asked 2026-10-22: *"build that too"*. `/room/video/` now sends media through Clo
 Checked (MEASURED 2026-10-22, the deployed worker, the page served locally, the local relay, fake media): four
 tabs, three desk and one phone, three cameras and two mics on: every tile playing 5.0 s after the last camera
 went on, every connection `srflx` through Cloudflare, each tab publishing only what it had switched on; desk
-tiles asking `q` got 320x180, the phone asking `h` got 640x360; one desk tile stayed at 640x360 (the SFU's layer
-fallback, open); a tab leaving was gone from the others at once. `?mesh=1` re-run: three tabs connected, chat as
+tiles asking the quarter layer got 320x180, the phone asking the half layer got 640x360; a tab leaving was gone
+from the others at once. First runs had desk tiles at 640x360 and 1280x720: the SFU's fallback takes the next layer
+name in alphabetical order and the layers were named f, h, q, so it jumped to full size; named a, b, c (quarter,
+half, full) with `priorityOrdering: none`, two runs gave every desk tile 320x180 and every phone tile 640x360. `?mesh=1` re-run: three tabs connected, chat as
 before. `bay-test` 262/262, `nodes-test` 73.
 Not done: pulling only the visible tiles; a rate limit on the worker; TURN for the SFU when UDP is blocked (the
 page asks `pub /ice`, which is the same Cloudflare TURN key; untested through the SFU).
