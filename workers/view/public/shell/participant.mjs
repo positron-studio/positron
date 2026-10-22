@@ -1,6 +1,7 @@
 // demo/shell/participant.mjs: one person's camera in a video room, and the grid that holds one to N
 // of them. createParticipant is a tile: the picture, a name tag, a muted mic and a camera-off face,
-// and a ring while they speak. createParticipantGrid sizes every tile alike from its own box.
+// and a ring while they speak. createParticipantGrid sizes every tile alike from its own box, or,
+// while somebody presents, puts createStage's picture on top and the tiles in one row under it.
 // Nothing here opens a camera or a connection: the page hands a tile a MediaStream.
 // why: lessons/kit-participant.md#header
 
@@ -47,6 +48,40 @@ const CSS = `
   .pos-ptg.scroll { overflow-y: auto; }
   .pos-ptg > .pos-pt { grid-column: span var(--pt-span, 1); border-radius: 0; }
   .pos-ptg-empty { grid-column: 1 / -1; place-self: center; font: 400 12px/1.4 var(--mono); color: var(--dim2); }
+
+  /* Stage and strip: somebody presents. The stage takes the column at the share's own shape
+     (aspect-ratio capped by the height left over the strip, so a wide share fills the width and a
+     tall one is centred), the strip is one row of tiles under it that scrolls sideways.
+     why: lessons/kit-participant.md#stage */
+  .pos-ptg.staged { display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+                    row-gap: 2px; }
+  .pos-ptg.staged > .pos-stg { flex: 0 1 auto; width: 100%; min-height: 0; aspect-ratio: var(--stage-ar, 16 / 9);
+                               max-height: calc(100% - var(--strip-h, 112px) - 2px); }
+  .pos-ptg-strip { flex: none; width: 100%; height: var(--strip-h, 112px); display: flex; overflow-x: auto;
+                   overflow-y: hidden; overscroll-behavior-x: contain; min-width: 0; }
+  .pos-ptg-strip > .pos-pt { flex: none; height: 100%; aspect-ratio: var(--strip-ar, 16 / 9); border-radius: 0; }
+  .pos-stg { position: relative; overflow: hidden; background: #000; box-sizing: border-box; }
+  .pos-stg > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block;
+                     background: #000; border: 0; border-radius: 0; max-width: none; }
+  .pos-stg-tag { position: absolute; left: 6px; bottom: 6px; padding: 3px 7px; border-radius: var(--r, 4px);
+                 background: rgb(0 0 0 / 0.55); font: 500 11px/1.3 var(--mono); color: var(--fg); }
+  .pos-stg-tag:empty { display: none; }
+  /* A film has the player's own controls along its foot, so its tag goes to the top. */
+  .pos-stg.film .pos-stg-tag { bottom: auto; top: 6px; }
+  /* Your own share is never drawn full size: a small preview and the words, or it is a hall of
+     mirrors. why: lessons/kit-participant.md#stage */
+  .pos-stg.self { background: var(--bg); }
+  .pos-stg.self > video.pos-stg-v { display: none; }
+  .pos-stg-self { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center;
+                  justify-content: center; gap: 10px; padding: 12px; box-sizing: border-box; }
+  .pos-stg.self .pos-stg-self { display: flex; }
+  .pos-stg-self video { width: min(240px, 45%); aspect-ratio: var(--stage-ar, 16 / 9); height: auto; object-fit: contain;
+                        background: #000; border: var(--edge, 1px solid var(--line)); border-radius: var(--r, 4px);
+                        max-width: none; display: block; }
+  .pos-stg-say { font: 500 12px/1.3 var(--mono); color: var(--fg); text-align: center; }
+  .pos-stg-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                  font: 400 12px/1.4 var(--mono); color: var(--dim2); }
+  .pos-stg-wait[hidden] { display: none; }
 `;
 let styled = false;
 const style = () => {
@@ -113,6 +148,74 @@ export function createParticipant({ name = '', self = false, id = name } = {}) {
 }
 
 /**
+ * The stage: one big picture somebody presents. A viewer sees the share at its own shape; the presenter
+ * (`self`) sees the words and a small preview, never their own screen full size.
+ * @returns {{ el: HTMLElement, video: HTMLVideoElement, show: (s: MediaStream|null, o?: {self?: boolean, who?: string}) => void,
+ *   info: () => object }}
+ * why: lessons/kit-participant.md#stage
+ */
+export function createStage({ wait = 'waiting for the picture' } = {}) {
+  style();
+  const root = el('div', 'pos-stg');
+  const video = document.createElement('video');
+  video.className = 'pos-stg-v';
+  video.playsInline = true; video.autoplay = true; video.muted = true;
+  const waitEl = el('div', 'pos-stg-wait', wait);
+  const mine = el('div', 'pos-stg-self');
+  const preview = document.createElement('video');
+  preview.playsInline = true; preview.autoplay = true; preview.muted = true;
+  const say = el('div', 'pos-stg-say', 'You are presenting');
+  mine.append(preview, say);
+  const tag = el('div', 'pos-stg-tag', '');
+  root.append(video, waitEl, mine, tag);
+  let self = false, src = null, film = '';
+  // The stage takes the share's own shape, read off whichever picture is showing.
+  const shape = (v) => { if (v.videoWidth && v.videoHeight) root.style.setProperty('--stage-ar', `${v.videoWidth} / ${v.videoHeight}`); };
+  for (const v of [video, preview]) for (const ev of ['loadedmetadata', 'resize']) v.addEventListener(ev, () => shape(v));
+  const shown = () => (self ? preview : video);
+  const api = {
+    el: root, video, preview,
+    show(s, { self: isSelf = false, who = '' } = {}) {
+      if (film) api.film(null);
+      self = !!isSelf;
+      root.classList.toggle('self', self);
+      src = s || null;
+      const v = shown(), other = self ? video : preview;
+      if (other.srcObject) other.srcObject = null;
+      if (v.srcObject !== src) v.srcObject = src;
+      if (src) v.play?.().catch(() => {});
+      waitEl.hidden = self || !!src;
+      tag.textContent = self ? '' : who ? `${who} presenting` : '';
+    },
+    /**
+     * A film on the stage: a file played by this tab's own <video>, with sound and the player's
+     * controls. null takes it off. The page keeps it in step with the other tabs.
+     */
+    film(url, { title = '' } = {}) {
+      film = url || '';
+      root.classList.toggle('film', !!film);
+      if (film) {
+        self = false; root.classList.remove('self');
+        if (preview.srcObject) preview.srcObject = null;
+        if (video.srcObject) video.srcObject = null;
+        if (video.getAttribute('src') !== film) video.src = film;
+        video.muted = false; video.controls = true;
+        waitEl.hidden = true;
+        tag.textContent = title;
+      } else {
+        video.pause();
+        video.removeAttribute('src'); video.load();
+        video.muted = true; video.controls = false;
+        tag.textContent = '';
+      }
+    },
+    info: () => { const v = shown(); return { self, has: !!src || !!film, playing: (!!src || !!film) && !v.paused && v.readyState >= 2,
+      film, w: v.videoWidth, h: v.videoHeight, boxW: Math.round(root.getBoundingClientRect().width), boxH: Math.round(root.getBoundingClientRect().height) }; },
+  };
+  return api;
+}
+
+/**
  * The size every tile gets: try each column count, keep the one with the biggest tile.
  * Pure, so it is tested without a browser.
  * @param {number} W  @param {number} H  the grid's box, padding taken off
@@ -161,7 +264,38 @@ export function createParticipantGrid({ gap = 0, minW = 120, empty = 'nobody yet
   const list = [];
   let last = { cols: 0, rows: 0, w: 0, h: 0, n: 0, scroll: false, perRow: [] };
 
+  let stageEl = null, order = null;
+  const strip = el('div', 'pos-ptg-strip');
+
+  /** Somebody presents: the stage on top, every tile in one row under it, `order` first. The strip
+   *  takes what the stage leaves, between 72 px and two fifths of the box, so nothing is left bare
+   *  on a desk. why: lessons/kit-participant.md#stage */
+  function layoutStage() {
+    const n = list.length;
+    const W = root.clientWidth, H = root.clientHeight;
+    const narrow = H > W;
+    const m = /([\d.]+)\s*\/\s*([\d.]+)/.exec(getComputedStyle(stageEl).getPropertyValue('--stage-ar'));
+    const ar = m && +m[2] ? +m[1] / +m[2] : 16 / 9;
+    const minStrip = 72, maxStrip = Math.max(minStrip, Math.round(H * 0.4));
+    const stageH = Math.min(W / ar, H - minStrip);
+    const stripH = Math.max(minStrip, Math.min(maxStrip, Math.floor(H - stageH - 2)));
+    root.style.setProperty('--strip-h', `${stripH}px`);
+    root.style.setProperty('--strip-ar', narrow ? '3 / 4' : '4 / 3');
+    const first = (order || []).filter((t) => list.includes(t));
+    const want = [...first, ...list.filter((t) => !first.includes(t))];
+    // Re-append only when the order changed: moving a <video> is cheap, but not free.
+    if (want.some((t, i) => strip.children[i] !== t.el) || strip.children.length !== want.length) {
+      for (const t of want) { strip.append(t.el); t.video.play?.().catch(() => {}); }
+    }
+    const r = stageEl.getBoundingClientRect(), sr = strip.getBoundingClientRect();
+    last = { mode: 'stage', n, narrow, stage: { w: Math.round(r.width), h: Math.round(r.height) },
+      strip: { h: Math.round(sr.height), w: Math.round(sr.width), scroll: strip.scrollWidth > strip.clientWidth + 1 },
+      order: want.map((t) => t.id) };
+    return last;
+  }
+
   function layout() {
+    if (stageEl) return layoutStage();
     const n = list.length;
     none.hidden = n > 0;
     if (!n) { root.style.removeProperty('--ptg-cols'); root.style.removeProperty('--ptg-rows'); last = { ...last, n: 0, perRow: [] }; return last; }
@@ -190,16 +324,44 @@ export function createParticipantGrid({ gap = 0, minW = 120, empty = 'nobody yet
     let k = 0;
     perRow.forEach((m) => { for (let i = 0; i < m; i++) list[k++].el.style.setProperty('--pt-span', String(lcm / m)); });
     const cols = Math.max(...perRow);
-    last = { cols, rows, w: Math.floor((W - gap * (cols - 1)) / cols), h: Math.floor(rowH), n, scroll, perRow, ar: +ar.toFixed(3) };
+    last = { mode: 'grid', cols, rows, w: Math.floor((W - gap * (cols - 1)) / cols), h: Math.floor(rowH), n, scroll, perRow, ar: +ar.toFixed(3) };
     return last;
   }
-  if (typeof ResizeObserver === 'function') new ResizeObserver(() => layout()).observe(root);
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => layout()) : null;
+  ro?.observe(root);
 
   return {
     el: root,
-    add(t) { if (!list.includes(t)) { list.push(t); root.append(t.el); } layout(); },
+    add(t) { if (!list.includes(t)) { list.push(t); (stageEl ? strip : root).append(t.el); } layout(); },
     remove(t) { const i = list.indexOf(t); if (i >= 0) list.splice(i, 1); t.el.remove(); t.el.style.removeProperty('--pt-span'); layout(); },
     tiles: () => [...list],
+    /**
+     * Put a stage over the tiles (an element, usually createStage().el), or null for the grid again.
+     * The tiles move into one row under it; `order` (tiles) goes first in that row.
+     */
+    stage(next, nextOrder) {
+      if (nextOrder) order = nextOrder;
+      if (next === stageEl) { layout(); return; }
+      if (stageEl) ro?.unobserve(stageEl);
+      stageEl = next || null;
+      // The stage changes size when the share's shape arrives, and the strip follows it.
+      if (stageEl) ro?.observe(stageEl);
+      root.classList.toggle('staged', !!stageEl);
+      if (stageEl) {
+        root.style.removeProperty('--ptg-cols'); root.style.removeProperty('--ptg-rows');
+        none.hidden = true;
+        root.replaceChildren(stageEl, strip);
+        for (const t of list) t.el.style.removeProperty('--pt-span');
+      } else {
+        root.replaceChildren(none, ...list.map((t) => t.el));
+        strip.replaceChildren();
+        for (const t of list) t.video.play?.().catch(() => {});
+      }
+      layout();
+    },
+    /** The strip's order while a stage is up: these tiles first, the rest after in join order. */
+    order(tiles) { order = tiles; if (stageEl) layout(); },
+    staged: () => !!stageEl,
     layout,
     last: () => last,
   };

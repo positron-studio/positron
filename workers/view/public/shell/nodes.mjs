@@ -135,6 +135,14 @@ export const NODES = {
     ports: { 'value-out': P() },
     pages: ['room/video', 'room/mesh'],
   },
+  // Play, pause and seek on a film watched together, said to every tab on the shared clock.
+  // why: lessons/kit-nodes.md#video-room
+  transport: {
+    kind: 'person', label: 'play, pause, seek', place: 'site',
+    instance: 'one per tab in a video room: what this tab pressed, stamped with `at` on the shared clock',
+    ports: { 'value-out': P() },
+    pages: ['room/video', 'room/mesh'],
+  },
 
   // ── engines: what makes or changes a sound, a picture or an event ───────
   synth: {
@@ -247,8 +255,9 @@ export const NODES = {
   },
   'player-video': {
     node: 'player', kind: 'engine', label: 'player',
-    ports: { 'file-in': P(), 'video-out': P({ ...PAGE }) },
-    pages: ['video/recorder'],
+    // value-in: play, pause and seek from a room's `transport` (room/video, room/mesh).
+    ports: { 'file-in': P(), 'video-out': P({ ...PAGE }), 'value-in': P({ optional: true }) },
+    pages: ['video/recorder', 'room/video', 'room/mesh'],
   },
   level: {
     kind: 'engine', label: 'level',
@@ -452,6 +461,14 @@ export const NODES = {
     ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'audio-in': P({ transports: ['p2p', 'sfu'] }), 'value-in': P() },
     pages: ['room/video', 'room/mesh'],
   },
+  // The big picture while somebody presents or a film plays, on every tab of a video room.
+  // why: lessons/kit-nodes.md#video-room
+  stage: {
+    kind: 'screen', label: 'stage', place: 'site',
+    instance: 'one per tab: the presenter\'s screen, or the film; value-in hears who presents',
+    ports: { 'video-in': P({ transports: ['page', 'p2p', 'sfu'] }), 'value-in': P() },
+    pages: ['room/video', 'room/mesh'],
+  },
   oled: {
     kind: 'screen', label: 'OLED',
     ports: { 'video-in': P() },
@@ -473,6 +490,14 @@ export const NODES = {
     kind: 'device', label: 'microphone', place: 'site',
     instance: 'one per tab, asked for on Join',
     ports: { 'audio-out': P({ transports: ['p2p', 'sfu'] }) },
+    pages: ['room/video', 'room/mesh'],
+  },
+  // A tab's screen, from getDisplayMedia: one presenter at a time in a video room.
+  // why: lessons/kit-nodes.md#video-room
+  share: {
+    kind: 'device', label: 'screen share', place: 'site',
+    instance: 'one per tab where the browser can capture a screen (not a phone); value-out says it presents',
+    ports: { 'video-out': P({ transports: ['page', 'p2p', 'sfu'] }), 'value-out': P() },
     pages: ['room/video', 'room/mesh'],
   },
   camera: {

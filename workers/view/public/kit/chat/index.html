@@ -36,7 +36,7 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createStepper } from '/shell/stepper.mjs';
   import { createChatLog, createChatSign, createChatCompose, createChatColumn, createChatWindow, createChatGrid } from '/shell/chat-ui.mjs';
-  import { createParticipant, createParticipantGrid } from '/shell/participant.mjs';
+  import { createParticipant, createParticipantGrid, createStage } from '/shell/participant.mjs';
 
   /**
    * Every piece of demo/shell/chat-ui.mjs, the module the /room/ pages draw chat with.
@@ -57,6 +57,58 @@
 
   // the blocks, newest first
   const PEOPLE = ['web-2qm', 'web-7zd', 'web-k4p', 'web-91x', 'web-ab12', 'web-3fe'];
+  /** A painted canvas stands in for a camera or a screen, so a specimen opens no device. */
+  const paint = (hue, w = 320, h = 180, words = '') => {
+    const c = Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const g = c.getContext('2d');
+    let t = 0;
+    const draw = () => { g.fillStyle = `hsl(${hue} 30% 22%)`; g.fillRect(0, 0, w, h);
+      g.fillStyle = `hsl(${hue} 50% 55%)`; g.beginPath(); g.arc(w / 2 + (w / 8) * Math.sin(t / 20), h * 0.53, h * 0.22, 0, 7); g.fill();
+      if (words) { g.fillStyle = '#e6e6e6'; g.font = `${Math.round(h / 12)}px monospace`; g.fillText(words, w * 0.06, h * 0.16); }
+      t++; };
+    draw(); setInterval(draw, 100);
+    return c.captureStream ? c.captureStream(10) : null;
+  };
+
+  // STAGE AND STRIP: createStage over the participant grid while somebody presents.
+  let sgrid = null, sStage = null, sMode = null;
+  const sTiles = [];
+  section('STAGE AND STRIP',
+    'While somebody presents, the stage takes the column at the share\'s own shape and the cameras go to one row under it that scrolls sideways, the presenter first. The presenter sees a small preview, never their own screen full size.',
+    `createStage() -> { el, show(stream, { self, who }), info() }
+grid.stage(stage.el, [presenterTile, ...]) and grid.stage(null) for the grid again`,
+    (box) => {
+      const host = el('div', 'kc-tall');
+      // `flex: none`: a column flex basis of 100% is content sized, and the stage's aspect would grow it.
+      host.style.height = '320px'; host.style.flex = 'none';
+      sgrid = createParticipantGrid();
+      host.append(sgrid.el);
+      sStage = createStage();
+      const screen = paint(200, 640, 400, 'slide 3 of 12: the patch bay');
+      PEOPLE.slice(0, 5).forEach((who, i) => {
+        const t = createParticipant({ name: i ? who : `me ${who}`, self: !i });
+        t.video.muted = true;
+        t.stream(paint(i * 50 + 20));
+        sTiles.push(t);
+        sgrid.add(t);
+      });
+      const mode = (m) => {
+        if (m === 'grid') { sStage.show(null); sgrid.stage(null); }
+        else { sStage.show(screen, { self: m === 'self', who: PEOPLE[2] }); sgrid.stage(sStage.el, m === 'self' ? [sTiles[0]] : [sTiles[2], sTiles[0]]); }
+      };
+      const pick = createButtonGroup({ buttons: [
+        { id: 'grid', label: 'Nobody', onPress: () => mode('grid') },
+        { id: 'other', label: 'web-k4p', onPress: () => mode('other') },
+        { id: 'self', label: 'You', onPress: () => mode('self') },
+      ] });
+      const wrap = el('div', 'kc-full');
+      wrap.style.display = 'flex'; wrap.style.flexDirection = 'column'; wrap.style.gap = '8px';
+      wrap.append(host, pick.el);
+      box.append(wrap);
+      sMode = mode;
+      mode('other');
+    });
+
   // PARTICIPANT GRID: demo/shell/participant.mjs, the tiles /room/video/ draws its cameras with.
   // A painted canvas stands in for a camera, so the specimen opens no device.
   let pgrid = null;
@@ -70,15 +122,6 @@ createParticipantGrid({ gap, minW }) -> { el, add(tile), remove(tile), layout() 
       host.style.height = '320px';
       pgrid = createParticipantGrid({ empty: 'nobody yet' });
       host.append(pgrid.el);
-      const paint = (hue) => {
-        const c = Object.assign(document.createElement('canvas'), { width: 320, height: 180 });
-        const g = c.getContext('2d');
-        let t = 0;
-        const draw = () => { g.fillStyle = `hsl(${hue} 30% 22%)`; g.fillRect(0, 0, 320, 180);
-          g.fillStyle = `hsl(${hue} 50% 55%)`; g.beginPath(); g.arc(160 + 40 * Math.sin(t / 20), 95, 40, 0, 7); g.fill(); t++; };
-        draw(); setInterval(draw, 100);
-        return c.captureStream ? c.captureStream(10) : null;
-      };
       PEOPLE.forEach((who, i) => {
         const t = createParticipant({ name: i ? who : `me ${who}`, self: !i });
         t.video.muted = true;   // a specimen plays without a press
@@ -217,6 +260,19 @@ createParticipantGrid({ gap, minW }) -> { el, add(tile), remove(tile), layout() 
     d.assert('a compose box is hidden until it is enabled',
       getComputedStyle(hidden.el).display === 'none', getComputedStyle(hidden.el).display);
     hidden.el.remove();
+
+    // Stage and strip: the stage on top, every tile in ONE row under it, presenter first; and back.
+    const tops = sTiles.map((t) => Math.round(t.el.getBoundingClientRect().top));
+    const sr = sStage.el.getBoundingClientRect();
+    const L = sgrid.layout();
+    d.assert('with a presenter the stage sits on top and every camera in one row under it, the presenter first',
+      L.mode === 'stage' && new Set(tops).size === 1 && tops[0] >= Math.round(sr.bottom) && L.order[0] === sTiles[2].id && sr.height > L.strip.h,
+      `${L.mode}, rows at ${[...new Set(tops)].join(',')}, stage ${sr.width.toFixed(0)}x${sr.height.toFixed(0)}, strip ${L.strip.h}, first ${L.order[0]}`);
+    sStage.show(null); sgrid.stage(null);
+    const G = sgrid.layout();
+    d.assert('with nobody presenting the same tiles are a grid again, the stage gone',
+      G.mode === 'grid' && G.n === 5 && !sStage.el.isConnected, `${G.mode}, ${G.n} tiles, ${G.perRow?.join('+')}`);
+    sMode('other');
 
     // The grid, at every count: how many cells sit in each row, read off rects.
     const rows = () => {
