@@ -431,3 +431,12 @@ the sender's site (`?site=` on the URL, `m1`). Nothing is announced on the relay
   collection, the owner's put back after): 3 tabs (one phone) play 1280x720 with sound (rms 0.28 to 0.30); OBS's
   WebRTC connect 285 ms; stop to every stage clear 4.5 s. A late joiner waited **12.2 s** with OBS's default
   keyframe spacing and **3.7 to 7.2 s** with a keyframe every 2 s, hence the setting on the page.
+
+<a id="tap-for-sound"></a>
+
+## The stage plays muted when the browser refuses sound, and asks for a tap
+
+Reported 2026-10-22 on /room/stage/ with OBS live: *"no video"*, while a headless tab on the deployed page played the
+same room at 1280x720 with sound. INFERRED cause: `play()` of a stream with sound, seconds after Join, refused by a
+browser that wants a fresh gesture (Safari does unless the page captures the camera or microphone, and both start
+off). A refused `play()` left the stage paused and black. Now it plays muted and shows **Tap for sound**.
