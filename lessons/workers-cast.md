@@ -769,6 +769,41 @@ restart or a program edit.
   module (each caught).
 
 
+### listeners
+
+`workers/cast/listeners.mjs` and `Caster.countListeners`, 2026-10-22. Asked whether Väin's server counts listeners,
+then *"build it yes"*. Read in tarmoj/radio1965 at dce3411: their app fetches `http://live.uuu.ee:8001/status-json.xsl`
+(app/icecastbroadcaster.cpp:409) for channel occupancy and reads only `listenurl`; project-description.md:394 lists
+`listeners (current count)`. Their database stores no plays and no listeners, so Icecast's own count is the only one.
+
+- Somebody else's server: the owner approved reading it ONLY while one of our stations is on air on a uuu mount, at most
+  once every 30 to 60 s, from the cast worker, never from a page or a harness. So the read sits in the alarm's on-air
+  branch (`s.playing` and `s.onAir`), `listenTick` returns before calling anything when either is false, and a
+  station reads at most every LISTEN_EVERY_MS (55 s, so every second 30 s sweep). The answer covers every mount on
+  their server, so it is kept STATUS_KEEP_S (50 s) per isolate and per colo (`caches.default`) and a second station on
+  air reads the same answer.
+- `icestats.source` is one object with one source and an array with several. The mount is matched on the END of
+  `listenurl`'s path, so `user1` never reads `user12`. A mount with no source, or a source with no `listeners`, is no
+  count rather than 0. Icecast 2.4.x can write a title with an unescaped quote, which is not JSON: the mount's own
+  object is then scanned for its `listeners` (marked `how: scanned`).
+- The shout relay (`workers/shout/worker.mjs`) holds ONE connection to `radio1965` however many listen through it, so
+  Väin counts it as one. People = Väin's count, less the relay's `upstreamConnections` (`GET /tee/radio1965`, over the
+  `SHOUT` service binding), plus its `listeners`. Its 20 s linger holds the mount for nobody, which reads as 1 at
+  Väin and 0 people. Only `radio1965` and `preview` are on the relay (its STATIONS, read that day); `user1..4` are
+  counted as Väin reports them. A relay that does not answer in 4 s leaves Väin's count as it is.
+- preview's count is the cast's own listeners (`ears`, no request anywhere) with the same relay correction.
+- Per broadcast (keyed by `want.startedAt`, so a restart after a death is the same broadcast): now, peak, listener
+  minutes, started and ended, the last KEEP (20) in storage. Minutes are the count held between readings; a failed
+  read holds the last count, never for more than GAP_MAX_MS (3 min), so an outage cannot inflate them. A stop holds
+  the count to the stop.
+- Public, on `/status/<station>` as `listeners` and `listens`: their status-json is public already, and the page polls
+  that status without a key.
+- `node workers/cast/listeners-test.mjs`: 30 checks, 12 named negative controls, against a stand-in Icecast on
+  127.0.0.1 and a stand-in relay. MEASURED: taking `!onAir` out of the guard takes 2 red, dropping the relay's
+  connection from the sum 4 red, dropping the gap ceiling 2 red.
+- NOT measured against their server: nobody probed it to build this. The first broadcast on a uuu mount is the first
+  real reading; until then the shape is the app's and the project description's, not ours.
+
 ## gate
 
 `workers/cast/gate.mjs` and `workers/cast/render.mjs`, 2026-10-20. Asked after an evening of about 15 live sound

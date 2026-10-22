@@ -485,6 +485,9 @@ MEASURED (headless Chromium, a 1 kHz 40 ms burst every 2 s, one AudioContext clo
 - Cost (READ): adapter egress about $0.035 a live hour (0.69 GB at $0.05 per GB past the shared 1,000 GB); ingest free.
 - The per pair token can appear in Workers Logs (upgrade URLs are logged); it dies with the pair.
 
-Not done: the plan's chains (`cf-sfu -> encoder -> shout` and back) and a page with a patchbay link; no page opens
-`/adapter` yet. Where the 230 to 330 ms goes.
+A page, built 2026-10-22: https://positron.studio/radio/return/ ("Mic return"): your microphone into the SFU,
+through edgecast (echo, ring or full) and back, a delay readout (echo only), a split scope and the patchbay. It
+needed CORS on edgecast's `/adapter/*` (deployed, version `c43511a5`). MEASURED with fake bursts: microphone to what
+comes back 411 ms median in echo (280 to 413), sound back 4.5 to 5.7 s after Start. `lessons/workers-edgecast-adapter.md#page`.
+Not done: the plan's chains (`cf-sfu -> encoder -> shout` and back). Where the delay goes, and why it steps.
 

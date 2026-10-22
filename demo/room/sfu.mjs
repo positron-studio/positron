@@ -213,5 +213,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     peers: () => [...streams.keys()].map((s) => ({ site: s, state: inn.pc.connectionState, route: route.in })),
     layerNow: () => rid,
     published: () => [...out.published.keys()],
+    /** The two peer connections, for a page that reads their stats (/radio/return/); read only. */
+    connections: () => ({ send: out.pc, receive: inn.pc }),
   };
 }

@@ -98,3 +98,41 @@ On 2026-10-22 this desk's network answered every `*.positron.studio` name with a
 (208.91.112.55, self-signed certificate), even through `@1.1.1.1`. The workers.dev names answer, and so does the
 custom domain pinned with `curl --resolve sfu.positron.studio:443:104.18.0.1`. The SFU reaches
 `edgecast.positron.studio` from Cloudflare's side, so the adapter endpoints use the custom domain.
+
+<a id="page"></a>
+
+## `/radio/return/`: the page that drives the pair
+
+Asked 2026-10-22: *"Not done: no page uses this yet. -- do in bg"*. A concept page of its own rather than a block on
+`/radio/edgecast/`, which is the station's page and is already long: one idea per page.
+
+- **The key is in the page after all.** The section above said start, stop and status live in a script. The owner
+  asked for a page that drives them, so it takes the cast's key the way `/radio/cast/` does (`?key=` once, kept in
+  `localStorage` as `vain-cast-key`); without one Start is switched off. The proof that status hands out still costs
+  only our egress bill, and the pair still stops itself after 10 minutes.
+- **The worker had no CORS on `/adapter/*`**, so no page could read an answer: the preflight hit the key check and got
+  a 403, and the replies carried no `access-control-allow-origin`. `worker.mjs` now answers OPTIONS there and adds
+  the header to start, stop and status (and to the key refusal). The page sends its JSON as a text body, a simple
+  request, so it needs no preflight anyway. Until that worker change is deployed, the page's harness adds the header
+  with Playwright's `page.route` on the way back; that is the only thing it fakes.
+- **The publisher's session id and proof come from `createSfu`'s own `send`**: the `sfu.pub` it announces carries them,
+  so the page reads them there. `demo/room/sfu.mjs` gained only a read only `connections()` for the stats.
+- **The delay is the lag of the best correlation between two envelopes** (the microphone as sent and what came back,
+  128 frame blocks, the last 8 s, lags 0 to 1.5 s, empty below r 0.5). It is measured only in echo: ring and full
+  change the sound, so the cell stays empty there, which is the honest answer. Chromium's own fake microphone beeps
+  every ~0.5 s and gave 267 or 792 ms on alternate readings (aliasing), so the harness feeds a WAV of bursts at
+  uneven spacing (`--use-file-for-fake-audio-capture`).
+
+MEASURED 2026-10-22, headless Chromium, workers.dev names, a 60 ms 1 kHz burst at 1.7 to 2.6 s spacing as the
+microphone, microphone to what came back on one AudioContext clock (so including the SFU both ways and the receive
+jitter buffer):
+
+| run | mode | delay median (min to max) | readings | to the SFU (candidate pair) |
+| --- | --- | --- | --- | --- |
+| 1 | echo, 40 s | 411 ms (280 to 413) | 26 | 9 ms |
+| 2 | echo then full at 12 s | 312 ms (285 to 312) | 12 | |
+| 3 | echo, 22 s | 323 ms (301 to 435) | 16 | 9 ms |
+
+Start to edgecast's sound arriving: 4.5 to 5.7 s (the microphone on the SFU at 1.0 s, the pair up at 2.5 to 2.7 s).
+Ring kept the level continuous (-17.5 dB peak second against -23.5 for echo). After Stop `/adapter/status` read
+`on: false`, closed `asked`, every run.

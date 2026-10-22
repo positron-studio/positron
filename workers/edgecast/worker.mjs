@@ -160,9 +160,15 @@ export default {
     if (u.pathname === '/ws') return env.EDGECAST.get(env.EDGECAST.idFromName(u.searchParams.get('room') || 'lab')).fetch(req);
     // the adapter's sockets carry their own token; start, stop and status need CAST_KEY (start makes Cloudflare dial us)
     if (u.pathname.startsWith('/adapter/')) {
-      if (!u.pathname.startsWith('/adapter/ws/') && !keyOk(env, u.searchParams.get('key'))) return Response.json({ error: 'key' }, { status: 403 });
-      if (!env.SFU_ADMIN) return Response.json({ error: 'no SFU_ADMIN binding' }, { status: 500 });
-      return env.EDGECAST.get(env.EDGECAST.idFromName('adapter')).fetch(req);
+      const obj = () => env.EDGECAST.get(env.EDGECAST.idFromName('adapter'));
+      if (u.pathname.startsWith('/adapter/ws/')) return env.SFU_ADMIN ? obj().fetch(req) : new Response('no SFU_ADMIN binding', { status: 500 });
+      // a page drives start, stop and status too (/radio/return/), so they answer across origins; the key still gates them
+      // why: lessons/workers-edgecast-adapter.md#page
+      if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...CORS, 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type' } });
+      if (!keyOk(env, u.searchParams.get('key'))) return Response.json({ error: 'key' }, { status: 403, headers: CORS });
+      if (!env.SFU_ADMIN) return Response.json({ error: 'no SFU_ADMIN binding' }, { status: 500, headers: CORS });
+      const r = await obj().fetch(req);
+      return new Response(r.body, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/json', 'cache-control': 'no-store', ...CORS } });
     }
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, POST' } });
     if (['/listen', '/status', '/start', '/stop'].includes(u.pathname)) return env.STATION.get(env.STATION.idFromName('station-preview')).fetch(req);

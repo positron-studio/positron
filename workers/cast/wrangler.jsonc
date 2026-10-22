@@ -18,6 +18,8 @@
   // v2: the `test` receiver (Rx) is gone with the `test` target; it kept nothing in storage
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Caster", "Rx"] }, { "tag": "v2", "deleted_classes": ["Rx"] }, { "tag": "v3", "new_sqlite_classes": ["Votes"] }],
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  // the shout relay's tee stats, to count who hears radio1965 and preview through it (listeners.mjs)
+  "services": [{ "binding": "SHOUT", "service": "positron-shout" }],
   "workers_dev": true,
   "observability": { "enabled": true }
 }

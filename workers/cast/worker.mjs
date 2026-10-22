@@ -12,6 +12,8 @@
 //   GET  /live                 per channel, whether their own stream is on it (a `livestream` event), cached 15 s
 //   GET  /listen/preview       the preview Icecast inside the `preview` caster's container, moved across a handover; 503
 //                              when it is not running
+//   status also carries `listeners` (the broadcast on air: now, peak, listener minutes) and `listens` (the last ones),
+//                              read off the mount's own Icecast status while on air, at most once a minute (listeners.mjs)
 //   GET  /votes                the owner's votes on live scenes (demo/radio/cast/life.mjs), newest last
 //   POST /votes?key=           {inst, def, vote: 1 bad | 2 meh | 3 good | 4 great | null, comment, file, station?}: one row per
 //                              scene played (`inst`, a station's from its status.life); no vote and no comment takes it back
@@ -24,6 +26,7 @@
 import { levelFor } from './gains.mjs';
 import { tasteOf, fileWeight } from './container/sc/radio/cast/life.mjs';
 import { createEar } from './splice.mjs';
+import { statusUrl, parseStatus, trueCount, listenTick, listenStatus, close as closeListen, TEE_OF, STATUS_KEEP_S, STATUS_TIMEOUT_MS } from './listeners.mjs';
 import { pickBy, longOnly, resolveIds, rotateAfter, freshLook, goneFrom, freshQueue, programLess, MIN_FILE_S, FRESH_EVERY_MS } from './program.mjs';
 
 const FEED = 'https://live.uuu.ee/radio1965/api/events?status=new&status=shelved';
@@ -81,6 +84,34 @@ async function events(ctx) {
     return JSON.parse(body);
   })().finally(() => { eventsInFlight = null; });
   return eventsInFlight;
+}
+
+/**
+ * Their Icecast's status-json as text, one answer per isolate and per colo for STATUS_KEEP_S whichever station asks.
+ * Only a station on air there calls it. why: lessons/workers-cast.md#listeners
+ */
+const originMemo = new Map(), originInFlight = new Map();
+export async function originStatus(t, ctx, f = fetch) {
+  const url = statusUrl(t), m = originMemo.get(url);
+  if (m && Date.now() - m.at < STATUS_KEEP_S * 1000) return m.text;
+  if (originInFlight.has(url)) return originInFlight.get(url);
+  const p = (async () => {
+    const key = new Request(`https://cast.positron.studio/__status/${t.host}/${t.port}`);
+    let hit = null;
+    try { hit = await caches.default.match(key); } catch { /* no cache here */ }
+    let text;
+    if (hit) text = await hit.text();
+    else {
+      const r = await f(url, { headers: { 'user-agent': 'positron-cast/1 (+https://positron.studio)' }, signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
+      if (!r.ok) { r.body?.cancel(); throw new Error(`their status answered ${r.status}`); }
+      text = await r.text();
+      try { ctx?.waitUntil?.(caches.default.put(key, new Response(text, { headers: { 'cache-control': `max-age=${STATUS_KEEP_S}` } }))); } catch { /* no cache here */ }
+    }
+    originMemo.set(url, { at: Date.now(), text });
+    return text;
+  })().finally(() => originInFlight.delete(url));
+  originInFlight.set(url, p);
+  return p;
 }
 
 /** Per channel `{ vain, title, id, since }`: a new `livestream` event their on-connect hook published for it. */
@@ -277,7 +308,7 @@ export class Caster {
   }
 
   async status() {
-    const [want, progress, deaths, boot, prog, stopped, handovers] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'program', 'stopped', 'handovers'].map((k) => this.st.get(k)));
+    const [want, progress, deaths, boot, prog, stopped, handovers, listens] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'program', 'stopped', 'handovers', 'listens'].map((k) => this.st.get(k)));
     const t = targets(this.env)[this.name], k = await this.key(), s = await this.cstatus(k), up = await this.running(k);
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
@@ -295,7 +326,7 @@ export class Caster {
       grains: s?.mix?.grains ? (({ patch, mix, values, out, chainStarts, chain: c }) => ({ patch, mix, values, out, chainStarts,
         chain: c && { dead: c.dead, upS: c.upS, xruns: c.xruns, late: c.late, grains: c.grains, scsynth: c.scsynth,
           procs: Object.fromEntries(Object.entries(c.procs || {}).map(([k, v]) => [k, v && { cpuPct: v.cpuPct, rssMiB: v.rssMiB }])) } }))(s.mix.grains) : null,
-      usage: s?.usage || null,
+      usage: s?.usage || null, ...listenStatus(listens || []),
       progress: progress ? (({ handoff, ...p }) => ({ ...p, scene: handoff?.si ?? null }))(progress) : null, deaths: deaths || [], handovers: handovers || [], lines };
   }
   async push() {
@@ -491,6 +522,38 @@ export class Caster {
     this.push();
   }
 
+  /**
+   * Who hears the broadcast on air: the mount's Icecast status (preview: our own listeners), less the shout relay's
+   * connection, plus who listens through it. Nothing is read off air. why: lessons/workers-cast.md#listeners
+   */
+  async countListeners(want, onAir) {
+    const t = targets(this.env)[this.name];
+    if (!t) return;
+    const r = await listenTick({ list: (await this.st.get('listens')) || [], want, onAir, mount: t.mount, now: Date.now(), read: () => this.listenRead(t) });
+    if (r.changed) await this.st.put('listens', r.list);
+  }
+
+  /** One reading: `{ ok, count, from }`. */
+  async listenRead(t) {
+    const tee = TEE_OF[this.name];
+    const [o, teeStats] = await Promise.all([
+      t.local ? { ok: true, listeners: this.ears.size, how: 'ears' } : originStatus(t, this.ctx).then((text) => parseStatus(text, t.mount)),
+      tee ? this.teeStats(tee) : null]);
+    if (!o.ok) return o;
+    return { ok: true, count: trueCount(o.listeners, teeStats), from: { origin: o.listeners, how: o.how, tee: teeStats } };
+  }
+
+  /** The shout relay's tee for one mount, `{ listeners, upstreamConnections }`, or null when it does not answer in 4 s. */
+  async teeStats(id) {
+    try {
+      const go = this.env.SHOUT ? this.env.SHOUT.fetch(`https://shout/tee/${id}`) : fetch(`https://shout.positron.studio/tee/${id}`);
+      const r = await Promise.race([go, sleep(4000).then(() => null)]);
+      if (!r?.ok) return null;
+      const j = await r.json();
+      return { listeners: Number(j.listeners) || 0, upstreamConnections: Number(j.upstreamConnections) || 0 };
+    } catch { return null; }
+  }
+
   /** Moves the stop to now + ms, 15 min to 14 days; only while wanted. */
   async extend(ms) {
     const want = await this.st.get('want');
@@ -506,6 +569,8 @@ export class Caster {
 
   async stop(why) {
     await this.st.put('stopped', { at: iso(Date.now()), t: Date.now(), why });
+    const ls = await this.st.get('listens');
+    if (ls?.length && ls.at(-1).endedAt == null) { ls[ls.length - 1] = closeListen(ls.at(-1), Date.now()); await this.st.put('listens', ls); }
     await this.st.delete(['want', 'progress']);
     await this.st.deleteAlarm();
     const k = await this.key();
@@ -717,6 +782,7 @@ export class Caster {
             sessionS: Math.round((Date.now() - want.startedAt) / 1000), files: s.files, lag: s.lag, down: s.down,
             sinkDeaths: s.sinkDeaths, index: s.index, now: s.now, bytes: s.bytes, rss: s.rss, handoff: s.handoff || null });
           await this.freshTick(want, s.now?.id).catch((e) => this.say(`feed check: ${e.message}`));
+          await this.countListeners(want, !!s.onAir).catch((e) => this.say(`listeners: ${e.message}`));
         }
       }
     } catch (e) { this.say(`sweep: ${e.message}`); }
