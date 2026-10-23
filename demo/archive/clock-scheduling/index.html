@@ -33,7 +33,10 @@
   import { mount, el } from '/shell/shell.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { createPatchbay } from '/shell/patchbay.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createChoice } from '/shell/choice.mjs';
@@ -202,11 +205,19 @@
     view.strip.invalidate();
   }
 
+  // The transport is a node on this page's bay: its buttons send along a link, and the bar only lays them out.
+  // why: lessons/kit-bar.md#bay
   const glue = el('div');
-  const bar = createTransportBar(glue, deck, {
-    scrub: false, loop: false, live: false,
-    command: { play: () => start(), pause: () => stop() },
+  const control = createTransportControl(deck, { command: { play: () => start(), pause: () => stop() } });
+  const send = transportOnBay(bay, { site: S, control });
+  const bar = createBar({
+    start: [playToggle(control, { send }).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [ratesView(control, { send }).el],
   });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el }));
   const laneSpec = (id, label) => ({
     id, kind: 'hit', label, height: 52, width: 2, as: 'ticks', terse: true,
     rows: () => ROWS.map((at, i) => ({ at, id: `${id}${i}`, kind: 'hit', payload: { pos: at } })),
