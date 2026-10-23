@@ -41,7 +41,13 @@ export async function pictureAt(file, dir = join(ROOT, 'demo/resources')) {
   return { href: `data:${size.type};base64,${base64(bytes)}`, width: size.width, height: size.height, fx: 0.5, fy: 0.5, file, bytes: bytes.length };
 }
 /** One card over a picture, its scrim measured for 4.5:1 text as the site card's is; plain with no picture. */
-export const backedCard = (fn, bg) => (bg ? backed(fn, bg, (svg, w) => renderPixels(svg, w)) : fn(null));
+export async function backedCard(fn, bg, scrimMax = null) {
+  if (!bg) return fn(null);
+  const c = await backed(fn, bg, (svg, w) => renderPixels(svg, w));
+  // a page may ask for its picture to show more than 4.5:1 text allows: the scrim stops there, and says so
+  if (scrimMax == null || c.scrim <= scrimMax) return c;
+  return { ...fn({ ...bg, scrim: scrimMax }), scrim: scrimMax, contrast: c.contrast, capped: c.scrim, bare: c.bare, worst: c.worst };
+}
 
 /** The three cards for this build: `{ site, ig, hello, bg }`, each card plain or backed. */
 export async function shareCards(bg) {

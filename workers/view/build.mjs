@@ -581,14 +581,14 @@ for (const [what, c] of [['share card', CARD], ['instagram card', SHARE_CARDS.ig
 // why: lessons/kit-share-card.md#page-cards
 const OWN_CARDS = {};
 for (const [dst, text] of Object.entries(PAGE_CARDS)) {
-  const c = await backedCard((b) => pageCard(text, b), text.bg ? await pictureAt(text.bg) : SHARE_BG);
+  const c = await backedCard((b) => pageCard(text, b), text.bg ? await pictureAt(text.bg) : SHARE_BG, text.scrimMax);
   await writeFile(join(OUT, c.path.slice(1)), await renderPng(c.svg, c.width));
   OWN_CARDS[dst] = c;
-  console.log(`  page card ${dst} ${c.path}: ${c.width}x${c.height}${c.scrim != null ? `, scrim ${c.scrim}, text ${c.contrast.toFixed(2)}:1` : ''}`);
+  console.log(`  page card ${dst} ${c.path}: ${c.width}x${c.height}${c.scrim != null ? `, scrim ${c.scrim}${c.capped ? ` (4.5:1 wanted ${c.capped})` : `, text ${c.contrast.toFixed(2)}:1`}` : ''}`);
   if (text.igBg) {
-    const ig = await backedCard((b) => pageIgCard(text, b), await pictureAt(text.igBg));
+    const ig = await backedCard((b) => pageIgCard(text, b), await pictureAt(text.igBg), text.scrimMax);
     await writeFile(join(OUT, ig.path.slice(1)), await renderPng(ig.svg, ig.width));
-    console.log(`  page instagram card ${dst} ${ig.path}: ${ig.width}x${ig.height}, scrim ${ig.scrim}, text ${ig.contrast.toFixed(2)}:1`);
+    console.log(`  page instagram card ${dst} ${ig.path}: ${ig.width}x${ig.height}, scrim ${ig.scrim}${ig.capped ? ` (4.5:1 wanted ${ig.capped})` : ''}`);
   }
 }
 const cardEntry = (c) => ({ path: c.path, width: c.width, height: c.height,
