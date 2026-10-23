@@ -7,6 +7,7 @@
 import { mount, el } from '/shell/shell.mjs';
 import { createChatLog, createChatCompose, createChatColumn, createChatWindow } from '/shell/chat-ui.mjs';
 import { createButtonGroup } from '/shell/button-group.mjs';
+import { createChoice } from '/shell/choice.mjs';
 import { createIconButton } from '/shell/icon-button.mjs';
 import { createTabs } from '/shell/tabs.mjs';
 import { createBay } from '/shell/bay.mjs';
@@ -28,6 +29,7 @@ const CSS = `
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
   .rv-whip-row { display: flex; gap: var(--ctl-gap, 8px); align-items: center; }
   .rv-whip-row[hidden] { display: none; }
+  .rv-whip-row + .rv-whip-row { margin-top: var(--ctl-gap, 8px); }
   .rv-whip-url { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font: 400 12px/1.5 var(--mono); }
   .rv-whip-how { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
   /* A phone: the window is one screen tall, Video and Chat are tabs over it, the footer stays at
@@ -108,6 +110,14 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   // /room/stage/ has no lead button: what is on its stage comes from the room's live input (OBS).
   const CAN_LEAD = CAN_SHARE;
 
+  // The studio Mac (site m1) is reached in its own relay room; its state is read by the graph and the bay.
+  if (stream) takeStudioKey();
+  let m1 = null, m1Seen = 0, m1Obs = null, m1Asking = false;
+  const M1_ONLINE_MS = 15_000;
+  const m1Online = () => Date.now() - m1Seen < M1_ONLINE_MS;
+  const SCENE_OUT = `${SITE}:scenes:value-out`, SCENE_IN = 'm1:scene:value-in';
+  const CAN_SCENE = stream && !!studioKey();
+
   let since = 0;
   const selfGraph = () => ({
     // No `place`: it defaults to the site, so two tabs are two machines and their media rides p2p.
@@ -120,6 +130,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       { id: `${SITE}:controls`, kind: 'person', label: 'mic and camera buttons' },
       { id: `${SITE}:grid`, kind: 'screen', label: 'grid' },
       ...(CAN_SHARE ? [{ id: `${SITE}:share`, kind: 'device', label: 'screen share' }] : []),
+      ...(CAN_SCENE ? [{ id: `${SITE}:scenes`, kind: 'person', label: 'scene switcher' }] : []),
       ...(HAS_STAGE ? [{ id: `${SITE}:stage`, kind: 'screen', label: 'stage' }] : []),
     ],
     ports: [
@@ -133,6 +144,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       // `page` too: this tab's own camera into its own tile.
       { id: VIDEO_IN, label: 'camera', dir: 'in', medium: 'video', transports: ['page', VIA] },
       { id: AUDIO_IN, label: 'microphone', dir: 'in', medium: 'audio', transports: [VIA] },
+      ...(CAN_SCENE ? [{ id: SCENE_OUT, label: 'OBS scene', dir: 'out', medium: 'value', shape: { of: 'scene' }, transports: ['relay'] }] : []),
       ...(CAN_SHARE ? [
         { id: LEAD_OUT, label: 'screen', dir: 'out', medium: 'video', transports: ['page', VIA] },
         { id: LEAD_SAY, label: 'presenting', dir: 'out', medium: 'value', transports: ['relay'] },
@@ -182,6 +194,13 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       } else if (since && presenter && presenter !== SITE && b.port(`${presenter}:${SRC}:video-out`)) {
         b.link(`${presenter}:${SRC}:video-out`, STAGE_IN);
       }
+    }
+    // OBS's scene on the studio Mac: its in-port lives in this bay while the Mac is online, and delivering to it
+    // sends the switch over the Mac's room. why: lessons/kit-participant.md#obs-scene
+    if (CAN_SCENE && m1 && m1Online() && m1Obs?.scenes?.length) {
+      b.addNode({ id: 'm1:scene', kind: 'engine', label: 'OBS scene' });
+      b.addPort({ id: SCENE_IN, label: 'switch scene', dir: 'in', medium: 'value', shape: { of: 'scene' }, transports: ['relay'], deliver: (ev) => m1SendScene(ev.name) });
+      b.link(SCENE_OUT, SCENE_IN);
     }
     // Your camera into your own tile, while it is on. The microphone has no such link: it is never
     // played back to you, which would be the echo.
@@ -652,20 +671,51 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   // Start m1: with the owner's studio key in this browser, the studio Mac's OBS streams its current scene into this
   // room (rig/m1/studio-agent.mjs, obs.start signed over the room's name). The Mac is reached in its own relay room.
   // why: lessons/kit-participant.md#start-m1
-  if (stream) takeStudioKey();
-  let m1 = null, m1Seen = 0, m1Obs = null, m1Asking = false;
   const m1Grp = createButtonGroup({ buttons: [{ id: 'm1', label: 'Start m1', onPress: () => m1Toggle() }] });
   m1Grp.button('m1').style.minWidth = '12ch';
   const m1Say = el('span', 'rv-whip-how', '');
   const m1Row = el('div', 'rv-whip-row');
   m1Row.append(m1Grp.el, m1Say);
   m1Row.hidden = true;
+  // OBS's scenes as one choice; a pick leaves on the scene switcher's port and reaches the Mac along its link.
+  // why: lessons/kit-participant.md#obs-scene
+  const sceneRow = el('div', 'rv-whip-row');
+  sceneRow.hidden = true;
+  let sceneChoice = null, sceneKey = '', scenesAsked = false, sceneDrawn = false;
+  function m1SendScene(name) {
+    if (!m1 || typeof name !== 'string') return;
+    signStudio('obs.scene', name).then((sig) => m1.send({ type: 'obs.scene', name, ...sig }));
+    d.log(`asked OBS on the studio Mac for scene ${name}`);
+  }
+  function pickScene(name) {
+    const n = bay().send(SCENE_OUT, { of: 'scene', name });
+    if (n) pb?.pulse(SCENE_OUT, SCENE_IN); else d.log('the scene switcher has no link to OBS yet', 'warn');
+  }
+  function drawScenes() {
+    const scenes = m1Online() ? m1Obs?.scenes || [] : [];
+    const key = scenes.join('\n');
+    if (key !== sceneKey) {
+      sceneKey = key;
+      sceneRow.replaceChildren();
+      sceneChoice = scenes.length ? createChoice({ label: 'scene', options: scenes.map((x) => [x, x]), at: scenes.indexOf(m1Obs.scene), onPick: (name) => pickScene(name) }) : null;
+      if (sceneChoice) sceneRow.append(sceneChoice.el);
+    } else if (sceneChoice && m1Obs?.scene && sceneChoice.value() !== m1Obs.scene) sceneChoice.set(scenes.indexOf(m1Obs.scene), true);
+    sceneRow.hidden = !sceneChoice || !since;
+    if (!!sceneChoice !== sceneDrawn) { sceneDrawn = !!sceneChoice; pb?.refresh(); }
+  }
   function m1Open() {
     if (m1 || !stream || !studioKey()) return;
     m1 = openWire(MAC_ROOM, { onMessage: (got) => {
       const m = got?.msg;
       if (got?.kind !== 'json' || !m) return;
-      if (m.type === 'board.alive' || m.type === 'board.hello') { if (m.graph?.site === 'm1') { m1Seen = Date.now(); if (m.obs) m1Obs = m.obs; m1Show(); } }
+      if (m.type === 'board.alive' || m.type === 'board.hello') {
+        if (m.graph?.site !== 'm1') return;
+        m1Seen = Date.now();
+        if (m.obs) m1Obs = m.obs;
+        if (m.apps?.obs && !scenesAsked) { scenesAsked = true; m1.send({ type: 'obs.scenes' }); }
+        if (m.apps && !m.apps.obs) scenesAsked = false;
+        m1Show();
+      }
       if (m.type === 'obs.state') { m1Obs = m; m1Show(); }
     } });
   }
@@ -683,6 +733,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       : here ? 'OBS on the studio Mac streams into this room'
       : elsewhere ? `OBS streams into room ${m1Obs.room}; Start moves it here`
       : m1Obs?.state === 'failed' ? `OBS failed: ${m1Obs.why}` : 'OBS on the studio Mac streams its current scene here';
+    drawScenes();
   }
   setInterval(m1Show, 3000);
   async function m1Toggle() {
@@ -694,7 +745,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     d.log(stop ? 'asked the studio Mac to stop OBS' : 'asked the studio Mac to stream OBS into this room');
     setTimeout(() => { m1Asking = false; m1Show(); }, 2000);
   }
-  whipSec.append(whipH, whipRow, m1Row);
+  whipSec.append(whipH, whipRow, m1Row, sceneRow);
   whipSec.hidden = true;
   function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; if (since) m1Open(); m1Show(); }
   d.stack.add(rv, ...(stream ? [whipSec] : []), pb.el);

@@ -484,3 +484,14 @@ Why not each machine's own clock: MEASURED 2026-10-23, the M1 read 11.5 ms ahead
 nothing touched. Two lag runs 4 minutes apart read 236 and 359 ms median through the first offset, which is that
 move and not the pipeline. Through the edge clock the same path read 211 to 233 ms (headless Chrome on the laptop,
 OBS on the M1, same LAN, both in TLL).
+
+## demo/room/video-room.mjs, OBS's scene from the room {#obs-scene}
+
+With the studio key in the browser, /room/obs/ and /room/stage/ show OBS's scenes on the studio Mac as one choice
+under Start m1. The tab announces a `scenes` node (`<tab>:scenes:value-out`, `{ of: 'scene' }`); while the Mac is
+online the page adds the Mac's `m1:scene` node to its own bay with an in-port whose `deliver` signs `obs.scene`
+over the scene's name and sends it in the Mac's room (m1-1). So a pick is `bay.send` on the switcher's port and
+reaches OBS only along the drawn link. The agent answers `obs.scenes` (unsigned, read only) with the scene
+collection in OBS's own order (GetSceneList answers bottom up) and the scene on air; the page asks once when the
+Mac's heartbeat says OBS is open. MEASURED 2026-10-23, headless against the real Mac: Scene, positron-src,
+positron-lag listed; a pick moved OBS's program scene within 2.5 s and the choice followed it back.

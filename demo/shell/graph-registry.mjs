@@ -49,6 +49,9 @@ export function macGraph({ room = MAC_ROOM, site = MAC_SITE, live = false, obs =
     port('encoder', 'value-out', { label: 'idle or live', dir: 'out', medium: 'value', address: room });
     port('encoder', 'video-out', { label: 'OBS', dir: 'out', medium: 'video', transports: ['whip', 'sfu'] });
     port('encoder', 'audio-out', { label: 'OBS', dir: 'out', medium: 'audio', transports: ['whip', 'sfu'] });
+    node('scene', 'engine', 'OBS scene');
+    port('scene', 'value-in', { label: 'switch scene', dir: 'in', medium: 'value', shape: { of: 'scene' }, address: room });
+    port('scene', 'value-out', { label: 'on air', dir: 'out', medium: 'value', shape: { of: 'scene' }, address: room });
   }
   return { v: GRAPH_V, site, kind: 'mac', label, place: room, nodes, ports };
 }

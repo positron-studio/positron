@@ -169,7 +169,7 @@ async function liveState() {
 const SFU = arg('sfu', 'https://sfu.positron.studio');
 const OBS_PROFILE = 'positron-whip';
 const OBS_DIR = join(homedir(), 'Library', 'Application Support', 'obs-studio');
-let obsState = { state: 'idle', room: null, why: null }, obsPrev = null, obsBusy = false;
+let obsState = { state: 'idle', room: null, why: null, scene: null, scenes: [] }, obsPrev = null, obsBusy = false;
 const ROOM_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 async function obsCall() {
   const pw = JSON.parse(readFileSync(join(OBS_DIR, 'plugin_config', 'obs-websocket', 'config.json'), 'utf8')).server_password;
@@ -204,6 +204,21 @@ async function obsStart(room) {
     await o.call('StartStream');
     for (let i = 0; i < 15; i++) { await pause(1000); if ((await o.call('GetStreamStatus')).outputActive) return obsSay({ state: 'live', room }); }
     throw new Error('OBS did not start streaming');
+  } finally { o.close(); }
+}
+// The scene collection's scenes in OBS's own order (its list answers bottom up), and the one on air.
+async function obsScenes(o) {
+  const l = await o.call('GetSceneList');
+  const scenes = [...l.scenes].sort((a, b) => b.sceneIndex - a.sceneIndex).map((x) => x.sceneName);
+  obsSay({ scene: l.currentProgramSceneName, scenes });
+}
+async function obsScene(name) {
+  const o = await obsCall();
+  try {
+    const l = await o.call('GetSceneList');
+    if (!l.scenes.some((x) => x.sceneName === name)) throw new Error(`OBS has no scene called ${name}`);
+    await o.call('SetCurrentProgramScene', { sceneName: name });
+    await obsScenes(o);
   } finally { o.close(); }
 }
 async function obsStop(why = 'stopped') {
@@ -303,6 +318,19 @@ async function handle(m, reply) {
         obsSay({ state: 'failed', why: e.message });
         return reply('obs.state', { ...obsState, ok: false });
       } finally { obsBusy = false; }
+    }
+    // OBS's scenes, read only; and a switch, signed over the scene's name.
+    case 'obs.scenes': {
+      if (!running.obs) return reply('obs.state', { ...obsState, scenes: [], scene: null, ok: false, why: 'OBS is not open' });
+      try { const o = await obsCall(); try { await obsScenes(o); } finally { o.close(); } } catch (e) { return reply('obs.state', { ...obsState, ok: false, why: e.message }); }
+      return reply('obs.state', { ...obsState, ok: true });
+    }
+    case 'obs.scene': {
+      const name = String(m.name || '').slice(0, 120);
+      const no = signedOk(m, name);
+      if (no) return reply('obs.state', { ...obsState, ok: false, why: no });
+      try { await obsScene(name); } catch (e) { return reply('obs.state', { ...obsState, ok: false, why: e.message }); }
+      return reply('obs.state', { ...obsState, ok: true });
     }
     case 'app.open': {
       const app = APPS[m.app];
