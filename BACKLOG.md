@@ -1,5 +1,6 @@
 ## Open
 
+- **Investigate James McCartney's SAPF code (github.com/lfnoise/sapf): a match for positron?** (2026-10-23). Asked: *"Ivesfigate his code? Match for positron?"*. A plan in plans/plan-sapf.md, reported in full.
 - **/radio1965/: rm the listener numbers from the playing text** (2026-10-23). Asked: *"Rm Listener numbers"*.
 - **/radio1965/: the parameters back INTO the description as wrapping text, no grid, no bars, no animation; nothing over the picture; nothing jumps** (2026-10-23). Asked: *"You ruined it. It's covering visuals. I asked you to put it to replace the description and just make it like a text, wrapping text... there is no progress bars or animations... it doesn't have to even update real time"*.
 - **/radio1965/: Väin app and web listeners counted apart** (2026-10-23). Asked: *"We can get vain app and web numbers separey for listwrnr conu?"*. /state already has `listeners.now` (Väin mount) and `ears` (our /listen).
