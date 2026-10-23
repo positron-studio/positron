@@ -495,3 +495,24 @@ reaches OBS only along the drawn link. The agent answers `obs.scenes` (unsigned,
 collection in OBS's own order (GetSceneList answers bottom up) and the scene on air; the page asks once when the
 Mac's heartbeat says OBS is open. MEASURED 2026-10-23, headless against the real Mac: Scene, positron-src,
 positron-lag listed; a pick moved OBS's program scene within 2.5 s and the choice followed it back.
+
+## demo/room/replay.mjs, record the stage, keep it, play it, copy it to R2 {#replay}
+
+/room/replay/ is /room/obs/ plus four nodes on the tab: `rec` (engine, the recorder: picture and sound in, a take
+out), `store` (this browser, IndexedDB), `player` (a take in, picture and sound out to the stage) and the page-drawn
+`cf-r2:takes`. While recording, the live encoder's picture and sound link into the recorder (sfu); the take links
+into the store (indexeddb); the store into the player while a take exists; the player into the stage while it
+plays (page, webaudio); the store into R2 while uploading or uploaded (ingest). The recorder is an `engine`, not a
+`store`: a link into a store takes the bay's `file` row, which refused the picture from OBS ("picture only travels
+by page or sfu, and at internet-one the table offers ingest").
+
+Every tab holds `*:rec:value-out -> <me>:stage:value-in`, and a recording tab says `{ of: 'rec', on }` every 5 s, so
+every stage in the room shows `● REC <site>` while anybody records (plans/plan-video-room.md: a recording is a
+visible mark on every screen). The mark goes after 12 s of silence.
+
+A take is MediaRecorder over the stage's received stream (VP9 700 kbit/s, Opus 96 kbit/s, 2 s slices), one object in
+IndexedDB `positron-replay`, replaced by the next. It stops itself at 4 minutes, because ingest's open tier keeps
+24 MiB a session. Upload is `putWhole`; the playable file is `<ARCHIVE_BASE>/<session>/seg00000.webm` (putWhole's
+`url` is the manifest), proved with a HEAD before it is shown, kept 6 hours. MEASURED 2026-10-23, headless, OBS on
+the M1: an 8 s take was 0.8 MB, played on the stage and gave the stage back to the live picture, uploaded as
+839,271 bytes of VP9 1280x720 and Opus; the other tab showed the mark within 4 s.
