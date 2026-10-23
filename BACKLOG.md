@@ -1,5 +1,6 @@
 ## Open
 
+- **Record radio1965 for 2 hours to R2** (2026-10-23). Asked: *"record"*, then *"yes to r2. 2 hrs"*. From our own /listen (one web listener while it runs), on this laptop with caffeinate, then to R2 positron-station/radio1965/.
 - **radio1965: silence on air from a long live recording (evt_1792744923184, out -63 dB RMS over a 146 s scene); no cast deploy until the broadcast ends** (2026-10-23). Asked: *"silence???"*, then *"i can drop feed any more"*. The fix in the cast (skip a stretch near silence) waits for the end of the broadcast; meanwhile the owner skips by hand, or a watcher in workers/stats sends `next` (not built, asked).
 - **/radio1965/: a Feedback button next to Play, no icon** (2026-10-23). Asked: *"add feedback button next to play (no icon)"*, *"no bg button"*.
 - ~~**Front page line: "Create live, interactive experiences" for "Create playful, interactive worlds"**~~ (2026-10-23). Asked: *"Create live, interactive experiences  for now"*. demo/shell/hero.mjs, demo/kit/frontpage/index.html. DONE 2026-10-23.
