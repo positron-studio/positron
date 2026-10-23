@@ -1,5 +1,6 @@
 ## Open
 
+- **/radio1965/: a Feedback button next to Play, no icon** (2026-10-23). Asked: *"add feedback button next to play (no icon)"*, *"no bg button"*.
 - ~~**Front page line: "Create live, interactive experiences" for "Create playful, interactive worlds"**~~ (2026-10-23). Asked: *"Create live, interactive experiences  for now"*. demo/shell/hero.mjs, demo/kit/frontpage/index.html. DONE 2026-10-23.
 - **Front page: radio1965 first, in a new group "Latest projects"** (2026-10-23). Asked: *"move radio1965 to first (new) groupL 'Latest projects'"*, after *"rm demo styling. its just another page"*. demo/shell/concept-list.mjs.
 - **Front page: add the stage pages (obs, replay, stage, and the other video rooms)** (2026-10-23). Asked: *"add stages etc to index page"*. demo/shell/concept-list.mjs.
