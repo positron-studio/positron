@@ -747,3 +747,14 @@ would otherwise stop the tap under a page that is playing.
 
 MEASURED 2026-10-22, this laptop to the M1 through TURN (two networks): key to sound 174 ms (relay 347 to 455),
 round trip 28 ms (relay 84 to 90), 1432 frames, 0 lost; the first note 695 ms while the path settled.
+
+## rig/m1/studio-agent.mjs, OBS stops itself in an empty room {#obs-cleanup}
+
+A page that started OBS (Start OBS on /room/obs/, /room/replay/, /room/stage/) can close without pressing Stop OBS,
+and then the M1 streams into a room nobody is in for as long as the Mac is up. That happened 2026-10-23: a killed
+test run left OBS streaming into an empty test room. While OBS is live into a room, the agent reads the relay's
+`GET /room/<room>/stats` every 15 s (every tab in a video room holds one socket there; OBS itself holds none) and
+stops OBS once the room has read 0 sockets for 60 s, logging `nobody was in the room for a minute`. A stream OBS was
+not started into by the agent is never touched. MEASURED 2026-10-23: a signed obs.start into an empty room, no tab
+open, went live and was stopped by the agent 95 s after the start (live at about 8 s, then up to 15 s to notice,
+then the minute).

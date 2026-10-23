@@ -231,6 +231,22 @@ async function obsStop(why = 'stopped') {
   obsSay({ state: 'idle', room: null, why });
 }
 
+// OBS streaming into a room nobody is in stops itself: the tab that started it may have closed without Stop OBS.
+// The relay counts the room's sockets (every tab in a video room holds one); empty for a minute ends the stream.
+// why: lessons/rig-m1.md#obs-cleanup
+const OBS_EMPTY_MS = 60_000, OBS_LOOK_MS = 15_000;
+let obsEmptySince = 0;
+setInterval(async () => {
+  if (obsState.state !== 'live' || !obsState.room || obsBusy) { obsEmptySince = 0; return; }
+  const n = await fetch(`${RELAY.replace(/^ws/, 'http')}/room/${obsState.room}/stats`).then((r) => r.json()).then((j) => j.sockets).catch(() => null);
+  if (!Number.isInteger(n)) return;
+  if (n > 0) { obsEmptySince = 0; return; }
+  obsEmptySince ||= Date.now();
+  if (Date.now() - obsEmptySince < OBS_EMPTY_MS) return;
+  obsEmptySince = 0; obsBusy = true;
+  try { await obsStop('nobody was in the room for a minute'); } catch (e) { log('obs cleanup:', e.message); } finally { obsBusy = false; }
+}, OBS_LOOK_MS);
+
 // ── the wire ───────────────────────────────────────────────────────────────
 const hello = () => ({ type: 'board.hello', name: 'studio Mac', id: ID, since: SINCE, audioChannels: CH, frameMs: FRAME_MS,
   instruments: { live: running.live }, direct: !!mainDirect?.direct, graph: graph() });
