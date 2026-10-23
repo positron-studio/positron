@@ -153,9 +153,13 @@ export const siteCard = (bg) => heroCard(W, H, 72, 'site', [2], bg);
  * The build tags that page with it instead of the site card. why: lessons/kit-share-card.md#page-cards
  */
 export const PAGE_CARDS = {
-  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives processed, mixed and visualized by positron.audio' },
+  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives processed, mixed and visualized by positron.audio',
+    // frames of the page's own landscape, captured live, behind the card and the Instagram card
+    bg: 'radio1965-card.png', igBg: 'radio1965-ig.png' },
 };
 export const pageCard = (text, bg) => heroCard(W, H, 72, text.kind, [3], bg, text);
+/** The same page card as an Instagram portrait, 1080 by 1350, posted by hand. */
+export const pageIgCard = (text, bg) => heroCard(IG_W, IG_H, 96, `${text.kind}-ig`, [3], bg, text);
 /** The Instagram portrait, 1080 by 1350, tagged on no page: posted by hand. */
 export const igCard = (bg) => heroCard(IG_W, IG_H, 96, 'ig', [2, 3, 4], bg);
 

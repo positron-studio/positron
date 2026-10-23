@@ -13,3 +13,12 @@ The sound is `cast /listen/radio1965`, our own container's frames (tap.mjs), nev
 listener in their statistics). The numbers are `cast /state/radio1965`, edge cached 5 s and never asking the
 container, read every 10 s. Counts come from rises in the level, not from a grain feed: the page has no grain ring of
 its own. Unlisted until it is measured on phones.
+
+## ios-tap
+
+iPhone Safari hands an AnalyserNode on a live stream's media element zeros (WebKit 180696), so the landscape moved on
+the scene numbers and drift but showed no grains or sound-driven action (owner's phone, 2026-10-23: *"Ios do not get
+grains or action??"*). When the analyser reads zeros for 2 s while the element's time moves, the page opens a second
+copy of our own /listen, cuts it at MP3 frame boundaries, decodes each chunk and schedules it silently into the
+analyser, as /radio/cast/ does for its wave (lessons/workers-cast.md#ios-scope). One more ear on our own server, never
+on Väin's.

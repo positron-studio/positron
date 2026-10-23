@@ -33,6 +33,16 @@ export async function shareBackground(dir = join(ROOT, 'demo/resources')) {
   return { href: `data:${size.type};base64,${base64(bytes)}`, width: size.width, height: size.height, fx, fy, file, bytes: bytes.length };
 }
 
+/** A named picture in demo/resources for one page's card, centred: the same shape as shareBackground's. */
+export async function pictureAt(file, dir = join(ROOT, 'demo/resources')) {
+  const bytes = new Uint8Array(await readFile(join(dir, file)));
+  const size = imageSize(bytes);
+  if (!size) throw new Error(`${file} is not a PNG or JPEG this build can read the size of`);
+  return { href: `data:${size.type};base64,${base64(bytes)}`, width: size.width, height: size.height, fx: 0.5, fy: 0.5, file, bytes: bytes.length };
+}
+/** One card over a picture, its scrim measured for 4.5:1 text as the site card's is; plain with no picture. */
+export const backedCard = (fn, bg) => (bg ? backed(fn, bg, (svg, w) => renderPixels(svg, w)) : fn(null));
+
 /** The three cards for this build: `{ site, ig, hello, bg }`, each card plain or backed. */
 export async function shareCards(bg) {
   if (!bg) return { site: siteCard(), ig: igCard(), hello: helloCard(), bg: null };

@@ -42,10 +42,10 @@ const { CONCEPTS, CONCEPT_DIRS, DEMO_CARDS } =
   await import(new URL('../../demo/shell/concept-list.mjs', import.meta.url));
 // The share card and its tags (demo/shell/share-card.mjs), and the rasteriser
 // that turns its SVG into a PNG with no browser (og/render.mjs, resvg wasm).
-const { shareTags, SITE_NAME, PAGE_CARDS, pageCard } = await import(new URL('../../demo/shell/share-card.mjs', import.meta.url));
+const { shareTags, SITE_NAME, PAGE_CARDS, pageCard, pageIgCard } = await import(new URL('../../demo/shell/share-card.mjs', import.meta.url));
 const { HERO } = await import(new URL('../../demo/shell/hero.mjs', import.meta.url));
 const { renderPng, inkBox } = await import(new URL('./og/render.mjs', import.meta.url));
-const { shareBackground, shareCards } = await import(new URL('./og/background.mjs', import.meta.url));
+const { shareBackground, shareCards, pictureAt, backedCard } = await import(new URL('./og/background.mjs', import.meta.url));
 
 // ── the allowlist ───────────────────────────────────────────────────────────
 // [ repo-relative source, public/-relative destination ]
@@ -580,10 +580,15 @@ for (const [what, c] of [['share card', CARD], ['instagram card', SHARE_CARDS.ig
 // why: lessons/kit-share-card.md#page-cards
 const OWN_CARDS = {};
 for (const [dst, text] of Object.entries(PAGE_CARDS)) {
-  const c = pageCard(text, SHARE_BG);
+  const c = await backedCard((b) => pageCard(text, b), text.bg ? await pictureAt(text.bg) : SHARE_BG);
   await writeFile(join(OUT, c.path.slice(1)), await renderPng(c.svg, c.width));
   OWN_CARDS[dst] = c;
-  console.log(`  page card ${dst} ${c.path}: ${c.width}x${c.height}`);
+  console.log(`  page card ${dst} ${c.path}: ${c.width}x${c.height}${c.scrim != null ? `, scrim ${c.scrim}, text ${c.contrast.toFixed(2)}:1` : ''}`);
+  if (text.igBg) {
+    const ig = await backedCard((b) => pageIgCard(text, b), await pictureAt(text.igBg));
+    await writeFile(join(OUT, ig.path.slice(1)), await renderPng(ig.svg, ig.width));
+    console.log(`  page instagram card ${dst} ${ig.path}: ${ig.width}x${ig.height}, scrim ${ig.scrim}, text ${ig.contrast.toFixed(2)}:1`);
+  }
 }
 const cardEntry = (c) => ({ path: c.path, width: c.width, height: c.height,
   ...(SHARE_BG ? { scrim: c.scrim, contrast: +c.contrast.toFixed(2), bare: +c.bare.toFixed(2) } : {}) });
