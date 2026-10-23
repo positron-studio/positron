@@ -44,7 +44,8 @@
   .vc-vote > .vc-ctl { gap: 8px; flex-wrap: nowrap; }
   .vc-vote .pos-bgroup { width: auto; min-width: auto; }
   .vc-vote .pos-bgroup-row { min-width: auto; overflow-x: visible; }
-  .vc-v.vc-wrap { white-space: normal; overflow: visible; }
+  /* a title wraps whole, never cut: the playlist and the archive (owner, 2026-10-23) */
+  .vc-v.vc-wrap { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
   .vc-say { display: flex; flex-direction: column; gap: 10px; width: 100%; }
   .vc-say .pos-field { width: 100%; }
   .vc-votes > .pos-toggle { flex: 1 1 0; }
@@ -434,7 +435,7 @@
           { id: 'rm', icon: 'close', label: `take ${titleOf(id)} out`, onPress: () => takeOut(i) },
         ] });
         if (i === 0) b.button('up').disabled = true;
-        const name = el('span', 'vc-v', titleOf(id) || String(id)); name.title = name.textContent;
+        const name = el('span', 'vc-v vc-wrap', titleOf(id) || String(id));
         const r = list.row([el('span', 'vc-n', String(i + 1)), name, el('span', 'vc-day', ''), b.el], { cls: 'vc-file' });
         const bar = el('span', 'vc-prog'); r.append(bar);
         return { id, r, b, bar };
@@ -462,7 +463,7 @@
       { id: 'pre', icon: 'headphones', label: `prelisten ${x.title}`, onPress: () => (preId === x.id ? stopPrelisten() : prelisten(x)) },
       { id: 'add', icon: 'plus', label: `add ${x.title} to the program`, onPress: () => editProgram([...progOf(target), x.id]) },
     ] });
-    const name = el('span', 'vc-v', x.title); name.title = x.title;
+    const name = el('span', 'vc-v vc-wrap', x.title);
     // the upload day as a day and a month; the full date on hover
     const when = x.at ? new Date(x.at) : null, day = el('span', 'vc-day', when ? when.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
     if (when) day.title = when.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
