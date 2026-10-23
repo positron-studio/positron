@@ -199,9 +199,12 @@
       feats = createFeatures(analyser, ctx.sampleRate);
       follow = Object.fromEntries(FOLLOWER_NAMES.map((n) => [n, createEnvFollower(MOD_FOLLOWERS[n])]));
     }
+    // the kit's busy sweep on the button from the press until sound is really playing
+    btn.dataset.busy = '1';
+    audio.addEventListener('playing', () => { delete btn.dataset.busy; }, { once: true });
     audio.src = `${CAST}/listen/${STATION}?t=${Date.now()}`;
     zeros = 0; lastT = -1;
-    try { await audio.play(); } catch (e) { d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
+    try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
     playing = true; face();
     try { lock = await navigator.wakeLock?.request('screen'); } catch { /* no wake lock here */ }
     d.log('listening to our radio1965 stream');
@@ -246,6 +249,7 @@
   function stop() {
     playing = false;
     tap?.ac.abort(); tap = null;
+    delete btn.dataset.busy;
     if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
     lock?.release?.(); lock = null;
     target.ampL = OPEN.ampL;
