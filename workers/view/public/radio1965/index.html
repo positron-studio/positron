@@ -34,7 +34,9 @@
   .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 7em; overflow: hidden;
     max-width: min(24em, calc(100vw - 48px)); font-variant-numeric: tabular-nums; }
   .r65-t p b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .r65-t .pos-lg { margin-top: 18px; pointer-events: auto; }
+  .r65-btns { display: flex; gap: 10px; margin-top: 18px; }
+  .r65-t .pos-lg { pointer-events: auto; }
+  .r65-t .r65-fb { background: transparent; }
 </style>
 <script type="module">
   // The scan landscape (/shader/landscape/'s picture) moved by our radio1965 cast: the sound is our own container's
@@ -45,6 +47,7 @@
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
   import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { openFeedback } from '/shell/feedback.mjs';
   import { createEnvFollower } from '/shell/pappus-mod.mjs';
   import { LANES, LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, createFeatures } from '/shell/radio-gran.mjs';
   import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
@@ -302,7 +305,12 @@
     line.replaceChildren(el('b', '', st.title), `${what}. ${nums[0].toUpperCase()}${nums.slice(1)}.`);
   }
   drawLine();
-  titleBox.append(h, line, btn);
+  // Feedback beside Play, a word only; the harness never presses it (it opens the note panel).
+  const fb = barButton({ label: 'Feedback', word: true, size: 'lg', press: false, onPress: () => openFeedback(d, { slug: 'radio1965' }) });
+  fb.classList.add('r65-fb');
+  const btns = el('div', 'r65-btns');
+  btns.append(btn, fb);
+  titleBox.append(h, line, btns);
   face();
   document.body.append(canvas, titleBox);
 
