@@ -56,7 +56,10 @@
 
 <script type="module">
   import { mount, guard, el } from '/shell/shell.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, noteView, loopView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { STRIP_FOOTER_EMPTY } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { ifSelfcheck, SELFCHECK } from '/shell/selfcheck.mjs';
@@ -95,7 +98,7 @@
     readout: { picked: '', length: 'min' },
     showReadout: false,
     // No controls beside the page: the line is the control. ‹ and › are transport verbs,
-    // declared on the bar (see `extras`).
+    // on the bar's start slot.
     // See lessons/page-reel.md#reel-16
     controls: [],
   });
@@ -251,23 +254,24 @@
     anchorMs: () => (line.current ? line.current.at : YEAR_FROM),
   });
 
-  const bar = createTransportBar(d.el, deck, {
-    scrub: false,
-    // No clock: a position is a date (zero is 1970), so a clock would read -2611440:00.000;
-    // the axis under the bar prints the date.
-    // See lessons/page-reel.md#reel-30
-    time: false,
-    command,
-    // ‹ and ›, as on /tapes/. One press is one broadcast day: `step` walks `days`, which folds
-    // both lanes onto the day they share, so no lane's weeks are skipped or doubled.
-    // See lessons/page-reel.md#reel-31
-    extras: [
-      { id: 'prev', label: '‹', aria: 'the broadcast day before this one', onClick: () => step(-1) },
-      { id: 'next', label: '›', aria: 'the broadcast day after this one', onClick: () => step(+1) },
-    ],
-    // Nothing is logged about the loop.
-    // See lessons/page-reel.md#reel-32
+  // No scrub: the line is the position surface. No clock: a position is a date (zero is 1970), so a clock
+  // would read -2611440:00.000; the axis under the bar prints the date (lessons/page-reel.md#reel-30).
+  // Nothing is logged about the loop (#reel-32).
+  const control = createTransportControl(deck, { command });
+  // ‹ and ›, as on /tapes/. One press is one broadcast day: `step` walks `days`, which folds
+  // both lanes onto the day they share, so no lane's weeks are skipped or doubled.
+  // See lessons/page-reel.md#reel-31
+  const dayPrev = barButton({ icon: 'chevron-left', aria: 'the broadcast day before this one', onPress: () => step(-1) });
+  const dayNext = barButton({ icon: 'chevron-right', aria: 'the broadcast day after this one', onPress: () => step(+1) });
+  const loopV = loopView(control);
+  const bar = createBar({
+    start: [playToggle(control).el, dayPrev, dayNext],
+    middle: [noteView(control).el],
+    end: [loopV.el, ratesView(control).el],
   });
+  d.el.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el, loopView: loopV }));
   // The line goes on the page after the bar, the order the glue below reads its anchor in.
   // See lessons/page-reel.md#reel-33
   /**

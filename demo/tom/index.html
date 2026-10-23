@@ -43,7 +43,10 @@
   import { mount, guard, el } from '/shell/shell.mjs';
   import { createDrop } from '/shell/drop.mjs';
   import { createSampleLoader } from '/shell/sample-loader.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStepper } from '/shell/stepper.mjs';
   import { createPanelLayout } from '/shell/panel-layout.mjs';
   import { createInstrumentPanel } from '/shell/instrument-panel.mjs';
@@ -312,21 +315,19 @@
 
 
 
-  /**
-   * `loop: false`: the pattern repeats by wrapAt, not by the bar's LOOP window.
-   * Turning it back on is `loop: true`.
-   * See lessons/page-tom.md#tom-36
-   */
-  /**
-   * Tempo in the bar's `right` slot rather than querying `.tbar-rates`. It is not
-   * in `.pos-controls`, so the harnesses do not press it; the checks drive it by name.
-   * See lessons/page-tom.md#tom-37
-   */
-  /* A detached host: the bar's row is built below by the instrument panel, and
-     handing it `d.el` would make the source disagree with the DOM.
-     See lessons/page-tom.md#tom-38 */
-  const bar = createTransportBar(document.createElement('div'), deck,
-    { scrub: false, loop: false, right: [tempo.el], verb: 'stop' });
+  /* No loop view: the pattern repeats by wrapAt (lessons/page-tom.md#tom-36). No scrub: the grid's ruler is the
+     one position surface. Tempo sits in the end slot, driven by name in the checks (#tom-37). The bar goes into
+     the instrument panel below, not into `d.el` (#tom-38). */
+  const control = createTransportControl(deck);
+  const toggle = playToggle(control, { verb: 'stop' });
+  const bar = createBar({
+    start: [toggle.el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [ratesView(control).el, tempo.el],
+  });
+  bindTransportKeys(control, { scope: bar.el });
+  const api = transportApi(control, { el: bar.el });
+  publishTransport(api);
 
   /**
    * The second press stops and rewinds to the first column; a drum machine has no
@@ -334,13 +335,9 @@
    * because onState does not fire on play.
    * See lessons/page-tom.md#tom-39
    */
-  // `bar.el`, not `bar.api.el`: createTransportBar returns a wrapper, and the wrong
-  // one threw on load.
-  // See lessons/page-tom.md#tom-40
   /**
-   * Both ways in: transport-bar.mjs's key table calls `cmd.pause()` directly, so a
-   * click listener never sees space. One function, two listeners, added after the
-   * bar's so they run after it.
+   * Both ways in: transport-keys.mjs's space goes to the control directly, so a click
+   * listener never sees space. One function, two listeners, added after the bar's so they run after it.
    * See lessons/page-tom.md#tom-41
    */
   function rewindIfStopped() {
@@ -348,13 +345,10 @@
       if (!deck.transport.playing && deck.position() > 0) deck.seek(0);
     }, 0);
   }
-  bar.el.querySelector('.tbar-toggle')?.addEventListener('click', rewindIfStopped);
+  toggle.el.addEventListener('click', rewindIfStopped);
   addEventListener('keydown', (e) => { if (e.key === ' ') rewindIfStopped(); });
   setBpm(BPM_AT_1);
 
-  // Never re-publish `__demo.transport`: `publish: true` already wrote the bar's
-  // `api`, and the wrapper has no `position` for verify.mjs.
-  // See lessons/page-tom.md#tom-42
 
   // ── the grid ──
   // A fixed column beside one scroller (panel-layout.mjs). Sixteen steps fit; if
@@ -367,7 +361,7 @@
     side: 'left', flow: false,
     cls: { panel: 'tom', fixed: 'tom-fixed' },
     /**
-     * The scroller takes no tab stop: transport-bar.mjs's arrows seek on `window`, so
+     * The scroller takes no tab stop: transport-keys.mjs's arrows seek on `window`, so
      * a focusable scroller would move the playhead. The ruler carries the tab stop.
      * See lessons/page-tom.md#tom-45
      */
@@ -666,28 +660,19 @@
     drop.note.hidden === true && drop.note.textContent === '',
     `hidden ${drop.note.hidden}, saying "${drop.note.textContent}"`);
 
-  /**
-   * The harness's only handle. createTransportBar publishes `api` and returns a
-   * wrapper with no `position`; never assign one over the other.
-   * See lessons/page-tom.md#tom-71
-   */
+  // The harness's only handle (lessons/page-tom.md#tom-71).
   d.assert('the transport the harness reads is the bar\'s own api and not the wrapper around it',
-    window.__demo.transport === bar.api && window.__demo.transport !== bar
+    window.__demo.transport === api && api.el === bar.el
     && typeof window.__demo.transport.position === 'number',
-    `position ${window.__demo.transport.position}, range ${JSON.stringify(bar.api.range)}`);
+    `position ${window.__demo.transport.position}, range ${JSON.stringify(api.range)}`);
 
-  /**
-   * The computed display: the scrub slider is always appended, and `scrub: false`
-   * hides it through `data-scrub="0"`.
-   * See lessons/page-tom.md#tom-72
-   */
+  // No scrub view is composed into the bar; the ruler seeks (lessons/page-tom.md#tom-72).
   {
     const scrubEl = bar.el.querySelector('.tbar-scrub');
     d.assert('the grid is the one position surface, so the bar draws no slider',
-      bar.el.dataset.scrub === '0' && getComputedStyle(scrubEl).display === 'none'
+      scrubEl === null
       && rulerEl.getAttribute('role') === 'slider' && grid.ticks.length === STEPS,
-      `the bar says data-scrub="${bar.el.dataset.scrub}" and its slider computes `
-      + `display: ${getComputedStyle(scrubEl).display}, against ${grid.ticks.length} `
+      `the bar holds ${scrubEl ? 'a' : 'no'} slider, against ${grid.ticks.length} `
       + 'ticks on the ruler that do seek');
   }
 

@@ -37,7 +37,10 @@
   import { createDeck } from '/timeline/transport.mjs';
   import { mediaMaster } from '/timeline/media-master.mjs';
   import { createStripView } from '/shell/strip.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, scrubView, clockView, noteView, loopView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createGrainScope } from '/shell/grain-scope.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createLooper } from '/shell/looper.mjs';
@@ -567,7 +570,7 @@
       if (e.isTrusted && fromPlayButton(e.target)) touched(e.target);
     }, true);
     /**
-     * The space bar too: `transport-bar.mjs` listens on the window. Text fields are
+     * The space bar too: `transport-keys.mjs` listens on the window. Text fields are
      * ignored, as the bar does.
      * See lessons/page-tapes.md#tapes-48
      */
@@ -1065,13 +1068,15 @@
   const wayPress = (() => {
     const e = looper.wayExtra();
     const press = e.onPress;
-    return { ...e, onPress: () => turnWay(press) };
+    // id `turn`, not `way`: loopView repaints an extra called `way` from the control's own way, which this
+    // page does not use (the looper owns the face).
+    return { ...e, id: 'turn', onPress: () => turnWay(press) };
   })();
 
-  // The bar owns play, pause, the speeds and the two walk buttons. Nothing on
-  // this page duplicates them.
-  const bar = createTransportBar(d.el, tapeDeck, {
-    scrub: true, endStop: false,
+  // The transport owns play, pause, the speeds and the loop; the bar lays them out with the two walk buttons.
+  // Nothing on this page duplicates them.
+  const control = createTransportControl(tapeDeck, {
+    endStop: false,
     /**
      * The three moments on a tape: `set` starts keeping while the tape plays the lap,
      * `wrap` swaps the tape for the ring, `off` gives the tape back.
@@ -1089,12 +1094,6 @@
      * See lessons/page-tapes.md#tapes-97
      */
     onLoopPos: (f) => scope.playhead?.(f == null ? null : (looper.headFrac() ?? f)),
-    /**
-     * One button right of LOOP, cycling → ← ⇆, as on `/archive/radio/`. The arc is
-     * this page's: putting it in `demo/shell/looper.mjs` would give it to every page.
-     * See lessons/page-tapes.md#tapes-98
-     */
-    loopExtras: [wayPress],
     /**
      * The rate has to reach the element: the deck follows it and is re-anchored.
      * Both attributes, since a new source resets `playbackRate` to `defaultPlaybackRate`.
@@ -1118,10 +1117,6 @@
       audio.defaultPlaybackRate = armedRate();
       glide();
     },
-    extras: [
-      { id: 'prev', label: '‹', aria: 'the tape before this one', onClick: () => walk(-1) },
-      { id: 'next', label: '›', aria: 'the tape after this one', onClick: () => walk(+1) },
-    ],
     // Pressing ▸ on a page whose sound has never been touched has to arm the
     // audio graph, and that needs the press. `command` is the bar's own hook
     // for a page that owns the thing being played.
@@ -1140,10 +1135,26 @@
       },
     },
   });
+  const walkPrev = barButton({ icon: 'chevron-left', aria: 'the tape before this one', onPress: () => walk(-1) });
+  const walkNext = barButton({ icon: 'chevron-right', aria: 'the tape after this one', onPress: () => walk(+1) });
+  /**
+   * One button right of LOOP, cycling → ← ⇆, as on `/archive/radio/`. The arc is
+   * this page's: putting it in `demo/shell/looper.mjs` would give it to every page.
+   * See lessons/page-tapes.md#tapes-98
+   */
+  const loopV = loopView(control, { extras: [wayPress] });
+  const bar = createBar({
+    start: [playToggle(control).el, walkPrev, walkNext],
+    middle: [scrubView(control).el, clockView(control).el, noteView(control).el],
+    end: [loopV.el, ratesView(control).el],
+  });
+  d.el.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el, loopView: loopV }));
   // The way button exists only now, and the looper is the one thing that writes
   // its face: a way reached from the code and a way reached by pressing cannot
   // then disagree about what is showing.
-  looper.bind(bar);
+  looper.bind({ loopExtra: (id) => loopV.extra(id === 'way' ? 'turn' : id) });
 
   /**
    * The scope and the bar are glued as one surface (not the strip, which is wider
@@ -1269,10 +1280,10 @@
      */
     if (SELFCHECK) {
       walked = { from: cur, armed: armedRate() };
-      bar.extra('next')?.click();
+      walkNext.click();
       walked.on = cur;
       walked.rate = audio.playbackRate;
-      bar.extra('prev')?.click();
+      walkPrev.click();
       walked.back = cur;
     }
     // The undated count is said once in the log rather than widening the gutter.
@@ -1392,7 +1403,7 @@
         await new Promise((r) => setTimeout(r, 40));
       };
       if (looper.playing()) {
-        const wayBtn = bar.loopExtra('way');
+        const wayBtn = loopV.extra('turn');
         faces = wayBtn ? wayBtn.textContent : '';
         // The arc is sampled on the loop's own rate, not the element's: the tape is down
         // while a lap plays.
@@ -1801,7 +1812,7 @@
   // Behind the gate: a wind-down is measured on a moving reel.
   // See lessons/page-tapes.md#tapes-156
   if (SELFCHECK) {
-    const nxt = bar.extra?.('next'), prv = bar.extra?.('prev');
+    const nxt = walkNext, prv = walkPrev;
     const was = cur, want = armedRate();
     let mid = null, landed = null, rolled = false;
     if (nxt && prv) {
