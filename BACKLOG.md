@@ -1,5 +1,6 @@
 ## Open
 
+- **Front page: radio1965 first, in a new group "Latest projects"** (2026-10-23). Asked: *"move radio1965 to first (new) groupL 'Latest projects'"*, after *"rm demo styling. its just another page"*. demo/shell/concept-list.mjs.
 - **Front page: add the stage pages (obs, replay, stage, and the other video rooms)** (2026-10-23). Asked: *"add stages etc to index page"*. demo/shell/concept-list.mjs.
 - **Rename earlog to stats** (2026-10-23). Asked: *"rename earlog to stats?"*. workers/earlog to workers/stats, stats.positron.studio, the old worker deleted; the dataset cast_web_listeners kept so the history carries on.
 - **Investigate James McCartney's SAPF code (github.com/lfnoise/sapf): a match for positron?** (2026-10-23). Asked: *"Ivesfigate his code? Match for positron?"*. A plan in plans/plan-sapf.md, reported in full.

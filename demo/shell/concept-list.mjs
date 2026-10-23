@@ -111,10 +111,10 @@ export const CONCEPT_DIRS = ['synth', 'code', 'granulator', 'remote', 'devices',
 // draws it as a demo card, CASE_GROUPS as a use case card. Kept out of CONCEPTS so the pager skips it.
 // `supersededBy: '<group>/<slug>'` labels its card `not needed`, naming that page.
 // why: lessons/kit-concept-list.md#concept-groups
-export const CONCEPT_GROUPS = ['wish', 'synth', 'code', 'granulator', 'remote', 'devices', 'drums', 'radio', 'video', 'shader', 'typist', 'sampler', 'archives', 'room'];
+export const CONCEPT_GROUPS = ['latest', 'wish', 'synth', 'code', 'granulator', 'remote', 'devices', 'drums', 'radio', 'video', 'shader', 'typist', 'sampler', 'archives', 'room'];
 // A group's heading on the front page is its key unless it is named here.
 // why: lessons/kit-concept-list.md#group-titles
-export const GROUP_TITLES = { archives: 'history', synth: 'building instruments', code: 'instruments in code', remote: 'remote instruments', performances: 'timelines' };
+export const GROUP_TITLES = { latest: 'Latest projects', archives: 'history', synth: 'building instruments', code: 'instruments in code', remote: 'remote instruments', performances: 'timelines' };
 export const CASE_GROUPS = ['archives', 'performances', 'stations', 'instruments'];
 export const DEMO_CARDS = {
   // kit: its own heading, last.
@@ -124,7 +124,7 @@ export const DEMO_CARDS = {
   social: { group: 'kit', plain: true, title: 'Social', say: 'Pictures and reels the site makes of itself. Download one and post it.' },
   // concept like rows first, then use cases; archived rows are listed on /archive/.
   // why: lessons/kit-concept-list.md#archived-rows
-  radio1965: { group: 'radio', plain: true, title: 'Radio1965', say: 'Sound archives processed, mixed and visualized by positron.studio.' },
+  radio1965: { group: 'latest', plain: true, title: 'Radio1965', say: 'Sound archives processed, mixed and visualized by positron.studio.' },
   held: { group: 'performances', say: 'Held in Human, a 2024 mixed reality piece, played back from its own score across its eight scenes.' },
   // why: lessons/kit-concept-list.md#archived-cases
 };
