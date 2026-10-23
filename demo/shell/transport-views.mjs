@@ -158,7 +158,8 @@ export function loopView(control, { send, extras = [] } = {}) {
       : control.loopFilling ? 'holding the live sound. press to end the loop here'
       : control.loopA != null ? 'press to mark where the loop ends' : 'loop');
     for (const b of extraEls.values()) if (!b.dataset.always) b.hidden = !on;
-    const w = extraEls.get('way');
+    // Only the control's own direction button; a page's extra may share the id.
+    const w = control.loopWays ? extraEls.get('way') : null;
     if (w) { w.textContent = WAY_GLYPH[control.way]; w.title = WAY_SAYS[control.way]; w.setAttribute('aria-label', WAY_SAYS[control.way]); }
   };
   const off = control.subscribe(paint);
