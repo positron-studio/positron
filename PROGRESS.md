@@ -10,7 +10,7 @@ Clocks lined up over ssh: M1 minus laptop 11.5 ms, round trip 5 to 6 ms (time.ap
 | 1 | 836 | 208 | 236 | 391 | 417 | 23 ms | 15 ms |
 | 2 | 897 | 323 | 359 | 367 | 374 | 14 ms | 17 ms |
 
-Steady within a run (run 2, per second median 342 to 366) but a 120 ms step between runs, about four frames.
+Run 2 is wrong. Steady within a run (run 2, per second median 342 to 366). The 120 ms between runs is the M1's clock, not the pipeline: measured again 45 minutes later the M1 read 117.5 ms BEHIND the laptop, a 129 ms move. Re-measured through a shared edge clock (positron-sfu `GET /time`, the stage's own readout): **lag 211 to 233 ms median, worst 220 to 249, buffer 11 to 18, round trip 12 to 36**, 30 s.
 The receiver's part is small (jitter buffer 14 to 23 ms, decode 2 ms, half the RTT 8 ms), so 170 to 300 ms
 is on the M1: browser source capture, OBS's render and encode, the WHIP sender. Not split further.
 Press of Start m1 to the first frame: 7.6 and 11.7 s. The camera path was not measured (its capture adds to this).

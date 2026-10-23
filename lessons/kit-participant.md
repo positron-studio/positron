@@ -468,3 +468,19 @@ pressed Start m1 9 s after Join). Now the sending session is made at the first p
 first pull, and a `session_error` replaces the receiving session and its connection and pulls everything again.
 MEASURED after: Start m1 pressed 30 s after Join, picture in 12 s (the deployed old code, same run: two 410s, no
 picture); a camera turned on 25 s after Join on /room/present/ reached the other tab in 5 s.
+
+## demo/room/video-room.mjs, the stage's lag readout {#stage-lag}
+
+`lag` and `worst lag` are how old each stage frame is when the browser draws it: median and worst over the last 3 s.
+The age is read off a barcode that demo/room/stage/clock.html paints across the top of the picture (30 bits of
+time in 40 px cells, then a white and a black cell as the threshold), loaded in OBS as a browser source. Both ends
+read the same clock, positron-sfu's `GET /time`, from the fastest of eight round trips (demo/shell/edge-clock.mjs);
+the clock page re-reads it every 30 s, the room every 60 s. Without the barcode in the picture both cells stay
+empty. `buffer` is the receiving video's jitter buffer per frame over the last second, `round trip` the selected
+candidate pair's, both off `getStats()` of the receiving connection.
+
+Why not each machine's own clock: MEASURED 2026-10-23, the M1 read 11.5 ms ahead of the laptop over the LAN
+(round trip 5 ms, time.apple.com agreed at 11.7) and 117.5 ms behind it 45 minutes later, a 129 ms move with
+nothing touched. Two lag runs 4 minutes apart read 236 and 359 ms median through the first offset, which is that
+move and not the pipeline. Through the edge clock the same path read 211 to 233 ms (headless Chrome on the laptop,
+OBS on the M1, same LAN, both in TLL).
