@@ -77,6 +77,11 @@ export const CONCEPTS = [
   { id: 'room/broadcast', title: 'Broadcast chat', say: 'Whoever joins first is admin and broadcasts in a column of their own while the rest chat beside.' },
   { id: 'room/history', title: 'Chat timeline', say: 'The broadcast chat with a memory: until you join, the room\'s last fifty lines replay at their pace.' },
   // why: lessons/kit-concept-list.md#room-history
+  { id: 'room/mesh', title: 'Video mesh', say: 'A plain video call where each browser sends its camera straight to every other one.' },
+  { id: 'room/present', title: 'Present', say: 'A video room through a media server where anyone shares their camera, sound or screen.' },
+  { id: 'room/obs', title: 'OBS', say: 'OBS on the studio Mac plays on everyone\'s stage, and the page switches its scenes.' },
+  { id: 'room/replay', title: 'Replay', say: 'The OBS stage recorded in your browser, played back on your own stage and uploaded.' },
+  { id: 'room/stage', title: 'Stage', say: 'Anything sent to the room\'s WHIP address plays on every stage, with the lag measured.' },
   { id: 'typist/paper', title: 'Paper', say: 'A sheet of white paper to type on, with a blocky cursor and a page that opens full screen.' },
   { id: 'typist/typewriter', title: 'Typewriter', say: 'The same paper, now sounding like a Hermes Precisa 305 typewriter, bell and all.' },
   { id: 'typist/machines', title: 'Typewriters', say: 'The typewriter through an effects box where every number gives a different machine.' },
@@ -119,7 +124,7 @@ export const DEMO_CARDS = {
   social: { group: 'kit', plain: true, title: 'Social', say: 'Pictures and reels the site makes of itself. Download one and post it.' },
   // concept like rows first, then use cases; archived rows are listed on /archive/.
   // why: lessons/kit-concept-list.md#archived-rows
-  radio1965: { group: 'radio', title: 'Radio1965', say: 'Sound archives processed, mixed and visualized by positron.studio.' },
+  radio1965: { group: 'radio', plain: true, title: 'Radio1965', say: 'Sound archives processed, mixed and visualized by positron.studio.' },
   held: { group: 'performances', say: 'Held in Human, a 2024 mixed reality piece, played back from its own score across its eight scenes.' },
   // why: lessons/kit-concept-list.md#archived-cases
 };
