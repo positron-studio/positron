@@ -442,3 +442,17 @@ browser that wants a fresh gesture (Safari does unless the page captures the cam
 off). A refused `play()` left the stage paused and black. Now it plays muted, and the stage's mute button (bottom
 right, asked the same evening: *"rm system controls, add mute button on active, bottom right"*) shows it muted. The
 label stays bottom left in every mode, and the film mode lost the player's own controls.
+
+## demo/room/video-room.mjs, Start m1 {#start-m1}
+
+The stage's Start m1 / Stop m1 asks the studio Mac (site `m1`, `rig/m1/studio-agent.mjs`) to stream OBS's current
+scene into this room's WHIP URL. The page reaches the Mac in the Mac's own relay room (`MAC_ROOM`, `m1-1`), not in
+the video room, and signs `obs.start` over the room's name (`obs.stop` over `stop`) with the studio key from
+`demo/shell/studio-key.mjs`. The row shows only on /room/stage/, after Join, in a browser holding the key (`?key=`
+once). The button is enabled only while the Mac's heartbeat (`board.alive` with `graph.site === 'm1'`) is under 15 s old.
+
+The first build never reached the Mac (2026-10-22): pressing set `m1Asking`, `m1Show()` disabled the button with an
+empty reason, and the kit's button group throws on a disable with no reason (`"m1" was disabled with no reason to
+show for it`). The throw came before `m1.send`, so the agent logged nothing and the page looked as if it had sent.
+Fixed 2026-10-23 by giving the asking state its reason. MEASURED after, headless against the real Mac and SFU:
+press to a 1280x720 picture on the stage 8.0 s (OBS live 6 s after the ask), Stop m1 to an empty stage 3 s.

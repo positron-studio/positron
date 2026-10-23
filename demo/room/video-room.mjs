@@ -18,6 +18,9 @@ import { createParticipant, createParticipantGrid, createStage } from '/shell/pa
 import { createMesh } from '/room/mesh.mjs';
 import { createSfu, ridFor } from '/room/sfu.mjs';
 import { pickPresenter, stripOrder, CLAIM_STALE_MS } from '/room/together.mjs';
+import { openWire } from '/shell/wire.mjs';
+import { MAC_ROOM } from '/shell/graph-registry.mjs';
+import { takeStudioKey, studioKey, signStudio } from '/shell/studio-key.mjs';
 
 
 const CSS = `
@@ -307,6 +310,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     ctl.enableAll(false, 'join first');
     showJoined(false);
     whipSec.hidden = true;
+    m1Close();
     delete rv.dataset.in;
     chatBox.enable(false);
     pb?.refresh();
@@ -644,9 +648,54 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     + 'Output: Apple VT H264 Hardware Encoder, CBR 3000 kbps, keyframe interval 2 s, no B-frames. Add ?site=m1 to name the machine.');
   const whipRow = el('div', 'rv-whip-row');
   whipRow.append(whipCode, whipCopy.el);
-  whipSec.append(whipH, whipRow, whipHow);
+  // Start m1: with the owner's studio key in this browser, the studio Mac's OBS streams its current scene into this
+  // room (rig/m1/studio-agent.mjs, obs.start signed over the room's name). The Mac is reached in its own relay room.
+  // why: lessons/kit-participant.md#start-m1
+  if (stream) takeStudioKey();
+  let m1 = null, m1Seen = 0, m1Obs = null, m1Asking = false;
+  const m1Grp = createButtonGroup({ buttons: [{ id: 'm1', label: 'Start m1', onPress: () => m1Toggle() }] });
+  m1Grp.button('m1').style.minWidth = '12ch';
+  const m1Say = el('span', 'rv-whip-how', '');
+  const m1Row = el('div', 'rv-whip-row');
+  m1Row.append(m1Grp.el, m1Say);
+  m1Row.hidden = true;
+  function m1Open() {
+    if (m1 || !stream || !studioKey()) return;
+    m1 = openWire(MAC_ROOM, { onMessage: (got) => {
+      const m = got?.msg;
+      if (got?.kind !== 'json' || !m) return;
+      if (m.type === 'board.alive' || m.type === 'board.hello') { if (m.graph?.site === 'm1') { m1Seen = Date.now(); if (m.obs) m1Obs = m.obs; m1Show(); } }
+      if (m.type === 'obs.state') { m1Obs = m; m1Show(); }
+    } });
+  }
+  function m1Close() { try { m1?.close(); } catch { /* gone */ } m1 = null; m1Seen = 0; m1Show(); }
+  function m1Show() {
+    const online = Date.now() - m1Seen < 15_000;
+    m1Row.hidden = !m1 || !since;
+    const here = m1Obs?.state === 'live' && m1Obs.room === ROOM;
+    const elsewhere = m1Obs?.state === 'live' && m1Obs.room !== ROOM;
+    m1Grp.button('m1').textContent = here ? 'Stop m1' : 'Start m1';
+    m1Grp.enable('m1', online && !m1Asking && m1Obs?.state !== 'starting',
+      online ? 'starting OBS on the studio Mac' : 'the studio Mac is not online');
+    m1Say.textContent = !online ? 'the studio Mac is not online'
+      : m1Asking || m1Obs?.state === 'starting' ? 'starting OBS on the studio Mac'
+      : here ? 'OBS on the studio Mac streams into this room'
+      : elsewhere ? `OBS streams into room ${m1Obs.room}; Start moves it here`
+      : m1Obs?.state === 'failed' ? `OBS failed: ${m1Obs.why}` : 'OBS on the studio Mac streams its current scene here';
+  }
+  setInterval(m1Show, 3000);
+  async function m1Toggle() {
+    if (!m1 || m1Asking) return;
+    const stop = m1Obs?.state === 'live' && m1Obs.room === ROOM;
+    m1Asking = true; m1Show();
+    const type = stop ? 'obs.stop' : 'obs.start';
+    m1.send({ type, ...(stop ? {} : { room: ROOM }), ...(await signStudio(type, stop ? 'stop' : ROOM)) });
+    d.log(stop ? 'asked the studio Mac to stop OBS' : 'asked the studio Mac to stream OBS into this room');
+    setTimeout(() => { m1Asking = false; m1Show(); }, 2000);
+  }
+  whipSec.append(whipH, whipRow, m1Row, whipHow);
   whipSec.hidden = true;
-  function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; }
+  function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; if (since) m1Open(); m1Show(); }
   d.stack.add(rv, ...(stream ? [whipSec] : []), pb.el);
   // For a harness: what the room looks like from this tab.
   window.__room = {
