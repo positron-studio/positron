@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createFramer } from '../mp3.mjs';
+import { taps, tap } from './tap.mjs';
 import { startMix, usage } from './mixcast.mjs';
 import { startGrains } from './grains.mjs';
 import { startLive } from './live.mjs';
@@ -220,6 +221,7 @@ async function run(sess) {
         while (frames.length && sess.sent < due && !sess.sink.closed) {
           const f = frames.shift();
           ahead -= f.seconds;
+          tap(f.data);
           await sess.sink.write(f.data);
           sess.sent += f.seconds; sess.fileSeconds += f.seconds;
           sess.frames++; sess.bytes += f.data.length; sess.rate = f.rate; sess.kbps = f.kbps;
@@ -326,6 +328,13 @@ const reply = (res, code, o) => { res.writeHead(code, { 'content-type': 'applica
 http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/status') return reply(res, 200, await status());
+    // The encoder's frames as they are made, for the Caster's /listen (tap.mjs). why: lessons/workers-cast.md#tap
+    if (req.method === 'GET' && req.url === '/mp3') {
+      res.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' });
+      taps.add(res);
+      req.on('close', () => taps.delete(res));
+      return;
+    }
     if (req.method !== 'POST') return reply(res, 404, { error: 'no such route' });
     let raw = '';
     for await (const c of req) raw += c;

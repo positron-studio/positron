@@ -1,5 +1,6 @@
 // A mix session: the engine's blocks paced on the wall clock, LAME, and the same source connection
 // the copy caster opens. The clock is Date.now(), never ffmpeg's output rate. why: lessons/workers-cast.md#mix-pacing
+import { tap } from './tap.mjs';
 import fs from 'node:fs';
 import { createEngine, createClock } from './mixer.mjs';
 import { openDecoder } from './decode.mjs';
@@ -30,6 +31,7 @@ export function startMix({ queue, target, set = {} }, { openSink, say = () => {}
   const engine = createEngine({ open: (it) => openDecoder(it, { log: say }), queue, set, log: say });
   let writing = Promise.resolve(), enc = null;
   const newEncoder = () => openEncoder({ log: say, onFrame: (f) => {
+    tap(f.data);
     if (!m.sink || m.sink.closed) return;              // nobody to send to: dropped, the clock moves instead
     writing = writing.then(() => m.sink?.write(f.data)).then(() => { m.sent += f.seconds; m.frames++; m.bytes += f.data.length; }).catch(() => {});
   } });

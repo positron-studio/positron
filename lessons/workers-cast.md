@@ -867,3 +867,18 @@ Asked 2026-10-22: *"can we simplify. i do not now what broadcast means. just day
 the days that had a broadcast (any part of one, from the `listens` records) and today while on air, oldest to newest,
 opening on the newest; the arrows stop at the ends. A day is midnight to midnight in the visitor's time, 5 minute
 buckets. A row of the past broadcasts table jumps to its day.
+
+## tap
+
+workers/cast/container/tap.mjs. A Väin station has no Icecast of ours to listen to, so the container hands the same
+whole MP3 frames its source connection gets to anyone on `GET :8080/mp3`, and the Caster's `/listen/<station>` reads
+that as an ear (splice.mjs), moved to the twin after a handover takes the mount. A page on positron.studio can then
+play exactly what Väin's listeners hear without being one of them (plans/plan-radio1965-landscape.md). A listener 512
+kB behind is dropped, never waited for, so a slow phone cannot hold the encoder. Added 2026-10-23.
+
+## state
+
+`GET /state/<station>`, edge cached 5 s, built by the Caster from the last container status it read (its 30 s alarm)
+and the listener record, never by asking the container: one `/status` call has stalled the encoder's write loop
+350 ms, and `/status` asks the container every time. For a public page (plans/plan-radio1965-landscape.md).
+Added 2026-10-23.

@@ -213,7 +213,16 @@ export default {
       if (route === 'control' && (!env.CAST_KEY || u.searchParams.get('key') !== env.CAST_KEY)) return json({ error: 'the control needs its key' }, 403);
       return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
     }
-    if (route === 'listen' && name === 'preview') return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
+    if (route === 'listen' && targets(env)[name]) return env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
+    // A page's view of a station, edge cached 5 s, so visitors never reach the container. why: lessons/workers-cast.md#state
+    if (route === 'state' && targets(env)[name]) {
+      const key = new Request(`https://cast.positron.studio/__state/${name}`);
+      try { const hit = await caches.default.match(key); if (hit) return hit; } catch { /* no cache here */ }
+      const r = await env.CASTER.get(env.CASTER.idFromName(name)).fetch(req);
+      const res = new Response(await r.text(), { headers: { 'content-type': 'application/json', 'cache-control': 'max-age=5', ...cors } });
+      try { ctx?.waitUntil?.(caches.default.put(key, res.clone())); } catch { /* no cache here */ }
+      return res;
+    }
     return json({ error: 'no such route' }, 404);
   },
 };
@@ -318,7 +327,9 @@ export class Caster {
     if (!(await sl.running())) return null;
     try {
       const r = await Promise.race([sl.fetch(8080, '/status'), sleep(4000).then(() => null)]);
-      return r ? await r.json() : null;
+      const s = r ? await r.json() : null;
+      if (s) this.lastS = { at: Date.now(), s };
+      return s;
     } catch { return null; }
   }
   async running(k) { return this.slot(k ?? await this.key()).running(); }
@@ -375,6 +386,7 @@ export class Caster {
     }
     if (u.pathname.startsWith('/status/')) return json(await this.status());
     if (u.pathname.startsWith('/listen/')) return this.listen();
+    if (u.pathname.startsWith('/state/')) return json(await this.state());
     if (req.headers.get('upgrade') !== 'websocket') return json({ error: 'a WebSocket' }, 426);
     const [client, server] = Object.values(new WebSocketPair());
     server.accept();
@@ -392,25 +404,46 @@ export class Caster {
    */
   async listen() {
     const off = (why) => json({ error: why, onAir: false }, 503);
-    if (!targets(this.env)[this.name]?.local) return json({ error: 'no listening here' }, 404);
     const sl = this.slot(await this.key());
-    if (!(await sl.running())) return off('preview is not on air: its container is not running');
+    if (!(await sl.running())) return off(`${this.name} is not on air: its container is not running`);
     let r;
-    try { r = await sl.fetch(8000, '/preview', { headers: { 'user-agent': 'positron-cast listen' } }); } catch (e) { return off(`the preview Icecast did not answer: ${e.message}`); }
-    if (r.status !== 200 || !r.body) { r.body?.cancel(); return off(`the preview Icecast answered ${r.status}: no source on /preview`); }
+    try { r = await this.earSource(sl); } catch (e) { return off(`the stream did not answer: ${e.message}`); }
+    if (r.status !== 200 || !r.body) { r.body?.cancel(); return off(`the stream answered ${r.status}`); }
     const ct = r.headers.get('content-type'); // forwarded, never invented
     const ear = createEar(r.body, { onEnd: () => this.ears.delete(ear) });
     this.ears.add(ear);
     return new Response(ear.readable, { headers: { ...(ct ? { 'content-type': ct } : {}), 'cache-control': 'no-store', ...cors } });
   }
 
-  /** Every listener onto slot k's Icecast, each at its live edge; resolves with each one's splice. */
+  /** What an ear reads: preview's own Icecast, or a Väin station's encoder frames on the container's /mp3 (tap.mjs). */
+  earSource(sl) {
+    return targets(this.env)[this.name]?.local
+      ? sl.fetch(8000, '/preview', { headers: { 'user-agent': 'positron-cast listen' } })
+      : sl.fetch(8080, '/mp3');
+  }
+
+  /**
+   * What a public page shows, from the last status the Caster read (its 30 s alarm) and the listener record. Never
+   * asks the container: one /status call has stalled the encoder 350 ms. why: lessons/workers-cast.md#state
+   */
+  async state() {
+    const [want, listens] = await Promise.all([this.st.get('want'), this.st.get('listens')]);
+    const s = this.lastS?.s, life = s?.mix?.life, def = life?.def || {};
+    return { station: this.name, playing: !!want, onAir: !!s?.onAir, at: this.lastS?.at ?? null, title: s?.now?.title ?? null,
+      kind: def.kind ?? null, patch: def.patch ?? null, section: def.section ?? null, wet: def.iWet ?? null,
+      density: def.tweak?.density ?? null, echo: def.tweak?.echo ?? null, blend: def.blend ?? null, dwell: def.dwell ?? null,
+      scene: life?.si ?? null, drone: def.layers?.drone ?? null, droneLevel: def.layers?.droneLevel ?? null,
+      key: life?.key ?? def.key ?? null, seconds: s?.seconds ?? null, ears: this.ears.size,
+      listeners: listenStatus(listens || []).listeners ?? null };
+  }
+
+  /** Every listener onto slot k's stream, each at its live edge; resolves with each one's splice. */
   async spliceAll(k) {
     const sl = this.slot(k);
     return Promise.all([...this.ears].map(async (ear) => {
       try {
-        const r = await sl.fetch(8000, '/preview', { headers: { 'user-agent': 'positron-cast listen' } });
-        if (r.status !== 200 || !r.body) { r.body?.cancel(); return { ok: false, why: `the twin's Icecast answered ${r.status}` }; }
+        const r = await this.earSource(sl);
+        if (r.status !== 200 || !r.body) { r.body?.cancel(); return { ok: false, why: `the twin's stream answered ${r.status}` }; }
         return await ear.splice(r.body);
       } catch (e) { return { ok: false, why: e.message }; }
     }));
@@ -754,6 +787,8 @@ export class Caster {
         await this.cpost('/go', {}, toK);
         await this.setActive(toK);
         for (let i = 0; i < 100; i++) { const s = await this.cstatus(toK); if (s?.onAir) { rec.goMs = s.mix?.goMs ?? Date.now() - g0; break; } await sleep(100); }
+        // this page's own ears move to the twin's frames too (tap.mjs)
+        if (this.ears.size) { const sp = await this.spliceAll(toK); rec.listeners = sp.length; rec.spliced = sp.filter((x) => x.ok).length; }
       }
       await this.st.put('boot', { ...boot, slot: toK });
       await this.cpost('/stop', {}, fromK).catch(() => {});
