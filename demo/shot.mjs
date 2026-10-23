@@ -72,7 +72,7 @@ for (const w of (widths.length ? widths : WIDTHS)) {
   await sleep(WAIT);
   if (EVAL) {
     // and prints what it returns, so one shot can also be a measurement
-    const r = await S('Runtime.evaluate', { expression: EVAL, awaitPromise: true, returnByValue: true });
+    const r = await S('Runtime.evaluate', { expression: EVAL, awaitPromise: true, returnByValue: true, userGesture: true });
     if (r?.result?.value !== undefined) console.log(`  eval at ${w} px: ${typeof r.result.value === 'string' ? r.result.value : JSON.stringify(r.result.value)}`);
     await sleep(400);
   }
