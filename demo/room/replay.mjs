@@ -6,7 +6,7 @@
 
 import { el, recorderMime } from '/shell/shell.mjs';
 import { createTransportBar } from '/shell/transport-bar.mjs';
-import { setIcon } from '/shell/icon-button.mjs';
+import { setIcon, createIconButton } from '/shell/icon-button.mjs';
 import { createDeck } from '/timeline/transport.mjs';
 import { putWhole, proveReadable, ARCHIVE_BASE } from '/shell/ingest.mjs';
 import { resolveDuration } from '/shell/media.mjs';
@@ -24,8 +24,6 @@ const CSS = `
   .rp-mark[hidden] { display: none; }
   .rp-row { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
   .rp-row + .rp-row { margin-top: var(--ctl-gap, 8px); }
-  .rp-say { font-size: 13px; color: var(--dim); }
-  .rp-say a { color: inherit; }
   .rp-url { font: 400 12px/1.5 var(--mono); overflow-wrap: anywhere; }
 `;
 
@@ -48,6 +46,7 @@ function takeStore() {
   };
   return {
     put: (take) => tx('readwrite', (s) => { s.clear(); return s.put(take); }),
+    clear: () => tx('readwrite', (s) => s.clear()),
     last: () => tx('readonly', (s) => s.getAll()).then((all) => (all || []).sort((a, b) => b.at - a.at)[0] || null),
   };
 }
@@ -85,9 +84,10 @@ export function createReplay({ site, d, stage, liveStream, emit, changed }) {
   // The kit's transport bar, as on /video/recorder/: play and stop the take, record, the clock. The deck runs on its
   // own clock while recording and while a take plays; it is not the take's clock, only its count.
   const deck = createDeck({ items: [], adapters: {}, range: [0, REC_MAX_MS] });
-  const say = el('span', 'rp-say', '');
+  // The take is deleted with the kit's trash button; its R2 copy cannot be deleted from here and goes in 6 hours.
+  const trash = createIconButton({ icon: 'trash', label: 'delete the take', onPress: () => forget() });
   const bar = createTransportBar(el('div'), deck, {
-    scrub: false, loop: false, publish: false, verb: ['play', 'stop'], right: [say],
+    scrub: false, loop: false, publish: false, verb: 'stop', right: [trash.el],
     command: { play: () => play(), pause: () => stopPlay(), seek: () => {} },
     extras: [{ id: 'rec', label: '', aria: 'record', title: `record the stage, ${REC_MAX_MS / 60000} minutes at most`,
       onPress: () => (rec ? stopRec('you pressed Stop') : startRec()) }],
@@ -106,15 +106,16 @@ export function createReplay({ site, d, stage, liveStream, emit, changed }) {
     recBtn.title = rec ? 'stop recording' : playing ? 'a take is playing' : live ? `record the stage, ${REC_MAX_MS / 60000} minutes at most` : 'nothing is streaming to record';
     const toggle = bar.el.querySelector('.tbar-toggle');
     if (toggle) toggle.disabled = !take || !!rec;
-    const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    say.replaceChildren(rec ? 'recording'
-      : uploading ? 'uploading to R2'
-      : take ? `take ${fmtLen(take.ms)}, ${(take.bytes / 1e6).toFixed(1)} MB` : live ? '' : 'nothing streams');
-    if (!rec && !uploading && take && url) {
-      const a = el('a', 'rp-url', `in R2 until ${hhmm(until)}`);
-      a.href = url; a.target = '_blank'; a.rel = 'noopener';
-      say.append(', ', a);
-    }
+    trash.el.disabled = !take || !!rec || uploading;
+    trash.el.title = take ? 'delete the take from this browser' : 'no take yet';
+  }
+  function forget() {
+    if (!take || rec) return;
+    stopPlay();
+    take = null; url = ''; until = 0;
+    store.clear().catch(() => {});
+    d.log('the take is deleted from this browser; its R2 copy goes by itself within 6 hours');
+    draw(); changed();
   }
   // The stream reaches the stage seconds after the room says it is live, with no event here: look every second.
   setInterval(() => { if (!sec.hidden) draw(); }, 1000);
