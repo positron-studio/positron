@@ -73,9 +73,9 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   // sender's site. why: lessons/kit-participant.md#live-input
   let liveSrc = null;          // { site, tracks: [{ trackName, kind, sessionId, proof }] }
   const isLive = (s) => !!liveSrc && s === liveSrc.site;
-  let wanted = [], rid = 'b', closed = false, ready = null, failed = 0;
+  let wanted = [], rid = 'b', closed = false, failed = 0;
 
-  inn.pc.ontrack = (e) => {
+  const onTrack = (e) => {
     const t = inn.mids.get(e.transceiver.mid);
     if (!t) { log(`a track arrived on mid ${e.transceiver.mid} that nothing asked for`, 'warn'); return; }
     if (STAGED.includes(t.kind)) {
@@ -96,13 +96,15 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     if (inn.pc.connectionState === 'connected') onState(t.site, 'connected', route.in);
   };
   const route = { in: '', out: '' };
-  for (const [side, pc] of [['out', out.pc], ['in', inn.pc]]) {
+  function watch(side, pc) {
+    if (side === 'in') pc.ontrack = onTrack;
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') how(pc).then((r) => { route[side] = r; for (const s of streams.keys()) onState(s, 'connected', route.in); });
       if (pc.connectionState === 'failed') log(`sfu ${side === 'out' ? 'sending' : 'receiving'} connection failed`, 'warn');
       if (side === 'in') for (const s of streams.keys()) onState(s, pc.connectionState, route.in);
     };
   }
+  watch('out', out.pc); watch('in', inn.pc);
   /** Was the route a TURN relay? Read once connected, from the selected candidate pair. */
   async function how(pc) {
     try {
@@ -114,10 +116,14 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
     } catch { return ''; }
   }
 
-  // Both sessions exist before anything else is asked of them.
-  function start() {
-    ready ||= Promise.all([api('session'), api('session')]).then(([a, b]) => { out.session = a; inn.session = b; });
-    return ready;
+  // A session is made when it is first used: one with no connection yet is dead within 20 s (410 session_error).
+  // why: lessons/kit-participant.md#sfu-session-idle
+  async function ensure(x) { x.session ||= await api('session'); }
+  /** The receiving session went away: a fresh session and connection, and everything pulled again. */
+  function renewIn() {
+    try { inn.pc.close(); } catch { /* gone */ }
+    inn.pc = mk(); watch('in', inn.pc);
+    inn.session = null; inn.mids.clear(); pulled.clear(); route.in = '';
   }
 
   /** Say what this tab publishes, for every other tab; repeated for a late joiner. A screen is said
@@ -133,7 +139,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   function setTrack(kind, track) {
     return out.q(async () => {
       if (closed) return;
-      await start();
+      await ensure(out);
       const had = out.published.get(kind);
       const was = sending.has(kind);
       if (track) sending.add(kind); else sending.delete(kind);
@@ -170,7 +176,6 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
   function reconcile() {
     return inn.q(async () => {
       if (closed) return;
-      await start();
       const ask = [];
       const live = new Set();
       for (const [s, r] of [...wanted.map((w) => [w, remotes.get(w)]), ...(liveSrc ? [[liveSrc.site, liveSrc]] : [])]) {
@@ -193,6 +198,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
         for (const s of [...shares.keys()]) if ((!wanted.includes(s) && s !== site && !isLive(s)) || liveGone.has(s)) { shares.delete(s); onShare(s, null); }
       }
       if (!ask.length) return;
+      await ensure(inn);
       const r = await api(`${inn.session.sessionId}/pull`, { proof: inn.session.proof,
         tracks: ask.map(({ sessionId, proof, trackName, rid: x }) => ({ sessionId, proof, trackName, ...(x ? { rid: x } : {}) })) });
       let retry = false;
@@ -214,6 +220,7 @@ export function createSfu({ base, room, site, send, iceServers = [], tracks, onS
       failed = 0;
     }).catch((e) => {
       log(`sfu ${e.message}`, 'warn');
+      if (/session_error/.test(e.message)) { renewIn(); if (!closed && ++failed <= 5) setTimeout(() => reconcile(), 300); return; }
       // The whole pull refused (a live input in its first second answers 502): ask again, a few times.
       if (!closed && ++failed <= 5) setTimeout(() => reconcile(), 3000);
     });

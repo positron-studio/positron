@@ -456,3 +456,15 @@ empty reason, and the kit's button group throws on a disable with no reason (`"m
 show for it`). The throw came before `m1.send`, so the agent logged nothing and the page looked as if it had sent.
 Fixed 2026-10-23 by giving the asking state its reason. MEASURED after, headless against the real Mac and SFU:
 press to a 1280x720 picture on the stage 8.0 s (OBS live 6 s after the ask), Stop m1 to an empty stage 3 s.
+
+## demo/room/sfu.mjs, a session is made when it is first used {#sfu-session-idle}
+
+A Cloudflare Realtime session with no PeerConnection yet is dead within 20 s. MEASURED 2026-10-23 through
+positron-sfu: fresh sessions pulling room 8mc4ay's live track answered an offer after 1 s and
+`410 session_error "Session appears to be disconnected"` after 20, 45 and 75 s. The client used to make both
+sessions at Join, so a tab that joined /room/stage/ and waited for OBS got that 410 on its first pull and never
+showed the picture (the owner, 2026-10-23: *"waiting for the picture on stage still"*; headless passed because it
+pressed Start m1 9 s after Join). Now the sending session is made at the first publish, the receiving one at the
+first pull, and a `session_error` replaces the receiving session and its connection and pulls everything again.
+MEASURED after: Start m1 pressed 30 s after Join, picture in 12 s (the deployed old code, same run: two 410s, no
+picture); a camera turned on 25 s after Join on /room/present/ reached the other tab in 5 s.
