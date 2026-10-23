@@ -9,7 +9,10 @@ import { putWhole, fetchBack } from '/shell/ingest.mjs';
 import { RETIRED_LEG, fetchIceServers, readIcePath } from '/shell/live.mjs';
 import { createPanelValues } from '/shell/video-panel.mjs';
 import { readBurnedFrom, videoHue } from '/shell/pattern.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar, barButton } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createDeck } from '/timeline/transport.mjs';
 import { mediaMaster } from '/timeline/media-master.mjs';
@@ -247,8 +250,7 @@ export function build({ panel, assert, log }) {
     try { recording.rec.stop(); } catch { /* already */ }
   }
   function setRecUI(on) {
-    const b = bar.extra('rec');
-    if (!b) return;
+    const b = recBtn;
     b.dataset.on = on ? '1' : '';
     // the kit's record and stop icons; `setIcon` writes `title` too, so the
     // cap the bar was given is put back
@@ -391,16 +393,20 @@ export function build({ panel, assert, log }) {
   };
 
   const tl = panel.stack().el;
-  const bar = createTransportBar(tl, deck, {
-    scrub: false,
-    publish: false,
-    extras: [{ id: 'rec', label: '', aria: 'Record', primary: true,
-               title: `stop when you like. ${CAP_MS / 1000}s cap`,
-               onClick: () => {
-                 if (checking) { log('the checks are recording, this press waits for them'); return; }
-                 return recording ? stopRecording() : startRecording();
-               } }],
-  });
+  // Not published: the drill gets this api through `bars`. The strip below is the position surface.
+  const control = createTransportControl(deck);
+  const recBtn = barButton({ icon: 'record', aria: 'Record', primary: true,
+    title: `stop when you like. ${CAP_MS / 1000}s cap`,
+    onPress: () => {
+      if (checking) { log('the checks are recording, this press waits for them'); return; }
+      return recording ? stopRecording() : startRecording();
+    } });
+  const loop = loopView(control);
+  const tb = createBar({ start: [playToggle(control).el, recBtn], middle: [clockView(control).el, noteView(control).el],
+    end: [loop.el, ratesView(control).el] });
+  tl.append(tb.el);
+  bindTransportKeys(control, { scope: tb.el });
+  const bar = transportApi(control, { el: tb.el, loopView: loop });
   setRecUI(false);
   const view = createStripView(tl, deck, {
     size: 'auto', follow: false, gutter: 150, wallStyle: 'head',

@@ -95,12 +95,11 @@
   import { createTabs } from '/shell/tabs.mjs';
   import { createDiagram } from '/shell/diagram.mjs';
   import { createDrop } from '/shell/drop.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
   /* `noteName` stays shared: it holds the decision that middle C is C3, as on the
      Circuit's own pads.
      See lessons/page-pack.md#pack-11 */
   import { noteName } from '/shell/note-grid.mjs';
-  import { createDeck } from '/timeline/transport.mjs';
   import { createStack } from '/shell/stack.mjs';
   import { createGlue, createGlueRows } from '/shell/glue.mjs';
   import { createGrainScope } from '/shell/grain-scope.mjs';
@@ -358,23 +357,18 @@
   }
 
   /**
-   * No play button: play claims a rate and the file names none (`toggle: false`).
-   * It steps with `‹` `›`. `publish: false`: no position can advance until a file is
-   * open and a row pressed, so verify.mjs's play drill would go red.
+   * A step bar, not a transport: no play button (play claims a rate and the file names none), no deck, nothing
+   * published. It steps with ‹ › and its readout counts steps, never time.
    * See lessons/page-pack.md#pack-38
    */
   const stepHost = el('div', 'pk-bar');
-  const stepDeck = createDeck({ items: [], adapters: {}, range: [0, STEPS] });
-  const stepBar = createTransportBar(stepHost, stepDeck, {
-    publish: false, toggle: false, scrub: false, loop: false,
-    // The clock never prints a time: `fmt` gets the whole line, in steps.
-    // See lessons/page-pack.md#pack-39
-    fmt: (pos) => `step ${Math.min(STEPS, Math.floor(pos) + 1)} of ${STEPS}`,
-    extras: [
-      { id: 'prev', label: '‹', aria: 'the step before this one', onClick: () => walk(-1) },
-      { id: 'next', label: '›', aria: 'the step after this one', onClick: () => walk(+1) },
-    ],
-  });
+  const stepPrev = barButton({ icon: 'chevron-left', aria: 'the step before this one', onPress: () => walk(-1) });
+  const stepNext = barButton({ icon: 'chevron-right', aria: 'the step after this one', onPress: () => walk(+1) });
+  const stepTime = el('span', 'tbar-time');
+  const stepNow = el('span', 'tbar-now', `step 1 of ${STEPS}`);
+  stepTime.append(stepNow);
+  const stepBar = createBar({ start: [stepPrev, stepNext], middle: [stepTime] });
+  stepHost.append(stepBar.el);
 
   /* Two blocks: the sessions list stands alone (it decides what the rest is about);
      regions, transport and step grid are one glue, bar above what it drives. A gap
@@ -418,8 +412,7 @@
 
   /**
    * No transport under the waveform: a press on a samples row plays it. Nothing on the
-   * page can loop a sample. `createDeck` and `createTransportBar` stay imported for the
-   * sessions tab's step bar; `wave.playhead()` still runs off `currentTime`.
+   * page can loop a sample. `wave.playhead()` still runs off `currentTime`.
    * See lessons/page-pack.md#pack-44
    */
 
@@ -1105,7 +1098,7 @@
   /** Where the transport's head is, as a step index. */
   function moveHead(step) {
     headStep = Math.max(0, Math.min(STEPS - 1, step));
-    stepDeck.seek(headStep);
+    stepNow.textContent = `step ${headStep + 1} of ${STEPS}`;
     stepCells.forEach((c, s) => {
       if (s === headStep) c.dataset.now = '1'; else delete c.dataset.now;
     });
@@ -2008,23 +2001,22 @@
          * millisecond.
          * See lessons/page-pack.md#pack-151
          */
-        const clockNow = stepBar.api.el.querySelector('.tbar-now')?.textContent || '';
+        const clockNow = stepNow.textContent || '';
         d.assert('the sessions transport has no play button and its clock counts steps rather than seconds',
-          stepBar.api.toggles === false
-          && stepBar.api.el.querySelector('.tbar-toggle') === null
+          stepBar.el.querySelector('.tbar-toggle') === null
+          && window.__demo.transport?.el !== stepBar.el
           && /^step \d+ of 16$/.test(clockNow)
-          && (stepBar.api.el.querySelector('.tbar-all')?.textContent ?? '') === ''
-          && !/\d+[:.]\d\d/.test(stepBar.api.el.textContent),
-          `the clock reads "${clockNow}" and the bar says "${stepBar.api.el.textContent.trim()}"`);
+          && !/\d+[:.]\d\d/.test(stepBar.el.textContent),
+          `the clock reads "${clockNow}" and the bar says "${stepBar.el.textContent.trim()}"`);
 
         /* ‹ and ›, pressed as a person would press them rather than by calling
            what they call. The head wraps, so the last step's neighbour is the
            first and neither button is ever dead. */
         moveHead(0);
-        stepBar.extra('next').click();
+        stepNext.click();
         const at1 = headStep;
-        stepBar.extra('prev').click();
-        stepBar.extra('prev').click();
+        stepPrev.click();
+        stepPrev.click();
         const at2 = headStep;
         d.assert('the step head walks one step at a time, wraps round the sixteen, and is in one place at once',
           at1 === 1 && at2 === STEPS - 1

@@ -38,7 +38,10 @@
   import { createPresence, presenceOf } from '/shell/presence.mjs';
   import { createField } from '/shell/field.mjs';
   import { createChoice } from '/shell/choice.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView, STRIP_MIN_H } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createDeck } from '/timeline/transport.mjs';
@@ -193,8 +196,8 @@
         media: t.id === 'audience' ? null : c,
         of: t.label.toLowerCase(),
         /**
-         * One footer per panel. `soloFooter` makes a later `glue()` throw, because
-         * `createTransportBar(parent, ...)` appends and would stack a second footer.
+         * One footer per panel. `soloFooter` makes a later `glue()` throw, because a bar
+         * appended there would stack a second footer.
          * See lessons/page-stage.md#stage-22
          */
         soloFooter: true,
@@ -418,7 +421,7 @@
    * See lessons/page-stage.md#stage-40
    */
   function pendTransport(id, on) {
-    const b = showBar?.extra(id);
+    const b = id === 'webrtc' ? showBtn : null;
     if (!b) return;
     if (on) { b.dataset.pending = '1'; b.setAttribute('aria-busy', 'true'); }
     else { delete b.dataset.pending; b.removeAttribute('aria-busy'); }
@@ -625,9 +628,8 @@
   const maxSpanMs = () => Math.max(ARCHIVE_WINDOW_MS * ZOOM_OUT, (recordedMs ?? SHOW_MS) * 1.05);
   const archive = byId.get('controlroom');
   /**
-   * The archive's bar and strip are built off-page: `createTransportBar` and
-   * `createStripView` append to the parent given. They exist because `archiveCommand`
-   * and the archive deck are what Play recording drives and the checks read.
+   * The archive's strip is built off-page (`createStripView` appends to the parent given). The archive deck and
+   * `archiveCommand` are what Play recording drives and the checks read.
    * See lessons/page-stage.md#stage-58
    */
   const offstage = document.createElement('div');
@@ -692,20 +694,11 @@
     },
   };
 
-  const bar = createTransportBar(offstage, archiveDeck, {
-    live: false, scrub: false, absolute: false, time: false, loop: false,
-    command: archiveCommand,
-    /**
-     * Play recording is disabled until there is a recording. The harness cannot press a
-     * disabled control, so playback checks drive `archiveCommand`; only the refusal
-     * and the offer are asserted on the button.
-     * See lessons/page-stage.md#stage-67
-     */
-    // Not on the page: it must not hold `__demo.transport`. It owns the archive
-    // deck's command, which Play recording drives.
-    // See lessons/page-stage.md#stage-68
-    publish: false,
-  });
+  /**
+   * The archive's transport: a control with no bar of its own and nothing published (#stage-68). Its one view is
+   * Play recording on the show's bar, disabled until there is a recording (#stage-67).
+   */
+  const archiveControl = createTransportControl(archiveDeck, { command: archiveCommand });
 
   const VIDEO_LANE = {
       /**
@@ -932,17 +925,12 @@
     adapters: { show: { caps: { rates: [1] }, actuate: () => {} } },
   });
   /**
-   * `right` takes DOM nodes (`right[0].dataset.end` is set); `extras` takes
-   * `{id,label,onClick}`. Disabled until there is a recording.
-   * See lessons/page-stage.md#stage-89
-   */
-  /**
-   * The archive bar's own toggle, lifted into this bar's right slot, so its glyph is
-   * `archiveDeck`'s state and its press goes through `archiveCommand`. Not a
-   * `.tbar-x`, so the harness does not press it.
+   * Play recording is the archive control's own play toggle, in this bar's end slot, so its glyph is
+   * `archiveDeck`'s state and its press goes through `archiveCommand`. Not a `.tbar-x`, so the harness
+   * does not press it. Disabled until there is a recording.
    * See lessons/page-stage.md#stage-90
    */
-  const playRecBtn = bar.el.querySelector('.tbar-toggle');
+  const playRecBtn = playToggle(archiveControl).el;
   playRecBtn.setAttribute('aria-label', 'play or pause the recording this show made');
   // A disabled ▶ with no word beside it says nothing about when it will work.
   playRecBtn.title = 'plays the recording once a show has stopped';
@@ -960,43 +948,14 @@
   };
   const showClock = (pos) => (recordedMs != null ? `${mss(pos)} / ${mss(recordedMs)}` : mss(pos));
 
-  const showBar = createTransportBar(room, showDeck, {
-    fmt: showClock,
-    /**
-     * No live chip and no clock (`time: false`): a live clock would count toward a
-     * nominal end nobody set.
-     * See lessons/page-stage.md#stage-92
-     */
-    // One bar: the start on the left, the timers and Play recording on the right.
-    // See lessons/page-stage.md#stage-93
-    live: false, time: true, scrub: false, loop: false, absolute: false,
-    toggle: false,
-    /**
-     * `onClick`: `transport-bar.mjs` binds `extras` with `x.onClick?.(b)`, so `onPress`
-     * is silently ignored. The module documents `onPress` for `extras`; fix it there,
-     * accepting both, across every page that declares `extras`.
-     * See lessons/page-stage.md#stage-94
-     */
-    extras: [
-      // `Start show`, not a protocol name. The asserts read `^start` and `^stop`.
-      // See lessons/page-stage.md#stage-95
-      { id: 'webrtc', label: 'Start show', word: true,
-        aria: 'start the live show, which opens a real stream and records it, or stop it',
-        onClick: () => toggleShow() },
-    ],
-    right: [playRecBtn],
-    /**
-     * `start` and `stop` words, not a record dot: the press puts a show on air and
-     * records it. The component keeps both words' width so the button never resizes.
-     * See lessons/page-stage.md#stage-96
-     */
-    verb: ['start', 'stop'],
-    /**
-     * `publish: true`: the show's bar holds `__demo.transport`, the one a person presses;
-     * the archive bar passes `publish: false`. Earlier wording: lessons/page-stage.md#stage-97
-     * See lessons/page-stage.md#stage-150
-     */
-    publish: true,
+  /**
+   * One bar: Start show on the left, the show clock in the middle, Play recording on the right (#stage-93).
+   * Start show is a word button, not a play toggle: the press puts a show on air and records it (#stage-95, #stage-96).
+   * No play toggle, so `toggles: false` and no space key; `endStop: false`, so the nominal length never stops a show.
+   * See lessons/page-stage.md#stage-150
+   */
+  const showControl = createTransportControl(showDeck, {
+    endStop: false,
     command: {
       play: () => startShow(),
       pause: () => stopShow(),
@@ -1005,6 +964,21 @@
       seek: (ms) => { if (archiveMedia) archiveCommand.seek(ms); else showDeck.seek(ms); },
     },
   });
+  // `Start show`, not a protocol name. The asserts read `^start` and `^stop`.
+  const showBtn = barButton({ label: 'Start show', word: true,
+    aria: 'start the live show, which opens a real stream and records it, or stop it',
+    onPress: () => toggleShow() });
+  const showBar = createBar({
+    start: [showBtn],
+    middle: [clockView(showControl, { fmt: showClock }).el, noteView(showControl).el],
+    end: [playRecBtn],
+  });
+  room.append(showBar.el);
+  // The show's keys have no space; space plays the recording, as the archive's toggle did when it had its own bar.
+  bindTransportKeys(showControl, { scope: showBar.el, space: false });
+  bindTransportKeys(archiveControl, { scope: showBar.el });
+  const showApi = transportApi(showControl, { el: showBar.el, toggles: false });
+  publishTransport(showApi);
 
   /**
    * The one way a show reaches an audience: the container publishes over WHIP, this
@@ -1041,7 +1015,7 @@
 
   /** The one button reads what it will do next. */
   function paintTransport() {
-    const b = showBar?.extra('webrtc');
+    const b = showBtn;
     if (!b) return;
     const on = transport === 'webrtc';
     b.textContent = on ? 'Stop show' : 'Start show';
@@ -1061,7 +1035,7 @@
       return;
     }
     switching = true;
-    const b = showBar?.extra('webrtc');
+    const b = showBtn;
     if (b) b.disabled = true;
     try {
       if (transport === 'webrtc') {
@@ -2106,8 +2080,8 @@
      * See lessons/page-stage.md#stage-190
      */
     A('the published transport is the control room\u2019s one bar',
-      window.__demo?.transport === showBar.api && window.__demo?.transport !== bar.api,
-      window.__demo?.transport === showBar.api ? 'the control room bar has the name'
+      window.__demo?.transport === showApi && window.__demo?.transport?.el === showBar.el,
+      window.__demo?.transport === showApi ? 'the control room bar has the name'
         : 'nothing has it');
 
     const p1 = panels[1].panel;
@@ -2347,7 +2321,7 @@
      * await here can push the flush past the harness's patience. The poll below waits.
      * See lessons/page-stage.md#stage-205
      */
-    const showToggle = showBar.extra('webrtc');
+    const showToggle = showBtn;
     /**
      * Only if not already running: the harness presses `.tbar-x`, and a second press of
      * a button that is its own stop would end the show.

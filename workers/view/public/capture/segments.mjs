@@ -5,7 +5,10 @@
 
 import { recorderMime, el, armVideo, playOrPrompt, createShipper } from '/shell/shell.mjs';
 import { hueFor } from '/shell/pattern.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, scrubView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createDeck } from '/timeline/transport.mjs';
 import { mediaMaster } from '/timeline/media-master.mjs';
 import { SELFCHECK } from '/shell/selfcheck.mjs';
@@ -201,7 +204,14 @@ export function build({ panel, assert, log, set }) {
         if (Number.isFinite(q)) video.currentTime = q / 1000;
         return q;
       };
-      bar = createTransportBar(barSlot, deck, { publish: false });
+      // Not published: the tab page's transport is another tab's; the drill gets this api.
+      const control = createTransportControl(deck);
+      const loop = loopView(control);
+      const tb = createBar({ start: [playToggle(control).el], middle: [scrubView(control).el, clockView(control).el, noteView(control).el],
+        end: [loop.el, ratesView(control).el] });
+      barSlot.append(tb.el);
+      bindTransportKeys(control, { scope: tb.el });
+      bar = transportApi(control, { el: tb.el, loopView: loop });
       barSlot.hidden = false;
     } else deck.setRange([0, Math.round(dur * 1000)]);
     await playOrPrompt(video, { log });

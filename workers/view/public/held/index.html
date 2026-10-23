@@ -22,7 +22,10 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <script type="module">
   import { mount, guard } from '/shell/shell.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createGlue } from '/shell/glue.mjs';
@@ -665,10 +668,15 @@
       return drawn;
     }
 
-    // `scrub: false` because the line below is the position surface; `loop: false`
+    // No scrub because the line below is the position surface; no loop
     // because nothing sounds. The piece's own loop is the break at both ends.
     // See lessons/page-held.md#held-39
-    const bar = createTransportBar(d.el, deck, { scrub: false, loop: false });
+    const control = createTransportControl(deck);
+    const bar = createBar({ start: [playToggle(control).el], middle: [clockView(control).el, noteView(control).el],
+      end: [ratesView(control).el] });
+    d.el.append(bar.el);
+    bindTransportKeys(control, { scope: bar.el });
+    publishTransport(transportApi(control, { el: bar.el }));
 
     view = createStripView(d.el, deck, {
       size: 'auto', follow: false, gutter: 110, lanes,

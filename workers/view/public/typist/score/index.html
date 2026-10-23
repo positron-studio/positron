@@ -34,7 +34,10 @@
 <script type="module">
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, loopView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { makeLogDeck } from '/timeline/logdeck.mjs';
@@ -423,13 +426,21 @@
   // The first press of play is the gesture that wakes the typewriters: the
   // AudioContext is made and the samples fetched then, and the line starts
   // once they are decoded so the first key sounds. Muted, nothing is fetched.
-  const bar = createTransportBar(glue, deck, { scrub: false, command: {
+  const control = createTransportControl(deck, { command: {
     play: () => {
       if (muted || ready) return deck.play();
       bar.el.dataset.busy = '1';
       return wake().then(() => { delete bar.el.dataset.busy; deck.play(); });
     },
   } });
+  // The transport is a node on this page's bay: its buttons send along a link. why: lessons/kit-bar.md#bay
+  const send = transportOnBay(bay, { site: S, control });
+  const loop = loopView(control, { send });
+  const bar = createBar({ start: [playToggle(control, { send }).el], middle: [clockView(control).el],
+    end: [loop.el, ratesView(control, { send }).el] });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el, loopView: loop }));
   const strip = createStripView(glue, deck, { size: 'auto', follow: true, gutter: 132, lanes });
   // The whole score in view, fitted when the strip's width is known and whenever it changes:
   // at build time the canvas had 168 px of plot and the score sat in a third of the line.

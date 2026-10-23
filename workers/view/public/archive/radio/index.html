@@ -229,7 +229,10 @@
   import { mount, guard, el, createShipper, BUILD } from '/shell/shell.mjs';
   import { icyDemuxer } from '/shell/icy.mjs';
   import { SELFCHECK, DEEP } from '/shell/selfcheck.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, ratesView, loopView, liveBadge, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createGrainScope } from '/shell/grain-scope.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createDiagram } from '/shell/diagram.mjs';
@@ -402,7 +405,7 @@
   /**
    * 🔴 UP HERE FOR THE SAME REASON `BUF_SECONDS` IS, AND IT COST A RUN TO
    * RE-LEARN. A closure handed to a component may be called before the next
-   * line of this page runs: `createTransportBar` PAINTS ONCE at construction,
+   * line of this page runs: the transport views PAINT ONCE at construction,
    * and with this declared where it used to be, three hundred lines further
    * down, that first paint reached a `let` in its temporal dead zone —
    * `ReferenceError: Cannot access 'stream' before initialization`, thrown
@@ -779,49 +782,11 @@
   let heardBefore = 0;
   let started = false;                  // has the stream ever been asked for
 
-  // `live: true` — the clock is replaced by a LIVE chip. `absolute` stays for
-  // the keyboard table's sake and costs nothing now that the time is not drawn.
-  const bar = createTransportBar(d.el, deck, {
-    absolute: true, scrub: false, endStop: false, live: true,
-    /**
-     * 🔴 NO RATE ROW, AND THIS PAGE SPENT WEEKS DESCRIBING ONE IT DID NOT HAVE.
-     * It passed `rates: [0.25, 0.5, 1]` with `onRate` beside it, under a
-     * confident note beginning *"THE RATES ARE BACK, AND THEY DRIVE THE LOOP
-     * RATHER THAN THE PLAYHEAD"*. **`rates` is not an option of
-     * `createTransportBar`**: it is not in the destructured parameter list and
-     * there is no rest parameter, so it was dropped in silence, `onRate` could
-     * never fire, and `.tbar-rates` was empty and hidden by `:empty` because the
-     * page declares no `caps` either.
-     *
-     * ⚠️ DELETED RATHER THAN WIRED UP, WHICH IS A CHOICE AND NOT THE SMALLER
-     * JOB. A playback rate is a claim about a POSITION inside a sound, and this
-     * deck's position is wall clock on a live stream. The thing the note wanted
-     * to slow down is the LOOP, and the loop already has its own control: one
-     * button glued to LOOP cycling → ← ⇆, right below. A second way to chew the
-     * same seconds, in a row that has never been on screen, is not a feature
-     * this page was missing.
-     */
-    /**
-     * 🔴 ONE BUTTON, GLUED TO THE RIGHT OF LOOP, CYCLING → ← ⇆. ASKED FOR IN
-     * THOSE WORDS: *"looper mode is → | ← | ⇆ and its a part of loop button
-     * [→|LOOP]"*, then *"single mode button cycling"*, then *"move loop mode to
-     * right not left"* once it was on screen.
-     *
-     * It replaced two toggles that each turned the other off — a pair of
-     * radio buttons wearing the clothes of two independent switches, where
-     * neither face said what the loop was actually doing and both had to be
-     * read together to find out. One button has one face and it is the current
-     * state: the glyph you can see is the way the loop is playing, or the way
-     * the next one will.
-     *
-     * ⚠️ IT IS ON THE BAR WITH NO LOOP RUNNING, which the two toggles were not.
-     * A direction is a choice you can make BEFORE pressing LOOP, and it is kept
-     * when a loop ends rather than reset — see `onLoop`'s `off`. `always: true`
-     * in `transport-bar.mjs` carries that, and the note there says why it is not
-     * an inert control.
-     */
-    loopExtras: [looper.wayExtra()],
-    // 🔴 THE LOOP WINDOW IS THE GRANULATOR'S OWN BUFFER, READ FROM THE SAME
+  // A live source: no clock and no scrub (the picture below is the position surface), the `on air` badge in the
+  // clock's place, and LOOP holding a window filled in real time. No rate row: this deck's position is wall clock.
+  const control = createTransportControl(deck, {
+    endStop: false, live: true,
+    // THE LOOP WINDOW IS THE GRANULATOR'S OWN BUFFER, READ FROM THE SAME
     // CONSTANT. The bar cannot know how many seconds a page really keeps, so it
     // takes 20 s unless told; this page holds exactly `BUF_SECONDS` of radio
     // and no more. A button promising a longer loop than the page can deliver
@@ -902,17 +867,26 @@
      * too fast; under `chop` it sweeps seconds nobody is hearing. Three
      * pictures that would each look like a working playhead and each be a lie
      * about what is coming out, so the looper's own `headFrac()` reads the
-     * voice's clock instead. The 60 Hz tick still comes from here, because a second rAF loop
-     * in a page is the thing `transport-bar.mjs` exists to stop, and `f` is
+     * voice's clock instead. The 60 Hz tick still comes from the control, because a second rAF loop
+     * in a page is the thing the kit exists to stop, and `f` is
      * still the answer for the frame before a voice exists.
      */
     onLoopPos: (f) => scope.playhead?.(f == null ? null : (looper.headFrac() ?? f)),
   });
-  // 🔴 THE BUTTON EXISTS ONLY NOW, WHICH IS WHY THE FACE IS WRITTEN FROM ONE
-  // PLACE AND THAT PLACE IS THE LOOPER. A way reached from the code and a way
-  // reached by pressing cannot then disagree about what is showing, which is
-  // the `shareLabelColumn` lesson in a smaller costume.
-  looper.bind(bar);
+  // The direction button glued right of LOOP, cycling → ← ⇆, on the bar with no loop running (`always`).
+  // The looper writes its face, so a way reached from code and one reached by pressing cannot disagree.
+  const loopV = loopView(control, { extras: [looper.wayExtra()] });
+  const onAir = liveBadge();
+  const playBtn = playToggle(control).el;
+  const bar = createBar({
+    start: [playBtn],
+    middle: [onAir.el, noteView(control).el],
+    end: [loopV.el, ratesView(control).el],
+  });
+  d.el.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el, live: onAir, loopView: loopV }));
+  looper.bind(loopV);
 
   /**
    * 🔴 THE BADGE WHERE THE CLOCK USED TO BE SAYS `on air`, AND WHAT MAKES IT
@@ -935,7 +909,6 @@
    * is `off air`. Without a limit a dead mount reads as one that is still
    * coming up, for ever.
    */
-  const onAir = bar.api.live;
   const onAirIdle = () => onAir.follow({ everyMs: 1000, misses: 4, since: null, comingMs: 8000 });
   onAirIdle();
   // blocks decoded, or seconds the element has played. -1 means nothing is open.
@@ -1627,15 +1600,10 @@
   /**
    * Paint whatever the answers currently say.
    *
-   * ⚠️ THE PLAY BUTTON IS REACHED FOR BY CLASS, AND THAT IS A KIT GAP RATHER
-   * THAN A SHORTCUT. `createTransportBar` returns `extra(id)` for the buttons a
-   * page adds and nothing at all for its own toggle, so a page that must refuse
-   * to play has no way to say so through the component. Reported rather than
-   * worked around a second time: the bar wants a `disabled()`.
+   * The play button is disabled while every station is down.
    */
   function paintStations() {
-    const toggle = bar.el.querySelector('.tbar-toggle');
-    if (toggle) toggle.disabled = dead;
+    playBtn.disabled = dead;
     if (dead) {
       picker.disabled(true);
       for (const s of granControls) s.disabled(true);
@@ -5393,7 +5361,7 @@
       {
         muted = true; setWet(0);
         const TB = window.__demo?.transport;
-        const wayBtn = TB?.loopExtra ? TB.loopExtra('way') : bar?.loopExtra('way');
+        const wayBtn = loopV.extra('way');
         G.ways = []; G.turns = [];
         if (TB && looper.attached() && wayBtn) {
           TB.pressLoop();                                  // open a window

@@ -4,7 +4,10 @@
 // See lessons/page-sync.md#sync-15
 
 import { el } from '/shell/shell.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { createButtonGroup } from '/shell/button-group.mjs';
@@ -236,13 +239,20 @@ export function build({ panel, log, set }) {
   ] });
   const shelf = el('div');
   panel.add(btns.el, rowHere.wrap, rowOther.wrap, shelf);
-  const bar = createTransportBar(shelf, A1.deck, {
-    publish: false, scrub: false, loop: false,
+  const control = createTransportControl(A1.deck, {
     command: {
       play: () => { A1.start(); B1.start(); },
       pause: () => { A1.deck.pause(); B1.deck.pause(); },
     },
   });
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [ratesView(control).el],
+  });
+  shelf.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
   const view = createStripView(shelf, A1.deck, {
     size: 'auto', follow: false, gutter: 150,
     lanes: [
@@ -298,7 +308,7 @@ export function build({ panel, log, set }) {
   const how = tabDiagram(panel, diagramSpec);
 
   return {
-    bars: [{ name: 'the pulse', bar, strip: view.el }],
+    bars: [{ name: 'the pulse', bar: transport, strip: view.el }],
     show() { how.draw(); },
     hide() { if (A1.deck.playing?.()) { A1.deck.pause(); B1.deck.pause(); } },
 
@@ -344,7 +354,7 @@ export function build({ panel, log, set }) {
 
       // Press play the way a finger does, and let a few beats go by on all three.
       const startPos = A1.deck.position();
-      bar.api.el.querySelector('.tbar-toggle').click();
+      transport.el.querySelector('.tbar-toggle').click();
       N.start();
       const until = performance.now() + 2500;
       while ((gaps(A1, B1).length < 4 || gaps(A1, N).length < 4) && performance.now() < until) await sleep(25);
@@ -363,7 +373,7 @@ export function build({ panel, log, set }) {
         gn.length >= 4 && gn.every((x) => Math.abs(x - SKEW_MS) < AGREE_MS),
         `${gn.length} beats matched, a median ${median(gn).toFixed(2)} ms apart, ${deaf.peers().length} peer(s) heard`);
       N.deck.pause(); deaf.dispose();
-      bar.api.el.querySelector('.tbar-toggle').click();
+      transport.el.querySelector('.tbar-toggle').click();
       A1.deck.seek(0); B1.deck.seek(0);
 
       // A relay round trip is a deep check; an ordinary run logs that, not a pass.

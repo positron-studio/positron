@@ -754,13 +754,6 @@ button.pos-pri[data-busy="1"] {
   position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px;
   background: var(--hi); border-radius: 50%; left: 0;
 }
-.tbar[data-seekable="0"] .tbar-scrub,
-.tbar[data-scrub="0"] .tbar-scrub { display: none; }
-/* With no slider the clock takes the slack so the rates stay right. The
-   boundary is held by `.tbar > [data-end="1"]`; this covers a bar with no loop
-   to carry it. */
-/* why: lessons/css-shell.md#tbar-data-scrub-0-tbar-time */
-.tbar[data-scrub="0"] .tbar-time { margin-right: auto; }
 /* The free space opens at the loop, so loop, rates and badge sit at the right
    end whatever else the bar carries. Repeated from `.pos-controls` because
    this group can be a div. */

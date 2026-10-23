@@ -19,7 +19,7 @@ export const KIT_PARTS = [
     'strip-view', 'video-panel',
   ] },
   { part: 'layout', label: 'LAYOUT', ids: [
-    'tab-page', 'stack', 'tabs', 'card', 'card-grid-on-a-phone',
+    'bar', 'tab-page', 'stack', 'tabs', 'card', 'card-grid-on-a-phone',
     'card-refused-and-with-buttons',
   ] },
   { part: 'devices', label: 'DEVICES', ids: [

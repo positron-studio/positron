@@ -160,8 +160,9 @@ export function field(label, value, rows) {
  */
 export async function createReel({ d, name, host = d.el, side = [], timeline, draw, sound, play, kind = 'cue' }) {
   // Imported here so the pure half above loads in node for reel-test.mjs.
-  const [{ createTransportBar, barButton }, { setIcon }, { makeLogDeck }] = await Promise.all([
-    import('./transport-bar.mjs'), import('./icon-button.mjs'), import('/timeline/logdeck.mjs'),
+  const [{ createBar, barButton }, tc, tv, { bindTransportKeys }, { setIcon }, { makeLogDeck }] = await Promise.all([
+    import('./bar.mjs'), import('./transport-control.mjs'), import('./transport-views.mjs'),
+    import('./transport-keys.mjs'), import('./icon-button.mjs'), import('/timeline/logdeck.mjs'),
   ]);
   if (!document.getElementById('reel-css')) {
     document.head.append(Object.assign(make('style'), { id: 'reel-css', textContent: CSS }));
@@ -170,13 +171,11 @@ export async function createReel({ d, name, host = d.el, side = [], timeline, dr
   const cv = make('canvas', 'reel-cv');
   cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
-  const rec = barButton({ aria: 'record' });
-  setIcon(rec, 'record', 'record');
-  const dlBtn = barButton({ aria: 'download the take' });
-  setIcon(dlBtn, 'download', 'download the take');
+  const rec = barButton({ icon: 'record', aria: 'record',
+    onPress: () => (recording ? stopRecording() : startRecording().catch((e) => d.log(`recording failed: ${e.message}`, 'bad'))) });
+  const dlBtn = barButton({ icon: 'download', aria: 'download the take', onPress: () => { if (dl.href) dl.click(); } });
   dlBtn.disabled = true;
   const dl = make('a');
-  dlBtn.onclick = () => { if (dl.href) dl.click(); };
   const sideEl = make('div', 'reel-side');
   sideEl.append(...side);
   const stage = make('div', 'reel-stage');
@@ -206,7 +205,7 @@ export async function createReel({ d, name, host = d.el, side = [], timeline, dr
     if (audio.ac.state === 'suspended') await audio.ac.resume();
   }
 
-  let deck = null, bar = null, take = null, recording = null;
+  let deck = null, unbuild = null, take = null, recording = null;
   function build() {
     take = timeline();
     const items = take.items.map((it, i) => ({ at: Math.round(it.at), kind, id: `${kind}${i}`, payload: it.payload }));
@@ -217,10 +216,10 @@ export async function createReel({ d, name, host = d.el, side = [], timeline, dr
       reduce(payloads, pos) { return { pos }; },
       assertState() {},
     };
-    bar?.destroy?.();
+    unbuild?.();
     barHost.replaceChildren();
     deck = makeLogDeck({ lanes: [{ kind, rows: [], adapter }], items, leadInMs: 0, tailMs: 0, range: [0, take.end] });
-    bar = createTransportBar(barHost, deck, { loop: false, right: [rec, dlBtn], command: {
+    const control = tc.createTransportControl(deck, { command: {
       // the first play fetches and decodes the sounds; the bar sweeps until they are in
       play: async () => {
         if (!waitsForSound(sound, !!audio)) {
@@ -234,6 +233,14 @@ export async function createReel({ d, name, host = d.el, side = [], timeline, dr
         return deck.play();
       },
     } });
+    // Start is what you do (play, record, download), middle what is so, end the rates.
+    const views = [tv.playToggle(control), tv.scrubView(control), tv.clockView(control), tv.noteView(control), tv.ratesView(control)];
+    const [toggle, scrub, clockV, note, rates] = views;
+    const bar = createBar({ start: [toggle.el, rec, dlBtn], middle: [...(control.seekable ? [scrub.el] : []), clockV.el, note.el], end: [rates.el] });
+    barHost.append(bar.el);
+    const unkeys = bindTransportKeys(control, { scope: bar.el });
+    const unpublish = tc.publishTransport(tc.transportApi(control, { el: bar.el }));
+    unbuild = () => { unpublish(); unkeys(); for (const v of views) v.destroy(); control.destroy(); };
   }
 
   function frame() {
@@ -276,7 +283,6 @@ export async function createReel({ d, name, host = d.el, side = [], timeline, dr
     if (ext !== 'mp4') d.log('this browser records WebM; Instagram wants MP4, so convert it or record in Chrome', 'warn');
     window.__demo.take = { type: blob.type, bytes: blob.size, ms, url: dl.href };
   }
-  rec.onclick = () => (recording ? stopRecording() : startRecording().catch((e) => d.log(`recording failed: ${e.message}`, 'bad')));
 
   // A new timeline is a new take: rebuilt only when nothing is playing or recording.
   let soon = 0;

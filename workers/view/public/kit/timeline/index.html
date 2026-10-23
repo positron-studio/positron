@@ -30,7 +30,10 @@
   import { createFullscreenExit, EXIT_IDLE_MS, toggle as fsToggle, isFull as fsIsFull }
     from '/shell/fullscreen.mjs';
   import { createVideoPanel, FULL_MODES } from '/shell/video-panel.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, scrubView, ratesView, loopView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { centreSymbol, setSymbol } from '/shell/symbol.mjs';
   import { burn, readBurned, FRAME_W, FRAME_H, videoHue } from '/shell/pattern.mjs';
   import { createPresence } from '/shell/presence.mjs';
@@ -58,7 +61,7 @@
   // does not leave a let behind to be read in its dead zone.
   // See lessons/page-kit-timeline.md#kit-timeline-2
   let liveSpec = null;        // the live run whose dense lane is binned, newest block
-  let tbarSpec = null;        // { whole, noScrub, noToggle, refused, deck }
+  let tbarSpec = null;        // { whole, noScrub, noToggle, refused, deck }, each { bar, control, api }
   let ngSpec = null;          // { grid, ev }
   let glueSpec = null;        // { panel, bar, deck, mute }
   let fsxSpec = null;         // { host, exit, out }, a cover with a way back
@@ -107,10 +110,8 @@ v.strip.stopLive()      // the head freezes where it is`,
 
 
   /**
-   * The shapes of a transport bar: four views of one idle deck, so nothing moves
-   * unasked and no rate row is drawn. Only the whole row claims __demo.transport;
-   * the others pass publish: false, asserted both ways.
-   * See lessons/page-kit-timeline.md#kit-timeline-5
+   * The shapes of a transport bar: three bars over one idle deck, so nothing moves unasked.
+   * Only the whole row is published as __demo.transport, asserted both ways.
    */
   /**
    * Note grid, deliberately not strip.mjs: a strip draws marks against a deck in ms,
@@ -151,69 +152,61 @@ grid.set(notesIn(sessionBytes))   // [{ region, step, note, velocity, gate, leng
     });
 
   section('TRANSPORT BAR',
-    'The whole row, the two things a page can take off it, and the one pair it refuses.',
-    `createTransportBar(host, deck)                       // everything
-createTransportBar(host, deck, { scrub: false })      // a page with a strip
-createTransportBar(host, deck, { toggle: false, chip: badge.el })
-createTransportBar(host, deck, { chip, live: true })  // throws: one position, two claims`,
+    'A bar is three slots, and a transport is a control whose views go in them. A page takes '
+    + 'the views it wants, and a transport with no play button says so in one boolean.',
+    `const control = createTransportControl(deck)
+const bar = createBar({ start: [playToggle(control).el],
+  middle: [clockView(control).el, scrubView(control).el],
+  end: [ratesView(control).el, loopView(control).el] })
+bindTransportKeys(control, { scope: bar.el })
+publishTransport(transportApi(control, { el: bar.el }))
+createBar({ start: [toggle.el], middle: [clock.el] })  // a page with a strip: no scrub
+createBar({ middle: [badge.el] })    // no play button: toggles: false, space: false
+bar.set('left', [])                  // throws: the slots are start, middle, end
+barButton({ label: 'Go', onClick })  // throws: onPress, never onClick`,
     (box) => {
       box.classList.add('kit-wide');
       const stack = createStack(undefined, 'kit-col');
-      // One deck: four would be four clocks.
-      // See lessons/page-kit-timeline.md#kit-timeline-10
+      // One deck under four controls: four decks would be four clocks.
       const deck = createDeck({ range: [0, 60_000] });
       tbarSpec = {};
-
-      const at = (cap, opts) => {
+      const at = (cap, bar, control, toggles = true) => {
         const host = el('div', 'kit-half');
-        const bar = createTransportBar(host, deck, { publish: false, ...opts });
+        host.append(bar.el);
+        bindTransportKeys(control, { scope: bar.el, space: toggles });
         stack.titled(cap, host);
-        return bar;
+        return { bar, control, api: transportApi(control, { el: bar.el, toggles }) };
       };
 
-      /**
-       * The whole row, the one bar here that publishes (publish defaults to true), so
-       * the harness gets a defined playhead rather than whichever bar was built last.
-       * verify.mjs presses this toggle and seeks this deck, which has no adapters.
-       * See lessons/page-kit-timeline.md#kit-timeline-11
-       */
-      tbarSpec.whole = at('EVERYTHING, AND THE ONE BAR HERE THAT PUBLISHES',
-        { verb: ['start', 'stop'], publish: true });
+      // The one transport here that publishes, so the harness grades a known playhead.
+      const whole = createTransportControl(deck);
+      tbarSpec.whole = at('EVERYTHING, AND THE ONE BAR HERE THAT PUBLISHES', createBar({
+        start: [playToggle(whole, { verb: ['start', 'stop'] }).el],
+        middle: [clockView(whole).el, scrubView(whole).el],
+        end: [ratesView(whole).el, loopView(whole).el],
+      }), whole);
+      publishTransport(tbarSpec.whole.api);
 
-      /**
-       * scrub: false: one position surface per page. A page with a strip passes it,
-       * since the strip already seeks on press and on drag.
-       * See lessons/page-kit-timeline.md#kit-timeline-12
-       */
-      tbarSpec.noScrub = at('SCRUB: FALSE, WHICH IS WHAT A PAGE WITH A STRIP PASSES',
-        { scrub: false, verb: ['start', 'stop'] });
+      // A page with a strip leaves the scrub view out: the strip already seeks.
+      const noScrub = createTransportControl(deck);
+      tbarSpec.noScrub = at('NO SCRUB VIEW, WHICH IS WHAT A PAGE WITH A STRIP DRAWS', createBar({
+        start: [playToggle(noScrub, { verb: ['start', 'stop'] }).el],
+        middle: [clockView(noScrub).el],
+        end: [ratesView(noScrub).el, loopView(noScrub).el],
+      }), noScrub);
 
-      /**
-       * toggle: false, for a page with no position inside a sound: playing is forced
-       * false, space is not a play key, the end stop never arms, and api.toggles says so
-       * for demo/verify.mjs. The chip slot holds the presence badge instead.
-       * See lessons/page-kit-timeline.md#kit-timeline-13
-       */
-      tbarSpec.noToggle = at('TOGGLE: FALSE, WITH A PRESENCE BADGE IN THE CHIP\u2019S PLACE', {
-        toggle: false, scrub: false, loop: false,
-        chip: createPresence({ of: 'Raspberry Pi', mode: 'badge', state: 'online' }).el,
-      });
+      // No play button: no space key, no end stop, and the api says toggles: false.
+      const noToggle = createTransportControl(deck, { endStop: false });
+      tbarSpec.noToggle = at('NO PLAY BUTTON, WITH A PRESENCE BADGE IN THE MIDDLE', createBar({
+        middle: [createPresence({ of: 'Raspberry Pi', mode: 'badge', state: 'online' }).el],
+      }), noToggle, false);
 
-      /**
-       * The one pair it refuses: a chip and a live badge want the same position, so
-       * asking for both throws rather than picking. Shown as the refusal.
-       * See lessons/page-kit-timeline.md#kit-timeline-14
-       */
-      let refused = 'IT WAS ACCEPTED';
-      try {
-        createTransportBar(el('div', ''), deck, {
-          publish: false, live: true,
-          chip: createPresence({ of: '', mode: 'badge', state: 'online' }).el,
-        });
-      } catch (e) { refused = e.message; }
-      tbarSpec.refused = refused;
-      const say = el('div', 'kit-cut', `a chip and a live badge: ${refused}`);
-      stack.add(say);
+      // What the bar refuses: a slot it does not have, and onClick on its button.
+      const refusals = [];
+      try { createBar().set('left', []); refusals.push('IT TOOK A LEFT SLOT'); } catch (e) { refusals.push(e.message); }
+      try { barButton({ label: 'Go', onClick: () => {} }); refusals.push('IT TOOK onClick'); } catch (e) { refusals.push(e.message); }
+      tbarSpec.refused = refusals;
+      for (const r of refusals) stack.add(el('div', 'kit-cut', r));
 
       tbarSpec.deck = deck;
       box.append(stack.el);
@@ -222,8 +215,9 @@ createTransportBar(host, deck, { chip, live: true })  // throws: one position, t
   section('GLUED TRANSPORT BAR',
     'A panel and its transport bar wrapped in one edge with a 1 px seam. The toggle holds '
     + 'both of its words at once, so it cannot change width when it changes state.',
-    `panel.glue(bar.el)   // wraps in place, so the pair stays where the panel was
-createTransportBar(host, deck, { verb: ['start', 'stop'] })`,
+    `const bar = createBar({ start: [playToggle(control, { verb: ['start', 'stop'] }).el],
+  middle: [clockView(control).el, scrubView(control).el] })
+panel.glue(bar.el)   // wraps in place, so the pair stays where the panel was`,
     (box) => {
       box.classList.add('kit-wide');
       // .kit-half is max-width: 50%, not a pixel count, because the box owns this width.
@@ -257,18 +251,15 @@ createTransportBar(host, deck, { verb: ['start', 'stop'] })`,
       panel.slots.right.prepend(mute);
       glued.append(panel.el);
 
-      // A deck with no adapters offers no rates, so the bar draws no rate row:
-      // what is on show here is the toggle, the clock and the seam.
+      // A deck with no adapters offers no rates: what is on show is the toggle, the clock and the seam.
       const deck = createDeck({ range: [0, 60_000] });
-      const bar = createTransportBar(glued, deck, {
-        verb: ['start', 'stop'], live: false, loop: false, scrub: true, absolute: false,
-        /**
-         * publish: false: the whole row above claims __demo.transport, so the choice is
-         * explicit rather than decided by source order.
-         * See lessons/page-kit-timeline.md#kit-timeline-17
-         */
-        publish: false,
+      // Not published: the whole row above is the page's transport.
+      const control = createTransportControl(deck);
+      const bar = createBar({
+        start: [playToggle(control, { verb: ['start', 'stop'] }).el],
+        middle: [clockView(control).el, scrubView(control).el],
       });
+      bindTransportKeys(control, { scope: bar.el });
       // The panel is already in the box and the bar is appended after it, which is the
       // realistic order the method is for.
       // See lessons/page-kit-timeline.md#kit-timeline-18
@@ -604,56 +595,40 @@ createVideoPanel({ media, left: myBadge, centre: myThing, right: false, fullMode
 
   /**
    * No play button, and a boolean a harness can read: the DOM (.tbar-toggle) and
-   * api.toggles must agree, compared against the whole row beside it, because
-   * demo/verify.mjs would otherwise click a toggle that does not exist.
-   * See lessons/page-kit-timeline.md#kit-timeline-38
+   * api.toggles must agree, or demo/verify.mjs clicks a toggle that does not exist.
    */
   if (tbarSpec) {
     const has = (b) => !!b.api.el.querySelector('.tbar-toggle');
-    d.assert('a bar told to leave the play button off has none, and says so in one boolean',
+    d.assert('a transport with no play button draws none, and says so in one boolean',
       has(tbarSpec.whole) && tbarSpec.whole.api.toggles !== false
       && !has(tbarSpec.noToggle) && tbarSpec.noToggle.api.toggles === false
       && tbarSpec.noToggle.api.playing === false,
       `the whole row: toggle ${has(tbarSpec.whole) ? 'drawn' : 'MISSING'}, `
-      + `toggles ${tbarSpec.whole.api.toggles} · with it off: `
+      + `toggles ${tbarSpec.whole.api.toggles}; with none: `
       + `${has(tbarSpec.noToggle) ? 'STILL DRAWN' : 'no toggle'}, `
       + `toggles ${tbarSpec.noToggle.api.toggles}, playing ${tbarSpec.noToggle.api.playing}`);
 
-    /**
-     * scrub: false keeps the slider but sets data-scrub="0" and shell.css hides it, so
-     * this reads computed style. Both sides, because data-scrub is seekable && wantScrub.
-     * See lessons/page-kit-timeline.md#kit-timeline-39
-     */
-    const shows = (b) => getComputedStyle(b.api.el.querySelector('.tbar-scrub')).display;
-    const flag = (b) => b.api.el.dataset.scrub;
-    d.assert('and a bar told to leave the slider off draws no second time axis',
-      shows(tbarSpec.whole) !== 'none' && flag(tbarSpec.whole) === '1'
-      && shows(tbarSpec.noScrub) === 'none' && flag(tbarSpec.noScrub) === '0',
-      `the whole row is data-scrub=${flag(tbarSpec.whole)} showing `
-      + `${shows(tbarSpec.whole)}, the one with scrub off is `
-      + `data-scrub=${flag(tbarSpec.noScrub)} showing ${shows(tbarSpec.noScrub)}`);
+    // A view left out is not in the bar at all, so this reads presence, and display on the one drawn.
+    const scrubOf = (b) => b.api.el.querySelector('.tbar-scrub');
+    const wholeShows = scrubOf(tbarSpec.whole) ? getComputedStyle(scrubOf(tbarSpec.whole)).display : 'absent';
+    d.assert('and a bar with no scrub view draws no second time axis',
+      wholeShows !== 'none' && wholeShows !== 'absent' && !scrubOf(tbarSpec.noScrub),
+      `the whole row's scrub shows ${wholeShows}, the bar without one has `
+      + `${scrubOf(tbarSpec.noScrub) ? 'A SCRUB' : 'none'}`);
 
-    /**
-     * The chip slot holds the presence badge, which changes with whether the
-     * instrument answers, not a LIVE word fixed at build time.
-     * See lessons/page-kit-timeline.md#kit-timeline-40
-     */
+    // The middle holds the presence badge, which changes with whether the instrument answers.
     const chip = tbarSpec.noToggle.api.el.querySelector('.pos-pres');
-    d.assert('the chip on a bar with no toggle is a badge that can change, not a word',
+    d.assert('the badge in the middle of a bar with no play button can change, not a word',
       !!chip && chip.querySelector('.pos-pres-dot')
       && chip.querySelector('.pos-pres-w').textContent.trim().length > 0,
       chip ? `it says "${chip.querySelector('.pos-pres-w').textContent.trim()}" beside a dot`
-           : 'there is nothing in the chip position');
+           : 'there is nothing in the middle slot');
 
-    /**
-     * Negative control: a chip and a live badge want the same position, so the bar
-     * throws rather than picking.
-     * See lessons/page-kit-timeline.md#kit-timeline-41
-     */
-    d.assert('NEGATIVE CONTROL: a chip and a live badge are refused rather than drawn over each other',
-      typeof tbarSpec.refused === 'string' && tbarSpec.refused !== 'IT WAS ACCEPTED'
-      && tbarSpec.refused.includes('same position'),
-      tbarSpec.refused);
+    // Negative control: a slot name the bar does not have and the onClick spelling both throw.
+    const [slotNo, clickNo] = tbarSpec.refused;
+    d.assert('NEGATIVE CONTROL: a fourth slot and an onClick on a bar button are refused rather than ignored',
+      /no slot called left/.test(slotNo) && /onPress, not onClick/.test(clickNo),
+      tbarSpec.refused.join(' | '));
 
     /**
      * Exactly one bar claims __demo.transport, graded by identity against the chosen
@@ -661,13 +636,9 @@ createVideoPanel({ media, left: myBadge, centre: myThing, right: false, fullMode
      * only find the first bar in DOM order.
      * See lessons/page-kit-timeline.md#kit-timeline-42
      */
-    /* The tab page block's bars are excluded: built lazily when its BARS tab opens,
-       publish: false, and graded there.
-       See lessons/page-kit-timeline.md#kit-timeline-43 */
     const bars = [...document.querySelectorAll('.tbar')].filter((b) => !b.closest('.kit-tabpage'));
     const published = d.api.transport || window.__demo?.transport;
-    /* Four bars on this page; every specimen except the whole row passes publish: false.
-       See lessons/page-kit-timeline.md#kit-timeline-44 */
+    // Four bars on this page: three specimens and the glued one; only the whole row is published.
     d.assert('of the four bars here exactly one claims the page\u2019s playhead, and it is the whole row',
       bars.length === 4 && !!published && published === tbarSpec.whole.api
       && published.el === tbarSpec.whole.api.el

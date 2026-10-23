@@ -31,7 +31,10 @@
   import { createCard, createCardGrid } from '/shell/card.mjs';
   import { DEMOS } from '/manifest.mjs';
   import { createStripView } from '/shell/strip.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createDeck } from '/timeline/transport.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
@@ -55,7 +58,46 @@
   let stackSpec = null, emptySpec = null, emptyBlock = null;
   const stackBlocks = [];
   let tabSpec = null;         // { page }, the TAB PAGE specimen, checked last before ready
+  let barSpec = null;         // { three, spread, status, word, icon, quiet }, the BAR specimen
 
+
+  /**
+   * Bar specimen (bar.mjs): a layout with three slots and the one button that goes in it.
+   * It knows nothing about time; a transport's views go in the same slots.
+   * why: lessons/kit-bar.md#slots
+   */
+  section('BAR',
+    'A strip with three slots: what you do at the start, what is so in the middle, what you '
+    + 'choose at the end. The end sits at the far end even when the middle is empty.',
+    `createBar({ start: [play, record], middle: [status], end: [scene, download] })
+barButton({ icon: 'record', aria: 'record', onPress })     // a kit icon by name
+barButton({ label: 'Scene 1', word: true, onPress })       // a word, sized by its text
+barButton({ icon: 'download', aria: 'download', press: false })  // the harness never presses it
+bar.set('middle', [status])                                // slots are start, middle, end`,
+    (box) => {
+      box.classList.add('kit-wide');
+      const stack = createStack(undefined, 'kit-col');
+      const status = el('output', 'tbar-badge', 'nothing pressed');
+      const said = (w) => () => { status.textContent = `pressed ${w}`; };
+      const word = barButton({ label: 'Scene 1', word: true, onPress: said('Scene 1') });
+      const icon = barButton({ icon: 'record', aria: 'record', onPress: said('record') });
+      const quiet = barButton({ icon: 'download', aria: 'download', title: 'a press the harness leaves alone',
+        press: false, onPress: said('download') });
+      const three = createBar({
+        start: [barButton({ icon: 'play', aria: 'play', onPress: said('play') }), icon],
+        middle: [status],
+        end: [word, quiet],
+      });
+      const spread = createBar({
+        start: [barButton({ icon: 'chevron-left', aria: 'previous', onPress: said('previous') }),
+                barButton({ icon: 'chevron-right', aria: 'next', onPress: said('next') })],
+        end: [barButton({ icon: 'trash', aria: 'delete', onPress: said('delete') })],
+      });
+      stack.titled('START, MIDDLE AND END', three.el);
+      stack.titled('NO MIDDLE, AND THE END STILL AT THE END', spread.el);
+      box.append(stack.el);
+      barSpec = { three, spread, status, word, icon, quiet };
+    });
 
   /**
    * Tab page specimen (tab-page.mjs, bar-drill.mjs). It opens on QUIET, so BARS is
@@ -71,9 +113,9 @@
   { id: 'arrival', label: 'ARRIVAL', mod: arrival },  // arrival: the tab's own module, imported by the page
 ] });
 // a tab: export const readout; export function build({ panel, report, assert, log, set })
-//   returns { show, hide, check({ A }), bars: [{ name, bar, strip }] }
+//   returns { show, hide, check({ A }), bars: [{ name, bar: api, strip }] }
 if (SELFCHECK) await page.check();                   // and then d.ready()
-await assertBar(d.assert, bar, { name, strip });     // the drill verify.mjs runs on one bar`,
+await assertBar(d.assert, api, { name, strip });     // api: transportApi(control, { el: bar.el })`,
     (box) => {
       box.classList.add('kit-wide', 'kit-tabpage');
       const hi = getComputedStyle(document.documentElement).getPropertyValue('--hi').trim() || '#ffd400';
@@ -114,17 +156,25 @@ await assertBar(d.assert, bar, { name, strip });     // the drill verify.mjs run
           const deck = createDeck({ items, adapters: { mark: adapter }, range: [0, 60_000] });
           const shelf = el('div');
           const view = createStripView(shelf, deck, { size: 'auto', lanes: [{ id: 'mark', kind: 'mark', color: hi }] });
-          const live = createTransportBar(shelf, deck, { publish: false, scrub: false, loop: false });
+          // Not published: a bar in a tab is graded by the tab page's drill, never as __demo.transport.
+          const lc = createTransportControl(deck);
+          const liveBar = createBar({ start: [playToggle(lc).el], middle: [clockView(lc).el], end: [ratesView(lc).el] });
+          bindTransportKeys(lc, { scope: liveBar.el });
+          const live = transportApi(lc, { el: liveBar.el });
           view.strip.fit?.();
           // The strip sits on the bar that drives it, the one pair a glue is for.
-          const pair = createGlue(view.surface, live.el);
+          const pair = createGlue(view.surface, liveBar.el);
 
           /* The negative control: a clock that always answers 0. Play is accepted and seek
              still works, so the drill must fail exactly one row, play advances position.
              See lessons/page-kit-layout.md#kit-layout-4 */
           const still = createDeck({ clock: { domain: 'wall', now: () => 0 }, range: [0, 60_000] });
           const frozenHost = el('div');
-          const frozen = createTransportBar(frozenHost, still, { publish: false, loop: false, verb: ['start', 'stop'] });
+          const fc = createTransportControl(still);
+          const frozenBar = createBar({ start: [playToggle(fc, { verb: ['start', 'stop'] }).el], middle: [clockView(fc).el] });
+          bindTransportKeys(fc, { scope: frozenBar.el });
+          frozenHost.append(frozenBar.el);
+          const frozen = transportApi(fc, { el: frozenBar.el });
 
           panel.titled('A BAR AND THE STRIP IT DRIVES', pair);
           panel.titled('A BAR WHOSE CLOCK NEVER MOVES', frozenHost);
@@ -133,7 +183,7 @@ await assertBar(d.assert, bar, { name, strip });     // the drill verify.mjs run
             bars: [{ name: 'live', bar: live, strip: view.el }],
             // A deck left running in a tab nobody can see is a sound nobody
             // chose; leaving the tab stops it.
-            hide() { if (live.api.playing) live.api.el.querySelector('.tbar-toggle').click(); },
+            hide() { if (live.playing) live.el.querySelector('.tbar-toggle').click(); },
             async check({ A }) {
               const rows = await drillBar(frozen);
               const red = rows.filter((r) => !r.skipped && !r.pass).map((r) => r.label);
@@ -413,6 +463,32 @@ const row = page.stack();                // a block that is itself a column`,
   }
 
 
+  // The bar's slots: their order in the DOM, the far end taken by the first end item only,
+  // and in a bar with no middle the end item still at the right edge.
+  if (barSpec) {
+    const { three, spread } = barSpec;
+    const kids = [...three.el.children];
+    const ends = kids.filter((k) => k.dataset.end === '1');
+    const inner = (b) => { const cs = getComputedStyle(b.el); return b.el.getBoundingClientRect().right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth); };
+    const last = (b) => b.el.lastElementChild.getBoundingClientRect().right;
+    const gapOf = (b) => b.el.lastElementChild.getBoundingClientRect().left - b.el.children[1].getBoundingClientRect().right;
+    d.assert('BAR: start, middle and end draw in that order, and only the first end item takes the far end',
+      kids.length === 5 && kids[2] === barSpec.status && ends.length === 1 && ends[0] === barSpec.word
+      && Math.abs(last(three) - inner(three)) <= 0.5 && Math.abs(last(spread) - inner(spread)) <= 0.5 && gapOf(spread) > 100,
+      `${kids.length} items, ${ends.length} marked data-end; the last item ends ${(inner(three) - last(three)).toFixed(1)} px `
+      + `and ${(inner(spread) - last(spread)).toFixed(1)} px short of the inner edge, the bar with no middle `
+      + `opens a ${gapOf(spread).toFixed(0)} px gap`);
+
+    // One button, three shapes: a word sized by its text, a kit icon with an aria name, one never pressed.
+    const { word, icon, quiet } = barSpec;
+    d.assert('BAR: a bar button is a word, a kit icon, or one the harness never presses',
+      word.classList.contains('tbar-word') && word.classList.contains('tbar-x') && word.textContent === 'Scene 1'
+      && !!icon.querySelector('svg') && icon.textContent.trim() === '' && icon.getAttribute('aria-label') === 'record'
+      && quiet.classList.contains('tbar-slot') && !quiet.classList.contains('tbar-x'),
+      `the word "${word.textContent}" (${word.className}), the icon ${icon.querySelector('svg') ? 'drawn' : 'MISSING'} `
+      + `named "${icon.getAttribute('aria-label')}", the quiet one ${quiet.className}`);
+  }
+
   /**
    * The tab page's check pass, last before d.ready(): the harness drills transport
    * and sends seek keys as soon as ready, so this drill must not overlap it. About
@@ -426,20 +502,20 @@ const row = page.stack();                // a block that is itself a column`,
       await page.check();
       // After the pass the specimen is back on QUIET with BARS built and closed.
       const { live, frozen } = page.built('bars');
-      const was = live.api.position;
+      const was = live.position;
       window.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true }));
       await nap(DRILL.keyMs);
       d.assert('TAB PAGE: a key from the page does not reach a bar in a closed tab',
-        page.at() === 'quiet' && Math.abs(live.api.position - was) < 1,
-        `open on ${page.at()}, the BARS bar went ${was.toFixed(0)} -> ${live.api.position.toFixed(0)}`);
+        page.at() === 'quiet' && Math.abs(live.position - was) < 1,
+        `open on ${page.at()}, the BARS bar went ${was.toFixed(0)} -> ${live.position.toFixed(0)}`);
       page.tabs.go('bars', { push: false });
-      const liveWas = live.api.position;
-      frozen.api.el.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true }));
+      const liveWas = live.position;
+      frozen.el.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true }));
       await nap(DRILL.keyMs);
       d.assert('TAB PAGE: a key aimed at one bar moves that bar and not its neighbour',
-        Math.abs(frozen.api.position) < 1 && Math.abs(live.api.position - liveWas) < 1,
-        `the aimed bar is at ${frozen.api.position.toFixed(0)}, its neighbour went `
-        + `${liveWas.toFixed(0)} -> ${live.api.position.toFixed(0)}`);
+        Math.abs(frozen.position) < 1 && Math.abs(live.position - liveWas) < 1,
+        `the aimed bar is at ${frozen.position.toFixed(0)}, its neighbour went `
+        + `${liveWas.toFixed(0)} -> ${live.position.toFixed(0)}`);
       page.tabs.go('quiet', { push: false });
     } catch (e) {
       d.assert('TAB PAGE: its checks ran to the end', false, e.message);

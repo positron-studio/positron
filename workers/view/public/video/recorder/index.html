@@ -44,7 +44,10 @@
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createPicker } from '/shell/picker.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { setIcon } from '/shell/icon-button.mjs';
@@ -349,19 +352,22 @@
   function pause() { deck.pause(); pv.pause(); }
 
   function face() {
-    const b = bar.extra?.('rec');
-    if (!b) return;
-    setIcon(b, recording ? 'stop' : 'record', recording ? 'stop recording' : 'record');
-    b.classList.toggle('cc-rec', !recording);
+    setIcon(recBtn, recording ? 'stop' : 'record', recording ? 'stop recording' : 'record');
+    recBtn.classList.toggle('cc-rec', !recording);
   }
 
+  // The transport is a node on this page's bay: its buttons send along a link, and the bar only lays them out.
+  // why: lessons/kit-bar.md#bay
   const glue = el('div');
-  const bar = createTransportBar(glue, deck, {
-    scrub: false, loop: false, live: false,
-    command: { play, pause },
-    extras: [{ id: 'rec', label: '', aria: 'record', title: `record, ${REC_MS / 1000} s at most`,
-               onPress: () => (recording ? stopRecording('stopped') : record()) }],
-  });
+  const control = createTransportControl(deck, { command: { play, pause } });
+  const send = transportOnBay(bay, { site: S, control });
+  if (bay.port(`${S}:player:value-in`)) bay.link(`${S}:transport:value-out`, `${S}:player:value-in`);
+  const recBtn = barButton({ icon: 'record', aria: 'record', title: `record, ${REC_MS / 1000} s at most`,
+    onPress: () => (recording ? stopRecording('stopped') : record()) });
+  const bar = createBar({ start: [playToggle(control, { send }).el, recBtn], middle: [clockView(control).el] });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el }));
   // One global scale: fitted to the 10 s range when it first has a width, and
   // never again. `follow: false`, so nothing scrolls it either.
   const strip = createStripView(glue, deck, { size: 'auto', follow: false, gutter: 120, lanes: [lane] });

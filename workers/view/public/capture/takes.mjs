@@ -4,7 +4,10 @@
 // See lessons/page-capture.md#capture-37
 
 import { recorderMime, el, armVideo } from '/shell/shell.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar, barButton } from '/shell/bar.mjs';
+import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { setIcon } from '/shell/icon-button.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createDeck } from '/timeline/transport.mjs';
@@ -226,7 +229,7 @@ export function build({ panel, assert, log }) {
   }
 
   function setRecUI(on) {
-    const b = bar.extra('rec');
+    const b = recBtn;
     // the record icon to start, the stop icon to stop, on the same square as
     // the play button beside them. `setIcon` writes `title` as well, so the
     // cap the bar was given is put back.
@@ -330,13 +333,18 @@ export function build({ panel, assert, log }) {
   // The PUBLISHED bar of `/capture/`: the harness drills this one itself.
   panel.add(stage, row.el);
   const barHost = panel.stack().el;
-  const bar = createTransportBar(barHost, deck, {
-    scrub: false,          // the strip is the only position surface in this tab
-    // recording is a TRANSPORT verb here, not a side action beside the page
-    extras: [{ id: 'rec', label: '', aria: 'Record', primary: true,
-               title: `stop when you like, ${CAP_MS / 1000}s cap`,
-               onClick: () => (recording ? stopRecording() : startRecording(CAP_MS)) }],
-  });
+  // No scrub: the strip is the only position surface in this tab. Recording is a transport verb here.
+  const control = createTransportControl(deck);
+  const recBtn = barButton({ icon: 'record', aria: 'Record', primary: true,
+    title: `stop when you like, ${CAP_MS / 1000}s cap`,
+    onPress: () => (recording ? stopRecording() : startRecording(CAP_MS)) });
+  const loop = loopView(control);
+  const tb = createBar({ start: [playToggle(control).el, recBtn], middle: [clockView(control).el, noteView(control).el],
+    end: [loop.el, ratesView(control).el] });
+  barHost.append(tb.el);
+  bindTransportKeys(control, { scope: tb.el });
+  const bar = transportApi(control, { el: tb.el, loopView: loop });
+  publishTransport(bar);
   setRecUI(false);
   const view = createStripView(barHost, deck, {
     size: 'auto', follow: false, gutter: 150, wallStyle: 'head',
@@ -469,7 +477,7 @@ export function build({ panel, assert, log }) {
       A('building this tab opened nothing: no camera, no recording',
         !source.cameraOn() && !recording && parts.length === 0,
         `camera ${source.cameraOn() ? 'ON' : 'off'}, ${parts.length} take(s) before any press`);
-      const rec = bar.extra('rec');
+      const rec = recBtn;
       for (const ms of [1600, 1300]) {
         if (!rec) break;
         rec.click();

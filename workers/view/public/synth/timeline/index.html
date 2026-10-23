@@ -30,7 +30,10 @@
   import { createBay } from '/shell/bay.mjs';
   import { addNodes } from '/shell/nodes.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { setIcon } from '/shell/icon-button.mjs';
@@ -79,7 +82,8 @@
 
   // ── the links, rebuilt whenever an effect changes ─────────────────────
   function patch() {
-    for (const l of bay.links()) bay.unlink(l.id);
+    // The transport's own link stays: its buttons press along it.
+    for (const l of bay.links()) if (l.from !== `${S}:transport-buttons:value-out`) bay.unlink(l.id);
     const want = [[`${S}:keys:midi-out`, `${S}:synth:midi-in`, []]];
     // The recorder hears the keys; it plays back into the synth on a link of its own.
     want.push([`${S}:keys:midi-out`, `${S}:rec:midi-in`, []], [`${S}:rec:midi-out`, `${S}:synth:midi-in`, []]);
@@ -154,19 +158,19 @@
     face();
   }
   function face() {
-    const b = bar.extra?.('rec');
-    if (!b) return;
-    // the bar's extras take a label, and `extra(id)` hands back the button for
-    // a page to re-face, so the icon goes on here and the bar is unchanged
-    setIcon(b, armed ? 'stop' : 'record', armed ? 'stop recording' : 'record');
-    b.classList.toggle('cc-rec', !armed);
+    setIcon(recBtn, armed ? 'stop' : 'record', armed ? 'stop recording' : 'record');
+    recBtn.classList.toggle('cc-rec', !armed);
   }
 
+  // The transport is a node on this page's bay: its buttons send along a link. why: lessons/kit-bar.md#bay
   const glue = el('div');
-  const bar = createTransportBar(glue, deck, {
-    scrub: false, loop: false, live: false,
-    extras: [{ id: 'rec', label: '', aria: 'record', title: 'record', onPress: () => (armed ? stopRecording() : record()) }],
-  });
+  const control = createTransportControl(deck);
+  const send = transportOnBay(bay, { site: S, control });
+  const recBtn = barButton({ icon: 'record', aria: 'record', title: 'record', onPress: () => (armed ? stopRecording() : record()) });
+  const bar = createBar({ start: [playToggle(control, { send }).el, recBtn], middle: [clockView(control).el], end: [ratesView(control, { send }).el] });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el }));
   const strip = createStripView(glue, deck, {
     size: 'auto', follow: true, gutter: 120,
     lanes: [

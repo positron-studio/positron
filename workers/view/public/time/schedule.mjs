@@ -5,7 +5,10 @@
 
 import { el } from '/shell/shell.mjs';
 import { SELFCHECK } from '/shell/selfcheck.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { createDeck } from '/timeline/transport.mjs';
@@ -55,7 +58,16 @@ export function build({ panel, assert, log }) {
   // The page's own bar, so `__demo.transport` is this one. No slider: the
   // strip is the position surface.
   const host = el('div');
-  const bar = createTransportBar(host, deck, { scrub: false });
+  const control = createTransportControl(deck);
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
+  publishTransport(transport);
   const view = createStripView(host, deck, {
     size: 'auto',
     gutter: 132,
@@ -210,8 +222,7 @@ export function build({ panel, assert, log }) {
     // No `bars`: this one is published and the harness drills it.
     bars: [],
     async check({ A }) {
-      // One bar and one strip, counted from the DOM: `createTransportBar(parent, ...)`
-      // appends to its parent, so a second call doubles the bar.
+      // One bar and one strip, counted from the DOM: a second build would double the bar.
       // See lessons/page-time.md#time-24
       const tab = panel.el;
       A('one bar and one strip, and they are one surface',
@@ -223,8 +234,8 @@ export function build({ panel, assert, log }) {
         + `${tab.querySelectorAll('canvas.pos-strip').length} strip(s), `
         + `in .${bar.el.parentElement?.className}`);
       A('this is the bar the page publishes, so the harness drills it',
-        !!window.__demo && window.__demo.transport === bar.api,
-        window.__demo?.transport === bar.api ? '__demo.transport is SCHEDULE\'s' : 'another bar is published');
+        !!window.__demo && window.__demo.transport === transport,
+        window.__demo?.transport === transport ? '__demo.transport is SCHEDULE\'s' : 'another bar is published');
       how.check(A, [
         ['transport bar', panel.el.contains(bar.el), 'in this tab'],
         ['deck', deck.items.length === 20 && deck.range[1] === DURATION,

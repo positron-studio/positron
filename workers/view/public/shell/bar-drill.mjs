@@ -87,7 +87,7 @@ async function inkOf(canvas) {
 /**
  * Run the drill against one bar and return the rows, asserting nothing.
  *
- * @param {object} bar  what `createTransportBar` returned, or its `api`
+ * @param {object} bar  a transportApi object (transport-control.mjs), or anything with `.api` holding one
  * @param {object} [o]
  * @param {HTMLCanvasElement} [o.strip]  the strip this bar drives; without it
  *   there is no ink row, as on a page with no strip
@@ -98,7 +98,7 @@ async function inkOf(canvas) {
  */
 export async function drillBar(bar, { strip = null } = {}) {
   const api = bar && bar.api ? bar.api : bar;
-  if (!api || !api.el) throw new Error('drillBar: pass what createTransportBar returned, or its api');
+  if (!api || !api.el) throw new Error('drillBar: pass a transportApi object (it needs .el)');
   const rows = [];
   const row = (label, v) => { rows.push({ label, ...v }); return v.pass; };
 

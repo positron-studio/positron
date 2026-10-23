@@ -37,7 +37,7 @@
      archive/videoradio-xr/.
      See lessons/page-videoradio.md#videoradio-2 */
 
-  /* No control row inside the picture's box: the transport is createTransportBar in
+  /* No control row inside the picture's box: the transport is a createBar strip in
      its own box, which owns the border and the flex row.
      See lessons/page-videoradio.md#videoradio-3 */
 
@@ -63,7 +63,10 @@
            PAPPUS_NODE, RING_SECONDS } from '/shell/pappus.mjs';
   import { createMp3Stream } from '/shell/mp3-stream.mjs';
   import { createDeck } from '/timeline/transport.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, liveBadge, noteView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import * as FS from '/shell/fullscreen.mjs';
   // Static imports, never a dynamic import in a press handler: an await before a
   // gesture-gated call spends the user activation it needs.
@@ -185,25 +188,31 @@
   }, 1000);
 
   /**
-   * `live: true` shows the badge instead of a clock, `scrub: false` because there
-   * is nowhere to drag, and `loopSlot` puts ⛶ where /archive/radio/ keeps LOOP.
+   * The live badge instead of a clock, no scrub because there is nowhere to drag, no loop, and full screen
+   * where /archive/radio/ keeps LOOP. `press: false`: the harness never presses it.
    * See lessons/page-videoradio.md#videoradio-22
    */
-  const bar = createTransportBar(d.el, deck, {
-    absolute: true, scrub: false, endStop: false, live: true, loop: false,
-    loopSlot: [{
-      id: 'full', label: '⛶', aria: 'full screen', title: 'full screen',
-      // The kit's toggle, never requestFullscreen by hand: an iPhone lacks it and `?.()`
-      // skips silently, a control that looks live and is inert.
-      // See lessons/page-videoradio.md#videoradio-23
-      onPress: async () => {
-        const by = await FS.toggle(pane);
-        d.log(by === 'exit' ? 'back out of full screen'
-          : `full screen by the ${by === 'element' ? 'browser’s own API'
-            : 'fallback cover, which needs no API'}`);
-      },
-    }],
+  const control = createTransportControl(deck, { endStop: false, live: true });
+  const onAir = liveBadge();
+  const fullBtn = barButton({ icon: 'fullscreen', aria: 'full screen', title: 'full screen', press: false,
+    // The kit's toggle, never requestFullscreen by hand: an iPhone lacks it and `?.()`
+    // skips silently, a control that looks live and is inert.
+    // See lessons/page-videoradio.md#videoradio-23
+    onPress: async () => {
+      const by = await FS.toggle(pane);
+      d.log(by === 'exit' ? 'back out of full screen'
+        : `full screen by the ${by === 'element' ? 'browser’s own API'
+          : 'fallback cover, which needs no API'}`);
+    },
   });
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [onAir.el, noteView(control).el],
+    end: [fullBtn, ratesView(control).el],
+  });
+  d.el.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el, live: onAir }));
   FS.watch(pane, () => {});
 
   /**
@@ -212,7 +221,6 @@
    * `tuning in` expires one second before openStream gives up on the mount (9 s).
    * See lessons/page-videoradio.md#videoradio-24
    */
-  const onAir = bar.api.live;
   const onAirIdle = () => onAir.follow({ everyMs: 1000, misses: 4, since: null, comingMs: 8000 });
   onAirIdle();
   // blocks decoded off the open stream. -1 means there is no stream. A count is

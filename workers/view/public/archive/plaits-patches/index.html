@@ -27,7 +27,10 @@
   import { createPatchbay } from '/shell/patchbay.mjs';
   import { createKnob } from '/shell/knob.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, noteView, loopView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createDeck } from '/timeline/transport.mjs';
@@ -201,7 +204,20 @@
   }
   const glue = el('div');
   let arming = false;
-  const bar = createTransportBar(glue, deck, { scrub: false, command: { play, pause: stop } });
+  // The transport is a node on this page's bay: its buttons send along a link, and the bar only lays them out.
+  // why: lessons/kit-bar.md#bay
+  const control = createTransportControl(deck, { command: { play, pause: stop } });
+  const tsend = transportOnBay(bay, { site: S, control });
+  const loopV = loopView(control, { send: tsend });
+  const bar = createBar({
+    start: [playToggle(control, { send: tsend }).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopV.el, ratesView(control, { send: tsend }).el],
+  });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send: tsend });
+  const api = transportApi(control, { el: bar.el, loopView: loopV });
+  publishTransport(api);
 
   // ── the notes timeline: one row per pitch, highest on top ───────────────
   // Asked 2026-10-13: *"use notes timeline"*. The loop is drawn as notes in
@@ -245,24 +261,22 @@
     const w = strip.el.clientWidth;
     if (w && w !== fitW) { fitW = w; strip.strip.fit(0, 2 * LAP); }
   }).observe(strip.el);
-  // LOOP ON FROM THE START, through the bar's own button: a mark at 0 and a mark
-  // at the end. The bar starts the deck on the first mark, so `arming`
-  // swallows that play; nothing sounds on load. (Kit candidate: a `loop`
-  // range option on createTransportBar.)
+  // Loop on from the start, through the loop button: a mark at 0 and a mark at the end. The control starts the deck
+  // on the first mark, so `arming` swallows that play; nothing sounds on load.
   arming = true;
   try {
-    deck.seek(0); bar.api.pressLoop();
-    deck.seek(LAP); bar.api.pressLoop();
+    deck.seek(0); api.pressLoop();
+    deck.seek(LAP); api.pressLoop();
   } finally { arming = false; }
   deck.seek(0);
-  // THE LOOP IS FIXED AND READ ONLY (*"loop is on, readonly"*). The bar has no
-  // option for a fixed loop, so its LOOP button keeps its on paint and is
-  // disabled with the reason as its hover. No direction button is built
-  // (`loopWays` is off by default). (Kit candidate: a fixed `loop: [a, b]`.)
-  const loopBtn = bar.el.querySelector('.tbar-loop');
+  // The loop is fixed and read only: the LOOP button keeps its on paint, disabled with the reason as its hover.
+  // loopView rewrites the aria label on every change, so this page's label is put back after it.
+  const loopBtn = loopV.button;
   loopBtn.disabled = true;
   loopBtn.title = 'the loop is fixed to the whole sequence';
-  loopBtn.setAttribute('aria-label', 'looping the whole sequence, fixed');
+  const fixedLabel = () => loopBtn.setAttribute('aria-label', 'looping the whole sequence, fixed');
+  control.subscribe((why) => { if (why !== 'tick') fixedLabel(); });
+  fixedLabel();
   for (const ev of ['pointerenter', 'focusin', 'touchstart']) {
     surface.addEventListener(ev, () => { voice.warm().catch(() => {}); }, { once: true, passive: true });
   }

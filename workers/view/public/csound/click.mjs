@@ -1,12 +1,15 @@
 // The CLICK tab of /csound/: two vClick scores (tarmoj/vclick, GPL-3.0, (c) Tarmo
 // Johannes) copied verbatim and embedded, so the tab makes no request of any kind.
-// Its bar is `publish: false` (SCORE owns the transport); `hide()` pauses the deck.
+// Its bar is not published (SCORE owns the transport); `hide()` pauses the deck.
 // See lessons/page-csound.md#csound-1
 
 import { el } from '/shell/shell.mjs';
 import { createChoice } from '/shell/choice.mjs';
 import { createStepper } from '/shell/stepper.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createDeck } from '/timeline/transport.mjs';
 import { scoreDoc, quotation, scoreDocToJSONL, parseScoreDocJSONL } from '/timeline/score.mjs';
@@ -339,7 +342,15 @@ export function build({ panel, log, set }) {
   // The strip below is the one position surface, so the bar has no slider, and it is
   // not published: SCORE's bar is the page's transport.
   // See lessons/page-csound.md#csound-11
-  const bar = createTransportBar(host, deck, { scrub: false, publish: false });
+  const control = createTransportControl(deck);
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
 
   const INK = { beat: '#ffd400', word: '#6f7d94' };
 
@@ -501,7 +512,7 @@ export function build({ panel, log, set }) {
 
   return {
     deck,
-    bars: [{ name: 'the click', bar, strip: view.el }],
+    bars: [{ name: 'the click', bar: transport, strip: view.el }],
     show() {
       drawDiagram();
       requestAnimationFrame(() => requestAnimationFrame(() => { view.strip.fit?.(); view.strip.invalidate?.(); }));
