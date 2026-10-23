@@ -244,7 +244,9 @@ export function pickFiles(items, votes, n, rand = Math.random) {
  * contrantly"*. why: lessons/workers-cast.md#promote-newest
  */
 export function promoteNewest(ids, items, { newest = 6, every = 3 } = {}) {
-  const at = new Map(items.map((x) => [x.id, Date.parse(x.at) || Number(x.at) || 0]));
+  // `at` is publish_at, empty for a file not yet published (the newest), so the id's own millisecond stamp stands in
+  const idMs = (id) => Number(/(\d{12,})/.exec(String(id))?.[1]) || 0;
+  const at = new Map(items.map((x) => [x.id, Date.parse(x.at) || Number(x.at) || idMs(x.id)]));
   const top = [...ids].sort((a, b) => (at.get(b) || 0) - (at.get(a) || 0)).slice(0, newest);
   const rest = ids.filter((id) => !top.includes(id));
   if (!top.length || !rest.length) return [...top, ...rest];
