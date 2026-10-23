@@ -395,7 +395,7 @@ export function createStepGrid({
   }
 
   // Roving tab stop, set while the pads are made (1,024 tab stops otherwise). Arrows must not
-  // reach transport-bar.mjs's window keys, which seek.
+  // reach transport-keys.mjs's window keys, which seek.
   // why: lessons/kit-step-grid.md#keyboard
   function rove(r, s, focus = true) {
     const old = pads[focusR] && pads[focusR][focusS];

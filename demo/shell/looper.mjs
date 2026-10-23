@@ -367,7 +367,7 @@ export function createLooper({ seconds = 20, channels = 2, log = () => {},
     },
 
     /**
-     * The entry for createTransportBar's loopExtras. always: true keeps it on the bar with no loop running,
+     * The entry for loopView's `extras` (transport-views.mjs). always: true keeps it on the bar with no loop running,
      * where it sets what the next LOOP press does.
      * why: lessons/kit-looper.md#way-extra
      */
@@ -379,8 +379,8 @@ export function createLooper({ seconds = 20, channels = 2, log = () => {},
         onPress: () => api.cycle(),
       };
     },
-    /** Hand over the bar so the face can be written. Call it straight after
-     *  `createTransportBar`, which is the first moment the button exists. */
+    /** Hand over the loop view (`{ loopExtra(id) }`) so the face can be written. Call it straight after
+     *  `loopView`, which is the first moment the button exists. */
     bind(b) { bar = b; paintWay(); return api; },
 
     /**

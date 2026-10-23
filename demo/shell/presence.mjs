@@ -65,7 +65,7 @@ export const streamSays = (name) => ({
 });
 /**
  * Which of those a live stream badge can reach, which is what its width is
- * measured on. The same pairing `transport-bar.mjs` uses for `ON_AIR_CAN`.
+ * measured on. The same pairing `transport-views.mjs` uses for `ON_AIR_CAN`.
  */
 export const STREAM_CAN = ['offline', 'coming', 'online'];
 
