@@ -8,7 +8,7 @@
 <meta property="og:title" content="Radio1965">
 <meta property="og:description" content="Sound archives processed, mixed and visualized by positron.audio.">
 <meta property="og:url" content="https://positron.studio/radio1965/">
-<meta property="og:image" content="https://positron.studio/og/radio1965-63e3d2b2.png">
+<meta property="og:image" content="https://positron.studio/og/radio1965-54df5a83.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:type" content="image/png">
@@ -208,17 +208,58 @@
       const src = ctx.createMediaElementSource(audio);
       analyser = ctx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.5;
       src.connect(analyser); src.connect(ctx.destination);
+      // an analyser nothing pulls reads silence: a silent pull keeps it running
+      const pull = ctx.createGain(); pull.gain.value = 0; analyser.connect(pull).connect(ctx.destination);
       feats = createFeatures(analyser, ctx.sampleRate);
       follow = Object.fromEntries(FOLLOWER_NAMES.map((n) => [n, createEnvFollower(MOD_FOLLOWERS[n])]));
     }
     audio.src = `${CAST}/listen/${STATION}?t=${Date.now()}`;
+    zeros = 0; lastT = -1;
     try { await audio.play(); } catch (e) { d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
     playing = true; face();
     try { lock = await navigator.wakeLock?.request('screen'); } catch { /* no wake lock here */ }
     d.log('listening to our radio1965 stream');
   }
+  // iPhone Safari hands a live stream's analyser zeros (WebKit 180696). Then the picture hears a second copy of our
+  // own stream, cut at MP3 frames, decoded and played silently into the analyser. why: lessons/page-radio1965.md#ios-tap
+  let zeros = 0, lastT = -1, tap = null;
+  const probe = new Float32Array(2048);
+  setInterval(() => {
+    if (!playing || tap || !analyser) return;
+    analyser.getFloatTimeDomainData(probe);
+    let pk = 0; for (const v of probe) pk = Math.max(pk, Math.abs(v));
+    const moved = audio.currentTime > lastT; lastT = audio.currentTime;
+    zeros = pk === 0 && moved ? zeros + 1 : 0;
+    if (zeros >= 8) startTap(audio.src);
+  }, 250);
+  function startTap(url) {
+    const ac = new AbortController();
+    tap = { ac, next: 0 };
+    d.log('the picture hears a second copy of the stream: this browser gives the player\'s analyser no sound');
+    const frameAt = (b, i) => b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0 && ((b[i + 2] >> 4) & 15) !== 0 && ((b[i + 2] >> 4) & 15) !== 15 && ((b[i + 2] >> 2) & 3) !== 3;
+    (async () => {
+      const rd = (await fetch(url, { signal: ac.signal, cache: 'no-store' })).body.getReader();
+      let pending = new Uint8Array(0);
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        const n = new Uint8Array(pending.length + value.length); n.set(pending); n.set(value, pending.length); pending = n;
+        if (pending.length < 8192) continue;
+        let cut = pending.length - 4; while (cut > 0 && !frameAt(pending, cut)) cut--;
+        let from = 0; while (from < cut && !frameAt(pending, from)) from++;
+        if (cut <= from) continue;
+        const chunk = pending.slice(from, cut); pending = pending.slice(cut);
+        try {
+          const ab = await ctx.decodeAudioData(chunk.buffer);
+          const sn = ctx.createBufferSource(); sn.buffer = ab; sn.connect(analyser);
+          tap.next = Math.max(tap.next, ctx.currentTime + 0.05); sn.start(tap.next); tap.next += ab.duration;
+        } catch { /* a chunk that does not decode is skipped */ }
+      }
+    })().catch(() => { /* aborted on stop */ });
+  }
+
   function stop() {
     playing = false;
+    tap?.ac.abort(); tap = null;
     if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
     lock?.release?.(); lock = null;
     target.ampL = OPEN.ampL;
