@@ -82,7 +82,7 @@ const MARK = { ...TYPE.eye, size: TYPE.eye.size * 1.5, track: 0.08 };
 function layout(measure, head, text = HERO) {
   const rows = [
     { t: TYPE.head, lines: head, accent: true, gap: 0 },
-    { t: TYPE.line, lines: balance(text.line, TYPE.line, Math.min(measure, LINE_MAX)), gap: GAPS.line },
+    { t: TYPE.line, lines: text.lineLines || balance(text.line, TYPE.line, Math.min(measure, LINE_MAX)), gap: GAPS.line },
   ];
   // Lowercase, `positron` gray and `.studio` yellow.
   // why: lessons/kit-share-card.md#mark-colours
@@ -153,7 +153,9 @@ export const siteCard = (bg) => heroCard(W, H, 72, 'site', [2], bg);
  * The build tags that page with it instead of the site card. why: lessons/kit-share-card.md#page-cards
  */
 export const PAGE_CARDS = {
-  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives processed, mixed and visualized by positron.audio',
+  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives processed, mixed and visualized by positron.studio',
+    // the line broken as the page breaks it
+    lineLines: ['Sound archives processed,', 'mixed and visualized', 'by positron.studio'],
     // frames of the page's own landscape, captured live, behind the card and the Instagram card
     bg: 'radio1965-card.png', igBg: 'radio1965-ig.png' },
 };

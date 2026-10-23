@@ -119,7 +119,7 @@ export const DEMO_CARDS = {
   social: { group: 'kit', plain: true, title: 'Social', say: 'Pictures and reels the site makes of itself. Download one and post it.' },
   // concept like rows first, then use cases; archived rows are listed on /archive/.
   // why: lessons/kit-concept-list.md#archived-rows
-  radio1965: { group: 'radio', title: 'Radio1965', say: 'Sound archives processed, mixed and visualized by positron.audio.' },
+  radio1965: { group: 'radio', title: 'Radio1965', say: 'Sound archives processed, mixed and visualized by positron.studio.' },
   held: { group: 'performances', say: 'Held in Human, a 2024 mixed reality piece, played back from its own score across its eight scenes.' },
   // why: lessons/kit-concept-list.md#archived-cases
 };
