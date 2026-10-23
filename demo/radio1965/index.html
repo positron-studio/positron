@@ -43,10 +43,14 @@
   const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
   const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
   const HEAVE = { speech: 0.2, field: 0.5, music: 0.8 };
+  const WAVES = { speech: 1, field: 2, music: 3 };
   // The look's other numbers, moved by the sound each frame (fast) and by the scene (over its blend).
   // `[rest, from the followers]`: rest is where it sits with no sound.
-  // Light and texture only: nothing here moves the rows up or down, which collapsed and curled the field.
+  // Inside the picture only: nothing here moves where the rows sit or how deep the field is (stretch, xbreath and
+  // the row spread did, and collapsed and curled it).
   const LIVE = {
+    travel: [0, (f) => 0.3 + Math.min(1.7, 2.5 * f.rms)],
+    valley: [0.3, (f) => 0.15 + 0.15 * (1 - Math.min(1, f.tone))],
     halo: [0, (f) => Math.min(0.85, f.flux * 1.6)],
     ampB: [0.05, (f) => Math.min(0.06, 0.01 + f.low * 0.09)],
     sway: [0, (f) => Math.min(0.9, f.mid * 1.5)],
@@ -106,7 +110,7 @@
   // ── the state: scene numbers and listeners, glided over the scene's own blend ──
   const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
   const now = { ...target };
-  const scene = {}, sceneNow = {};
+  const scene = { waves: OPEN.waves }, sceneNow = { ...scene };
   const live = Object.fromEntries(Object.entries(LIVE).map(([k, [rest]]) => [k, rest])), liveNow = { ...live };
   let glideS = 8, state = null, stateAt = 0;
   function stateIn(ev) {
@@ -120,6 +124,7 @@
     if (Number.isFinite(state.density)) target.bucket = clamp('bucket', 0.35 * state.density);
     if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
     if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
+    if (WAVES[state.kind]) scene.waves = WAVES[state.kind];
   }
   async function readState() {
     try {
