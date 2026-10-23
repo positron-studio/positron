@@ -204,6 +204,11 @@
     audio.addEventListener('playing', () => { delete btn.dataset.busy; }, { once: true });
     audio.src = `${CAST}/listen/${STATION}?t=${Date.now()}`;
     zeros = 0; lastT = -1;
+    // the lock screen and the control centre: a square of the landscape and the page's own words, not the app icon
+    if ('mediaSession' in navigator && 'MediaMetadata' in window) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: 'Radio1965 @ Üle Heli festival', artist: 'positron.audio',
+        album: 'Sound archives processed, mixed and visualized', artwork: [{ src: '/radio1965/art.png', sizes: '512x512', type: 'image/png' }] });
+    }
     try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
     playing = true; face();
     try { lock = await navigator.wakeLock?.request('screen'); } catch { /* no wake lock here */ }

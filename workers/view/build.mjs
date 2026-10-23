@@ -450,9 +450,10 @@ const PS_ICON_SPECS = {
   favicon16: [16, 'square', 0.86, 'ps'],
   favicon32: [32, 'square', 0.86, 'p.s'],
   favicon48: [48, 'square', 0.8, 'p.s'],
-  'apple-touch': [180, 'ios', 0.62, 'p.s'],
+  // square to the edge: iOS rounds the corners itself, and a transparent corner comes out white
+  'apple-touch': [180, 'full', 0.62, 'p.s'],
   android: [192, 'circle', 0.56, 'p.s'],
-  store: [512, 'ios', 0.62, 'p.s'],
+  store: [512, 'full', 0.62, 'p.s'],
   // a lock-screen player's artwork: square to the edge, the mark small enough that no crop reaches it
   // `full`: no corner radius and nothing transparent, or iOS fills the corners white and rounds it again
   artwork: [512, 'full', 0.42, 'p.s'],
