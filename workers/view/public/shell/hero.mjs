@@ -14,7 +14,7 @@ import { useMediumColours } from './patchbay.mjs';
 export const HERO = {
   eye: 'POSITRON STUDIO',
   head: 'Connect anything to everything.',
-  line: 'Create playful, interactive worlds, from the web up to the cloud and down to microcontrollers.',
+  line: 'Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.',
   small: 'Powered by Cloudflare services. Delivered as agentic skills.',
 };
 
