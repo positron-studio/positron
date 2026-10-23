@@ -285,8 +285,7 @@
     const nums = [Number.isFinite(st.wet) ? `processing ${two(st.wet * 100)}%` : '',
       Number.isFinite(st.echo) && st.echo > 0 ? `echo ${two(st.echo * 100)}%` : 'no echo',
       Number.isFinite(st.blend) ? `crossfade ${two(st.blend)} s` : ''].filter(Boolean).join(', ');
-    const who = `${two(st.listeners?.now ?? 0)} listening in the app, ${two(st.ears ?? 0)} on the web.`;
-    line.replaceChildren(el('b', '', st.title), `${what}. ${nums[0].toUpperCase()}${nums.slice(1)}. ${who}`);
+    line.replaceChildren(el('b', '', st.title), `${what}. ${nums[0].toUpperCase()}${nums.slice(1)}.`);
   }
   drawLine();
   titleBox.append(h, line, btn);

@@ -1,5 +1,6 @@
 ## Open
 
+- **/radio1965/: rm the listener numbers from the playing text** (2026-10-23). Asked: *"Rm Listener numbers"*.
 - **/radio1965/: the parameters back INTO the description as wrapping text, no grid, no bars, no animation; nothing over the picture; nothing jumps** (2026-10-23). Asked: *"You ruined it. It's covering visuals. I asked you to put it to replace the description and just make it like a text, wrapping text... there is no progress bars or animations... it doesn't have to even update real time"*.
 - **/radio1965/: Väin app and web listeners counted apart** (2026-10-23). Asked: *"We can get vain app and web numbers separey for listwrnr conu?"*. /state already has `listeners.now` (Väin mount) and `ears` (our /listen).
 - **/radio1965/: the playing line plainer, the file name semi-bold, more parameters that do not jump** (2026-10-23). Asked: *"What is from the archive actually means? Everything is from archive, so remove it. The file name, what is playing, put it in semi-bold. Wet also doesn't mean anything... find something with regular people can understand. And I really wish there were more parameters. You do have parameters for the visualization, so why don't use them too? But make sure the text won't jump that much."*
