@@ -8,9 +8,8 @@ import { mount, el } from '/shell/shell.mjs';
 import { createChatLog, createChatCompose, createChatColumn, createChatWindow } from '/shell/chat-ui.mjs';
 import { createButtonGroup } from '/shell/button-group.mjs';
 import { createPicker } from '/shell/picker.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar, barButton } from '/shell/bar.mjs';
 import { createGlue } from '/shell/glue.mjs';
-import { createDeck } from '/timeline/transport.mjs';
 import { createIconButton } from '/shell/icon-button.mjs';
 import { createTabs } from '/shell/tabs.mjs';
 import { createBay } from '/shell/bay.mjs';
@@ -444,6 +443,7 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
     replayer = createReplay({ site: SITE, d, stage,
       liveStream: () => (liveIn ? shares.get(liveIn.site) || media?.share?.(liveIn.site) || null : null),
       emit: (port, ev) => node.emit(port, ev),
+      bay: () => bay(),
       changed: () => { showStage(); pb?.refresh(); } });
   }
   function heardRec(e, l, m) {
@@ -704,11 +704,8 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
   // scene picker on the right; the WHIP URL is glued under it. why: lessons/kit-participant.md#start-m1
   let m1Said = '';
   const sceneRow = el('span', 'rv-obs-scene');
-  const m1Bar = CAN_SCENE ? createTransportBar(el('div'), createDeck({ items: [], adapters: {}, range: [0, 1] }), {
-    toggle: false, time: false, loop: false, scrub: false, publish: false, right: [sceneRow],
-    extras: [{ id: 'm1', label: 'Start OBS', word: true, aria: 'start OBS', onPress: () => m1Toggle() }],
-  }) : null;
-  const m1Btn = m1Bar?.extra('m1');
+  const m1Btn = CAN_SCENE ? barButton({ label: 'Start OBS', word: true, aria: 'start OBS', onPress: () => m1Toggle() }) : null;
+  const m1Bar = CAN_SCENE ? createBar({ start: [m1Btn], end: [sceneRow] }) : null;
   if (m1Bar) m1Bar.el.hidden = true;
   const obsPanel = createGlue(...(m1Bar ? [m1Bar.el] : []), whipRow);
   // OBS's scenes on the kit's picker; a pick leaves on the scene switcher's port and reaches the Mac along its link.
