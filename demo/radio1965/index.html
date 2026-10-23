@@ -117,7 +117,8 @@
     if (ev?.of !== 'state') return;
     state = ev.s; stateAt = performance.now();
     const n = (state.listeners?.now ?? 0) + (state.ears ?? 0);
-    target.rows = clamp('rows', 16 + 12 * n);
+    // a full landscape with nobody listening, denser with each listener
+    target.rows = clamp('rows', 40 + 8 * n);
     // a dry scene still a landscape: height 2.5 at dry, 8 at the wettest (0.5 squeezed the lines into a band)
     if (Number.isFinite(state.wet)) target.ampM = clamp('ampM', 2.5 + 5.5 * (state.wet / 0.95));
     target.swellY = clamp('swellY', 0.05 * Math.min(1, (state.droneLevel ?? 0) / 0.5));
