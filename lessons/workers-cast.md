@@ -882,3 +882,12 @@ kB behind is dropped, never waited for, so a slow phone cannot hold the encoder.
 and the listener record, never by asking the container: one `/status` call has stalled the encoder's write loop
 350 ms, and `/status` asks the container every time. For a public page (plans/plan-radio1965-landscape.md).
 Added 2026-10-23.
+
+## promote-newest
+
+A start with no file list used the stored `program`, and radio1965's was ten files picked in an earlier session, so
+nothing that arrived in Väin's archive since was played; `freshTick` could not rescue them, because its first look of
+a session is the baseline. Owner 2026-10-23: *"why there is no latest files in plalist? you shoyld have them all and
+promote newest ones contrantly"*. A start with no list now takes the whole archive (`pickFiles`, weighted by the votes)
+and `promoteNewest` puts one of the six newest arrivals in every third place, cycling, so the newest come round all
+the time; files arriving later still play next through `freshTick`.

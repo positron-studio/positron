@@ -237,6 +237,23 @@ export function pickFiles(items, votes, n, rand = Math.random) {
   return pickBy(items, (title) => fileWeight(fs[title]), n, rand).map((x) => x.id);
 }
 
+/**
+ * The newest files come round all the time: the `newest` most recent arrivals take every `every`-th place, cycling,
+ * and everything else keeps its order. Owner 2026-10-23: *"you shoyld have them all and promote newest ones
+ * contrantly"*. why: lessons/workers-cast.md#promote-newest
+ */
+export function promoteNewest(ids, items, { newest = 6, every = 3 } = {}) {
+  const at = new Map(items.map((x) => [x.id, Date.parse(x.at) || Number(x.at) || 0]));
+  const top = [...ids].sort((a, b) => (at.get(b) || 0) - (at.get(a) || 0)).slice(0, newest);
+  const rest = ids.filter((id) => !top.includes(id));
+  if (!top.length || !rest.length) return [...top, ...rest];
+  const out = [];
+  let t = 0;
+  for (const id of rest) { if (out.length % every === 0) out.push(top[t++ % top.length]); out.push(id); }
+  for (; t < top.length; t++) out.push(top[t]);
+  return out;
+}
+
 /** Seconds under which a file is left out of what plays (the clip tests are 15 s); program.mjs's. */
 export { MIN_FILE_S };
 /**
@@ -475,10 +492,11 @@ export class Caster {
       // queue on air: what follows the current file, which keeps playing. why: lessons/workers-cast.md#queue
       if (m.cmd === 'queue') return this.program(m.ids);
       if (!t.pw) throw new Error(`no source password for ${t.label}: waiting on Väin's OK`);
-      let queue = m.ids?.length ? await this.resolve(m.ids) : ((await this.st.get('program')) || []);
+      let queue = m.ids?.length ? await this.resolve(m.ids) : [];
       if (m.ids?.length && !queue.length) throw new Error('none of those is in their archive feed');
-      // an empty program: PICK files weighted by what the votes said of each, as the page picks them
-      if (!queue.length) queue = await this.resolve(pickFiles((await feed(this.ctx)), await this.votes(), PICK));
+      // No list: the whole archive, weighted by the votes, the newest promoted. A stored program from an earlier
+      // session is not reused: it left out everything that arrived since. why: lessons/workers-cast.md#promote-newest
+      if (!queue.length) { const items = await feed(this.ctx); queue = await this.resolve(promoteNewest(pickFiles(items, await this.votes(), PICK), items)); }
       if (!queue.length) throw new Error('the archive feed is empty');
       await this.st.put('program', queue);
       // Their own stream on this channel: their Icecast would answer 403 to a second source anyway.
