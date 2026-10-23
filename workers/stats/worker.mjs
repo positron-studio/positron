@@ -1,6 +1,6 @@
-// positron-earlog: web and Väin listeners per cast station, one reading a minute, read back as JSON or CSV.
+// positron-stats: web and Väin listeners per cast station, one reading a minute, read back as JSON or CSV.
 //   GET /<station>?from=&to= (ms or ISO, default the last 24 h) &step= 1 | 5 | 15 | 60 min &format=csv
-// Reads only cast /state, which never asks a container and is edge cached 5 s. why: lessons/workers-earlog.md#header
+// Reads only cast /state, which never asks a container and is edge cached 5 s. why: lessons/workers-stats.md#header
 
 const CAST = 'https://cast.positron.studio';
 const STATIONS = ['radio1965', 'user1', 'user2', 'user3', 'user4', 'preview'];
@@ -16,7 +16,7 @@ async function tick(env) {
       env.EARS.writeDataPoint({ indexes: [station], blobs: [station, s.title || ''],
         doubles: [Number(s.ears) || 0, Number(s.listeners?.now) || 0] });
       return `${station}: web ${s.ears} vain ${s.listeners?.now}`;
-    } catch (e) { console.log(`earlog ${station}: ${e.message}`); return `${station}: ${e.message}`; }
+    } catch (e) { console.log(`stats ${station}: ${e.message}`); return `${station}: ${e.message}`; }
   }));
 }
 

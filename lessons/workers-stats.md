@@ -1,4 +1,4 @@
-# workers/earlog
+# workers/stats (was workers/earlog until 2026-10-23)
 
 ## header
 

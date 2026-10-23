@@ -1,13 +1,13 @@
 {
-	// positron-earlog: once a minute, how many people listen to each cast station on the web (cast /state `ears`,
+	// positron-stats: once a minute, how many people listen to each cast station on the web (cast /state `ears`,
 	// our /listen) and on Väin's mount, kept in Analytics Engine. A worker of its own so the cast never redeploys
 	// for it: a cast deploy hands a station over and drops Väin's listeners.
 	"$schema": "../../node_modules/wrangler/config-schema.json",
-	"name": "positron-earlog",
+	"name": "positron-stats",
 	"main": "worker.mjs",
 	"compatibility_date": "2026-09-01",
 	"workers_dev": true,
-	"routes": [{ "pattern": "earlog.positron.studio", "custom_domain": true }],
+	"routes": [{ "pattern": "stats.positron.studio", "custom_domain": true }],
 	"analytics_engine_datasets": [{ "binding": "EARS", "dataset": "cast_web_listeners" }],
 	"analytics": { "binding": "ANALYTICS_SQL" },
 	"triggers": { "crons": ["* * * * *"] },
