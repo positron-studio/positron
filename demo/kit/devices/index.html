@@ -21,7 +21,10 @@
   import { createKeyboard } from '/shell/keyboard.mjs';
   import { createPicker } from '/shell/picker.mjs';
   import { createField } from '/shell/field.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl } from '/shell/transport-control.mjs';
+  import { playToggle, clockView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createSegment, GLYPHS, SEGMENTS, SCHEMES } from '/shell/segment.mjs';
   import { createPresenceButton } from '/shell/presence.mjs';
   import { createDeck } from '/timeline/transport.mjs';
@@ -110,7 +113,7 @@
    * See lessons/page-kit-devices.md#kit-devices-9
    */
   /**
-   * One grid with the standard createTransportBar glued above it, as other pages do.
+   * One grid with a transport bar glued above it, as other pages do.
    * The read only shape and the 320 px scroller are graded without a browser in
    * demo/shell/step-grid-test.mjs; their cursor, opacity and tab stops are not checked.
    * See lessons/page-kit-devices.md#kit-devices-10
@@ -760,9 +763,10 @@ inst.add(row)                     // the flow that does`,
   silent: (r) => r === 4,                 // lit but grey: it can make no sound
   rate: { bpm: 120, whose: 'this page' }, // no whose, no clock, and it throws
 })
-createTransportBar(host, deck, { publish: false, scrub: false, loop: false,
+const control = createTransportControl(deck, {
   command: { play: () => grid.clock.play(), pause: () => grid.clock.stop() } })
-createGlue(host, grid.el)                 // the bar over the thing it drives`,
+const bar = createBar({ start: [playToggle(control).el], middle: [clockView(control, { fmt }).el] })
+createGlue(bar.el, grid.el)               // the bar over the thing it drives`,
     (box) => {
       const wrap = el('div', 'kit-pg');
       const fixed = el('div');
@@ -799,21 +803,24 @@ createGlue(host, grid.el)                 // the bar over the thing it drives`,
         [2, 6], [4, 3], [4, 11], [5, 15]]) edit.set(r, s, true, 'quiet');
 
       /**
-       * The grid owns the clock and the deck follows, as /pack/ and /crate/ do. `publish:
-       * false`, this bar is not the page's __demo.transport. No scrub or loop: the ruler
-       * seeks. `fmt` takes the whole line, so the readout is in steps, never a time.
-       * See lessons/page-kit-devices.md#kit-devices-40
+       * The grid owns the clock and the deck follows, as /pack/ and /crate/ do. Not published:
+       * this is not the page's __demo.transport. No scrub or loop view: the ruler seeks.
+       * `fmt` takes the whole line, so the clock reads in steps, never a time.
        */
       const barHost = el('div', 'kit-pg-bar');
       const deck = createDeck({ items: [], adapters: {}, range: [0, STEPS] });
-      const bar = createTransportBar(barHost, deck, {
-        publish: false, scrub: false, loop: false,
-        fmt: (pos) => `step ${Math.min(STEPS, Math.floor(pos) + 1)} of ${STEPS}`,
+      const control = createTransportControl(deck, {
         command: {
           play: () => edit.clock.play(),
           pause: () => edit.clock.stop(),
         },
       });
+      const bar = createBar({
+        start: [playToggle(control).el],
+        middle: [clockView(control, { fmt: (pos) => `step ${Math.min(STEPS, Math.floor(pos) + 1)} of ${STEPS}` }).el],
+      });
+      bindTransportKeys(control, { scope: bar.el });
+      barHost.append(bar.el);
       /* The head follows the grid rather than the deck's own clock, so the
          number in the bar and the lit column cannot come apart. */
       edit.clock.onStep((i) => deck.seek(i));

@@ -19,7 +19,10 @@
   import { createStripView } from '/shell/strip.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createWaveView } from '/shell/wave-view.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, scrubView, ratesView, loopView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { centreSymbol, setSymbol } from '/shell/symbol.mjs';
   import { GLCD5X7 } from '/shell/oled-font.mjs';
   import { burn, FRAME_W, FRAME_H, videoHue } from '/shell/pattern.mjs';
@@ -655,9 +658,9 @@ pair.append(a.el, b.el);   // .kit-sl-pair, two columns, one under 560 px of its
     { name: 'machines', say: '[Cloudflare|cloudflare] carries the streams',
       slot: (host) => { const ctl = slideDiagram(SLIDE_MACHINES)(host); slideKit.comps.diagram = ctl; return ctl; },
       cap: 'notes from the page through the relay to the [Pi|raspberry]' });
-  /* Declared above STEP GRID ON A SLIDE, which calls slideCommand while built. A bar
+  /* Declared above STEP GRID ON A SLIDE, which calls slideCommand while built. A transport
      on a slide refuses play, pause and seek during a keydown aimed outside the slide's
-     frame (command seam, transport-bar.mjs); slideKeys.ev is read by eventPhase.
+     frame (the control's `command`); slideKeys.ev is read by eventPhase.
      See lessons/page-kit-slides.md#kit-slides-25 */
   const slideKeys = { ev: null };
   addEventListener('keydown', (e) => { slideKeys.ev = e; }, true);
@@ -723,10 +726,10 @@ pair.append(a.el, b.el);   // .kit-sl-pair, two columns, one under 560 px of its
           // the gate drives this facade, so a key from outside the slide moves nothing
           const gate = slideCommand({ play: () => run(true), pause: () => run(false), seek: () => {} },
             () => host.closest('.sl-frame'));
-          const bar = createTransportBar(el('div'), deck, {
-            publish: false, scrub: false, loop: false, time: false, endStop: false, verb: 'stop',
-            command: gate.command,
-          });
+          // A play/stop button and nothing else: no clock, scrub or loop, and no end to stop at.
+          const control = createTransportControl(deck, { endStop: false, command: gate.command });
+          const bar = createBar({ start: [playToggle(control, { verb: 'stop' }).el] });
+          bindTransportKeys(control, { scope: bar.el });
           const panel = createInstrumentPanel({
             rows: [[[bar.el], { pad: false }], [[kase.el], { pad: false }]],
             plate: { name: 'TOM', place: 'end' },
@@ -858,7 +861,7 @@ pair.append(a.el, b.el);   // .kit-sl-pair, two columns, one under 560 px of its
       },
       cap: 'a beat every 500 ms here, coloured by how late it landed' });
 
-  /* Transport bar on a slide: publish: false, fitBox at 560 logical px, no strip
+  /* Transport bar on a slide: not published, fitBox at 560 logical px, no strip
      (it would draw in the wrong pixels when scaled), keys via slideCommand.
      See lessons/page-kit-slides.md#kit-slides-30 */
   slideBlock('TRANSPORT BAR ON A SLIDE',
@@ -866,7 +869,12 @@ pair.append(a.el, b.el);   // .kit-sl-pair, two columns, one under 560 px of its
     + 'the slide drives this bar and no other; a key from the rest of the page, Space included, '
     + 'moves nothing here.',
     `const { command } = slideCommand(deck, () => host.closest('.sl-frame'));
-createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
+const control = createTransportControl(deck, { command });
+const bar = createBar({ start: [playToggle(control).el],
+  middle: [clockView(control).el, scrubView(control).el],
+  end: [ratesView(control).el, loopView(control).el] });
+bindTransportKeys(control, { scope: bar.el });
+fitBox(host, 560).inner.append(bar.el)   // not published`,
     { name: 'bar', say: 'A key belongs to the bar it was pressed on',
       slot: (host) => {
         const fb = fitBox(host, 560);
@@ -874,8 +882,15 @@ createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
         const items = Array.from({ length: 12 }, (_, i) => ({ id: `sb${i}`, kind: 'mark', at: (i + 0.5) * 2000, payload: { i } }));
         const deck = createDeck({ items, adapters: { mark: adapter }, range: [0, 24_000] });
         const gate = slideCommand(deck, () => host.closest('.sl-frame'));
-        const bar = createTransportBar(fb.inner, deck, { publish: false, command: gate.command });
-        slideKit.comps.bar = { bar, deck, fb, refused: gate.refused };
+        const control = createTransportControl(deck, { command: gate.command });
+        const bar = createBar({
+          start: [playToggle(control).el],
+          middle: [clockView(control).el, scrubView(control).el],
+          end: [ratesView(control).el, loopView(control).el],
+        });
+        bindTransportKeys(control, { scope: bar.el });
+        fb.inner.append(bar.el);
+        slideKit.comps.bar = { bar, api: transportApi(control, { el: bar.el }), deck, fb, refused: gate.refused };
         return {
           start() {},
           // leaving the tab stops it, past the gate: nobody's key is involved
@@ -969,10 +984,10 @@ createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
    * See lessons/page-kit-slides.md#kit-slides-34
    */
   if (SELFCHECK && slideKit.comps.bar && slideKit.comps.fau) {
-    const { bar, deck: sbDeck, refused } = slideKit.comps.bar;
+    const { api: sbApi, deck: sbDeck, refused } = slideKit.comps.bar;
     const kb = slideKit.comps.fau.keys;
     const pub = window.__demo?.transport ?? null;
-    const was = { pos: bar.api.position, playing: bar.api.playing, refused: refused() };
+    const was = { pos: sbApi.position, playing: sbApi.playing, refused: refused() };
     const pubWas = pub ? { pos: pub.position, playing: pub.playing } : null;
     const notes = kb.notes().join();
     for (const k of [' ', 'ArrowRight', ' ', 'ArrowLeft']) {
@@ -981,14 +996,14 @@ createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
     const lit = slideKit.comps.fau.panel.el.querySelectorAll('.k.down').length;
     const n = refused() - was.refused;
     d.assert('SLIDES: Space and the arrows from the page leave the slide’s bar and the FAU keys alone, and no slide claims __demo.transport',
-      bar.api.position === was.pos && bar.api.playing === was.playing && !sbDeck.playing() && n === 4
+      sbApi.position === was.pos && sbApi.playing === was.playing && !sbDeck.playing() && n === 4
         && lit === 0 && kb.notes().join() === notes
         // Nothing on this page publishes a bar, so no slide may take the playhead either.
         // See lessons/page-kit-slides.md#kit-slides-35
         && pub === null && window.__demo.transport === null,
-      `the slide's bar ${was.pos.toFixed(0)} -> ${bar.api.position.toFixed(0)}, ${bar.api.playing ? 'PLAYING' : 'stopped'}, `
+      `the slide's bar ${was.pos.toFixed(0)} -> ${sbApi.position.toFixed(0)}, ${sbApi.playing ? 'PLAYING' : 'stopped'}, `
       + `${n} of 4 keys heard and refused; ${lit} FAU key(s) lit; the published bar `
-      + `${pub ? `${pubWas.pos.toFixed(0)} -> ${pub.position.toFixed(0)} and ${pub.playing ? 'playing' : 'stopped'}, ${pub === bar.api ? 'the SLIDE’S' : 'its own'}` : 'none, and this page publishes none'}`);
+      + `${pub ? `${pubWas.pos.toFixed(0)} -> ${pub.position.toFixed(0)} and ${pub.playing ? 'playing' : 'stopped'}, ${pub === sbApi ? 'the SLIDE’S' : 'its own'}` : 'none, and this page publishes none'}`);
   }
   } // if (SELFCHECK)
 
@@ -1671,19 +1686,19 @@ createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
     }
     {
       const B = C.bar;
-      await assertBar(d.assert, B.bar, { name: 'on a slide' });
+      await assertBar(d.assert, B.api, { name: 'on a slide' });
       const pub = window.__demo?.transport;
       const pubWas = pub?.position;
-      B.bar.api.el.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true, cancelable: true }));
+      B.api.el.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true, cancelable: true }));
       await nap(DRILL.keyMs);
-      const want = B.bar.api.range[0] + 0.2 * (B.bar.api.range[1] - B.bar.api.range[0]);
+      const want = B.api.range[0] + 0.2 * (B.api.range[1] - B.api.range[0]);
       const pubNow = pub?.position;
       // No published bar on this page: the key moves the slide's bar and the bar still
       // does not claim the playhead.
       // See lessons/page-kit-slides.md#kit-slides-50
       d.assert('SLIDES: a key aimed at the slide’s bar moves it and it does not claim the page’s playhead',
-        tol(B.bar.api.position, want, 1) && !pub && !window.__demo?.transport,
-        `the slide's bar at ${B.bar.api.position.toFixed(0)} against ${want.toFixed(0)}, the published bar ${pubWas?.toFixed(0)} -> ${pubNow?.toFixed(0)}`);
+        tol(B.api.position, want, 1) && !pub && !window.__demo?.transport,
+        `the slide's bar at ${B.api.position.toFixed(0)} against ${want.toFixed(0)}, the published bar ${pubWas?.toFixed(0)} -> ${pubNow?.toFixed(0)}`);
     }
     {
       // full screen: the strip takes the slide's width and the bar is pressed through its scale
@@ -1700,16 +1715,16 @@ createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
       bs.fullBtn.click();
       await frames(10);
       const k = B.fb.k(), full2 = bs.isFull();
-      const tg = B.bar.api.el.querySelector('.tbar-toggle');
-      const at0 = B.bar.api.position;
+      const tg = B.api.el.querySelector('.tbar-toggle');
+      const at0 = B.api.position;
       tg.click();
       await nap(350);
-      const played = B.bar.api.playing && B.bar.api.position > at0;
+      const played = B.api.playing && B.api.position > at0;
       tg.click();
       await bs.full(false);
       await frames(6);
       d.assert('SLIDES: in full screen the strip spans the slide and splits its height, and the bar’s own button plays it',
-        full1 && w1 > w0 + 50 && tol(w1, s1, 1) && lanes1 > slotH1 * 0.6 && full2 && k > 1 && played && !B.bar.api.playing,
+        full1 && w1 > w0 + 50 && tol(w1, s1, 1) && lanes1 > slotH1 * 0.6 && full2 && k > 1 && played && !B.api.playing,
         `the strip ${w0.toFixed(0)} -> ${w1.toFixed(0)} px in a ${s1.toFixed(0)} px slot with ${lanes1} of ${slotH1} px in lanes; `
         + `the bar drawn at ${k.toFixed(2)}x ${played ? 'played' : 'DID NOT PLAY'} from its toggle and stopped again`);
     }
@@ -1892,7 +1907,7 @@ createTransportBar(fitBox(host, 560).inner, deck, { publish: false, command })`,
     }
 
     // the slide's bar is left PLAYING as the tab closes, so the close has something to stop
-    C.bar.bar.api.el.querySelector('.tbar-toggle').click();
+    C.bar.api.el.querySelector('.tbar-toggle').click();
     // On its own page the part closes when the page is hidden, which a page cannot do to
     // itself, so the check calls slidesClose(), the visibilitychange listener's call.
     // See lessons/page-kit-slides.md#kit-slides-55
