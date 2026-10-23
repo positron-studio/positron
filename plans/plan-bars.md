@@ -4,7 +4,7 @@ Asked 2026-10-23: *"do an analyzis of the bars in general. it seems we force tra
 controller and ui element. split the two, the "bar" (online header / footer) is just a layout element? are
 transport buttons ui or action? popose a modular kit and cleanup on demos"*.
 
-Status: PLAN. Nothing built. Read from the code on 2026-10-23 by two read-only surveys (every line of
+Status: DECIDED 2026-10-23, being built (section 9). Before that: PLAN. Read from the code on 2026-10-23 by two read-only surveys (every line of
 demo/shell/transport-bar.mjs, every caller, every other strip); nothing here was measured in a browser.
 
 ## 0. Answers, short
@@ -154,3 +154,18 @@ scene switcher reaches OBS today. Not needed for the cleanup; worth it only if a
 4. Cleanup scope: concept pages and the room only, or the unlisted demo pages too.
 5. Still open from 2026-10-23: *"delete iconbutton on the right"*. Which one: the stage's mute button, the room
    footer's link icon, or another? Nothing was deleted.
+
+## 9. Decided 2026-10-23
+
+- *"no wrapper, clean it all"*: `createTransportBar` goes. Every caller (49 live sites, unlisted pages included)
+  moves to `createBar` plus `createTransportControl` plus views; transport-bar.mjs is deleted at the end.
+- The transport is a bay node now, on the page's own bay (suggested in chat, then the decision above): a
+  `<site>:transport` engine with `value-in` (play, stop, seek, rate, loop) and `value-out` (state), and a
+  `<site>:transport-buttons` person node whose `value-out` links to it; every press is `bay.send`. Remote
+  transport across tabs stays parked.
+- Strip padding: 8 px (`--bar-pad`) everywhere, the bar's value, taken as the default; the owner may change it.
+- Still open: which icon button "delete iconbutton on the right" meant. Nothing deleted.
+
+Build order: (A) the kit pieces, one author, with verify.mjs and bar-drill.mjs moved to the new contract;
+(B) the callers in groups, one agent per group, none committing; (C) transport-bar.mjs and its lessons retired,
+positron-ui updated.
