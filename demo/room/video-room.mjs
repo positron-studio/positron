@@ -702,10 +702,10 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
   // room (rig/m1/studio-agent.mjs, obs.start signed over the room's name). The Mac is reached in its own relay room.
   // The panel's header is a bar with no play button: Start OBS on the left, what OBS does in the clock's place, the
   // scene picker on the right; the WHIP URL is glued under it. why: lessons/kit-participant.md#start-m1
-  const m1Say = el('span', 'rv-whip-how rv-obs-say', '');
+  let m1Said = '';
   const sceneRow = el('span', 'rv-obs-scene');
   const m1Bar = CAN_SCENE ? createTransportBar(el('div'), createDeck({ items: [], adapters: {}, range: [0, 1] }), {
-    toggle: false, time: false, loop: false, scrub: false, publish: false, chip: m1Say, right: [sceneRow],
+    toggle: false, time: false, loop: false, scrub: false, publish: false, right: [sceneRow],
     extras: [{ id: 'm1', label: 'Start OBS', word: true, aria: 'start OBS', onPress: () => m1Toggle() }],
   }) : null;
   const m1Btn = m1Bar?.extra('m1');
@@ -763,11 +763,14 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
     m1Btn.setAttribute('aria-label', here ? 'stop OBS' : 'start OBS');
     m1Btn.disabled = !(online && !m1Asking && m1Obs?.state !== 'starting');
     m1Btn.title = !online ? 'the studio Mac is not online' : m1Btn.disabled ? 'starting OBS on the studio Mac' : '';
-    m1Say.textContent = !online ? 'the studio Mac is not online'
+    // What OBS is doing goes to the log when it changes, not onto the bar, where a sentence wrapped the row.
+    const said = !online ? 'the studio Mac is not online'
       : m1Asking || m1Obs?.state === 'starting' ? 'starting OBS on the studio Mac'
       : here ? 'OBS on the studio Mac streams into this room'
       : elsewhere ? `OBS streams into room ${m1Obs.room}; Start moves it here`
       : m1Obs?.state === 'failed' ? `OBS failed: ${m1Obs.why}` : 'OBS on the studio Mac streams its current scene here';
+    if (said !== m1Said && m1Seen) { m1Said = said; d.log(said); }
+    m1Btn.title ||= said;
     drawScenes();
   }
   setInterval(m1Show, 3000);
