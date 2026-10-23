@@ -16,7 +16,9 @@
   .r65-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
     top: max(24px, env(safe-area-inset-top)); left: max(24px, env(safe-area-inset-left)); }
   .r65-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); letter-spacing: 0; }
-  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); }
+  /* three lines high whatever it says, so the button under it never moves */
+  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 4.2em; overflow: hidden; }
+  .r65-t p span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80vw; }
   .r65-t .pos-lg { margin-top: 18px; pointer-events: auto; }
 </style>
 <script type="module">
@@ -87,7 +89,7 @@
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
   // One button under the line: Play, and Stop while playing.
   const btn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => (playing ? stop() : play()) });
-  const face = () => setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' });
+  const face = () => { setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' }); drawLine(); };
   let field = null;
   const LINES = { chroma: 0, gain: 2.0, gamma: 1.15 };
   function makeField() {
@@ -126,6 +128,7 @@
     if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
     if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
     if (WAVES[state.kind]) scene.waves = WAVES[state.kind];
+    drawLine();
   }
   async function readState() {
     try {
@@ -266,7 +269,17 @@
   const h = el('h1');
   h.append('Radio1965', el('br'), '@ Üle Heli', el('br'), 'festival');
   const line = el('p');
-  line.append('Sound archives processed,', el('br'), 'mixed and visualized', el('br'), 'by positron.studio');
+  const ABOUT = ['Sound archives processed,', 'mixed and visualized', 'by positron.studio'];
+  const KIND = { music: 'music', speech: 'speech', field: 'a field recording' };
+  // At rest the page's line; while playing, what plays and what is done to it, from /state.
+  function drawLine() {
+    const st = playing && state?.title ? state : null;
+    const rows = st ? [st.title, st.patch ? `granulated, ${st.patch.toLowerCase()}` : 'granulated',
+      [st.drone && st.drone !== 'none' && (st.droneLevel ?? 0) > 0.05 ? `over a ${st.drone} drone` : KIND[st.kind] || 'from the archive',
+        Number.isFinite(st.wet) ? `${Math.round(st.wet * 100)}% wet` : ''].filter(Boolean).join(', ')] : ABOUT;
+    line.replaceChildren(...rows.map((t) => el('span', '', t)));
+  }
+  drawLine();
   titleBox.append(h, line, btn);
   face();
   document.body.append(canvas, titleBox);

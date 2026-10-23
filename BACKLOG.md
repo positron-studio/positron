@@ -1,5 +1,6 @@
 ## Open
 
+- **/radio1965/: while playing, the line says what file plays with what effects; a fixed height so Stop does not jump** (2026-10-23). Asked: *"when playing replace Sound archives... with actual descrioion what file is playing with what effects"*, *"control height sot stop button will not jump"*, *"deploy asap"*.
 - **/radio1965/ Instagram video** (2026-10-23). Asked: *"do ig video"*. A 1080x1350 clip of the live page with its sound, title and line, no button; linked for download.
 - **/radio/cast/: let titles wrap in the playlist and archive, no "…"** (2026-10-23). Asked: *"do not ... the titles on playlsit/arvice, let them wrap"*. demo/radio/cast/index.html, table columns with `clip`.
 - **/radio1965/: more dynamics, the look's other numbers driven by the sound** (2026-10-23). Asked: *"more dynamics on viz? use params createv;lY?"* (creatively). demo/radio1965/index.html.
