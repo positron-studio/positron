@@ -73,7 +73,6 @@ workers/cast/worker.mjs, demo/radio/cast/index.html). Nothing measured in a brow
 | swell | 0 to 0.05 | `droneLevel`, 0 when no drone | a drone is a slow swell |
 | counts | 0 to 1 | `tweak.density` | the granulator's density is the grain counts |
 | heave | 0 to 1 | kind: speech 0.2, field 0.5, music 0.8 | speech sits still, music moves |
-| colour | the look | `key.root` as hue (12 steps), minor darker | one key, one colour |
 
 - **Grain events:** the browser has no grain ring of its own here, so the `counts` rows are filled from onsets in the
   audio level (a peak picker on the analyser) rather than from SendReply. A real grain feed from the container is a
@@ -89,7 +88,7 @@ workers/cast/worker.mjs, demo/radio/cast/index.html). Nothing measured in a brow
   tap: **Listen**, which starts the ear and the AudioContext in one press (one press gives sound at once).
 - Full screen: a button in the footer (fullscreen.mjs). Phones get the fixed cover, and the screen wake lock while
   playing so it does not dim.
-- Without a tap, or without sound: the picture still moves on the state alone (rows, height, swell, heave, colour),
+- Without a tap, or without sound: the picture still moves on the state alone (rows, height, swell, heave),
   with `loud` resting at a floor.
 - The patchbay under the fold, drawn from its own bay:
   - `cf-cast:radio1965:audio-out` -> `<tab>:speaker:audio-in` and `<tab>:landscape:audio-in`
@@ -127,6 +126,6 @@ workers/cast/worker.mjs, demo/radio/cast/index.html). Nothing measured in a brow
 ## 9. What the owner decides
 
 1. Audio through our own ear (`/listen/radio1965`), as recommended, so no visitor counts on Väin's server: yes?
-2. The mapping in section 4, or other pairings (for example listeners as colour instead of rows).
+2. The mapping in section 4, or other pairings. Decided 2026-10-23: *"no color"*, the key drives nothing and the look stays `quartz`.
 3. Listed on the front page, or unlisted until it is measured on phones.
 4. Build the site part now against a stand-in, and the cast routes after the broadcast?
