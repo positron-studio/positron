@@ -94,6 +94,8 @@ export default {
     if (url.pathname === '/' && request.method === 'GET') {
       return reply(origin, 200, { sfu: 'positron-sfu', usage: 'POST /room/<room>/session, then publish, pull, answer, update, close' });
     }
+    // The edge's clock, for a shared timeline between two machines (demo/shell/edge-clock.mjs).
+    if (url.pathname === '/time' && request.method === 'GET') return reply(origin, 200, { t: Date.now() });
     if (!env.CF_REALTIME_APP_SECRET || !env.SFU_PROOF_KEY) return reply(origin, 503, { error: 'no SFU secret on this worker' });
     const w = url.pathname.match(/^\/whip\/([^/]+)\/([A-Za-z0-9_-]{24})(?:\/([A-Za-z0-9_-]{8,128}))?$/);
     if (w && ROOM_RE.test(w[1])) return whip(env, request, url, w[1], w[2], w[3]);

@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Stage clock</title>
+<!-- An OBS browser source (1280x720): the edge clock as a barcode across the top, so /room/stage/ can read how old
+     each frame is. why: lessons/kit-participant.md#stage-lag -->
+<style>html, body { margin: 0; background: #000; overflow: hidden; } canvas { display: block; }</style>
+<canvas width="1280" height="720"></canvas>
+<script type="module">
+import { syncEdgeClock, STAMP } from '/shell/edge-clock.mjs';
+const base = new URLSearchParams(location.search).get('sfu') || 'https://sfu.positron.studio';
+const g = document.querySelector('canvas').getContext('2d');
+let offset = null, rtt = null;
+async function sync() { try { ({ offset, rtt } = await syncEdgeClock(base)); } catch { /* keep the last offset */ } }
+await sync();
+setInterval(sync, 30_000);
+function paint() {
+  g.fillStyle = '#000'; g.fillRect(0, 0, 1280, 720);
+  if (offset !== null) {
+    const t = Date.now() + offset, v = Math.round(t) % STAMP.mod;
+    for (let i = 0; i < STAMP.bits; i++) { g.fillStyle = (v >> (STAMP.bits - 1 - i)) & 1 ? '#fff' : '#000'; g.fillRect(i * STAMP.cell, 0, STAMP.cell, STAMP.height); }
+    g.fillStyle = '#fff'; g.fillRect(STAMP.bits * STAMP.cell, 0, STAMP.cell, STAMP.height);
+    g.font = '600 120px monospace'; g.fillText(String(Math.round(t) % 100000).padStart(5, '0'), 440, 420);
+    g.font = '400 28px monospace'; g.fillText(`edge clock, synced to ${Math.round(rtt / 2)} ms`, 440, 480);
+  }
+  requestAnimationFrame(paint);
+}
+paint();
+</script>
