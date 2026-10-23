@@ -157,7 +157,9 @@ export const PAGE_CARDS = {
     // the line broken as the page breaks it
     lineLines: ['Sound archives processed,', 'mixed and visualized', 'by positron.studio'],
     // frames of the page's own landscape, captured live, behind the card and the Instagram card
-    bg: 'radio1965-card.png', igBg: 'radio1965-ig.png' },
+    bg: 'radio1965-card.png', igBg: 'radio1965-ig.png',
+    // stronger waves than 4.5:1 small text allows, asked for: "stronger waves on social" (2026-10-23)
+    scrimMax: 0.55 },
 };
 export const pageCard = (text, bg) => heroCard(W, H, 72, text.kind, [3], bg, text);
 /** The same page card as an Instagram portrait, 1080 by 1350, posted by hand. */
