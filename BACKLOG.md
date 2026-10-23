@@ -1,5 +1,6 @@
 ## Open
 
+- **OBS and replay as panel bars** (2026-10-23). Asked: *"move start stop m1 to separate panel bar. on top is header, with tart obs stop obs. move parch selector there too to righ. video is auto-uploaded. videp uses stadard rec / play buttons. delete iconbutton on the right. all this is in separat panel bar"*. demo/room/video-room.mjs (m1Row, sceneRow), demo/room/replay.mjs. Start m1 becomes Start OBS / Stop OBS in a panel header with the scene picker on its right; replay records with the standard rec and play buttons and uploads by itself after a take.
 - ~~**Edge clock page: barcode only**~~ (2026-10-23). Asked: *"rm texts / numbers from edge clock, keep bardoce"*. demo/room/stage/clock.html. DONE 2026-10-23.
 - ~~**OBS scene choice: use the standard patch selector**~~ (2026-10-23). Asked: *"use stadark patch selector"*, on a screenshot of the SCENE segmented row on /room/obs/. demo/room/video-room.mjs drawScenes(), createChoice -> createPicker. DONE 2026-10-23.
 - **Room ladder: obs, replay, stage** (2026-10-23). Asked: *"i need more demos like stage, gradually building complexity. stage is a final one..."*, then *"live = obs ?"*, *"rm host"*. Order: /room/obs/ (today's stage), /room/replay/ (+ recording and playback, builds on obs), /room/stage/ (a quiz; today's page stays there until the quiz replaces it). host dropped.
