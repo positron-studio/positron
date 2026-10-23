@@ -123,7 +123,7 @@ function heroCard(w, h, pad, kind, lines = [2], bg = null, text = HERO) {
   const heads = text.lines ? [text.lines] : lines.flatMap((n) => breaks(text.head, n));
   for (const head of heads) for (let m = 360; m <= 1000; m += 8) {
     const L = layout(m, head, text);
-    const k = Math.min((w - 2 * pad) / L.w, (h - 2 * pad) / (L.h + MARK_AIR + L.markH));
+    const k = Math.min((w - 2 * pad) / L.w, (h - 2 * pad) / (L.h + (text.noMark ? 0 : MARK_AIR + L.markH)));
     if (!best || k > best.k + 1e-6) best = { L, k };
   }
   const { L, k } = best;
@@ -135,8 +135,11 @@ function heroCard(w, h, pad, kind, lines = [2], bg = null, text = HERO) {
     regions.push(region(i ? 'line' : 'headline', r, x, y, k, i ? [r.t.fill] : [r.t.fill, INK.hi]));
     y += r.lines.length * r.t.lh * r.t.size * k;
   });
-  parts.push(block(L.mark, x, h - pad - L.markH * k, k));
-  regions.push(region('wordmark', L.mark, x, h - pad - L.markH * k, k, [INK.dim, INK.hi]));
+  // a page card may leave the wordmark off (`noMark`)
+  if (!text.noMark) {
+    parts.push(block(L.mark, x, h - pad - L.markH * k, k));
+    regions.push(region('wordmark', L.mark, x, h - pad - L.markH * k, k, [INK.dim, INK.hi]));
+  }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
     + `${ground(w, h, bg)}${parts.join('')}</svg>`;
   const version = fnv(`${svg}|${TEMPLATE_V}`);
@@ -159,7 +162,9 @@ export const PAGE_CARDS = {
     // frames of the page's own landscape, captured live, behind the card and the Instagram card
     bg: 'radio1965-card.png', igBg: 'radio1965-ig.png',
     // stronger waves than 4.5:1 small text allows, asked for: "stronger waves on social" (2026-10-23)
-    scrimMax: 0.55 },
+    scrimMax: 0.55,
+    // no positron.studio at the foot: the line already says it ("rm footer positron.studio from social and ig")
+    noMark: true },
 };
 export const pageCard = (text, bg) => heroCard(W, H, 72, text.kind, [3], bg, text);
 /** The same page card as an Instagram portrait, 1080 by 1350, posted by hand. */
