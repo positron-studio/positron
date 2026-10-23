@@ -465,6 +465,15 @@ is checkable in one command, so check it before repeating it.
 
 ## The transport bar
 
+🔴 **THERE IS NO TRANSPORT BAR SINCE 2026-10-23.** Asked: *"split the two"*, then *"no wrapper, clean it all"*
+(plans/plan-bars.md). A bar is a layout (`createBar({ start, middle, end })`, `barButton`, bar.mjs), a transport is
+a controller with no DOM (`createTransportControl`, transport-control.mjs), its buttons are views
+(transport-views.mjs), its keys are `bindTransportKeys`, and where a page has a bay the transport is a node
+(`transportOnBay`). lessons/kit-bar.md. Start holds what you do, middle what is so, end what you choose.
+The rules below still hold; read `createTransportBar` as that composition, `toggle: false` as no `playToggle` plus
+`toggles: false`, `space: false` and `endStop: false`, `publish: false` as not calling `publishTransport`, and
+`extras`/`right` as `barButton`s in start or end.
+
 - 🔴 **AND A PAGE NEVER RE-PUBLISHES `__demo.transport`, BECAUSE THE BAR
   ALREADY DID AND THE RETURN VALUE IS NOT THE SAME OBJECT.**
   `transport-bar.mjs` publishes its internal `api`; `createTransportBar` returns

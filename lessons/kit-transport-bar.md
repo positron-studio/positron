@@ -1,5 +1,10 @@
 # Kit lessons: transport-bar.mjs
 
+Transport-bar.mjs was split and deleted on 2026-10-23 (plans/plan-bars.md, lessons/kit-bar.md). Its rules live on in
+transport-control.mjs (play, end-stop, loop, rates), transport-views.mjs (faces, clock, scrub, loop button) and
+transport-keys.mjs (keys), which cite the anchors below. Where an entry names an option of `createTransportBar`, read
+the new piece that took that job.
+
 The long comments cut from `demo/shell/transport-bar.mjs`, moved here verbatim. Each heading names the file and the block, and the code points at it with `// why: lessons/kit-transport-bar.md#<anchor>`.
 
 <a id="header"></a>
