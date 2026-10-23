@@ -21,6 +21,7 @@ import { pickPresenter, stripOrder, CLAIM_STALE_MS } from '/room/together.mjs';
 import { openWire } from '/shell/wire.mjs';
 import { MAC_ROOM } from '/shell/graph-registry.mjs';
 import { takeStudioKey, studioKey, signStudio } from '/shell/studio-key.mjs';
+import { syncEdgeClock, readStamp, stampAge, STAMP } from '/shell/edge-clock.mjs';
 
 
 const CSS = `
@@ -70,7 +71,8 @@ const style = () => {
 export function videoRoom({ via, name, present = false, stream = false }) {
   if (stream && via !== 'sfu') throw new Error('videoRoom: a stream goes through the SFU, via: \'sfu\'');
   style();
-  const d = mount({ name, what: '', readout: null, index: '/', indexLabel: 'positron' });
+  const d = mount({ name, what: '', index: '/', indexLabel: 'positron',
+    ...(stream ? { readout: { lag: 'ms', 'worst lag': 'ms', buffer: 'ms', 'round trip': 'ms' }, joined: false } : { readout: null }) });
 
   // ── the sites ─────────────────────────────────────────────────────────────
   // A room is a short random code, made by New room and shared as a link. With no room there is
@@ -645,8 +647,6 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   const whipCopy = createButtonGroup({ buttons: [{ id: 'copy', label: 'Copy', onPress: async () => {
     try { await navigator.clipboard.writeText(whipUrl); d.log('the WHIP URL is copied'); } catch { d.log(`WHIP URL: ${whipUrl}`); }
   } }] });
-  const whipHow = el('p', 'rv-whip-how', 'OBS 30 or newer. Settings, Stream: Service WHIP, Server this URL, Bearer Token empty. '
-    + 'Output: Apple VT H264 Hardware Encoder, CBR 3000 kbps, keyframe interval 2 s, no B-frames. Add ?site=m1 to name the machine.');
   const whipRow = el('div', 'rv-whip-row');
   whipRow.append(whipCode, whipCopy.el);
   // Start m1: with the owner's studio key in this browser, the studio Mac's OBS streams its current scene into this
@@ -694,11 +694,54 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     d.log(stop ? 'asked the studio Mac to stop OBS' : 'asked the studio Mac to stream OBS into this room');
     setTimeout(() => { m1Asking = false; m1Show(); }, 2000);
   }
-  whipSec.append(whipH, whipRow, m1Row, whipHow);
+  whipSec.append(whipH, whipRow, m1Row);
   whipSec.hidden = true;
   function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; if (since) m1Open(); m1Show(); }
   d.stack.add(rv, ...(stream ? [whipSec] : []), pb.el);
   // For a harness: what the room looks like from this tab.
+  // Lag on the stage: how old each frame is when it is drawn, read off the barcode of demo/room/stage/clock.html
+  // in OBS against the same edge clock, and the receiving connection's own buffer and round trip.
+  // why: lessons/kit-participant.md#stage-lag
+  let lagNow = { lag: null, worst: null, buffer: null, rtt: null };
+  if (stream) {
+    let edge = null, edgeAt = 0, jbWas = null;
+    const ages = [];
+    const cv = document.createElement('canvas'), g = cv.getContext('2d', { willReadFrequently: true });
+    const v = stage.video;
+    const onFrame = () => {
+      if (edge && liveIn && v.videoWidth) {
+        const w = v.videoWidth, bh = Math.ceil(STAMP.height * w / 1280);
+        if (cv.width !== w || cv.height !== bh) { cv.width = w; cv.height = bh; }
+        g.drawImage(v, 0, 0, w, bh, 0, 0, w, bh);
+        const st = readStamp(g, w);
+        if (st !== null) { const a = stampAge(st, Date.now() + edge.offset); if (a < 10_000) ages.push([performance.now(), a]); }
+      }
+      v.requestVideoFrameCallback(onFrame);
+    };
+    v.requestVideoFrameCallback?.(onFrame);
+    setInterval(async () => {
+      if (liveIn && Date.now() - edgeAt > 60_000) { edgeAt = Date.now(); syncEdgeClock(SFU_BASE).then((e) => { edge = e; }).catch(() => { edgeAt = 0; }); }
+      const now = performance.now();
+      while (ages.length && now - ages[0][0] > 3000) ages.shift();
+      const sorted = ages.map((x) => x[1]).sort((a, b) => a - b);
+      const next = { lag: sorted.length ? sorted[sorted.length >> 1] : null, worst: sorted.length ? sorted.at(-1) : null, buffer: null, rtt: null };
+      const pc = liveIn ? media?.connections?.().receive : null;
+      if (pc) {
+        const s = await pc.getStats().catch(() => null);
+        s?.forEach((x) => {
+          if (x.type === 'inbound-rtp' && x.kind === 'video' && x.jitterBufferEmittedCount) {
+            if (jbWas && x.jitterBufferEmittedCount > jbWas.n) next.buffer = 1000 * (x.jitterBufferDelay - jbWas.d) / (x.jitterBufferEmittedCount - jbWas.n);
+            jbWas = { d: x.jitterBufferDelay, n: x.jitterBufferEmittedCount };
+          }
+          if (x.type === 'candidate-pair' && x.nominated && x.state === 'succeeded' && Number.isFinite(x.currentRoundTripTime)) next.rtt = 1000 * x.currentRoundTripTime;
+        });
+      } else jbWas = null;
+      lagNow = next;
+      const r = (x) => (x === null ? '' : Math.round(x));
+      d.set('lag', r(next.lag)); d.set('worst lag', r(next.worst)); d.set('buffer', r(next.buffer)); d.set('round trip', r(next.rtt));
+    }, 1000);
+  }
+
   window.__room = {
     site: SITE, room: ROOM,
     via: VIA, peers: () => media?.peers() || [], layer: () => media?.layerNow?.() || '', published: () => media?.published?.() || [],
@@ -707,7 +750,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     links: () => bay().links().map((l) => `${l.from} -> ${l.to} ${l.session?.transport || ''} ${l.session?.where || ''}`.trim()),
     mic: () => micOn, cam: () => camOn,
     canShare: CAN_SHARE, presenter: () => presenter, sharing: () => leading(),
-    live: () => liveIn, whip: () => whipUrl, stage: () => stage.info(), stageVideo: stage.video,
+    live: () => liveIn, whip: () => whipUrl, stage: () => stage.info(), stageVideo: stage.video, lag: () => lagNow,
     shareStartedAt: 0, streamStartedAt: 0,
     link: roomLink,
     show: (id) => (id ? tabs.go(id) : rv.dataset.show), unread: () => unread,
