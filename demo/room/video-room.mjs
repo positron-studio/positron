@@ -7,7 +7,7 @@
 import { mount, el } from '/shell/shell.mjs';
 import { createChatLog, createChatCompose, createChatColumn, createChatWindow } from '/shell/chat-ui.mjs';
 import { createButtonGroup } from '/shell/button-group.mjs';
-import { createChoice } from '/shell/choice.mjs';
+import { createPicker } from '/shell/picker.mjs';
 import { createIconButton } from '/shell/icon-button.mjs';
 import { createTabs } from '/shell/tabs.mjs';
 import { createBay } from '/shell/bay.mjs';
@@ -721,9 +721,10 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
     if (key !== sceneKey) {
       sceneKey = key;
       sceneRow.replaceChildren();
-      sceneChoice = scenes.length ? createChoice({ label: 'scene', options: scenes.map((x) => [x, x]), at: scenes.indexOf(m1Obs.scene), onPick: (name) => pickScene(name) }) : null;
-      if (sceneChoice) sceneRow.append(sceneChoice.el);
-    } else if (sceneChoice && m1Obs?.scene && sceneChoice.value() !== m1Obs.scene) sceneChoice.set(scenes.indexOf(m1Obs.scene), true);
+      const step = (by) => { const i = scenes.indexOf(m1Obs?.scene); pickScene(scenes[((i < 0 ? 0 : i) + by + scenes.length) % scenes.length]); };
+      sceneChoice = scenes.length ? createPicker({ label: 'scene', what: 'scene', prev: () => step(-1), next: () => step(+1), onPick: (i) => pickScene(scenes[i]) }) : null;
+      if (sceneChoice) { sceneChoice.options(scenes, Math.max(0, scenes.indexOf(m1Obs.scene))); sceneRow.append(sceneChoice.el); }
+    } else if (sceneChoice && m1Obs?.scene && sceneChoice.select.selectedIndex !== scenes.indexOf(m1Obs.scene)) sceneChoice.show(m1Obs.scene, scenes.indexOf(m1Obs.scene));
     sceneRow.hidden = !sceneChoice || !since;
     if (!!sceneChoice !== sceneDrawn) { sceneDrawn = !!sceneChoice; pb?.refresh(); }
   }
