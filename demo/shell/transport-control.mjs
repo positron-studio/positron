@@ -323,7 +323,8 @@ export function transportApi(control, { el, toggles = true, live = null, loopVie
     get loopWindowMs() { return control.loopWindowMs; },
     get loopBlinking() { return control.loopWarn; },
     get loopFrac() { return control.loopFrac; },
-    pressLoop() { (loopView?.button ?? null)?.click() ?? control.pressLoop(); },
+    /** press it the way a finger does, so a check drives the real handler; once, never twice */
+    pressLoop() { if (loopView?.button) loopView.button.click(); else control.pressLoop(); },
     loopExtra: (id) => loopView?.extra?.(id) ?? null,
     slot: () => null,
   };
