@@ -41,6 +41,7 @@ const CAST_INSTANCE = { vcpu: 1, memoryMib: 3072, diskMb: 2048 };
 // others for its tests. why: lessons/workers-cast.md#live-container
 const MODES = ['live'], RETIRED_MODES = ['copy', 'mix', 'grains'];
 // An empty program starts as this many files, picked as the page picks them; at most VOTES_SENT votes reach the life.
+const STATUS_FRESH_MS = 10_000;   // how old a status snapshot a page may get (cstatusCached)
 const PICK = Infinity, VOTES_SENT = 2000; // an empty program starts as the whole archive, shuffled by the votes
 const ALARM_MS = 30_000, IDLE_MS = 10 * 60_000, READY_MS = 20_000, BOOT_TRIES = 3, DEATHS_KEEP = 50;
 // A handover starts with at least SAFE_S of dwell left and goes on with MIN_S once the twin is up; waiting, the
@@ -349,6 +350,18 @@ export class Caster {
       return s;
     } catch { return null; }
   }
+  /**
+   * The container's status for pages and the control socket: a snapshot at most STATUS_FRESH_MS old, one live call in
+   * flight at a time. Each live call runs in the encoder's process and one has stalled its write loop 350 ms; an open
+   * cast page used to cause one every 3 s and a control socket one a second. The alarm and the handover ask live.
+   * why: lessons/workers-cast.md#status-snapshot
+   */
+  async cstatusCached(k) {
+    const at = this.lastS?.at || 0;
+    if (this.lastS && this.lastSKey === k && Date.now() - at < STATUS_FRESH_MS) return this.lastS.s;
+    this.csFlight ??= this.cstatus(k).then((s) => { this.lastSKey = k; return s; }).finally(() => { this.csFlight = null; });
+    return this.csFlight;
+  }
   async running(k) { return this.slot(k ?? await this.key()).running(); }
   async cpost(path, body, k) {
     // every queue carries each file's gain from the table, a stored one too. why: lessons/workers-cast.md#level
@@ -363,7 +376,7 @@ export class Caster {
 
   async status() {
     const [want, progress, deaths, boot, prog, stopped, handovers, listens] = await Promise.all(['want', 'progress', 'deaths', 'boot', 'program', 'stopped', 'handovers', 'listens'].map((k) => this.st.get(k)));
-    const t = targets(this.env)[this.name], k = await this.key(), s = await this.cstatus(k), up = await this.running(k);
+    const t = targets(this.env)[this.name], k = await this.key(), s = await this.cstatusCached(k), up = await this.running(k);
     const lines = [...this.lines, ...(s?.lines || [])].sort().slice(-12);
     return { target: this.name, to: t?.label, playing: !!want, onAir: !!s?.onAir, now: s?.now || null,
       program: (prog || []).map(({ id, title }) => ({ id, title })),

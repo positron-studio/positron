@@ -891,3 +891,11 @@ a session is the baseline. Owner 2026-10-23: *"why there is no latest files in p
 promote newest ones contrantly"*. A start with no list now takes the whole archive (`pickFiles`, weighted by the votes)
 and `promoteNewest` puts one of the six newest arrivals in every third place, cycling, so the newest come round all
 the time; files arriving later still play next through `freshTick`.
+
+## status-snapshot
+
+`Caster.cstatusCached`: `/status/<station>` and the control socket's once-a-second push read a container status at
+most 10 s old (`STATUS_FRESH_MS`), with one live call in flight at a time. Before, an open /radio/cast/ page asked each
+station's container every 3 s and a control socket once a second, and each answer runs in the encoder's own process,
+where one call was measured stalling the write loop 350 ms. The alarm (30 s) and the handover still ask live. Owner
+2026-10-23: *"fix it"*.
