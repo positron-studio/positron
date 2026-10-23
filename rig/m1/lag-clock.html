@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><title>lag clock</title>
+<style>html,body{margin:0;background:#000;color:#fff;font:700 120px/1 monospace;overflow:hidden}canvas{display:block}</style>
+<canvas id="c" width="1280" height="720"></canvas>
+<script>
+// The wall clock as 30 bits in 40 px cells across the top (cell 30 white, 31 black as the threshold), and as digits.
+const c = document.getElementById("c").getContext("2d");
+function paint() {
+  const t = Date.now(), v = t % 1073741824;
+  c.fillStyle = "#000"; c.fillRect(0, 0, 1280, 720);
+  for (let i = 0; i < 30; i++) { c.fillStyle = (v >> (29 - i)) & 1 ? "#fff" : "#000"; c.fillRect(i * 40, 0, 40, 80); }
+  c.fillStyle = "#fff"; c.fillRect(30 * 40, 0, 40, 80);
+  c.fillStyle = "#fff"; c.font = "700 120px monospace"; c.fillText(String(t % 100000).padStart(5, "0"), 340, 420);
+  requestAnimationFrame(paint);
+}
+paint();
+</script>

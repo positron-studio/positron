@@ -1,3 +1,20 @@
+# 2026-10-23: OBS on the M1 to /room/stage/, glass to glass
+
+**MEASURED**, a clock painted as a 30 bit barcode (`rig/m1/lag-clock.html`) in an OBS browser source on the M1,
+OBS 32.2.2 over WHIP (VideoToolbox H.264, CBR 3000 kbps, keyint 2 s, 1280x720 at 30 fps) into the Cloudflare SFU,
+read out of every frame by a headless Chrome on the laptop joining https://positron.studio/room/stage/ (same LAN).
+Clocks lined up over ssh: M1 minus laptop 11.5 ms, round trip 5 to 6 ms (time.apple.com said 11.7, ±21).
+
+| run | frames | min | median | p95 | max | jitter buffer | RTT to SFU |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 836 | 208 | 236 | 391 | 417 | 23 ms | 15 ms |
+| 2 | 897 | 323 | 359 | 367 | 374 | 14 ms | 17 ms |
+
+Steady within a run (run 2, per second median 342 to 366) but a 120 ms step between runs, about four frames.
+The receiver's part is small (jitter buffer 14 to 23 ms, decode 2 ms, half the RTT 8 ms), so 170 to 300 ms
+is on the M1: browser source capture, OBS's render and encode, the WHIP sender. Not split further.
+Press of Start m1 to the first frame: 7.6 and 11.7 s. The camera path was not measured (its capture adds to this).
+
 # Session 52, second half (2026-09-26 to 27): the eccm face, the event page, the derive page
 
 **ON THE EDGE**, each deploy confirmed by stamp: eccm 17/17 with 11 page
