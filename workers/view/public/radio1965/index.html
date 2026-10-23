@@ -6,13 +6,13 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Radio1965">
-<meta property="og:description" content="Sound archives processed, mixed and visualized by positron.audio.">
+<meta property="og:description" content="Sound archives processed, mixed and visualized by positron.studio.">
 <meta property="og:url" content="https://positron.studio/radio1965/">
-<meta property="og:image" content="https://positron.studio/og/radio1965-54df5a83.png">
+<meta property="og:image" content="https://positron.studio/og/radio1965-e3d69878.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:type" content="image/png">
-<meta property="og:image:alt" content="positron.studio: Radio1965 @ Üle Heli festival. Sound archives processed, mixed and visualized by positron.audio">
+<meta property="og:image:alt" content="positron.studio: Radio1965 @ Üle Heli festival. Sound archives processed, mixed and visualized by positron.studio">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
 <link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
@@ -220,7 +220,7 @@
     zeros = 0; lastT = -1;
     // the lock screen and the control centre: a square of the landscape and the page's own words, not the app icon
     if ('mediaSession' in navigator && 'MediaMetadata' in window) {
-      navigator.mediaSession.metadata = new MediaMetadata({ title: 'Radio1965 @ Üle Heli festival', artist: 'positron.audio',
+      navigator.mediaSession.metadata = new MediaMetadata({ title: 'Radio1965 @ Üle Heli festival', artist: 'positron.studio',
         album: 'Sound archives processed, mixed and visualized', artwork: [{ src: '/radio1965/art.png', sizes: '512x512', type: 'image/png' }] });
     }
     try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
@@ -280,7 +280,7 @@
   const h = el('h1');
   h.append('Radio1965', el('br'), '@ Üle Heli', el('br'), 'festival');
   const line = el('p');
-  line.append('Sound archives processed,', el('br'), 'mixed and visualized', el('br'), 'by positron.audio');
+  line.append('Sound archives processed,', el('br'), 'mixed and visualized', el('br'), 'by positron.studio');
   titleBox.append(h, line, btn);
   face();
   document.body.append(canvas, titleBox);
