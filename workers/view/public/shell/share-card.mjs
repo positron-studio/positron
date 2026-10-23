@@ -79,10 +79,10 @@ const MARK = { ...TYPE.eye, size: TYPE.eye.size * 1.5, track: 0.08 };
 // The hero block laid out at the front page's sizes in a column `measure`
 // wide, with the headline broken as `head` says: its rows (the headline, the
 // line, the small line), the wordmark, and the size of each in those units.
-function layout(measure, head) {
+function layout(measure, head, text = HERO) {
   const rows = [
     { t: TYPE.head, lines: head, accent: true, gap: 0 },
-    { t: TYPE.line, lines: balance(HERO.line, TYPE.line, Math.min(measure, LINE_MAX)), gap: GAPS.line },
+    { t: TYPE.line, lines: balance(text.line, TYPE.line, Math.min(measure, LINE_MAX)), gap: GAPS.line },
   ];
   // Lowercase, `positron` gray and `.studio` yellow.
   // why: lessons/kit-share-card.md#mark-colours
@@ -117,10 +117,12 @@ function block(r, x, y0, k) {
  * why: lessons/kit-share-card.md#hero-card
  */
 const MARK_AIR = 40;
-function heroCard(w, h, pad, kind, lines = [2], bg = null) {
+function heroCard(w, h, pad, kind, lines = [2], bg = null, text = HERO) {
   let best = null;
-  for (const n of lines) for (const head of breaks(HERO.head, n)) for (let m = 360; m <= 1000; m += 8) {
-    const L = layout(m, head);
+  // a page card names its own line breaks (`text.lines`); the hero's headline tries every break
+  const heads = text.lines ? [text.lines] : lines.flatMap((n) => breaks(text.head, n));
+  for (const head of heads) for (let m = 360; m <= 1000; m += 8) {
+    const L = layout(m, head, text);
     const k = Math.min((w - 2 * pad) / L.w, (h - 2 * pad) / (L.h + MARK_AIR + L.markH));
     if (!best || k > best.k + 1e-6) best = { L, k };
   }
@@ -138,7 +140,7 @@ function heroCard(w, h, pad, kind, lines = [2], bg = null) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
     + `${ground(w, h, bg)}${parts.join('')}</svg>`;
   const version = fnv(`${svg}|${TEMPLATE_V}`);
-  return { svg, alt: ALT, version, path: `/og/${kind}-${version}.png`, width: w, height: h, scale: k,
+  return { svg, alt: text === HERO ? ALT : `${SITE_NAME}: ${(text.lines || [text.head]).join(' ')}. ${text.line}`, version, path: `/og/${kind}-${version}.png`, width: w, height: h, scale: k,
     headSize: TYPE.head.size * k, markSize: MARK.size * k, head: L.rows[0].lines, regions };
 }
 const ALT = `${SITE_NAME}: ${HERO.head} ${HERO.line}`;
@@ -146,6 +148,14 @@ const ALT = `${SITE_NAME}: ${HERO.head} ${HERO.line}`;
 /** The site card, the og:image of every page: `{ svg, alt, version, path, width, height, regions }`.
  *  `bg` (share-bg.mjs) puts a picture behind it; the hash then covers the picture too. */
 export const siteCard = (bg) => heroCard(W, H, 72, 'site', [2], bg);
+/**
+ * A page's own card, in the hero's type: `{ kind, lines, line }`, the headline's lines as given and the line under it.
+ * The build tags that page with it instead of the site card. why: lessons/kit-share-card.md#page-cards
+ */
+export const PAGE_CARDS = {
+  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives mixed by positron.audio' },
+};
+export const pageCard = (text, bg) => heroCard(W, H, 72, text.kind, [3], bg, text);
 /** The Instagram portrait, 1080 by 1350, tagged on no page: posted by hand. */
 export const igCard = (bg) => heroCard(IG_W, IG_H, 96, 'ig', [2, 3, 4], bg);
 

@@ -5,6 +5,7 @@
 
 import { el } from './shell.mjs';
 import { setIcon } from './icon-button.mjs';
+import { icon as svgIcon } from './icons.mjs';
 
 /**
  * @param {object} [o]
@@ -48,18 +49,28 @@ export function createBar({ start = [], middle = [], end = [], cls = '' } = {}) 
  * @param {boolean} [o.word]    a word, sized by its text rather than the square
  * @param {boolean} [o.primary]
  * @param {boolean} [o.press]   false: the harness must not press it
+ * @param {'lg'} [o.size]       the large button, `--ctl-lg` tall, for a page whose one control is the point
  * @param {(btn: HTMLButtonElement) => void} [o.onPress]
  * why: lessons/kit-bar.md#bar-button
  */
-export function barButton({ label = '', icon = '', aria, title, word = false, primary = false, press = true, onPress, ...rest } = {}) {
+export function barButton({ label = '', icon = '', aria, title, word = false, primary = false, press = true, size = '', onPress, ...rest } = {}) {
   if ('onClick' in rest) throw new Error('barButton: onPress, not onClick (a misspelled handler is a silent dead button)');
-  const b = el('button', `${press ? 'tbar-x' : 'tbar-slot'}${primary ? ' pos-pri' : ''}${word ? ' tbar-word' : ''}`,
+  const b = el('button', `${press ? 'tbar-x' : 'tbar-slot'}${primary ? ' pos-pri' : ''}${word ? ' tbar-word' : ''}${size === 'lg' ? ' pos-lg' : ''}`,
     icon ? '' : label, { type: 'button' });
   const name = aria ?? label;
   if (!name) throw new Error('barButton: a button needs a label or an aria name');
-  if (icon) setIcon(b, icon, name);
+  // an icon and a word together: the icon, then the word, both inside the button
+  if (icon && word) setButtonFace(b, { icon, label, aria: name });
+  else if (icon) setIcon(b, icon, name);
   else b.setAttribute('aria-label', name);
   if (title) b.title = title;
   if (onPress) b.addEventListener('click', () => onPress(b));
   return b;
+}
+
+/** A button's icon and word, for one that changes what it does (Play and Stop on one button). */
+export function setButtonFace(b, { icon, label, aria }) {
+  const big = b.classList.contains('pos-lg');
+  b.replaceChildren(svgIcon(icon, { size: big ? 20 : 16 }), el('span', 'pos-btn-w', label));
+  b.setAttribute('aria-label', aria ?? label);
 }
