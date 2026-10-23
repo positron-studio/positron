@@ -156,9 +156,9 @@ export const siteCard = (bg) => heroCard(W, H, 72, 'site', [2], bg);
  * The build tags that page with it instead of the site card. why: lessons/kit-share-card.md#page-cards
  */
 export const PAGE_CARDS = {
-  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives processed, mixed and visualized by positron.studio',
+  'radio1965/index.html': { kind: 'radio1965', lines: ['Radio1965', '@ Üle Heli', 'festival'], line: 'Sound archives processed, mixed and visualized positron.studio/radio1965',
     // the line broken as the page breaks it
-    lineLines: ['Sound archives processed,', 'mixed and visualized', 'by positron.studio'],
+    lineLines: ['Sound archives processed,', 'mixed and visualized', 'positron.studio/radio1965'],
     // frames of the page's own landscape, captured live, behind the card and the Instagram card
     bg: 'radio1965-card.png', igBg: 'radio1965-ig.png',
     // stronger waves than 4.5:1 small text allows, asked for: "stronger waves on social" (2026-10-23)
