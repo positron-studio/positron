@@ -18,6 +18,7 @@ import { fetchIceServers, STUN_ONLY, ICE_PROXY } from '/shell/live.mjs';
 import { createParticipant, createParticipantGrid, createStage } from '/shell/participant.mjs';
 import { createMesh } from '/room/mesh.mjs';
 import { createSfu, ridFor } from '/room/sfu.mjs';
+import { createReplay } from '/room/replay.mjs';
 import { pickPresenter, stripOrder, CLAIM_STALE_MS } from '/room/together.mjs';
 import { openWire } from '/shell/wire.mjs';
 import { MAC_ROOM } from '/shell/graph-registry.mjs';
@@ -69,9 +70,12 @@ const style = () => {
  * @param {string} o.name       the page's title
  * @param {boolean} [o.present]  a Share button: one tab's screen on everybody's stage
  * @param {boolean} [o.stream]   a Stream button: one tab's live stream, picture and sound, on everybody's stage (SFU only)
+ * @param {boolean} [o.replay]   record the stage, keep the take in this browser, play it back, copy it to R2 (with stream)
  */
-export function videoRoom({ via, name, present = false, stream = false }) {
+export function videoRoom({ via, name, present = false, stream = false, replay = false }) {
   if (stream && via !== 'sfu') throw new Error('videoRoom: a stream goes through the SFU, via: \'sfu\'');
+  if (replay && !stream) throw new Error('videoRoom: replay records a stream, stream: true');
+  let replayer = null;
   style();
   const d = mount({ name, what: '', index: '/', indexLabel: 'positron',
     ...(stream ? { readout: { lag: 'ms', 'worst lag': 'ms', buffer: 'ms', 'round trip': 'ms' }, joined: false } : { readout: null }) });
@@ -131,6 +135,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       { id: `${SITE}:grid`, kind: 'screen', label: 'grid' },
       ...(CAN_SHARE ? [{ id: `${SITE}:share`, kind: 'device', label: 'screen share' }] : []),
       ...(CAN_SCENE ? [{ id: `${SITE}:scenes`, kind: 'person', label: 'scene switcher' }] : []),
+      ...(replayer ? replayer.nodes() : []),
       ...(HAS_STAGE ? [{ id: `${SITE}:stage`, kind: 'screen', label: 'stage' }] : []),
     ],
     ports: [
@@ -144,6 +149,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       // `page` too: this tab's own camera into its own tile.
       { id: VIDEO_IN, label: 'camera', dir: 'in', medium: 'video', transports: ['page', VIA] },
       { id: AUDIO_IN, label: 'microphone', dir: 'in', medium: 'audio', transports: [VIA] },
+      ...(replayer ? replayer.ports() : []),
       ...(CAN_SCENE ? [{ id: SCENE_OUT, label: 'OBS scene', dir: 'out', medium: 'value', shape: { of: 'scene' }, transports: ['relay'] }] : []),
       ...(CAN_SHARE ? [
         { id: LEAD_OUT, label: 'screen', dir: 'out', medium: 'video', transports: ['page', VIA] },
@@ -152,7 +158,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       // The stream: a film from the bucket in, its picture and sound out to every stage.
       ...(HAS_STAGE ? [
         { id: STAGE_IN, label: present ? 'screen' : 'picture', dir: 'in', medium: 'video', transports: ['page', VIA] },
-        ...(stream ? [{ id: STAGE_SOUND, label: 'sound', dir: 'in', medium: 'audio', transports: [VIA] }] : []),
+        ...(stream ? [{ id: STAGE_SOUND, label: 'sound', dir: 'in', medium: 'audio', transports: replay ? [VIA, 'webaudio'] : [VIA] }] : []),
         { id: STAGE_HEAR, label: present ? 'who presents' : 'who streams', dir: 'in', medium: 'value', transports: ['relay'] },
       ] : []),
     ],
@@ -170,7 +176,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     const b = node.registry.fill(createBay());
     if (b.port(IN)) b.addPort({ ...b.port(IN), deliver: heard });
     if (b.port(GRID_IN)) b.addPort({ ...b.port(GRID_IN), deliver: heardState });
-    if (b.port(STAGE_HEAR)) b.addPort({ ...b.port(STAGE_HEAR), deliver: heardShare });
+    if (b.port(STAGE_HEAR)) b.addPort({ ...b.port(STAGE_HEAR), deliver: (e, l, m) => (e?.of === 'rec' ? heardRec(e, l, m) : heardShare(e, l, m)) });
     b.link(OUT, '*:chat:value-in');
     b.link('*:chat:value-out', IN);
     b.link(SELF_OUT, '*:grid:value-in');
@@ -186,14 +192,17 @@ export function videoRoom({ via, name, present = false, stream = false }) {
         b.addNode({ id: enc, kind: 'engine', label: liveName(liveIn) });
         b.addPort({ id: `${enc}:video-out`, label: 'picture', dir: 'out', medium: 'video', transports: ['sfu'] });
         b.addPort({ id: `${enc}:audio-out`, label: 'sound', dir: 'out', medium: 'audio', transports: ['sfu'] });
-        b.link(`${enc}:video-out`, STAGE_IN);
-        b.link(`${enc}:audio-out`, STAGE_SOUND);
+        if (!replayer?.playing()) { b.link(`${enc}:video-out`, STAGE_IN); b.link(`${enc}:audio-out`, STAGE_SOUND); }
       } else if (since && leadTrack) {
         b.link(LEAD_OUT, STAGE_IN);
         for (const s of others().slice(0, MAX - 1)) b.link(LEAD_OUT, `${s}:stage:video-in`);
       } else if (since && presenter && presenter !== SITE && b.port(`${presenter}:${SRC}:video-out`)) {
         b.link(`${presenter}:${SRC}:video-out`, STAGE_IN);
       }
+    }
+    if (replayer && since) {
+      const enc = liveIn && presenter === liveIn.site ? `${liveIn.site}:encoder` : '';
+      replayer.link(b, { enc, stageIn: STAGE_IN, stageSound: STAGE_SOUND, stageHear: STAGE_HEAR, log: (x) => d.log(x, 'warn') });
     }
     // OBS's scene on the studio Mac: its in-port lives in this bay while the Mac is online, and delivering to it
     // sends the switch over the Mac's room. why: lessons/kit-participant.md#obs-scene
@@ -222,6 +231,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     log: (line, kind) => d.log(line, kind),
     onJoin: () => {
       since = Date.now();
+      replayer?.joined(true);
       node.setGraphs([selfGraph()]);
       chatBox.enable(true);
       sayState();
@@ -326,6 +336,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     node.leave();
     for (const t of local?.getTracks() || []) t.stop();
     local = null; since = 0;
+    replayer?.joined(false);
     for (const [s, t] of tiles) { grid.remove(t); unwatch(s); }
     tiles.clear();
     grid.remove(me); unwatch(SITE);
@@ -423,6 +434,16 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   const shares = new Map();   // site -> the MediaStream of its screen or stream, as received
   let presenter = '', claimT = 0;
   const stage = createStage();
+  if (replay) {
+    replayer = createReplay({ site: SITE, d, stage,
+      liveStream: () => (liveIn ? shares.get(liveIn.site) || media?.share?.(liveIn.site) || null : null),
+      emit: (port, ev) => node.emit(port, ev),
+      changed: () => { showStage(); pb?.refresh(); } });
+  }
+  function heardRec(e, l, m) {
+    pb?.pulse(l.from, l.to);
+    replayer?.heard(e, String(m.speaker || m.from).split(':')[0]);
+  }
   function sayShare() {
     if (!since || !CAN_LEAD) return;
     const r = node.emit(LEAD_SAY, leading() ? { presenting: true, t: claimT } : { presenting: false });
@@ -491,6 +512,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
     media?.live?.(liveIn);
     d.log(liveIn ? `${liveIn.site} is live from ${liveName(liveIn)}` : `${was.site} stopped`);
     showStage();
+    replayer?.live();
     pb?.refresh();
   }
   setInterval(readLive, 5000);
@@ -514,10 +536,12 @@ export function videoRoom({ via, name, present = false, stream = false }) {
       // The streamer watches the player itself; everybody else the stream, with its sound.
       // The film from the container comes back to its streamer like to everybody else.
       const mine = presenter === SITE && present;
-      stage.show(mine ? leadStream : shares.get(presenter) || media?.share?.(presenter) || null,
+      if (!replayer?.playing()) stage.show(mine ? leadStream : shares.get(presenter) || media?.share?.(presenter) || null,
         { self: mine, who: presenter, sound: stream, verb: VERB });
       const order = stripOrder([SITE, ...tiles.keys()], { presenter, speaker, self: SITE });
       grid.stage(stage.el, order.map((s) => (s === SITE ? me : tiles.get(s))).filter(Boolean));
+    } else if (replayer?.playing()) {
+      grid.stage(stage.el, [me, ...tiles.values()]);
     } else {
       stage.show(null);
       grid.stage(null);
@@ -748,7 +772,7 @@ export function videoRoom({ via, name, present = false, stream = false }) {
   whipSec.append(whipH, whipRow, m1Row, sceneRow);
   whipSec.hidden = true;
   function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; if (since) m1Open(); m1Show(); }
-  d.stack.add(rv, ...(stream ? [whipSec] : []), pb.el);
+  d.stack.add(rv, ...(stream ? [whipSec] : []), ...(replayer ? [replayer.el] : []), pb.el);
   // For a harness: what the room looks like from this tab.
   // Lag on the stage: how old each frame is when it is drawn, read off the barcode of demo/room/stage/clock.html
   // in OBS against the same edge clock, and the receiving connection's own buffer and round trip.
