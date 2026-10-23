@@ -50,7 +50,10 @@
   import { createTable } from '/shell/table.mjs';
   import { createTabs } from '/shell/tabs.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, scrubView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createDeck } from '/timeline/transport.mjs';
   import { mediaMaster } from '/timeline/media-master.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
@@ -135,7 +138,7 @@
    * See lessons/page-making.md#making-16
    */
   const deck = createDeck({ items: [], adapters: {}, range: [0, 1] });
-  const bar = createTransportBar(vPane, deck, {
+  const control = createTransportControl(deck, {
     command: {
       play: () => { deck.play(); video.play().catch(() => {}); },
       pause: () => { video.pause(); deck.pause(); },
@@ -145,6 +148,12 @@
       seek: (pos) => { video.currentTime = Math.max(0, pos) / 1000; deck.seek(pos); },
     },
   });
+  const loop = loopView(control);
+  const bar = createBar({ start: [playToggle(control).el], middle: [scrubView(control).el, clockView(control).el, noteView(control).el],
+    end: [loop.el, ratesView(control).el] });
+  vPane.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el, loopView: loop }));
   const master = mediaMaster(deck, video, { anchorMs: 0 });
   // `mediaMaster` does not run itself. Without this loop the object is built,
   // holds a deck, and the playhead never moves.
@@ -727,8 +736,7 @@
   })();
 
   /**
-   * No `transport` key: `transport-bar.mjs` publishes `__demo.transport` itself,
-   * and `createTransportBar` returns a wrapper that would replace it.
+   * No `transport` key: `publishTransport` above already set `__demo.transport`.
    * See lessons/page-making.md#making-57
    */
   window.__demo = Object.assign(window.__demo || {}, {

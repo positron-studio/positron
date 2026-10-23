@@ -19,7 +19,10 @@
   import { createSlider, createSliderGroup } from '/shell/slider.mjs';
   import { createXyPad, PAD } from '/shell/xy-pad.mjs';
   import { holdSample, lerpSample, catmullSample, makePointerAdapter } from '/shell/pointer-adapter.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createDeck, observePosition } from '/timeline/transport.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
@@ -597,29 +600,28 @@
   // not. Record sits next to play as a transport verb, in `--rec`, not `--hi`, so it
   // does not look like the main path.
   // See lessons/page-draw.md#draw-47
-  const bar = createTransportBar(d.el, deck, {
-    scrub: false,
+  const control = createTransportControl(deck, {
     /**
      * Reverse and both ways are allowed here: what plays is a record of a hand, so a
      * lap backwards is the same record read the other way.
      * See lessons/page-draw.md#draw-48
      */
     loopWays: true,
-    extras: [{ id: 'rec', title: 'Record', label: '', aria: 'Record',
-               onClick: () => setRecording(!recording) }],
   });
   // The record face is the kit's icon, not a font glyph.
   // See lessons/page-draw.md#draw-49
-  setIcon(bar.extra('rec'), 'record', 'Record');
+  const recBtn = barButton({ icon: 'record', aria: 'Record', title: 'Record', onPress: () => setRecording(!recording) });
+  const loop = loopView(control);
+  const bar = createBar({ start: [playToggle(control).el, recBtn], middle: [clockView(control).el, noteView(control).el],
+    end: [loop.el, ratesView(control).el] });
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el, loopView: loop }));
 
   function setRecording(on) {
     recording = on;
     growing = false;
-    const b = bar.extra('rec');
-    if (b) {
-      b.dataset.on = on ? '1' : '';
-      setIcon(b, on ? 'stop' : 'record', on ? 'Stop recording' : 'Record');
-    }
+    recBtn.dataset.on = on ? '1' : '';
+    setIcon(recBtn, on ? 'stop' : 'record', on ? 'Stop recording' : 'Record');
     // Arming clears what was there, so the take you are about to make is the
     // whole of what the numbers describe.
     if (on) {

@@ -4,7 +4,10 @@
 // See lessons/page-partitur.md#partitur-9
 
 import { el } from '/shell/shell.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createVideoPanel } from '/shell/video-panel.mjs';
 import { createChoice } from '/shell/choice.mjs';
@@ -170,7 +173,13 @@ export function build({ panel, log, set }) {
   ];
 
   const host = el('div');
-  const bar = createTransportBar(host, deck, { scrub: false, loop: false });
+  // No scrub and no loop: the strip is the position surface and the score is heard whole.
+  const control = createTransportControl(deck);
+  const bar = createBar({ start: [playToggle(control).el], middle: [clockView(control).el, noteView(control).el],
+    end: [ratesView(control).el] });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  publishTransport(transportApi(control, { el: bar.el }));
   const view = createStripView(host, deck, {
     size: 'auto', follow: false, gutter: 110, lanes,
     footer: { lines: 1, empty: '' },
