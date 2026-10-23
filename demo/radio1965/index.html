@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Radio 1965</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .r65-pic canvas { display: block; width: 100%; height: 100%; }
+  .r65-foot { display: flex; gap: 12px; align-items: center; min-width: 0; }
+  .r65-say { font: 400 13px/1.4 var(--sans); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+<script type="module">
+  // The scan landscape (/shader/landscape/'s picture) moved by our radio1965 cast: the sound is our own container's
+  // MP3 (cast /listen, never Väin's server), the scene numbers and the listener count come from cast /state, which
+  // never asks the container. plans/plan-radio1965-landscape.md
+  // why: lessons/page-radio1965.md#header
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createEnvFollower } from '/shell/pappus-mod.mjs';
+  import { LANES, LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, createFeatures } from '/shell/radio-gran.mjs';
+  import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
+
+  const CAST = new URLSearchParams(location.search).get('cast') || 'https://cast.positron.studio';
+  const STATION = 'radio1965';
+  const S = 'web';
+  const d = mount({ name: 'Radio 1965', what: '', readout: null, index: '/', indexLabel: 'positron' });
+
+  const LOOK = LOOKS[DEFAULT_LOOK];
+  const OPEN = { ...LOOK, ...EXTRA, fade: 1.6 };
+  // The six knobs of /shader/landscape/, each driven by one thing the stream says (plan section 4).
+  const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
+  const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
+  const HEAVE = { speech: 0.2, field: 0.5, music: 0.8 };
+
+  // ── the bay: our stream and our state into the picture ─────────────────
+  const bay = createBay();
+  const node = (id, kind, label, extra = {}) => bay.addNode({ id, kind, label, ...extra });
+  node('cf-cast:radio1965', 'endpoint', 'radio1965', { place: 'cloudflare', net: 'cloudflare' });
+  node('cf-cast:state', 'store', 'state', { place: 'cloudflare', net: 'cloudflare' });
+  node(`${S}:landscape`, 'engine', 'landscape');
+  node(`${S}:speaker`, 'device', 'speakers');
+  node(`${S}:screen`, 'screen', 'screen');
+  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, transports, ...extra });
+  port('cf-cast:radio1965:audio-out', 'out', 'audio', 'our stream', ['https']);
+  // The state is a small JSON document read every 10 s, so its link is a file read over https.
+  port('cf-cast:state:file-out', 'out', 'file', '/state', ['https']);
+  port(`${S}:landscape:audio-in`, 'in', 'audio', 'level', ['https', 'webaudio']);
+  port(`${S}:landscape:file-in`, 'in', 'file', 'scene, listeners', ['https'], { deliver: (ev) => stateIn(ev) });
+  port(`${S}:landscape:video-out`, 'out', 'video', 'picture', ['page']);
+  port(`${S}:speaker:audio-in`, 'in', 'audio', 'speakers', ['https', 'webaudio']);
+  port(`${S}:screen:video-in`, 'in', 'video', 'picture', ['page']);
+  // An MP3 over https is not a transport the table picks for audio, so the link names it (as /radio/cast/ does).
+  const hold = (a, b, via) => { const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  hold('cf-cast:radio1965:audio-out', `${S}:speaker:audio-in`, 'https');
+  hold('cf-cast:radio1965:audio-out', `${S}:landscape:audio-in`, 'https');
+  hold('cf-cast:state:file-out', `${S}:landscape:file-in`);
+  hold(`${S}:landscape:video-out`, `${S}:screen:video-in`);
+
+  // ── the picture ─────────────────────────────────────────────────────────
+  const canvas = el('canvas');
+  canvas.width = FIELD_W; canvas.height = FIELD_H;
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
+  const title = el('span', 'r65-say', '');
+  const heard = el('span', 'r65-say', '');
+  const listen = createButtonGroup({ buttons: [{ id: 'listen', icon: 'play', label: 'listen', onPress: () => (playing ? stop() : play()) }] });
+  const foot = el('span', 'r65-foot');
+  foot.append(listen.el, title);
+  const panel = createVideoPanel({ media: canvas, left: foot, centre: heard, fullMode: 'footer' });
+  panel.el.classList.add('r65-pic');
+  let field = null;
+  if (gl) {
+    try { field = createScanField(gl, { look: LOOK, live: true, canvas }); }
+    catch (e) { d.log(`the picture did not compile: ${e.message}`, 'bad'); }
+  } else d.log('this browser has no WebGL2, so there is no picture', 'bad');
+
+  // ── the state: scene numbers and listeners, glided over the scene's own blend ──
+  const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
+  const now = { ...target };
+  let glideS = 8, state = null, stateAt = 0;
+  function stateIn(ev) {
+    if (ev?.of !== 'state') return;
+    state = ev.s; stateAt = performance.now();
+    const n = (state.listeners?.now ?? 0) + (state.ears ?? 0);
+    target.rows = clamp('rows', 16 + 12 * n);
+    if (Number.isFinite(state.wet)) target.ampM = clamp('ampM', 0.5 + 7.5 * (state.wet / 0.95));
+    target.swellY = clamp('swellY', 0.05 * Math.min(1, (state.droneLevel ?? 0) / 0.5));
+    if (Number.isFinite(state.density)) target.bucket = clamp('bucket', state.density);
+    if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
+    if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
+    title.textContent = state.title || '';
+    heard.textContent = `${state.listeners?.now ?? 0} on Väin, ${state.ears ?? 0} here`;
+  }
+  async function readState() {
+    try {
+      const s = await fetch(`${CAST}/state/${STATION}`, { cache: 'no-store' }).then((r) => r.json());
+      if (s && s.station) bay.send('cf-cast:state:file-out', { of: 'state', s });
+    } catch { /* next time */ }
+  }
+  readState();
+  setInterval(readState, 10_000);
+
+  // ── the data texture: the sound's followers, and counts from its onsets ─
+  const data = new Uint8Array(DATA_W * DATA_H * 4);
+  let feats = null, follow = null, analyser = null, playing = false;
+  let last = 0, drift = 0, pulse = 0, frames = 0, prevRms = 0;
+  const sizeLane = LANES.size;
+  function tick(t) {
+    if (!field) return;
+    const dt = last ? Math.min(0.25, (t - last) / 1000) : 1 / 60;
+    last = t;
+    drift = (drift + dt * 0.06) % 1;
+    // every knob eases toward its target over the scene's blend, so nothing jumps
+    const k = 1 - Math.exp(-dt / glideS);
+    for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
+    data.fill(0);
+    if (playing && feats) {
+      const f = feats.read();
+      FOLLOWER_NAMES.forEach((n, i) => { follow[n].push(f[n] ?? 0, dt); data[at(i, 3)] = u8(follow[n].value()); });
+      const rms = follow.rms.value();
+      // the loud knob follows the level, and a rise in it lands as counts near the newest edge
+      target.ampL = clamp('ampL', 0.05 + rms * 1.5);
+      const rise = Math.max(0, rms - prevRms); prevRms = rms;
+      let got = 0;
+      const n = Math.min(40, Math.round(rms * 60 + rise * 400));
+      for (let j = 0; j < n; j++) {
+        const x = Math.max(0, DATA_W - 1 - Math.floor(Math.random() * Math.random() * DATA_W));
+        const i = at(x, 0);
+        data[i] = Math.min(255, data[i] + 1); data[i + 1] = u8(sizeLane.unmap(0.05 + Math.random() * 0.2)); got++;
+      }
+      data[at(6, 3)] = 255;
+      data[at(7, 3)] = Math.min(255, got);
+      data[at(16, 3)] = u8(Math.exp(-dt / Math.max(0.05, OPEN.fade)));
+      pulse = (pulse + got * 0.045) % 1;
+      data[at(19, 3)] = u8(0.5 - 0.5 * Math.cos(pulse * Math.PI * 2));
+    }
+    data[at(21, 3)] = u8(drift);
+    data[at(63, 3)] = LAYOUT_VERSION;
+    field.step(data); frames++;
+  }
+  function frame(t) { tick(t); requestAnimationFrame(frame); }
+  if (field) requestAnimationFrame(frame);
+
+  // ── the sound: our container's frames through the cast's /listen, on a press ──
+  let ctx = null, audio = null, lock = null;
+  async function play() {
+    ctx ??= new AudioContext();
+    ctx.resume();
+    if (!audio) {
+      audio = new Audio();
+      audio.crossOrigin = 'anonymous';
+      const src = ctx.createMediaElementSource(audio);
+      analyser = ctx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.5;
+      src.connect(analyser); src.connect(ctx.destination);
+      feats = createFeatures(analyser, ctx.sampleRate);
+      follow = Object.fromEntries(FOLLOWER_NAMES.map((n) => [n, createEnvFollower(MOD_FOLLOWERS[n])]));
+    }
+    audio.src = `${CAST}/listen/${STATION}?t=${Date.now()}`;
+    try { await audio.play(); } catch (e) { d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
+    playing = true; face(); pb.refresh();
+    try { lock = await navigator.wakeLock?.request('screen'); } catch { /* no wake lock here */ }
+    d.log('listening to our radio1965 stream');
+  }
+  function stop() {
+    playing = false;
+    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+    lock?.release?.(); lock = null;
+    target.ampL = OPEN.ampL;
+    face(); pb.refresh();
+  }
+  function face() { listen.setIcon('listen', playing ? 'stop' : 'play', playing ? 'stop' : 'listen'); }
+  face();
+
+  const pb = createPatchbay(bay, {
+    flowing: (l, medium) => (medium === 'audio' ? playing : medium === 'video' ? !!field : false),
+  });
+  d.stack.add(panel.el, pb.el);
+
+  window.__demo.radio1965 = { field: () => field, frames: () => frames, playing: () => playing, state: () => state, knobs: () => ({ ...now }), context: () => ctx };
+
+  async function check() {
+    d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
+    d.assert('the picture compiled', !!field);
+    await new Promise((r) => setTimeout(r, 1500));
+    d.assert('the picture draws before any sound', frames > 20, `${frames} frames`);
+    d.assert('the station\'s state arrived over its link', !!state, state ? `${state.title || 'no title'}, ${state.kind || 'no kind'}` : 'none yet');
+  }
+  if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
+  d.ready();
+</script>
+</html>
