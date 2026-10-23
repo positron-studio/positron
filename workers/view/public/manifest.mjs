@@ -324,6 +324,10 @@ export const DEMOS = [
   { name: 'social/scroll', title: 'scroll', group: 'kit', act: 0, created: '2026-10-15', built: true, unlisted: true,
     one: 'a concept page’s patch scrolling up a story frame at a size a phone can read, recorded to a file',
     tags: ['shell', 'MediaRecorder'] },
+  // why: lessons/page-radio1965.md#header
+  { name: 'radio1965', title: 'Radio 1965', group: 'kit', act: 0, created: '2026-10-23', built: true, unlisted: true,
+    one: 'the scan landscape, full screen, moved by our radio1965 cast and how many listen',
+    tags: ['WebGL2', 'WebAudio'] },
   { name: 'social/radio', title: 'radio', group: 'kit', act: 0, created: '2026-10-14', built: true, unlisted: true,
     one: 'a dial sweeps through three of our radio recordings and the noise between them, recorded to a file',
     tags: ['shell', 'MediaRecorder', 'WebAudio'] },
