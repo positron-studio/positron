@@ -5,7 +5,9 @@
 // why: lessons/kit-participant.md#replay
 
 import { el, recorderMime } from '/shell/shell.mjs';
-import { createButtonGroup } from '/shell/button-group.mjs';
+import { createTransportBar } from '/shell/transport-bar.mjs';
+import { setIcon } from '/shell/icon-button.mjs';
+import { createDeck } from '/timeline/transport.mjs';
 import { putWhole, proveReadable, ARCHIVE_BASE } from '/shell/ingest.mjs';
 import { resolveDuration } from '/shell/media.mjs';
 
@@ -23,6 +25,7 @@ const CSS = `
   .rp-row { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
   .rp-row + .rp-row { margin-top: var(--ctl-gap, 8px); }
   .rp-say { font-size: 13px; color: var(--dim); }
+  .rp-say a { color: inherit; }
   .rp-url { font: 400 12px/1.5 var(--mono); overflow-wrap: anywhere; }
 `;
 
@@ -79,35 +82,39 @@ export function createReplay({ site, d, stage, liveStream, emit, changed }) {
   }
   setInterval(drawMark, 2000);
 
-  const btn = createButtonGroup({ buttons: [
-    { id: 'rec', label: 'Record', onPress: () => (rec ? stopRec('you pressed Stop') : startRec()) },
-    { id: 'play', label: 'Play take', onPress: () => (playing ? stopPlay() : play()) },
-    { id: 'up', label: 'Upload', onPress: () => upload() },
-  ] });
+  // The kit's transport bar, as on /video/recorder/: play and stop the take, record, the clock. The deck runs on its
+  // own clock while recording and while a take plays; it is not the take's clock, only its count.
+  const deck = createDeck({ items: [], adapters: {}, range: [0, REC_MAX_MS] });
   const say = el('span', 'rp-say', '');
-  const urlEl = el('code', 'rp-url', '');
-  const rowA = el('div', 'rp-row'), rowB = el('div', 'rp-row');
-  rowA.append(btn.el, say);
-  rowB.append(urlEl);
-  rowB.hidden = true;
+  const bar = createTransportBar(el('div'), deck, {
+    scrub: false, loop: false, publish: false, verb: ['play', 'stop'], right: [say],
+    command: { play: () => play(), pause: () => stopPlay(), seek: () => {} },
+    extras: [{ id: 'rec', label: '', aria: 'record', title: `record the stage, ${REC_MAX_MS / 60000} minutes at most`,
+      onPress: () => (rec ? stopRec('you pressed Stop') : startRec()) }],
+  });
+  const recBtn = bar.extra('rec');
   const sec = el('section', 'rp');
-  sec.append(el('h2', 'pos-sec-h', 'replay'), rowA, rowB);
+  sec.append(el('h2', 'pos-sec-h', 'replay'), bar.el);
   sec.hidden = true;
 
   const fmtLen = (ms) => `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}`;
   function draw() {
     const live = !!liveStream();
-    btn.button('rec').textContent = rec ? 'Stop' : 'Record';
-    btn.enable('rec', !!rec || (live && !playing), playing ? 'a take is playing' : 'nothing is streaming to record');
-    btn.button('play').textContent = playing ? 'Stop take' : 'Play take';
-    btn.enable('play', !!take && !rec, rec ? 'recording' : 'no take yet');
-    btn.enable('up', !!take && !rec && !uploading && !url, uploading ? 'uploading' : url ? 'uploaded' : 'no take yet');
-    say.textContent = rec ? `recording ${fmtLen(Date.now() - recAt)} of at most ${fmtLen(REC_MAX_MS)}`
-      : uploading ? 'uploading the take to R2'
-      : take ? `take ${fmtLen(take.ms)}, ${(take.bytes / 1e6).toFixed(1)} MB, in this browser${url ? `, and in R2 until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
-      : live ? 'the stage can be recorded' : 'nothing to record until something streams';
-    rowB.hidden = !url;
-    urlEl.textContent = url;
+    setIcon(recBtn, rec ? 'stop' : 'record', rec ? 'stop recording' : 'record');
+    recBtn.classList.toggle('cc-rec', !rec);
+    recBtn.disabled = !(rec || (live && !playing));
+    recBtn.title = rec ? 'stop recording' : playing ? 'a take is playing' : live ? `record the stage, ${REC_MAX_MS / 60000} minutes at most` : 'nothing is streaming to record';
+    const toggle = bar.el.querySelector('.tbar-toggle');
+    if (toggle) toggle.disabled = !take || !!rec;
+    const hhmm = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    say.replaceChildren(rec ? 'recording'
+      : uploading ? 'uploading to R2'
+      : take ? `take ${fmtLen(take.ms)}, ${(take.bytes / 1e6).toFixed(1)} MB` : live ? '' : 'nothing streams');
+    if (!rec && !uploading && take && url) {
+      const a = el('a', 'rp-url', `in R2 until ${hhmm(until)}`);
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      say.append(', ', a);
+    }
   }
   // The stream reaches the stage seconds after the room says it is live, with no event here: look every second.
   setInterval(() => { if (!sec.hidden) draw(); }, 1000);
@@ -131,14 +138,17 @@ export function createReplay({ site, d, stage, liveStream, emit, changed }) {
       const ms = Date.now() - recAt;
       const blob = new Blob(chunks, { type: mime });
       rec = null; clearTimeout(recTimer); clearInterval(markTimer);
+      deck.pause(); deck.seek(0);
       marks.delete(site); drawMark(); sayMark(false);
       take = { id: `take-${recAt}`, at: recAt, ms, bytes: blob.size, mime, blob, url: '' };
       url = '';
       try { await store.put(take); d.log(`kept a ${fmtLen(ms)} take, ${(blob.size / 1e6).toFixed(1)} MB, in this browser`); }
       catch (e) { d.log(`this browser would not keep the take (${e.message}); it stays until you leave`, 'warn'); }
       draw(); changed();
+      upload();
     };
     rec.start(SLICE_MS);
+    deck.seek(0); deck.play();
     recTimer = setTimeout(() => stopRec(`a take stops at ${fmtLen(REC_MAX_MS)}, which is what R2 takes in one go here`), REC_MAX_MS);
     marks.set(site, Date.now()); drawMark(); sayMark(true);
     markTimer = setInterval(() => { if (rec) { marks.set(site, Date.now()); sayMark(true); } }, MARK_EVERY_MS);
@@ -156,6 +166,7 @@ export function createReplay({ site, d, stage, liveStream, emit, changed }) {
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = URL.createObjectURL(take.blob);
     playing = true;
+    deck.seek(0); deck.play();
     stage.film(blobUrl, { title: 'take' });
     stage.video.onended = () => stopPlay();
     resolveDuration(stage.video).catch(() => {});
@@ -165,6 +176,7 @@ export function createReplay({ site, d, stage, liveStream, emit, changed }) {
   function stopPlay() {
     if (!playing) return;
     playing = false;
+    deck.pause(); deck.seek(0);
     stage.film(null);
     stage.video.onended = null;
     d.log('the take stopped');

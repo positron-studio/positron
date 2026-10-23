@@ -8,6 +8,9 @@ import { mount, el } from '/shell/shell.mjs';
 import { createChatLog, createChatCompose, createChatColumn, createChatWindow } from '/shell/chat-ui.mjs';
 import { createButtonGroup } from '/shell/button-group.mjs';
 import { createPicker } from '/shell/picker.mjs';
+import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createGlue } from '/shell/glue.mjs';
+import { createDeck } from '/timeline/transport.mjs';
 import { createIconButton } from '/shell/icon-button.mjs';
 import { createTabs } from '/shell/tabs.mjs';
 import { createBay } from '/shell/bay.mjs';
@@ -30,7 +33,10 @@ const CSS = `
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
   .rv-whip-row { display: flex; gap: var(--ctl-gap, 8px); align-items: center; }
   .rv-whip-row[hidden] { display: none; }
-  .rv-whip-row + .rv-whip-row { margin-top: var(--ctl-gap, 8px); }
+  .rv-obs-body { background: var(--card); padding: 8px; }
+  .rv-whip-row:not(.rv-obs-body) + .rv-whip-row { margin-top: var(--ctl-gap, 8px); }
+  .rv-obs-say { margin: 0; }
+  .rv-obs-scene[hidden] { display: none; }
   .rv-whip-url { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font: 400 12px/1.5 var(--mono); }
   .rv-whip-how { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
   /* A phone: the window is one screen tall, Video and Chat are tabs over it, the footer stays at
@@ -690,21 +696,23 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
   const whipCopy = createButtonGroup({ buttons: [{ id: 'copy', label: 'Copy', onPress: async () => {
     try { await navigator.clipboard.writeText(whipUrl); d.log('the WHIP URL is copied'); } catch { d.log(`WHIP URL: ${whipUrl}`); }
   } }] });
-  const whipRow = el('div', 'rv-whip-row');
+  const whipRow = el('div', 'rv-whip-row rv-obs-body');
   whipRow.append(whipCode, whipCopy.el);
-  // Start m1: with the owner's studio key in this browser, the studio Mac's OBS streams its current scene into this
+  // Start OBS: with the owner's studio key in this browser, the studio Mac's OBS streams its current scene into this
   // room (rig/m1/studio-agent.mjs, obs.start signed over the room's name). The Mac is reached in its own relay room.
-  // why: lessons/kit-participant.md#start-m1
-  const m1Grp = createButtonGroup({ buttons: [{ id: 'm1', label: 'Start m1', onPress: () => m1Toggle() }] });
-  m1Grp.button('m1').style.minWidth = '12ch';
-  const m1Say = el('span', 'rv-whip-how', '');
-  const m1Row = el('div', 'rv-whip-row');
-  m1Row.append(m1Grp.el, m1Say);
-  m1Row.hidden = true;
-  // OBS's scenes as one choice; a pick leaves on the scene switcher's port and reaches the Mac along its link.
+  // The panel's header is a bar with no play button: Start OBS on the left, what OBS does in the clock's place, the
+  // scene picker on the right; the WHIP URL is glued under it. why: lessons/kit-participant.md#start-m1
+  const m1Say = el('span', 'rv-whip-how rv-obs-say', '');
+  const sceneRow = el('span', 'rv-obs-scene');
+  const m1Bar = CAN_SCENE ? createTransportBar(el('div'), createDeck({ items: [], adapters: {}, range: [0, 1] }), {
+    toggle: false, time: false, loop: false, scrub: false, publish: false, chip: m1Say, right: [sceneRow],
+    extras: [{ id: 'm1', label: 'Start OBS', word: true, aria: 'start OBS', onPress: () => m1Toggle() }],
+  }) : null;
+  const m1Btn = m1Bar?.extra('m1');
+  if (m1Bar) m1Bar.el.hidden = true;
+  const obsPanel = createGlue(...(m1Bar ? [m1Bar.el] : []), whipRow);
+  // OBS's scenes on the kit's picker; a pick leaves on the scene switcher's port and reaches the Mac along its link.
   // why: lessons/kit-participant.md#obs-scene
-  const sceneRow = el('div', 'rv-whip-row');
-  sceneRow.hidden = true;
   let sceneChoice = null, sceneKey = '', scenesAsked = false, sceneDrawn = false;
   function m1SendScene(name) {
     if (!m1 || typeof name !== 'string') return;
@@ -725,7 +733,7 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
       sceneChoice = scenes.length ? createPicker({ label: 'scene', what: 'scene', prev: () => step(-1), next: () => step(+1), onPick: (i) => pickScene(scenes[i]) }) : null;
       if (sceneChoice) { sceneChoice.options(scenes, Math.max(0, scenes.indexOf(m1Obs.scene))); sceneRow.append(sceneChoice.el); }
     } else if (sceneChoice && m1Obs?.scene && sceneChoice.select.selectedIndex !== scenes.indexOf(m1Obs.scene)) sceneChoice.show(m1Obs.scene, scenes.indexOf(m1Obs.scene));
-    sceneRow.hidden = !sceneChoice || !since;
+    sceneRow.hidden = !sceneChoice;
     if (!!sceneChoice !== sceneDrawn) { sceneDrawn = !!sceneChoice; pb?.refresh(); }
   }
   function m1Open() {
@@ -747,12 +755,14 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
   function m1Close() { try { m1?.close(); } catch { /* gone */ } m1 = null; m1Seen = 0; m1Show(); }
   function m1Show() {
     const online = Date.now() - m1Seen < 15_000;
-    m1Row.hidden = !m1 || !since;
+    if (m1Bar) m1Bar.el.hidden = !m1 || !since;
+    if (!m1Btn) return;
     const here = m1Obs?.state === 'live' && m1Obs.room === ROOM;
     const elsewhere = m1Obs?.state === 'live' && m1Obs.room !== ROOM;
-    m1Grp.button('m1').textContent = here ? 'Stop m1' : 'Start m1';
-    m1Grp.enable('m1', online && !m1Asking && m1Obs?.state !== 'starting',
-      online ? 'starting OBS on the studio Mac' : 'the studio Mac is not online');
+    m1Btn.textContent = here ? 'Stop OBS' : 'Start OBS';
+    m1Btn.setAttribute('aria-label', here ? 'stop OBS' : 'start OBS');
+    m1Btn.disabled = !(online && !m1Asking && m1Obs?.state !== 'starting');
+    m1Btn.title = !online ? 'the studio Mac is not online' : m1Btn.disabled ? 'starting OBS on the studio Mac' : '';
     m1Say.textContent = !online ? 'the studio Mac is not online'
       : m1Asking || m1Obs?.state === 'starting' ? 'starting OBS on the studio Mac'
       : here ? 'OBS on the studio Mac streams into this room'
@@ -770,7 +780,7 @@ export function videoRoom({ via, name, present = false, stream = false, replay =
     d.log(stop ? 'asked the studio Mac to stop OBS' : 'asked the studio Mac to stream OBS into this room');
     setTimeout(() => { m1Asking = false; m1Show(); }, 2000);
   }
-  whipSec.append(whipH, whipRow, m1Row, sceneRow);
+  whipSec.append(whipH, obsPanel);
   whipSec.hidden = true;
   function showWhip() { whipCode.textContent = whipUrl; whipSec.hidden = !whipUrl || !since; if (since) m1Open(); m1Show(); }
   d.stack.add(rv, ...(stream ? [whipSec] : []), ...(replayer ? [replayer.el] : []), pb.el);
