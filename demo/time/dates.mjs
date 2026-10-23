@@ -5,7 +5,10 @@
 
 import { el, fmtNum } from '/shell/shell.mjs';
 import { SELFCHECK } from '/shell/selfcheck.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { createDeck } from '/timeline/transport.mjs';
@@ -63,11 +66,17 @@ export function build({ panel, set, log }) {
 
   const host = el('div');
   // The clock prints a date, because hours on a two millennia deck are a true
-  // number nobody can read. `publish: false`: SCHEDULE's bar is the page's.
-  const bar = createTransportBar(host, deck, {
-    scrub: false, publish: false,
-    fmt: (pos, range) => `${calendarDate(pos)} / ${calendarSpan(range[1] - range[0])}`,
+  // number nobody can read. Not published: SCHEDULE's bar is the page's.
+  const control = createTransportControl(deck);
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control, { fmt: (pos, range) => `${calendarDate(pos)} / ${calendarSpan(range[1] - range[0])}` }).el,
+      noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
   });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
 
   const HI = getComputedStyle(document.documentElement).getPropertyValue('--hi').trim() || '#ffd400';
   const view = createStripView(host, deck, {
@@ -235,7 +244,7 @@ export function build({ panel, set, log }) {
       requestAnimationFrame(() => requestAnimationFrame(() => { strip.fit(); refresh(); }));
     },
     hide() { if (deck.playing()) deck.pause(); },
-    bars: [{ name: 'dates', bar, strip: view.el }],
+    bars: [{ name: 'dates', bar: transport, strip: view.el }],
     async check({ A }) {
       const tab = panel.el;
       A('one bar and one strip, and they are one surface',

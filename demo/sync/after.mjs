@@ -4,7 +4,10 @@
 // See lessons/page-sync.md#sync-26
 
 import { el, armVideo, playOrPrompt } from '/shell/shell.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { tabDiagram } from './how.mjs';
@@ -132,7 +135,16 @@ export function build({ panel, log, set, d }) {
   // See lessons/page-sync.md#sync-32
   const shelf = el('div');
   panel.add(screen, shelf);
-  const bar = createTransportBar(shelf, deck, { scrub: false, command });
+  const control = createTransportControl(deck, { command });
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  shelf.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
+  publishTransport(transport);
   const strip = createStripView(shelf, deck, { size: 'default', lanes: [{
     id: 'cue', kind: 'cue', height: 44, as: 'ticks',
     color: '#ffd400', width: 2.5, latch: true, firedColor: '#8fd6a8',
@@ -230,9 +242,9 @@ export function build({ panel, log, set, d }) {
     }
     const a = CUES[0].offsetMs - LOOP_LEAD_MS;
     const b = a + LOOP_MS;
-    command.seek(a); bar.api.pressLoop();
-    command.seek(b); bar.api.pressLoop();
-    if (!bar.api.loop) return { pass: false, detail: 'the loop did not take' };
+    command.seek(a); transport.pressLoop();
+    command.seek(b); transport.pressLoop();
+    if (!transport.loop) return { pass: false, detail: 'the loop did not take' };
     // a seek into a part of the show not buffered yet is a wait, not a failure
     const go = performance.now() + 4000;
     while ((video.currentTime * 1000 < a || video.currentTime * 1000 > b) && performance.now() < go) await sleep(50);
@@ -244,7 +256,7 @@ export function build({ panel, log, set, d }) {
       maxCt = Math.max(maxCt, video.currentTime);
       await sleep(50);
     }
-    bar.api.pressLoop();                     // take it off again
+    transport.pressLoop();                     // take it off again
     const ceiling = (b + LOOP_SLACK_MS) / 1000;
     const ran = maxCt - a / 1000;
     // BOTH HALVES, or a picture that never played would pass by standing still
@@ -273,14 +285,14 @@ export function build({ panel, log, set, d }) {
           shown && Math.abs(r.width / r.height - 16 / 9) < 0.05,
           `${r.width.toFixed(0)} by ${r.height.toFixed(0)}, ${shown ? `"${say.textContent}"` : 'NO WORDS IN THE BOX'}`);
       }
-      bar.api.el.querySelector('.tbar-toggle').click();
+      transport.el.querySelector('.tbar-toggle').click();
       const lp = await gradeLoop();
       A('the picture stays inside the loop', lp.pass, lp.detail);
       A('the words in the box leave once a frame is there',
         video.readyState >= 2 && getComputedStyle(say).display === 'none',
         `readyState ${video.readyState}, words ${getComputedStyle(say).display === 'none' ? 'gone' : 'still showing'}`);
-      const toggle = bar.api.el.querySelector('.tbar-toggle');
-      if (bar.api.playing) toggle.click();
+      const toggle = transport.el.querySelector('.tbar-toggle');
+      if (transport.playing) toggle.click();
       if (fires.length) {
         const errs = fires.map((f) => Math.abs(f.errMs)).sort((x, y) => x - y);
         const p50 = errs[Math.floor(errs.length * 0.5)];
@@ -302,15 +314,15 @@ export function build({ panel, log, set, d }) {
       // Both halves are the claim, read off this tab's bar, so a bar that drew nothing
       // cannot pass as one that leaves out a control.
       // See lessons/page-sync.md#sync-35
-      const loopBtn = bar.api.el.querySelector('.tbar-loop');
-      const ways = bar.api.el.querySelectorAll('.tbar-loopgrp .tbar-x').length;
+      const loopBtn = transport.el.querySelector('.tbar-loop');
+      const ways = transport.el.querySelectorAll('.tbar-loopgrp .tbar-x').length;
       A('a loop, and no way button, because a picture only runs forwards', !!loopBtn && ways === 0,
         `${loopBtn ? 'LOOP is on the bar' : 'NO LOOP BUTTON AT ALL'}, ${ways} way button(s) beside it`);
-      const rateBtns = bar.api.el.querySelectorAll('.tbar-rates button').length;
+      const rateBtns = transport.el.querySelectorAll('.tbar-rates button').length;
       A('no speed picker, because nothing here has a speed to arm',
-        bar.api.lattice === null && rateBtns === 0, `lattice ${JSON.stringify(bar.api.lattice)}, ${rateBtns} buttons`);
-      A('this is the page’s one published transport', window.__demo?.transport === bar.api,
-        window.__demo?.transport === bar.api ? 'the harness drills this bar' : 'another bar is published');
+        transport.lattice === null && rateBtns === 0, `lattice ${JSON.stringify(transport.lattice)}, ${rateBtns} buttons`);
+      A('this is the page’s one published transport', window.__demo?.transport === transport,
+        window.__demo?.transport === transport ? 'the harness drills this bar' : 'another bar is published');
       // Written out here rather than read off the spec: the bucket the show is
       // fetched from, and the four parts of this tab that play and follow it.
       await how.check(A, ['Cloudflare, R2 bucket', 'playlist, m3u8 text', 'segments, 4s each',

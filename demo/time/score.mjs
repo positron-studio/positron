@@ -5,7 +5,10 @@
 
 import { el } from '/shell/shell.mjs';
 import { createChoice } from '/shell/choice.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { createDeck, workerTickHost } from '/timeline/transport.mjs';
@@ -137,7 +140,15 @@ export function build({ panel, log }) {
   const plays = new Map();              // `${part}#${rowId}` -> times fired
 
   const host = el('div');
-  const bar = createTransportBar(host, parent, { scrub: false, publish: false });
+  const control = createTransportControl(parent);
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
   const pre = el('pre', 'sc');
 
   const partOfSpan = (sp) => {
@@ -403,7 +414,7 @@ export function build({ panel, log }) {
       requestAnimationFrame(() => requestAnimationFrame(() => { view.strip.fit(); view.strip.invalidate(); }));
     },
     hide() { if (parent.playing()) parent.pause(); },
-    bars: [{ name: 'score', bar, strip: view.el }],
+    bars: [{ name: 'score', bar: transport, strip: view.el }],
     async check({ A }) {
       const tab = panel.el;
       A('one bar and one strip, and they are one surface',

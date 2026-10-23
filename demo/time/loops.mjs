@@ -6,7 +6,10 @@
 import { el } from '/shell/shell.mjs';
 import { SELFCHECK } from '/shell/selfcheck.mjs';
 import { createChoice } from '/shell/choice.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { LOOP_WAYS, LOOP_TURN, WAY_GLYPH, WAY_SAYS } from '/shell/looper.mjs';
@@ -130,7 +133,15 @@ export function build({ panel, assert, log }) {
   buildNest(way());
 
   const host = el('div');
-  const bar = createTransportBar(host, parent, { scrub: false, publish: false });
+  const control = createTransportControl(parent);
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
   view = createStripView(host, parent, {
     size: 'auto', follow: false, gutter: 150,
     lanes: [
@@ -336,7 +347,7 @@ export function build({ panel, assert, log }) {
       requestAnimationFrame(() => requestAnimationFrame(() => { view.strip.fit(); view.strip.invalidate(); }));
     },
     hide() { if (parent.playing()) parent.pause(); },
-    bars: [{ name: 'loops', bar, strip: view.el }],
+    bars: [{ name: 'loops', bar: transport, strip: view.el }],
     async check({ A }) {
       const tab = panel.el;
       A('one bar and one strip, and they are one surface',

@@ -4,7 +4,10 @@
 // See lessons/page-time.md#time-8
 
 import { el } from '/shell/shell.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { createHardware } from '/shell/hardware.mjs';
@@ -34,9 +37,17 @@ export function build({ panel, d, log }) {
   });
 
   const host = el('div');
-  // No slider: the strip below is the position surface. `publish: false`,
+  // No slider: the strip below is the position surface. Not published,
   // because SCHEDULE's bar is the page's.
-  const bar = createTransportBar(host, deck, { scrub: false, publish: false });
+  const control = createTransportControl(deck);
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
 
   // A mark's colour says how it landed, never which lane: grey not played, slate
   // played without a promise, green inside its promise, amber or red later.
@@ -363,7 +374,7 @@ export function build({ panel, d, log }) {
       requestAnimationFrame(() => requestAnimationFrame(() => { view.strip.fit?.(); view.strip.invalidate(); }));
     },
     hide() { if (deck.playing()) deck.pause(); },
-    bars: [{ name: 'beat', bar, strip: view.el }],
+    bars: [{ name: 'beat', bar: transport, strip: view.el }],
     async check({ A }) {
       const tab = panel.el;
       A('one bar and one strip, and they are one surface',

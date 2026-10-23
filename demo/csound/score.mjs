@@ -4,7 +4,10 @@
 // See lessons/page-csound.md#csound-23
 
 import { el } from '/shell/shell.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar } from '/shell/bar.mjs';
+import { createTransportControl, transportApi, publishTransport } from '/shell/transport-control.mjs';
+import { playToggle, clockView, ratesView, loopView, noteView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createStripView } from '/shell/strip.mjs';
 import { createDeck } from '/timeline/transport.mjs';
 import { scoreDoc, quotation, scoreDocToJSONL } from '/timeline/score.mjs';
@@ -71,10 +74,10 @@ export function build({ panel, d, assert, log, set }) {
 
   /* `command.play` runs in the gesture, so the AudioContext is made there. The resume is
      not awaited: outside a gesture it never settles and left the deck unbuilt.
-     This is the page's one published bar; CLICK's is `publish: false`.
+     This is the page's one published bar; CLICK's is not published.
      See lessons/page-csound.md#csound-25 */
   let playOpened = false;
-  const bar = createTransportBar(host, parent, { scrub: false,
+  const control = createTransportControl(parent, {
     command: { play: () => {
       openAudio();
       /* Graded on the first press, inside it.
@@ -87,6 +90,15 @@ export function build({ panel, d, assert, log, set }) {
       }
       parent.play();
     } } });
+  const bar = createBar({
+    start: [playToggle(control).el],
+    middle: [clockView(control).el, noteView(control).el],
+    end: [loopView(control).el, ratesView(control).el],
+  });
+  host.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
+  const transport = transportApi(control, { el: bar.el });
+  publishTransport(transport);
 
   const pre = el('pre', 'sc');
 
@@ -656,8 +668,8 @@ export function build({ panel, d, assert, log, set }) {
             : `${drawn} of ${boxes} boxes drawn, machines ${machines.join(', ')}, inside it ${kids.join(', ')}, ${res.length} requests all local code`);
       }
 
-      A('this is the page’s one published transport', window.__demo?.transport === bar.api,
-        window.__demo?.transport === bar.api ? 'the harness drills this bar' : 'another bar is published');
+      A('this is the page’s one published transport', window.__demo?.transport === transport,
+        window.__demo?.transport === transport ? 'the harness drills this bar' : 'another bar is published');
     },
   };
 }
