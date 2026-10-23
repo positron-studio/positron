@@ -9,10 +9,12 @@ import { addNodes } from '/shell/nodes.mjs';
 import { createPatchbay } from '/shell/patchbay.mjs';
 import { createStepGrid } from '/shell/step-grid.mjs';
 import { createPanelLayout } from '/shell/panel-layout.mjs';
-import { createTransportBar } from '/shell/transport-bar.mjs';
+import { createBar, barButton } from '/shell/bar.mjs';
+import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+import { playToggle, ratesView } from '/shell/transport-views.mjs';
+import { bindTransportKeys } from '/shell/transport-keys.mjs';
 import { createGlue } from '/shell/glue.mjs';
 import { createStepper } from '/shell/stepper.mjs';
-import { createIconButton } from '/shell/icon-button.mjs';
 import { createKnob } from '/shell/knob.mjs';
 import { createKnobGrid } from '/shell/knob-grid.mjs';
 import { createWaveShape } from '/shell/synth-view.mjs';
@@ -444,7 +446,7 @@ export function createDrumMachine(d, { voices, patternIn = false, onBar = null, 
     pb.refresh();
   }
 
-  // ── the tempo selector and the clear button, on the bar's right ───────────
+  // ── the tempo selector on the bar's right, and the clear button beside play ──
   const BPMS = [];
   for (let v = BPM_MIN; v <= BPM_MAX; v += BPM_STEP) BPMS.push(v);
   const tempo = createStepper({
@@ -466,7 +468,7 @@ export function createDrumMachine(d, { voices, patternIn = false, onBar = null, 
   setBpm(bpm);
   // Clear: every pad off. Playback keeps running, so a pattern can be built
   // again from nothing while it loops.
-  const clear = createIconButton({ icon: 'trash', label: 'clear the grid', onPress: () => {
+  const clear = barButton({ icon: 'trash', aria: 'clear the grid', onPress: () => {
     let n = 0;
     for (let r = 0; r < VOICES.length; r++) for (let s = 0; s < STEPS; s++) if (grid.get(r, s)) { grid.set(r, s, false, 'quiet'); n++; }
     d.log(`cleared ${n} hits`);
@@ -474,11 +476,14 @@ export function createDrumMachine(d, { voices, patternIn = false, onBar = null, 
 
   // ── the transport: the kit's bar, glued over the grid ─────────────────────
   const barHost = el('div');
-  const bar = createTransportBar(barHost, deck, {
-    scrub: false, loop: false, live: false, verb: 'stop',
-    time: false, right: patternIn ? [tempo.el] : [clear.el, tempo.el],
-    command: { play: () => start(), pause: () => stop() },
-  });
+  // The transport is a node on this bay: play and the keys press along a link. why: lessons/kit-bar.md#bay
+  const control = createTransportControl(deck, { command: { play: () => start(), pause: () => stop() } });
+  const send = transportOnBay(bay, { site: S, control });
+  const bar = createBar({ start: [playToggle(control, { verb: 'stop', send }).el, ...(patternIn ? [] : [clear])],
+    end: [tempo.el, ratesView(control, { send }).el] });
+  barHost.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el }));
   // Intent: fetch the engine from our origin, boot nothing.
   for (const ev of ['pointerenter', 'focusin', 'touchstart']) barHost.addEventListener(ev, () => loadScsynth().catch(() => {}), { once: true, passive: true });
   const surface = createGlue(barHost, panel.el);

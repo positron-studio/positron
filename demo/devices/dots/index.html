@@ -40,7 +40,10 @@
   import { paintFrame, loadPanelUi } from '/shell/panel-screen.mjs';
   import { createRings, LO, HI } from '/shell/rings.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createDeck } from '/timeline/transport.mjs';
@@ -121,9 +124,14 @@
 
   // ── the piano roll: one row per pitch, C3 at the foot and G4 at the top ──
   const glue = el('div');
-  const bar = createTransportBar(glue, deck, { scrub: false, loop: false, live: false,
-    // the first play also reaches the Pi
-    command: { play: () => { connect(); return deck.play(); } } });
+  // the first play also reaches the Pi
+  const control = createTransportControl(deck, { command: { play: () => { connect(); return deck.play(); } } });
+  // The transport is a node on this bay: play and the keys press along a link. why: lessons/kit-bar.md#bay
+  const send = transportOnBay(bay, { site: 'web', control });
+  const bar = createBar({ start: [playToggle(control, { send }).el], middle: [clockView(control).el], end: [ratesView(control, { send }).el] });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el }));
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
   const strip = createStripView(glue, deck, {
@@ -170,7 +178,9 @@
   window.__demo.probe = () => ({ connected, sent, frames });
 
   if (SELFCHECK) {
-    d.assert('two links: the score to the Pi\'s screen and to the simulated one', bay.links().length === 2, bay.links().map((l) => `${l.from} -> ${l.to}`).join(', '));
+    // The transport's own link (its buttons to it) is not one of the score's.
+    const scoreLinks = bay.links().filter((l) => l.from !== 'web:transport-buttons:value-out');
+    d.assert('two links: the score to the Pi\'s screen and to the simulated one', scoreLinks.length === 2, scoreLinks.map((l) => `${l.from} -> ${l.to}`).join(', '));
     d.assert('every note of the score has a ring', NOTES.every((x) => x.n >= LO && x.n <= HI), `${NOTES.length} notes`);
     d.assert('a visit reaches nothing until play', !board);
   }

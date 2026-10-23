@@ -26,7 +26,10 @@
   import { createBayNode, randomSite, ROOM_RE } from '/shell/bay-node.mjs';
   import { heldPicture } from '/shell/bay-view.mjs';
   import { createPatchbay } from '/shell/patchbay.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createDeck } from '/timeline/transport.mjs';
@@ -321,7 +324,11 @@
   const rowsOf = (lane) => () => lines.filter((r) => r.lane === lane)
     .map((r, i) => ({ at: r.sent - origin, id: `${lane}${i}`, kind: lane, payload: r }));
   const glue = el('div');
-  const bar = createTransportBar(glue, deck, { scrub: false, loop: false, live: false, publish: false });
+  // Not published as __demo.transport, and not a bay node: this page's bay is the room's, rebuilt from the registry.
+  const control = createTransportControl(deck);
+  const bar = createBar({ start: [playToggle(control).el], middle: [clockView(control).el], end: [ratesView(control).el] });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el });
   const strip = createStripView(glue, deck, {
     size: 'auto', follow: false, gutter: 120,
     lanes: [

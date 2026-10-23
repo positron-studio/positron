@@ -21,7 +21,10 @@
   import { addNodes } from '/shell/nodes.mjs';
   import { createPatchbay } from '/shell/patchbay.mjs';
   import { createMidiDevices } from '/shell/midi-devices.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { clockView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createStripView } from '/shell/strip.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { createDeck } from '/timeline/transport.mjs';
@@ -407,7 +410,11 @@
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
   const glue = el('div');
-  const bar = createTransportBar(glue, deck, { toggle: false, scrub: false, loop: false, live: false });
+  // No play button: the looper owns playing, so the bar is the clock and the end-stop never arms.
+  const control = createTransportControl(deck, { endStop: false });
+  const bar = createBar({ middle: [clockView(control).el], end: [ratesView(control).el] });
+  glue.append(bar.el);
+  publishTransport(transportApi(control, { el: bar.el, toggles: false }));
   const strip = createStripView(glue, deck, {
     size: 'auto', follow: false, gutter: 120,
     lanes: [
@@ -466,6 +473,9 @@
     if (medium === 'audio') return sampler.sounding() > 0;
     return false;
   };
+  // The transport is a node on this bay; its keys send along the drawn link. why: lessons/kit-bar.md#bay
+  const send = transportOnBay(bay, { site: S, control });
+  bindTransportKeys(control, { scope: bar.el, space: false, send });
   const pb = createPatchbay(bay, { detail: (n) => [{ text: n.label, sans: true }], flowing });
 
   // ── the patch ───────────────────────────────────────────────────────────

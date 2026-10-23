@@ -29,7 +29,10 @@
   import { createPatchbay } from '/shell/patchbay.mjs';
   import { createIconButton } from '/shell/icon-button.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
-  import { createTransportBar } from '/shell/transport-bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
   import { createGlue } from '/shell/glue.mjs';
   import { ifSelfcheck, SELFCHECK } from '/shell/selfcheck.mjs';
   import { mediaMaster } from '/timeline/media-master.mjs';
@@ -130,15 +133,15 @@
   // The transport bar glued to the line: play/pause, and ‹ › step one broadcast day via
   // reel-line's `next`. No clock, slider or loop. The line mounts after the bar.
   // See lessons/page-history.md#history-6
-  const bar = createTransportBar(lineHost, deck, {
-    scrub: false, time: false, loop: false, command: {
-      play: () => command.play(), pause: () => command.pause(),
-    },
-    extras: [
-      { id: 'prev', label: '‹', aria: 'the broadcast day before this one', onClick: () => step(-1) },
-      { id: 'next', label: '›', aria: 'the broadcast day after this one', onClick: () => step(+1) },
-    ],
-  });
+  // The transport is a node on this page's bay: play presses along a link. why: lessons/kit-bar.md#bay
+  const control = createTransportControl(deck, { command: { play: () => command.play(), pause: () => command.pause() } });
+  const send = transportOnBay(bay, { site: S, control });
+  const prevBtn = barButton({ icon: 'chevron-left', aria: 'the broadcast day before this one', onPress: () => step(-1) });
+  const nextBtn = barButton({ icon: 'chevron-right', aria: 'the broadcast day after this one', onPress: () => step(+1) });
+  const bar = createBar({ start: [playToggle(control, { send }).el, prevBtn, nextBtn], end: [ratesView(control, { send }).el] });
+  lineHost.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el }));
   // No footer under the line: the strip's tooltip says the same on hover.
   // See lessons/page-history.md#history-7
   const view = line.mount(lineHost, { footer: false });
@@ -316,9 +319,10 @@
       `${stageR.width.toFixed(0)}x${stageR.height.toFixed(0)}, ${getComputedStyle(film).objectFit}`);
     d.assert('the transport bar is glued to the line, with play and the two steps on it',
       !!bar.el.closest('.pos-glue') && bar.el.closest('.pos-glue') === view.surface.closest('.pos-glue')
-        && !!bar.el.querySelector('.tbar-toggle') && !!bar.extra('prev') && !!bar.extra('next'),
+        && !!bar.el.querySelector('.tbar-toggle') && bar.el.contains(prevBtn) && bar.el.contains(nextBtn),
       [...bar.el.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent).join(', '));
-    const links = bay.links().map((l) => `${l.from} -> ${l.to}`);
+    // The transport's own link (its buttons to it) is not one of the three boxes' wires.
+    const links = bay.links().filter((l) => !l.from.startsWith(`${S}:transport-buttons:`)).map((l) => `${l.from} -> ${l.to}`);
     d.assert('the newsreel, the radio and the timeline are three boxes, wired as the code runs',
       held.size === 6 && links.length === 6, links.join(', '));
 
@@ -329,9 +333,9 @@
       const before = errOpens;
       bar.el.querySelector('.tbar-toggle').click();
       const picked = line.current;
-      bar.extra('next').click();
+      nextBtn.click();
       const stepped = line.current;
-      bar.extra('prev').click();
+      prevBtn.click();
       const back = line.current;
       muteBtn.el.click();
       const mutedBoth = film.muted && wireless.muted;
