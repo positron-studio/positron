@@ -1,5 +1,6 @@
 ## Open
 
+- **/room/stage/: rm the OBS how-to line under the WHIP URL** (2026-10-23). Asked: *"rm OBS 30 or newer. Settings, Stream: Service WHIP, Server this URL, Bearer Token empty. Output: ... Add ?site=m1 to name the machine."*. demo/room/video-room.mjs `whipHow`.
 - **/room/stage/: lag numbers in a readout** (2026-10-23). Asked: *"can we have lag measurements in readouts"*, after the glass-to-glass run (PROGRESS 2026-10-23: 236 and 359 ms median). Touches demo/room/video-room.mjs (mount readout), demo/room/sfu.mjs stats; glass to glass needs a clock both ends share (rig/m1/lag-clock.html).
 - **/remote/live/ double hits: PARKED** (2026-10-23). Seen 2026-10-22, asked whether two tabs were open; answer *"dunno about tabs, park it"*. If heard again: count open /remote/live/ tabs first, then check the agent log on the M1 (`/tmp/studio-agent.log`) for each note arriving twice.
 - **The M1 as site `m1`: OBS and a new Ableton Live control as nodes, the room starts OBS** (2026-10-22). Asked: *"can the room trigger obs"*, *"assuming its running"*, *"actually plan that remote app control together with new version of ableton live control"*. Plan: plans/plan-studio-mac.md, waiting on the owner (§7).
