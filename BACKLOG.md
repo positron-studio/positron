@@ -1,5 +1,6 @@
 ## Open
 
+- **Monitor the 2-day radio1965 stream for audio holes** (2026-10-23). Asked: *"i stated 2-day stream on radio1965. i hear audio holes. can you monitor"*. Read our own side first (cast/edgecast/relay status and logs); no deploys while it is on air.
 - ~~**Replay bar: a trash icon button instead of the take text; the standard play/stop and record/stop icons**~~ (2026-10-23). Asked: *"replace with trashcan icon button. use stadard rec/stop play icons buttons"*, on the "take 0:07, 0.8 MB, in R2 until 15:18" text. demo/room/replay.mjs. DONE 2026-10-23.
 - ~~**OBS bar: rm the status string that wraps the bar**~~ (2026-10-23). Asked: *"avoid wrapping ... rm that string that makes wrapping"*, on a screenshot of /room/obs/ with "OBS on the studio Mac streams its current scene here" pushing the scene picker to a second row. demo/room/video-room.mjs m1Say. DONE 2026-10-23.
 - ~~**OBS stops itself when nobody stops it**~~ (2026-10-23). Asked: *"we need cleanup routine when no stop m1 is pressed"*, after a killed test run left OBS on the M1 streaming into an empty test room (06:32 to 06:33). rig/m1/studio-agent.mjs: stop OBS when the room it streams into has been empty for a while. DONE 2026-10-23, agent pushed to the M1: stopped 95 s after a start into an empty room.
