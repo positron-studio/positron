@@ -1,4 +1,6 @@
 ## Open
+
+- **/remote/live/ double hits: PARKED** (2026-10-23). Seen 2026-10-22, asked whether two tabs were open; answer *"dunno about tabs, park it"*. If heard again: count open /remote/live/ tabs first, then check the agent log on the M1 (`/tmp/studio-agent.log`) for each note arriving twice.
 - **The M1 as site `m1`: OBS and a new Ableton Live control as nodes, the room starts OBS** (2026-10-22). Asked: *"can the room trigger obs"*, *"assuming its running"*, *"actually plan that remote app control together with new version of ableton live control"*. Plan: plans/plan-studio-mac.md, waiting on the owner (§7).
 - ~~**/room/stage/: label bottom left, no system controls, mute button bottom right on the active stage** (2026-10-22). Asked with a screenshot of the old film mode. DONE 2026-10-22, demo/shell/participant.mjs.~~
 - ~~**/room/stage/: OBS on the M1 streams into the stage over WHIP; then remove the film container** (2026-10-22). Asked: *"how m1 could stream to sfu via obs?"*, *"yes. if this works remove the r2->sfu part"*, *"one live"*. DONE 2026-10-22, plans/plan-room-obs.md.~~
