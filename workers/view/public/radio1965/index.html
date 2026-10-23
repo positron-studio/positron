@@ -3,6 +3,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Radio1965">
+<meta property="og:description" content="Sound archives processed, mixed and visualized by positron.audio.">
+<meta property="og:url" content="https://positron.studio/radio1965/">
+<meta property="og:image" content="https://positron.studio/og/radio1965-63e3d2b2.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Radio1965 @ Üle Heli festival. Sound archives processed, mixed and visualized by positron.audio">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-c7b28d7f.png">
+<link rel="manifest" href="/icons/manifest-8e6dda01.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
 <title>Radio 1965</title>
@@ -43,10 +57,14 @@
   const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
   const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
   const HEAVE = { speech: 0.2, field: 0.5, music: 0.8 };
+  const WAVES = { speech: 1, field: 2, music: 3 };
   // The look's other numbers, moved by the sound each frame (fast) and by the scene (over its blend).
   // `[rest, from the followers]`: rest is where it sits with no sound.
-  // Light and texture only: nothing here moves the rows up or down, which collapsed and curled the field.
+  // Inside the picture only: nothing here moves where the rows sit or how deep the field is (stretch, xbreath and
+  // the row spread did, and collapsed and curled it).
   const LIVE = {
+    travel: [0, (f) => 0.3 + Math.min(1.7, 2.5 * f.rms)],
+    valley: [0.3, (f) => 0.15 + 0.15 * (1 - Math.min(1, f.tone))],
     halo: [0, (f) => Math.min(0.85, f.flux * 1.6)],
     ampB: [0.05, (f) => Math.min(0.06, 0.01 + f.low * 0.09)],
     sway: [0, (f) => Math.min(0.9, f.mid * 1.5)],
@@ -106,7 +124,7 @@
   // ── the state: scene numbers and listeners, glided over the scene's own blend ──
   const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
   const now = { ...target };
-  const scene = {}, sceneNow = {};
+  const scene = { waves: OPEN.waves }, sceneNow = { ...scene };
   const live = Object.fromEntries(Object.entries(LIVE).map(([k, [rest]]) => [k, rest])), liveNow = { ...live };
   let glideS = 8, state = null, stateAt = 0;
   function stateIn(ev) {
@@ -120,6 +138,7 @@
     if (Number.isFinite(state.density)) target.bucket = clamp('bucket', 0.35 * state.density);
     if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
     if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
+    if (WAVES[state.kind]) scene.waves = WAVES[state.kind];
   }
   async function readState() {
     try {
@@ -209,7 +228,9 @@
   const titleBox = el('div', 'r65-t');
   const h = el('h1');
   h.append('Radio1965', el('br'), '@ Üle Heli', el('br'), 'festival');
-  titleBox.append(h, el('p', '', 'Sound archives mixed by positron.audio'), btn);
+  const line = el('p');
+  line.append('Sound archives processed', el('br'), 'mixed and visualized', el('br'), 'by positron.audio');
+  titleBox.append(h, line, btn);
   face();
   document.body.append(canvas, titleBox);
 
