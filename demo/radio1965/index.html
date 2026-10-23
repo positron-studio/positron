@@ -8,9 +8,16 @@
 <title>Radio 1965</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
-  .r65-pic canvas { display: block; width: 100%; height: 100%; }
-  .r65-foot { display: flex; gap: 12px; align-items: center; min-width: 0; }
-  .r65-say { font: 400 13px/1.4 var(--sans); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The picture is the page: over everything, the whole viewport, nothing to press. */
+  html, body { background: #000; }
+  .r65 { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block;
+    object-fit: cover; background: #000; }
+  /* The title over the picture, top left; taps go through it to the picture. */
+  .r65-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
+    top: max(24px, env(safe-area-inset-top)); left: max(24px, env(safe-area-inset-left)); }
+  .r65-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); letter-spacing: 0; }
+  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); }
+  .r65-t .pos-lg { margin-top: 18px; pointer-events: auto; }
 </style>
 <script type="module">
   // The scan landscape (/shader/landscape/'s picture) moved by our radio1965 cast: the sound is our own container's
@@ -20,9 +27,7 @@
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
-  import { createPatchbay } from '/shell/patchbay.mjs';
-  import { createVideoPanel } from '/shell/video-panel.mjs';
-  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { barButton, setButtonFace } from '/shell/bar.mjs';
   import { createEnvFollower } from '/shell/pappus-mod.mjs';
   import { LANES, LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, createFeatures } from '/shell/radio-gran.mjs';
   import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
@@ -30,7 +35,7 @@
   const CAST = new URLSearchParams(location.search).get('cast') || 'https://cast.positron.studio';
   const STATION = 'radio1965';
   const S = 'web';
-  const d = mount({ name: 'Radio 1965', what: '', readout: null, index: '/', indexLabel: 'positron' });
+  const d = mount({ name: 'Radio 1965', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
 
   const LOOK = LOOKS[DEFAULT_LOOK];
   const OPEN = { ...LOOK, ...EXTRA, fade: 1.6 };
@@ -38,6 +43,15 @@
   const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
   const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
   const HEAVE = { speech: 0.2, field: 0.5, music: 0.8 };
+  // The look's other numbers, moved by the sound each frame (fast) and by the scene (over its blend).
+  // `[rest, from the followers]`: rest is where it sits with no sound.
+  // Light and texture only: nothing here moves the rows up or down, which collapsed and curled the field.
+  const LIVE = {
+    halo: [0, (f) => Math.min(0.85, f.flux * 1.6)],
+    ampB: [0.05, (f) => Math.min(0.06, 0.01 + f.low * 0.09)],
+    sway: [0, (f) => Math.min(0.9, f.mid * 1.5)],
+    glow: [0.62, (f) => 0.45 + Math.min(0.5, f.high * 1.2)],
+  };
 
   // ── the bay: our stream and our state into the picture ─────────────────
   const bay = createBay();
@@ -64,38 +78,48 @@
   hold(`${S}:landscape:video-out`, `${S}:screen:video-in`);
 
   // ── the picture ─────────────────────────────────────────────────────────
-  const canvas = el('canvas');
-  canvas.width = FIELD_W; canvas.height = FIELD_H;
+  const canvas = el('canvas', 'r65');
+  canvas.setAttribute('aria-hidden', 'true');
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
-  const title = el('span', 'r65-say', '');
-  const heard = el('span', 'r65-say', '');
-  const listen = createButtonGroup({ buttons: [{ id: 'listen', icon: 'play', label: 'listen', onPress: () => (playing ? stop() : play()) }] });
-  const foot = el('span', 'r65-foot');
-  foot.append(listen.el, title);
-  const panel = createVideoPanel({ media: canvas, left: foot, centre: heard, fullMode: 'footer' });
-  panel.el.classList.add('r65-pic');
+  // One button under the line: Play, and Stop while playing.
+  const btn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => (playing ? stop() : play()) });
+  const face = () => setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' });
   let field = null;
+  const LINES = { chroma: 0, gain: 2.0, gamma: 1.15 };
+  function makeField() {
+    const a = Math.max(0.3, Math.min(3.5, innerWidth / Math.max(1, innerHeight))), budget = FIELD_W * FIELD_H;
+    const w = Math.round(Math.sqrt(budget * a)), h = Math.round(Math.sqrt(budget / a));
+    canvas.width = w; canvas.height = h;
+    // a little whiter than the look's own lines (chroma 1 is its full tint)
+    // grey lines, brighter and harder than the look's own; the rows keep the look's own spread
+    try { field = createScanField(gl, { look: LOOK, live: true, canvas, w, h }); for (const [k, v] of Object.entries(LINES)) field.set(k, v); }
+    catch (e) { field = null; d.log(`the picture did not compile: ${e.message}`, 'bad'); }
+  }
   if (gl) {
-    try { field = createScanField(gl, { look: LOOK, live: true, canvas }); }
-    catch (e) { d.log(`the picture did not compile: ${e.message}`, 'bad'); }
+    makeField();
+    // Drawn at the screen's own shape, the same pixel budget as the 960 by 540 field, so a phone held upright loses
+    // nothing at the sides; made again when the screen turns between upright and wide.
+    let wasTall = innerHeight > innerWidth;
+    addEventListener('resize', () => { const tall = innerHeight > innerWidth; if (tall !== wasTall) { wasTall = tall; makeField(); } });
   } else d.log('this browser has no WebGL2, so there is no picture', 'bad');
 
   // ── the state: scene numbers and listeners, glided over the scene's own blend ──
   const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
   const now = { ...target };
+  const scene = {}, sceneNow = {};
+  const live = Object.fromEntries(Object.entries(LIVE).map(([k, [rest]]) => [k, rest])), liveNow = { ...live };
   let glideS = 8, state = null, stateAt = 0;
   function stateIn(ev) {
     if (ev?.of !== 'state') return;
     state = ev.s; stateAt = performance.now();
     const n = (state.listeners?.now ?? 0) + (state.ears ?? 0);
     target.rows = clamp('rows', 16 + 12 * n);
-    if (Number.isFinite(state.wet)) target.ampM = clamp('ampM', 0.5 + 7.5 * (state.wet / 0.95));
+    // a dry scene still a landscape: height 2.5 at dry, 8 at the wettest (0.5 squeezed the lines into a band)
+    if (Number.isFinite(state.wet)) target.ampM = clamp('ampM', 2.5 + 5.5 * (state.wet / 0.95));
     target.swellY = clamp('swellY', 0.05 * Math.min(1, (state.droneLevel ?? 0) / 0.5));
-    if (Number.isFinite(state.density)) target.bucket = clamp('bucket', state.density);
+    if (Number.isFinite(state.density)) target.bucket = clamp('bucket', 0.35 * state.density);
     if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
     if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
-    title.textContent = state.title || '';
-    heard.textContent = `${state.listeners?.now ?? 0} on Väin, ${state.ears ?? 0} here`;
   }
   async function readState() {
     try {
@@ -119,18 +143,24 @@
     // every knob eases toward its target over the scene's blend, so nothing jumps
     const k = 1 - Math.exp(-dt / glideS);
     for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
+    for (const n of Object.keys(scene)) { sceneNow[n] += (scene[n] - sceneNow[n]) * k; field.set(n, sceneNow[n]); }
+    const kf = 1 - Math.exp(-dt / 0.25);
+    for (const n of Object.keys(live)) { liveNow[n] += (live[n] - liveNow[n]) * kf; field.set(n, liveNow[n]); }
     data.fill(0);
     if (playing && feats) {
       const f = feats.read();
       FOLLOWER_NAMES.forEach((n, i) => { follow[n].push(f[n] ?? 0, dt); data[at(i, 3)] = u8(follow[n].value()); });
-      const rms = follow.rms.value();
+      const fv = Object.fromEntries(FOLLOWER_NAMES.map((n) => [n, follow[n].value()]));
+      for (const [n, [, from]] of Object.entries(LIVE)) live[n] = from(fv);
+      const rms = fv.rms;
       // the loud knob follows the level, and a rise in it lands as counts near the newest edge
-      target.ampL = clamp('ampL', 0.05 + rms * 1.5);
+      target.ampL = clamp('ampL', 0.04 + Math.min(0.2, rms * 0.8));
+      // only a rise in the level lands, as a few counts in the middle half, where the eye is: steady sound draws ridges
       const rise = Math.max(0, rms - prevRms); prevRms = rms;
       let got = 0;
-      const n = Math.min(40, Math.round(rms * 60 + rise * 400));
+      const n = Math.min(6, Math.round(rise * 200));
       for (let j = 0; j < n; j++) {
-        const x = Math.max(0, DATA_W - 1 - Math.floor(Math.random() * Math.random() * DATA_W));
+        const x = Math.floor(DATA_W * (0.25 + 0.5 * ((Math.random() + Math.random()) / 2)));
         const i = at(x, 0);
         data[i] = Math.min(255, data[i] + 1); data[i + 1] = u8(sizeLane.unmap(0.05 + Math.random() * 0.2)); got++;
       }
@@ -163,7 +193,7 @@
     }
     audio.src = `${CAST}/listen/${STATION}?t=${Date.now()}`;
     try { await audio.play(); } catch (e) { d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
-    playing = true; face(); pb.refresh();
+    playing = true; face();
     try { lock = await navigator.wakeLock?.request('screen'); } catch { /* no wake lock here */ }
     d.log('listening to our radio1965 stream');
   }
@@ -172,15 +202,16 @@
     if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
     lock?.release?.(); lock = null;
     target.ampL = OPEN.ampL;
-    face(); pb.refresh();
+    for (const [n, [rest]] of Object.entries(LIVE)) live[n] = rest;
+    face();
   }
-  function face() { listen.setIcon('listen', playing ? 'stop' : 'play', playing ? 'stop' : 'listen'); }
-  face();
 
-  const pb = createPatchbay(bay, {
-    flowing: (l, medium) => (medium === 'audio' ? playing : medium === 'video' ? !!field : false),
-  });
-  d.stack.add(panel.el, pb.el);
+  const titleBox = el('div', 'r65-t');
+  const h = el('h1');
+  h.append('Radio1965', el('br'), '@ Üle Heli', el('br'), 'festival');
+  titleBox.append(h, el('p', '', 'Sound archives mixed by positron.audio'), btn);
+  face();
+  document.body.append(canvas, titleBox);
 
   window.__demo.radio1965 = { field: () => field, frames: () => frames, playing: () => playing, state: () => state, knobs: () => ({ ...now }), context: () => ctx };
 

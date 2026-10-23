@@ -42,7 +42,7 @@ const { CONCEPTS, CONCEPT_DIRS, DEMO_CARDS } =
   await import(new URL('../../demo/shell/concept-list.mjs', import.meta.url));
 // The share card and its tags (demo/shell/share-card.mjs), and the rasteriser
 // that turns its SVG into a PNG with no browser (og/render.mjs, resvg wasm).
-const { shareTags, SITE_NAME } = await import(new URL('../../demo/shell/share-card.mjs', import.meta.url));
+const { shareTags, SITE_NAME, PAGE_CARDS, pageCard } = await import(new URL('../../demo/shell/share-card.mjs', import.meta.url));
 const { HERO } = await import(new URL('../../demo/shell/hero.mjs', import.meta.url));
 const { renderPng, inkBox } = await import(new URL('./og/render.mjs', import.meta.url));
 const { shareBackground, shareCards } = await import(new URL('./og/background.mjs', import.meta.url));
@@ -576,6 +576,15 @@ for (const [what, c] of [['share card', CARD], ['instagram card', SHARE_CARDS.ig
   const lit = SHARE_BG ? `, scrim ${c.scrim}, text ${c.contrast.toFixed(2)}:1 (${c.bare.toFixed(2)}:1 bare, ${c.worst} the binding block)` : '';
   console.log(`  ${what} ${c.path}: ${c.width}x${c.height}, ${png.length} bytes${lit}, ${(performance.now() - t0).toFixed(0)} ms`);
 }
+// A page with its own card (share-card.mjs PAGE_CARDS) is tagged with it instead of the site card.
+// why: lessons/kit-share-card.md#page-cards
+const OWN_CARDS = {};
+for (const [dst, text] of Object.entries(PAGE_CARDS)) {
+  const c = pageCard(text, SHARE_BG);
+  await writeFile(join(OUT, c.path.slice(1)), await renderPng(c.svg, c.width));
+  OWN_CARDS[dst] = c;
+  console.log(`  page card ${dst} ${c.path}: ${c.width}x${c.height}`);
+}
 const cardEntry = (c) => ({ path: c.path, width: c.width, height: c.height,
   ...(SHARE_BG ? { scrim: c.scrim, contrast: +c.contrast.toFixed(2), bare: +c.bare.toFixed(2) } : {}) });
 await mkdir(join(OUT, 'kit/share'), { recursive: true });
@@ -652,7 +661,7 @@ function withShareMeta(src, dst, text) {
   const own = (text.match(/<title>([^<]*)<\/title>/) || [])[1]?.replace(/^POSITRON\s+/i, '').replace(/^[·\s]+/, '').split(/\s+[—·]\s+/)[0].trim();
   const desc = (text.match(/<meta name="description" content="([^"]*)"/) || [])[1];
   const url = `/${dst.replace(/(^|\/)index\.html$/, '$1')}`;
-  const tags = shareTags({ title: known.title || own || 'positron', description: sentence(known.description || desc || ''), url, card: CARD });
+  const tags = shareTags({ title: known.title || own || 'positron', description: sentence(known.description || desc || ''), url, card: OWN_CARDS[dst] || CARD });
   shared.push(dst);
   const block = tags.join('\n');
   return text.includes(ROBOTS_META) ? text.replace(ROBOTS_META, `${ROBOTS_META}\n${block}`)

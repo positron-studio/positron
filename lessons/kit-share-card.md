@@ -162,3 +162,10 @@ reads its size from the PNG IHDR or the JPEG SOF, since it has no decoder, and r
 EXIF rotation, so the file must be saved upright. The PNG of a photo is about 0.3 MB for the card
 and 0.4 MB for a portrait, against 50 to 80 KB plain. `kit/share/cards.json` names what the build
 wrote, outside `/og/`, which is cached immutable for a year.
+
+## page-cards
+
+`PAGE_CARDS` in share-card.mjs: a page whose share preview should say its own thing gets a card in the hero's type
+with its own headline lines and line, rendered by the same resvg step, and the build tags that page with it instead
+of the site card. The site card is unchanged, byte for byte: `heroCard` takes its words as an argument and defaults
+to `HERO`. First one 2026-10-23, /radio1965/ (*"make a og card for this using our pipeline"*).

@@ -70,6 +70,8 @@
      formula. Read by `button.pos-sm`. */
   /* why: lessons/css-shell.md#root-12 */
   --ctl-sm: 26px;
+  /* The large button (button.pos-lg): a page whose one control is the point. */
+  --ctl-lg: 44px;
   /* Key heights: the finger-measured 74 and 46 px times a growth factor. The
      desk quarter is in the one media query below `.k`. At `:root` because an
      unresolved `var()` drops the declaration. */
@@ -2759,6 +2761,9 @@ button[data-glyph="1"] {
    the later one wins the height. */
 /* why: lessons/css-shell.md#button-pos-sm */
 button.pos-sm { height: var(--ctl-sm); padding: 0 calc(var(--pad-btn) / 2); }
+/* Large button: `--ctl-lg` tall, an icon and a word side by side. why: lessons/kit-bar.md#bar-button */
+button.pos-lg { height: var(--ctl-lg); padding: 0 var(--pad-btn); font-size: 15px;
+  display: inline-flex; align-items: center; gap: 10px; }
 button.pos-sm[data-glyph="1"] { width: var(--ctl-sm); height: var(--ctl-sm); padding: 0; }
 
 /* Icon button (demo/shell/icon-button.mjs). The square is the rules above via
