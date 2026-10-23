@@ -243,14 +243,27 @@ async function run(sess) {
 let mx = null, mxTarget = null, mxMode = null;
 /** A file new to the archive has no measured length: read it with ffprobe, in place, before it lands, so its scene ends
  *  before the file does (a 31 s recording cut a scene off mid-effect, 2026-10-19). */
+// One probe at a time, at the lowest priority: four at once at full priority on the one vCPU the encoder and the sound
+// chain share gave 8 xruns and 1.8 s of lost sound on radio1965 (2026-10-23). why: lessons/workers-cast.md#probe-one
+const probeWaiting = [];
+let probeBusy = false;
 function probeLengths(queue) {
   for (const it of queue) {
     if (Number(it.seconds) > 0 || !it.url || it.probing) continue;
     it.probing = true;
-    const p = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', it.url]);
-    let out = ''; p.stdout.on('data', (b) => { out += b; });
-    p.on('error', () => {}); p.on('exit', () => { const d = Number(out.trim()); if (d > 0) { it.seconds = Math.round(d); say(`${it.title}: ${it.seconds} s (probed)`); } });
+    probeWaiting.push(it);
   }
+  probeNext();
+}
+function probeNext() {
+  if (probeBusy || !probeWaiting.length) return;
+  const it = probeWaiting.shift();
+  probeBusy = true;
+  const p = spawn('nice', ['-n', '19', 'ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', it.url]);
+  let out = ''; p.stdout.on('data', (b) => { out += b; });
+  const done = () => { probeBusy = false; probeNext(); };
+  p.on('error', done);
+  p.on('exit', () => { const d = Number(out.trim()); if (d > 0) { it.seconds = Math.round(d); say(`${it.title}: ${it.seconds} s (probed)`); } done(); });
 }
 function start(body) {
   const { queue, target } = body;

@@ -899,3 +899,10 @@ most 10 s old (`STATUS_FRESH_MS`), with one live call in flight at a time. Befor
 station's container every 3 s and a control socket once a second, and each answer runs in the encoder's own process,
 where one call was measured stalling the write loop 350 ms. The alarm (30 s) and the handover still ask live. Owner
 2026-10-23: *"fix it"*.
+
+## probe-one
+
+`probeLengths` in the container used to start one ffprobe per new file at once, at full priority, on the single vCPU
+the encoder and the JACK chain share. MEASURED 2026-10-23 on radio1965 by the session's status monitor: at 09:05:46
+four probes started together (one a 622 s recording) and xruns went 10 to 18 with 1.76 s of sound lost by 09:06:40.
+Now one probe at a time under `nice -n 19`, so the sound chain is never the one that waits.
