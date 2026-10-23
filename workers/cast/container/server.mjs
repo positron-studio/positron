@@ -331,6 +331,7 @@ http.createServer(async (req, res) => {
     // The encoder's frames as they are made, for the Caster's /listen (tap.mjs). why: lessons/workers-cast.md#tap
     if (req.method === 'GET' && req.url === '/mp3') {
       res.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' });
+      res.flushHeaders();
       taps.add(res);
       req.on('close', () => taps.delete(res));
       return;

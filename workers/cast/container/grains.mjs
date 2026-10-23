@@ -10,6 +10,7 @@ import { compile } from './sc/shell/sclang-lite.mjs';
 import { createEngine } from './mixer.mjs';
 import { openDecoder } from './decode.mjs';
 import { openEncoder } from './encode.mjs';
+import { tap } from './tap.mjs';
 import { usage } from './mixcast.mjs';
 import { program as masterProgram, MASTER_BUS } from './sc/radio/cast/master.mjs';
 
@@ -235,6 +236,7 @@ export function startGrains({ queue, target, set = {}, patch = { name: PATCHES[0
     resume: resume ? { from: Math.max(0, (resume.pos || 0) + lead), cycleT: (resume.cycleT || 0) + lead } : null });
   let chain = null, enc = null, writing = Promise.resolve(), anchor = null, fed = null;
   const newEncoder = () => openEncoder({ log: say, onFrame: (f) => {
+    tap(f.data);
     if (m.first == null) m.first = Date.now();
     onMp3?.(f);
     if (!m.sink || m.sink.closed) return;             // nobody to send to: dropped, JACK keeps the clock
