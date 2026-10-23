@@ -26,6 +26,7 @@ import { takeStudioKey, studioKey, signStudio } from '/shell/studio-key.mjs';
 const CSS = `
   .rv-foot { display: flex; gap: var(--ctl-gap, 8px); align-items: center; flex-wrap: wrap; }
   .rv-whip-row { display: flex; gap: var(--ctl-gap, 8px); align-items: center; }
+  .rv-whip-row[hidden] { display: none; }
   .rv-whip-url { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font: 400 12px/1.5 var(--mono); }
   .rv-whip-how { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
   /* A phone: the window is one screen tall, Video and Chat are tabs over it, the footer stays at
