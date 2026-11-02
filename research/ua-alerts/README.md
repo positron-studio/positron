@@ -10,7 +10,7 @@ Vadimkin/ukrainian-air-raid-sirens-dataset (MIT), fetched 2026-11-02 13:47
 ```sh
 cd research/ua-alerts
 for f in official_data_en.csv volunteer_data_en.csv; do curl -sL -o $f https://raw.githubusercontent.com/Vadimkin/ukrainian-air-raid-sirens-dataset/main/datasets/$f; done
-python3 kyiv.py
+node kyiv.mjs
 ```
 
 - `official_data_en.csv`: oblast, raion, hromada, level, started_at, finished_at. **Ends 2026-09-07**.
