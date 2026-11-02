@@ -32,3 +32,7 @@ export function merge(list) {
 export const kyivDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(ms);
 /** The day after a YYYY-MM-DD. */
 export const nextDay = (day) => new Date(Date.parse(`${day}T12:00:00Z`) + 86400e3).toISOString().slice(0, 10);
+
+const HOUR = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+/** The Kyiv day and clock hour of a moment, as YYYY-MM-DD HH. */
+export const kyivHour = (ms) => HOUR.format(ms).replace(', ', ' ');

@@ -329,7 +329,7 @@ export const DEMOS = [
     one: 'the scan landscape, full screen, after the radio1965 broadcast',
     tags: ['WebGL2', 'WebAudio'] },
   { name: 'social/days', title: 'days', group: 'kit', act: 0, created: '2026-11-02', built: true, unlisted: true,
-    one: 'every day of the war in Kyiv as a square, black with an air-raid alert and blue without, at any size, in pages',
+    one: 'every day or hour of the war in Kyiv as a square, black with an air-raid alert and blue without, at any size, in pages',
     tags: ['shell', 'no network'] },
   { name: 'social/radio', title: 'radio', group: 'kit', act: 0, created: '2026-10-14', built: true, unlisted: true,
     one: 'a dial sweeps through three of our radio recordings and the noise between them, recorded to a file',
