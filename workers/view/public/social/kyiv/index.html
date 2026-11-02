@@ -31,6 +31,7 @@
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPicker } from '/shell/picker.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createSlider } from '/shell/slider.mjs';
   import { layoutDays, drawDays, cellAt } from '/shell/day-grid.mjs';
   import { createReel, font, W as RW, H as RH } from '/shell/reel.mjs';
 
@@ -39,7 +40,8 @@
   // story video in which the hours appear in order under the date and hour they have reached, then hold.
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
   const FORMATS = [['IG story', 1080, 1920], ['OG card', 1200, 630]];
-  const LEAD = 500, REVEAL = 20000, HOLD = 5000;            // ms: empty grid, the hours appearing, the whole held
+  const LEAD = 500, HOLD = 5000;                            // ms: empty grid before, the whole picture held after
+  let REVEAL = 20000;                                         // ms the hours take to appear, set by the speed slider
 
   const d = mount({ name: 'social/kyiv', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
     readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
@@ -53,7 +55,8 @@
 
   // the date and Kyiv clock hour of hour i, counted from midnight on the first day
   const DAY = 86400e3, t0 = Date.parse(`${data.start}T12:00:00Z`);
-  const hourOf = (i) => `${new Date(t0 + Math.floor(i / 24) * DAY).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })} ${String(i % 24).padStart(2, '0')}:00`;
+  // digits only, set in the mono face, so the title keeps one width while it counts
+  const hourOf = (i) => `${new Date(t0 + Math.floor(i / 24) * DAY).toISOString().slice(0, 10)} ${String(i % 24).padStart(2, '0')}:00`;
   const wrap = (ctx, text, width) => text.split(' ').reduce((ls, word) => {
     const t = ls.at(-1) ? `${ls.at(-1)} ${word}` : word;
     if (ctx.measureText(t).width > width && ls.at(-1)) ls.push(word); else ls[ls.length - 1] = t;
@@ -63,13 +66,14 @@
   const rowIs = (cols) => { const days = cols / 24, weeks = days / 7, n = ['', 'one', 'two', 'three', 'four'];
     return Number.isInteger(weeks) && n[weeks] ? `${n[weeks]} week${weeks > 1 ? 's' : ''}` : `${days} days`; };
   // The band above the grid: the date and hour as the title, then what this is and what a square and a row are.
-  function title(ctx, w, room, cols, label) {
+  function title(ctx, w, room, cols, at) {
     const k = Math.min(w, room * 3.6) / 1080, x = Math.round(72 * k), TS = Math.round(64 * k), SS = Math.round(32 * k), LH = Math.round(44 * k);
     const say = `Air raids in Kyiv.\nEach square is an hour and each row ${rowIs(cols)}.\nVisualized by positron.studio`;
     ctx.font = `400 ${SS}px ${sans}`;
     const lines = say.split('\n').flatMap((part) => wrap(ctx, part, w - 2 * x)), tall = TS + Math.round(28 * k) + lines.length * LH;
     let y = Math.round((room - tall) / 2) + TS;
-    ctx.fillStyle = INK; ctx.font = font(600, TS); ctx.fillText(label, x, y);
+    // the hour in the flag's blue, and gone while an alert sounds in it
+    if (hours[at] !== data.raid) { ctx.fillStyle = QUIET; ctx.font = font(600, TS); ctx.fillText(hourOf(at), x, y); }
     y += Math.round(28 * k);
     ctx.fillStyle = DIM; ctx.font = `400 ${SS}px ${sans}`;
     for (const ln of lines) { y += LH; ctx.fillText(ln, x, y - Math.round(12 * k)); }
@@ -97,7 +101,7 @@
     const r = Math.floor(shown / g.cols), c = shown % g.cols, top = g.y0;
     if (r > 0) ctx.drawImage(off, 0, top, w, rowY(r) - top, 0, top, w, rowY(r) - top);
     if (c > 0) { const e = cellAt(g, 0, r * g.cols + c - 1), xe = e.x + e.w, y = rowY(r), hh = rowY(r + 1) - y; ctx.drawImage(off, 0, y, xe, hh, 0, y, xe, hh); }
-    title(ctx, w, g.y0, g.cols, hourOf(Math.max(0, Math.min(N, shown) - 1)));
+    title(ctx, w, g.y0, g.cols, Math.max(0, Math.min(N, shown) - 1));
     return g;
   }
 
@@ -130,8 +134,19 @@
 
   // the story video: the hours appear in order over REVEAL, then the whole picture holds; at rest it shows the whole
   const shownAt = (pos) => Math.max(0, Math.min(N, Math.round((pos - LEAD) / REVEAL * N)));
-  const note = el('p', 'reel-note', `1080 x 1920, ${(LEAD + REVEAL + HOLD) / 1000} s: the hours appear over ${REVEAL / 1000} s, then the whole picture holds for ${HOLD / 1000} s. Record makes the file.`);
-  const reel = await createReel({ d, name: 'kyiv', kind: 'hours', side: [note],
+  const note = el('p', 'reel-note', '');
+  const sayNote = () => { note.textContent = `1080 x 1920, ${(LEAD + REVEAL + HOLD) / 1000} s: the hours appear over ${REVEAL / 1000} s, then the whole picture holds for ${HOLD / 1000} s. Record makes the file.`; };
+  sayNote();
+  // how long the hours take to appear; a new length is a new take, so not while one plays or records
+  const speed = createSlider({ label: 'speed', min: 5, max: 60, step: 1, value: REVEAL / 1000, unit: 's', ends: ['fast', 'slow'],
+    onChange: (v) => {
+      const was = REVEAL;
+      REVEAL = v * 1000;
+      if (reel.rebuild()) { sayNote(); return; }
+      REVEAL = was; speed.set(was / 1000, { quiet: true });
+      d.log('stop the video first to change its speed', 'warn');
+    } });
+  const reel = await createReel({ d, name: 'kyiv', kind: 'hours', side: [speed.el, note],
     timeline: () => ({ end: LEAD + REVEAL + HOLD, items: [{ at: 0, payload: {} }] }),
     draw: (ctx, { pos, idle }) => compose(ctx, RW, RH, idle ? N : shownAt(pos)) });
 
@@ -143,7 +158,8 @@
     const px = (c2d, gg, k) => { const c = cellAt(gg, 0, k); return c2d.getImageData(c.x + 1, c.y + 1, 1, 1).data.slice(0, 3).join(','); };
     const blueAt = hours.indexOf('0'), blackAt = hours.indexOf('1');
     d.assert('a quiet hour is blue and an alert hour black', px(ctx, g, blueAt) === '0,87,183' && px(ctx, g, blackAt) === '0,0,0', `hour ${blueAt + 1} and ${blackAt + 1}`);
-    d.assert('the title is the last hour', hourOf(N - 1) === `${new Date(`${data.end}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })} 23:00` && hourOf(0) === '24 February 2022 00:00', hourOf(N - 1));
+    d.assert('the title is the last hour, one width all the way', hourOf(N - 1) === `${data.end} 23:00` && hourOf(0) === '2022-02-24 00:00'
+      && Array.from({ length: 50 }, (_, j) => hourOf(Math.floor(j * (N - 1) / 49)).length).every((l) => l === 16), hourOf(N - 1));
     for (const [i, [n, w, h]] of FORMATS.entries()) {
       pick(i);
       const last = cellAt(g, 0, g.cols * g.rows - 1);
@@ -161,6 +177,11 @@
     const half = shownAt(LEAD + REVEAL / 2), lastHalf = hours.lastIndexOf('0', half - 1), afterHalf = hours.indexOf('0', half + 1);
     d.assert('the video starts empty and is half drawn halfway', empty !== '0,87,183' && px(vc, sg, lastHalf) === '0,87,183' && px(vc, sg, afterHalf) !== '0,87,183', `${half} of ${N} hours halfway`);
     d.assert('the video holds the whole picture at the end', shownAt(LEAD + REVEAL) === N && shownAt(LEAD + REVEAL + HOLD) === N && reel.take.end === LEAD + REVEAL + HOLD, `${(reel.take.end / 1000).toFixed(1)} s, held ${HOLD / 1000} s`);
+    speed.set(10); REVEAL = 10000; reel.rebuild();
+    const titlePx = (k) => { compose(vc, RW, RH, k + 1); const im = vc.getImageData(0, 0, RW, sg.y0).data; let blue = 0; for (let q = 0; q < im.length; q += 4) if (im[q] === 0 && im[q + 1] === 87 && im[q + 2] === 183) blue++; return blue; };
+    d.assert('the hour is blue, and gone in an alert hour', titlePx(blueAt) > 200 && titlePx(blackAt) === 0, `${titlePx(blueAt)} blue px in a quiet hour, ${titlePx(blackAt)} in an alert hour`);
+    d.assert('the speed slider sets the length of the take', reel.take.end === LEAD + 10000 + HOLD && shownAt(LEAD + 10000) === N && shownAt(LEAD + 5000) === N / 2, `${reel.take.end / 1000} s at 10 s`);
+    speed.set(20); REVEAL = 20000; reel.rebuild(); sayNote();
   }
   d.ready();
 </script>
