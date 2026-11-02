@@ -32,6 +32,18 @@ ok('41088 hours on a story fit whole days a row', hours.cols % 24 === 0 && hours
 const hp = layoutDays({ n: 41088, w: 1080, h: 1920, group: 24, minCell: 20 });
 ok('paged hours keep whole days a row', hp.cols % 24 === 0 && hp.pages > 1 && fitsIn(hp, 1080, 1920), `${hp.cols}x${hp.rows}, ${hp.pages} pages`);
 ok('a group wider than the box is dropped, not forced', (() => { const g = layoutDays({ n: 100, w: 10, h: 1000, group: 24 }); return g.cols < 24 && fitsIn(g, 10, 1000); })());
+// edge to edge: cells tile the full width from the top, the last row inside the height, every cell within a pixel
+const tiles = (g, n, w, h) => {
+  const cs = Array.from({ length: Math.min(n, g.per) }, (_, k) => cellAt(g, 0, k)), first = cs.filter((c, k) => k < g.cols);
+  const right = Math.max(...first.map((c) => c.x + c.w)), bottom = Math.max(...cs.map((c) => c.y + c.h)), sizes = cs.map((c) => c.w).concat(cs.map((c) => c.h));
+  return first[0].x === 0 && cs[0].y === 0 && right === w && bottom <= h && Math.max(...sizes) - Math.min(...sizes) <= 1
+    && first.every((c, k) => k === 0 || c.x === first[k - 1].x + first[k - 1].w + g.gap);
+};
+for (const [n, w, h, o] of [[1712, 1080, 1920, {}], [41088, 1080, 1920, { group: 24, gap: 0 }], [1712, 1080, 1350, {}], [365, 1920, 1080, {}], [1712, 1080, 1920, { minCell: 90 }], [41088, 1080, 1920, { group: 24, gap: 0, minCell: 20 }]]) {
+  const g = layoutDays({ n, w, h, edge: true, ...o });
+  ok(`edge to edge: ${n} in ${w}x${h} ${JSON.stringify(o)}`, tiles(g, n, w, h) && (o.minCell ? g.pages > 1 : g.pages === 1 && g.cols * g.rows >= n) && (!o.group || g.cols % o.group === 0), `${g.cols}x${g.rows} cell ${g.cell}`);
+}
+ok('NEGATIVE CONTROL: the centred grid is not edge to edge', !tiles(story, 1712, 1080, 1920));
 ok('NEGATIVE CONTROL: nothing to lay out is no grid', layoutDays({ n: 0, w: 100, h: 100 }).cols === 0);
 console.log(fails ? `${fails} FAILED` : 'all ok');
 process.exit(fails ? 1 : 0);
