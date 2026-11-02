@@ -6,7 +6,7 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="days">
-<meta property="og:description" content="Every day of the war in Kyiv as a square, black with an air-raid alert and blue without, at any size, in pages">
+<meta property="og:description" content="Every day or hour of the war in Kyiv as a square, black with an air-raid alert and blue without, at any size, in pages">
 <meta property="og:url" content="https://positron.studio/social/days/">
 <meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
 <meta property="og:image:width" content="1200">
@@ -35,33 +35,38 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { drawDays, cellAt } from '/shell/day-grid.mjs';
 
-  // Every day of the war in Kyiv as one square: black when an air-raid alert sounded that day, the flag's blue when
-  // none did. Any width and height (?w=&h=), and pages when a cell size is chosen.
+  // Every day (or hour) of the war in Kyiv as one square: black when an air-raid alert sounded in it, the flag's blue
+  // when none did, the ground's grey where nothing was recorded. Any width and height (?w=&h=), pages when a square
+  // size is chosen. Hours run whole days a row and touch, with no gap.
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#262626';
   const FORMATS = [['story', 1080, 1920], ['post', 1080, 1350], ['square', 1080, 1080], ['wide', 1920, 1080]];
   const CELLS = [['fit', 0], ['60 px', 60], ['90 px', 90], ['135 px', 135]];
+  const UNITS = [['days', { group: 1 }], ['hours', { group: 24, gap: 0 }]];
   const q = new URLSearchParams(location.search);
   const qw = +q.get('w'), qh = +q.get('h');
   if (qw > 0 && qh > 0) FORMATS.unshift([`${qw} x ${qh}`, Math.round(qw), Math.round(qh)]);
 
-  const d = mount({ name: 'social/days', what: 'Every day of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
-    readout: { days: '', 'with an alert': '', without: '', square: 'px' }, index: '/social/', indexLabel: 'social' });
+  const d = mount({ name: 'social/days', what: 'Every day or hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
+    readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
   const h1 = d.head.querySelector('.pos-name');
   if (h1) h1.textContent = 'days';
 
   const data = await (await fetch('/resources/ua-alerts/kyiv-days.json')).json();
-  const days = data.days, raids = [...days].filter((c) => c === data.raid).length;
+  const count = (str) => [...str].filter((c) => c === data.raid).length;
+  const raids = { days: count(data.days), hours: count(data.hours) };
+  let unit = q.get('unit') === 'hours' ? 1 : 0;
+  const cellsOf = () => data[UNITS[unit][0]];
   let fmt = 0, cellAt0 = +q.get('cell') > 0 ? CELLS.findIndex(([, c]) => c === +q.get('cell')) : 0, page = 0, g = null;
   if (cellAt0 < 0) { CELLS.push([`${+q.get('cell')} px`, +q.get('cell')]); cellAt0 = CELLS.length - 1; }
   let cell = cellAt0;
 
   const canvas = el('canvas', 'sd-pic');
-  canvas.setAttribute('aria-label', `${days.length} days in Kyiv, ${raids} with an air-raid alert`);
+  canvas.setAttribute('aria-label', `${data.days.length} days in Kyiv, ${raids.days} with an air-raid alert`);
   const draw = () => {
     const [, w, h] = FORMATS[fmt];
     canvas.width = w; canvas.height = h;
-    g = drawDays(canvas.getContext('2d'), { days, w, h, page, minCell: CELLS[cell][1], colours: { 1: RAID, 0: QUIET }, bg: GROUND });
-    d.set('days', days.length); d.set('with an alert', raids); d.set('without', days.length - raids); d.set('square', g.cell);
+    g = drawDays(canvas.getContext('2d'), { days: cellsOf(), w, h, page, minCell: CELLS[cell][1], ...UNITS[unit][1], colours: { 1: RAID, 0: QUIET, 2: GROUND }, bg: GROUND });
+    d.set('days', data.days.length); d.set('hours', data.hours.length); d.set('with an alert', raids[UNITS[unit][0]]); d.set('square', g.cell);
     pages.options(Array.from({ length: g.pages }, (_, i) => `page ${i + 1} of ${g.pages}`), page);
     pages.el.hidden = g.pages < 2;
   };
@@ -71,11 +76,13 @@
   fmtPick.options(FORMATS.map(([n, w, h]) => (n.includes(' x ') ? n : `${n} ${w} x ${h}`)), fmt);
   const cellPick = createPicker({ what: 'square size', prev: () => choose(CELLS, (i) => (cell = i))(cell - 1), next: () => choose(CELLS, (i) => (cell = i))(cell + 1), onPick: choose(CELLS, (i) => (cell = i)) });
   cellPick.options(CELLS.map(([n]) => n), cell);
+  const unitPick = createPicker({ what: 'unit', prev: () => choose(UNITS, (i) => (unit = i))(unit - 1), next: () => choose(UNITS, (i) => (unit = i))(unit + 1), onPick: choose(UNITS, (i) => (unit = i)) });
+  unitPick.options(UNITS.map(([n]) => n), unit);
   const turn = (i) => { page = (i + g.pages) % g.pages; draw(); };
   const pages = createPicker({ what: 'page', prev: () => turn(page - 1), next: () => turn(page + 1), onPick: turn });
 
   const save = async (all = true) => {
-    const name = `kyiv-days-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}`;
+    const name = `kyiv-${UNITS[unit][0]}-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}`;
     const keep = page;
     for (const p of all ? Array.from({ length: g.pages }, (_, i) => i) : [page]) {
       page = p; draw();
@@ -91,14 +98,15 @@
   const dl = createButtonGroup({ buttons: [{ id: 'save', label: 'download', onPress: () => save(true) }] });
 
   const row = el('div', 'sd-row');
-  row.append(fmtPick.el, cellPick.el, pages.el, dl.el);
+  row.append(unitPick.el, fmtPick.el, cellPick.el, pages.el, dl.el);
   d.el.append(canvas, row);
   draw();
 
   window.__demo.days = { layout: () => g, page: () => page, canvas };
 
   if (SELFCHECK) {
-    d.assert('every day since 24 February 2022 is in the data', data.start === '2022-02-24' && days.length > 1700 && /^[01]+$/.test(days), `${days.length} days to ${data.end}`);
+    const days = data.days;
+    d.assert('every day since 24 February 2022 is in the data, and 24 hours of each', data.start === '2022-02-24' && days.length > 1700 && /^[01]+$/.test(days) && data.hours.length === 24 * days.length, `${days.length} days to ${data.end}`);
     const ctx = canvas.getContext('2d');
     const px = (k) => ctx.getImageData(cellAt(g, 0, k).x + 1, cellAt(g, 0, k).y + 1, 1, 1).data.slice(0, 3).join(',');
     const blueAt = days.indexOf('0'), blackAt = days.indexOf('1');
@@ -108,7 +116,9 @@
     const p1 = g.pages, lastPage = g.pages - 1;
     turn(lastPage);
     d.assert('a 90 px square pages the days, and the last page ends on the last day', p1 > 1 && cellAt(g, lastPage, days.length - 1 - lastPage * g.per).i === days.length - 1 && !pages.el.hidden, `${p1} pages of ${g.per}`);
-    cell = cellAt0; page = 0; draw();
+    cell = 0; unit = 1; page = 0; draw();
+    d.assert('the hours fit a story, whole days a row and no gap', g.pages === 1 && g.cols % 24 === 0 && g.gap === 0 && g.cols * g.rows >= data.hours.length, `${g.cols} x ${g.rows}, ${g.cell} px`);
+    cell = cellAt0; unit = q.get('unit') === 'hours' ? 1 : 0; page = 0; draw();
   }
   d.ready();
 </script>

@@ -4,14 +4,16 @@
 //   drawDays(ctx, { days: '1011...', w, h, page: 0, colours: { '1': '#000', '0': '#0057b7' }, bg: '#000' });
 
 /** The largest square cell that fits `n` cells in w x h with `gap` between them; with `minCell`, the cell stops
- *  there and the days run onto pages. `gap` is a fraction of the cell. */
-export function layoutDays({ n, w, h, gap = 0.12, minCell = 0 }) {
+ *  there and the days run onto pages. `gap` is a fraction of the cell. `group` keeps the column count a multiple of
+ *  it (24 for hours, so a row is whole days) when one fits. */
+export function layoutDays({ n, w, h, gap = 0.12, minCell = 0, group = 1 }) {
   if (!(n > 0 && w > 0 && h > 0)) return { cols: 0, rows: 0, cell: 0, gap: 0, per: 0, pages: 0, x0: 0, y0: 0 };
   // k cells of size c take k*c plus (k - 1) gaps of round(gap*c) whole pixels
   const gapOf = (c) => Math.round(gap * c), span = (k, c) => k * c + (k - 1) * gapOf(c);
   const fits = (len, k) => { let c = Math.floor(len / (k + gap * (k - 1))); while (span(k, c + 1) <= len) c++; while (c > 0 && span(k, c) > len) c--; return c; };
   let best = { cols: 0, rows: 0, cell: -1 };
-  for (let cols = 1; cols <= n; cols++) {
+  const step = group > 1 && n >= group && fits(w, group) > 0 ? group : 1;
+  for (let cols = step; cols <= n + step - 1; cols += step) {
     const rows = Math.ceil(n / cols), cell = Math.min(fits(w, cols), fits(h, rows));
     if (cell > best.cell || (cell === best.cell && cols * rows < best.cols * best.rows)) best = { cols, rows, cell };
   }
@@ -20,6 +22,7 @@ export function layoutDays({ n, w, h, gap = 0.12, minCell = 0 }) {
     cell = Math.floor(minCell);
     const g = gapOf(cell);
     cols = Math.max(1, Math.floor((w + g) / (cell + g)));
+    if (step > 1 && cols >= step) cols -= cols % step;
     rows = Math.max(1, Math.floor((h + g) / (cell + g)));
     // the last page keeps the full page's grid, so cells sit in the same place on every page
     per = cols * rows; pages = Math.ceil(n / per);
@@ -33,8 +36,8 @@ export function cellAt(g, page, k) {
 }
 
 /** Draws one page of `days` (a string, one character a day) at (x, y) in a w x h box. Answers the layout. */
-export function drawDays(ctx, { days, w, h, x = 0, y = 0, page = 0, gap, minCell, colours, bg }) {
-  const g = layoutDays({ n: days.length, w, h, gap, minCell });
+export function drawDays(ctx, { days, w, h, x = 0, y = 0, page = 0, gap, minCell, group, colours, bg }) {
+  const g = layoutDays({ n: days.length, w, h, gap, minCell, group });
   if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w, h); }
   for (let k = 0; k < g.per; k++) {
     const c = cellAt(g, page, k);
