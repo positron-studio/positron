@@ -43,6 +43,11 @@ for (const [n, w, h, o] of [[1712, 1080, 1920, {}], [41088, 1080, 1920, { group:
   const g = layoutDays({ n, w, h, edge: true, ...o });
   ok(`edge to edge: ${n} in ${w}x${h} ${JSON.stringify(o)}`, tiles(g, n, w, h) && (o.minCell ? g.pages > 1 : g.pages === 1 && g.cols * g.rows >= n) && (!o.group || g.cols % o.group === 0), `${g.cols}x${g.rows} cell ${g.cell}`);
 }
+for (const o of [{}, { group: 24, gap: 0 }]) {
+  const n = o.group ? 41088 : 1712, g = layoutDays({ n, w: 1080, h: 1920, edge: 'bottom', ...o });
+  const last = cellAt(g, 0, g.cols * g.rows - 1), top = layoutDays({ n, w: 1080, h: 1920, edge: true, ...o });
+  ok(`bottom edge: the last row ends on the bottom, the same grid as from the top ${JSON.stringify(o)}`, last.y + last.h === 1920 && g.y0 > 0 && g.cols === top.cols && g.rows === top.rows, `y0 ${g.y0}`);
+}
 ok('NEGATIVE CONTROL: the centred grid is not edge to edge', !tiles(story, 1712, 1080, 1920));
 ok('NEGATIVE CONTROL: nothing to lay out is no grid', layoutDays({ n: 0, w: 100, h: 100 }).cols === 0);
 console.log(fails ? `${fails} FAILED` : 'all ok');
