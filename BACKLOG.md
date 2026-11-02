@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**/social/days/: every day of the war in Kyiv as a square, black with an alert, flag blue without**~~ (2026-11-02). Asked: *"create a page where you haev a ig story like canvas with w and h divided for days in since beggiing of war and days without are ukrainian flag blue and raid ones black. its a reusable pattern generation that should fit any w and h and also support pagign"*. demo/shell/day-grid.mjs (layout and draw, day-grid-test.mjs), data from research/ua-alerts/days.py. DONE 2026-11-02.
+
 - ~~**Ukrainian alert data for the KCMD gate**~~ (2026-11-02). Asked: *"i need to get ukrainian data first"*. History fetched and measured: research/ua-alerts/ (README, kyiv.py; CSVs gitignored). DONE 2026-11-02. Still open: the two live API keys. alerts.in.ua requested by the owner 2026-11-02 (reply usually within 24 h, at most 7 days; silence after 7 days means refused); api.ukrainealarm.com form not sent yet, and which source rule the gate uses (union or official only), to decide with KCMD.
 
 - ~~**/radio1965/ closed: no Play, no Feedback, a closing line**~~ (2026-11-02). Asked: *"stop radio64 channel. the web page of it (visualization). rm the play and feedback button. the text: 'Sound archives were processed, mixed and visualized in Oct 2027. See you in next installations'"*, the year 2026 on asking. The station was already off (7 day cap). DONE 2026-11-02, BUILD `5165d1b0-102528-577b`.

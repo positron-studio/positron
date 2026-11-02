@@ -180,6 +180,7 @@ const FILES = [
   // ui.c as WebAssembly for the OLED blocks. A fetched file is invisible to the import check.
   // why: lessons/workers-view.md#oled
   ['demo/resources/pico/oled-ui.wasm', 'resources/pico/oled-ui.wasm'],
+  ['demo/resources/ua-alerts/kyiv-days.json', 'resources/ua-alerts/kyiv-days.json'],
 
   // Gabarito for /weight/, OFL 1.1, two subsets because Estonian spans latin and latin-ext (S and Z
   // caron); a missing one fails per glyph, silently. The page uses aliases, so a swap is local.
