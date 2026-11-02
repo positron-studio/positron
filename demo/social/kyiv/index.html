@@ -5,7 +5,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>POSITRON social/hours</title>
+<title>POSITRON social/kyiv</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   .sd-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
@@ -26,7 +26,7 @@
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
   const FORMATS = [['IG story', 1080, 1920], ['OG card', 1200, 630]];
 
-  const d = mount({ name: 'social/hours', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
+  const d = mount({ name: 'social/kyiv', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
     readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
   const h1 = d.head.querySelector('.pos-name');
   if (h1) h1.textContent = 'Every hour';
