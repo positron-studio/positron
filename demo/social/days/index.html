@@ -9,8 +9,6 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   .sd-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-  /* .pos-pick sets display, which beats the browser's own [hidden] */
-  .sd-row > [hidden] { display: none; }
   /* the picture at its own shape, as tall as a screen allows */
   .sd-pic { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; border: 1px solid var(--line); border-radius: var(--r, 4px); }
 </style>
@@ -20,91 +18,92 @@
   import { createPicker } from '/shell/picker.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { drawDays, cellAt } from '/shell/day-grid.mjs';
+  import { font } from '/shell/reel.mjs';
 
-  // Every day (or hour) of the war in Kyiv as one square: black when an air-raid alert sounded in it, the flag's blue
-  // when none did, the ground's grey where nothing was recorded. Any width and height (?w=&h=), pages when a square
-  // size is chosen. Hours run whole days a row and touch, with no gap. Edge to edge, standing on the bottom.
-  const RAID = '#000000', QUIET = '#0057b7', GROUND = '#262626';
-  const FORMATS = [['story', 1080, 1920], ['post', 1080, 1350], ['square', 1080, 1080], ['wide', 1920, 1080]];
-  const CELLS = [['fit', 0], ['60 px', 60], ['90 px', 90], ['135 px', 135]];
-  const UNITS = [['days', { group: 1 }], ['hours', { group: 24, gap: 0 }]];
-  const q = new URLSearchParams(location.search);
-  const qw = +q.get('w'), qh = +q.get('h');
-  if (qw > 0 && qh > 0) FORMATS.unshift([`${qw} x ${qh}`, Math.round(qw), Math.round(qh)]);
+  // Every hour of the war in Kyiv as one square, a week a row: black when an air-raid alert sounded in it, the flag's
+  // blue when none did, the ground where nothing was recorded. Fitted whole into an Instagram story or a share card,
+  // edge to edge and standing on the bottom, with the title in the room above.
+  const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
+  const FORMATS = [['IG story', 1080, 1920], ['OG card', 1200, 630]];
 
-  const d = mount({ name: 'social/days', what: 'Every day or hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
+  const d = mount({ name: 'social/days', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
     readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
   const h1 = d.head.querySelector('.pos-name');
   if (h1) h1.textContent = 'days';
 
   const data = await (await fetch('/resources/ua-alerts/kyiv-days.json')).json();
-  const count = (str) => [...str].filter((c) => c === data.raid).length;
-  const raids = { days: count(data.days), hours: count(data.hours) };
-  let unit = q.get('unit') === 'hours' ? 1 : 0;
-  const cellsOf = () => data[UNITS[unit][0]];
-  let fmt = 0, cellAt0 = +q.get('cell') > 0 ? CELLS.findIndex(([, c]) => c === +q.get('cell')) : 0, page = 0, g = null;
-  if (cellAt0 < 0) { CELLS.push([`${+q.get('cell')} px`, +q.get('cell')]); cellAt0 = CELLS.length - 1; }
-  let cell = cellAt0;
+  const sans = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
+  await Promise.all([font(600, 64), `400 32px ${sans}`].map((f) => document.fonts.load(f).catch(() => {})));
+  const hours = data.hours, alerts = [...hours].filter((c) => c === data.raid).length;
+  let fmt = 0, g = null;
 
   const canvas = el('canvas', 'sd-pic');
-  canvas.setAttribute('aria-label', `${data.days.length} days in Kyiv, ${raids.days} with an air-raid alert`);
+  canvas.setAttribute('aria-label', `${hours.length} hours in Kyiv, ${alerts} with an air-raid alert`);
+  // The title band above the grid: what it is, then the dates and what the colours mean, wrapped to the width.
+  const when = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const wrap = (ctx, text, width) => text.split(' ').reduce((ls, word) => {
+    const t = ls.at(-1) ? `${ls.at(-1)} ${word}` : word;
+    if (ctx.measureText(t).width > width && ls.at(-1)) ls.push(word); else ls[ls.length - 1] = t;
+    return ls;
+  }, ['']);
+  function title(ctx, w, room) {
+    const k = Math.min(w, room * 3.6) / 1080, x = Math.round(72 * k), TS = Math.round(64 * k), SS = Math.round(32 * k), LH = Math.round(44 * k);
+    const say = `Every hour, a week a row, from ${when(data.start)} to ${when(data.end)}. Black when the sirens sounded, blue when they did not.`;
+    ctx.font = `400 ${SS}px ${sans}`;
+    const lines = wrap(ctx, say, w - 2 * x), tall = TS + Math.round(28 * k) + lines.length * LH;
+    let y = Math.round((room - tall) / 2) + TS;
+    ctx.fillStyle = INK; ctx.font = font(600, TS); ctx.fillText('Air-raid alerts in Kyiv', x, y);
+    y += Math.round(28 * k);
+    ctx.fillStyle = DIM; ctx.font = `400 ${SS}px ${sans}`;
+    for (const ln of lines) { y += LH; ctx.fillText(ln, x, y - Math.round(12 * k)); }
+  }
   const draw = () => {
     const [, w, h] = FORMATS[fmt];
     canvas.width = w; canvas.height = h;
-    g = drawDays(canvas.getContext('2d'), { days: cellsOf(), w, h, page, minCell: CELLS[cell][1], ...UNITS[unit][1], edge: 'bottom', colours: { 1: RAID, 0: QUIET, 2: GROUND }, bg: GROUND });
-    d.set('days', data.days.length); d.set('hours', data.hours.length); d.set('with an alert', raids[UNITS[unit][0]]); d.set('square', g.cell);
-    pages.options(Array.from({ length: g.pages }, (_, i) => `page ${i + 1} of ${g.pages}`), page);
-    pages.el.hidden = g.pages < 2;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = GROUND; ctx.fillRect(0, 0, w, h);
+    // the band takes about a sixth of a story's height and a fifth of a card's, whatever the grid leaves above it besides
+    const band = Math.round(w > h ? h * 0.22 : Math.min(w, h * 0.5625) * 0.3);
+    g = drawDays(ctx, { days: hours, w, h: h - band, y: band, group: 24, gap: 0, edge: 'bottom', colours: { 1: RAID, 0: QUIET, 2: GROUND } });
+    g = { ...g, y0: g.y0 + band };
+    title(ctx, w, g.y0);
+    d.set('days', data.days.length); d.set('hours', hours.length); d.set('with an alert', alerts); d.set('square', g.cell);
   };
 
-  const choose = (list, set) => (i) => { set((i + list.length) % list.length); page = 0; draw(); };
-  const fmtPick = createPicker({ what: 'size', prev: () => choose(FORMATS, (i) => (fmt = i))(fmt - 1), next: () => choose(FORMATS, (i) => (fmt = i))(fmt + 1), onPick: choose(FORMATS, (i) => (fmt = i)) });
-  fmtPick.options(FORMATS.map(([n, w, h]) => (n.includes(' x ') ? n : `${n} ${w} x ${h}`)), fmt);
-  const cellPick = createPicker({ what: 'square size', prev: () => choose(CELLS, (i) => (cell = i))(cell - 1), next: () => choose(CELLS, (i) => (cell = i))(cell + 1), onPick: choose(CELLS, (i) => (cell = i)) });
-  cellPick.options(CELLS.map(([n]) => n), cell);
-  const unitPick = createPicker({ what: 'unit', prev: () => choose(UNITS, (i) => (unit = i))(unit - 1), next: () => choose(UNITS, (i) => (unit = i))(unit + 1), onPick: choose(UNITS, (i) => (unit = i)) });
-  unitPick.options(UNITS.map(([n]) => n), unit);
-  const turn = (i) => { page = (i + g.pages) % g.pages; draw(); };
-  const pages = createPicker({ what: 'page', prev: () => turn(page - 1), next: () => turn(page + 1), onPick: turn });
-
-  const save = async (all = true) => {
-    const name = `kyiv-${UNITS[unit][0]}-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}`;
-    const keep = page;
-    for (const p of all ? Array.from({ length: g.pages }, (_, i) => i) : [page]) {
-      page = p; draw();
-      const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
-      const a = el('a', '', '', { href: URL.createObjectURL(blob), download: g.pages > 1 ? `${name}-${p + 1}.png` : `${name}.png` });
-      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-      if (all) await new Promise((r) => setTimeout(r, 300));
-    }
-    page = keep; draw();
-    d.log(`saved ${name}${all && g.pages > 1 ? `, ${g.pages} pictures` : ''}`);
+  const names = FORMATS.map(([n, w, h]) => `${n} ${w} x ${h}`);
+  const pick = (i) => { fmt = (i + FORMATS.length) % FORMATS.length; fmtPick.show(names[fmt], fmt); draw(); };
+  const fmtPick = createPicker({ what: 'size', prev: () => pick(fmt - 1), next: () => pick(fmt + 1), onPick: pick });
+  fmtPick.options(names, fmt);
+  const save = async () => {
+    const name = `kyiv-alerts-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}`;
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    const a = el('a', '', '', { href: URL.createObjectURL(blob), download: `${name}.png` });
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    d.log(`saved ${name}`);
   };
-  // every page of the current size, one file each
-  const dl = createButtonGroup({ buttons: [{ id: 'save', label: 'download', onPress: () => save(true) }] });
+  const dl = createButtonGroup({ buttons: [{ id: 'save', label: 'download', onPress: save }] });
 
   const row = el('div', 'sd-row');
-  row.append(unitPick.el, fmtPick.el, cellPick.el, pages.el, dl.el);
+  row.append(fmtPick.el, dl.el);
   d.el.append(canvas, row);
   draw();
 
-  window.__demo.days = { layout: () => g, page: () => page, canvas };
+  window.__demo.days = { layout: () => g, size: pick, canvas };
 
   if (SELFCHECK) {
-    const days = data.days;
-    d.assert('every day since 24 February 2022 is in the data, and 24 hours of each', data.start === '2022-02-24' && days.length > 1700 && /^[01]+$/.test(days) && data.hours.length === 24 * days.length, `${days.length} days to ${data.end}`);
+    d.assert('every day since 24 February 2022 is in the data, 24 hours of each', data.start === '2022-02-24' && data.days.length > 1700 && /^[012]+$/.test(hours) && hours.length === 24 * data.days.length, `${data.days.length} days to ${data.end}`);
     const ctx = canvas.getContext('2d');
-    const px = (k) => ctx.getImageData(cellAt(g, 0, k).x + 1, cellAt(g, 0, k).y + 1, 1, 1).data.slice(0, 3).join(',');
-    const blueAt = days.indexOf('0'), blackAt = days.indexOf('1');
-    d.assert('a quiet day is blue and an alert day black', px(blueAt) === '0,87,183' && px(blackAt) === '0,0,0', `${px(blueAt)} at day ${blueAt + 1}, ${px(blackAt)} at day ${blackAt + 1}`);
-    d.assert('the story fits every day on one page', g.pages === 1 && g.cols * g.rows >= days.length, `${g.cols} x ${g.rows}, ${g.cell} px`);
-    cell = CELLS.findIndex(([, c]) => c === 90); page = 0; draw();
-    const p1 = g.pages, lastPage = g.pages - 1;
-    turn(lastPage);
-    d.assert('a 90 px square pages the days, and the last page ends on the last day', p1 > 1 && cellAt(g, lastPage, days.length - 1 - lastPage * g.per).i === days.length - 1 && !pages.el.hidden, `${p1} pages of ${g.per}`);
-    cell = 0; unit = 1; page = 0; draw();
-    d.assert('the hours fit a story, whole days a row and no gap', g.pages === 1 && g.cols % 24 === 0 && g.gap === 0 && g.cols * g.rows >= data.hours.length, `${g.cols} x ${g.rows}, ${g.cell} px`);
-    cell = cellAt0; unit = q.get('unit') === 'hours' ? 1 : 0; page = 0; draw();
+    const px = (k) => { const c = cellAt(g, 0, k); return ctx.getImageData(c.x + 1, c.y + 1, 1, 1).data.slice(0, 3).join(','); };
+    const blueAt = hours.indexOf('0'), blackAt = hours.indexOf('1');
+    d.assert('a quiet hour is blue and an alert hour black', px(blueAt) === '0,87,183' && px(blackAt) === '0,0,0', `${px(blueAt)} at hour ${blueAt + 1}, ${px(blackAt)} at hour ${blackAt + 1}`);
+    for (const [i, [n, w, h]] of FORMATS.entries()) {
+      pick(i);
+      const last = cellAt(g, 0, g.cols * g.rows - 1);
+      d.assert(`the size picker names the ${n}`, fmtPick.el.textContent.startsWith(`‹${names[i]}`) && fmtPick.select.selectedIndex === i, fmtPick.el.textContent.slice(0, 24));
+      d.assert(`the ${n} holds every hour, whole days a row, edge to edge on the bottom`, g.pages === 1 && g.cols % 24 === 0 && g.gap === 0 && g.cols * g.rows >= hours.length
+        && last.x + last.w === w && last.y + last.h === h && g.y0 > 0, `${g.cols} x ${g.rows}, ${g.cell} px, title room ${g.y0} px`);
+    }
+    pick(0);
   }
   d.ready();
 </script>
