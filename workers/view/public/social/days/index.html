@@ -37,7 +37,7 @@
 
   // Every day (or hour) of the war in Kyiv as one square: black when an air-raid alert sounded in it, the flag's blue
   // when none did, the ground's grey where nothing was recorded. Any width and height (?w=&h=), pages when a square
-  // size is chosen. Hours run whole days a row and touch, with no gap. Edge to edge from the top.
+  // size is chosen. Hours run whole days a row and touch, with no gap. Edge to edge, standing on the bottom.
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#262626';
   const FORMATS = [['story', 1080, 1920], ['post', 1080, 1350], ['square', 1080, 1080], ['wide', 1920, 1080]];
   const CELLS = [['fit', 0], ['60 px', 60], ['90 px', 90], ['135 px', 135]];
@@ -65,7 +65,7 @@
   const draw = () => {
     const [, w, h] = FORMATS[fmt];
     canvas.width = w; canvas.height = h;
-    g = drawDays(canvas.getContext('2d'), { days: cellsOf(), w, h, page, minCell: CELLS[cell][1], ...UNITS[unit][1], edge: true, colours: { 1: RAID, 0: QUIET, 2: GROUND }, bg: GROUND });
+    g = drawDays(canvas.getContext('2d'), { days: cellsOf(), w, h, page, minCell: CELLS[cell][1], ...UNITS[unit][1], edge: 'bottom', colours: { 1: RAID, 0: QUIET, 2: GROUND }, bg: GROUND });
     d.set('days', data.days.length); d.set('hours', data.hours.length); d.set('with an alert', raids[UNITS[unit][0]]); d.set('square', g.cell);
     pages.options(Array.from({ length: g.pages }, (_, i) => `page ${i + 1} of ${g.pages}`), page);
     pages.el.hidden = g.pages < 2;
