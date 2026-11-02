@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="days">
+<meta property="og:description" content="Every day of the war in Kyiv as a square, black with an air-raid alert and blue without, at any size, in pages">
+<meta property="og:url" content="https://positron.studio/social/days/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>POSITRON social/days</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .sd-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  /* .pos-pick sets display, which beats the browser's own [hidden] */
+  .sd-row > [hidden] { display: none; }
+  /* the picture at its own shape, as tall as a screen allows */
+  .sd-pic { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; border: 1px solid var(--line); border-radius: var(--r, 4px); }
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { drawDays, cellAt } from '/shell/day-grid.mjs';
+
+  // Every day of the war in Kyiv as one square: black when an air-raid alert sounded that day, the flag's blue when
+  // none did. Any width and height (?w=&h=), and pages when a cell size is chosen.
+  const RAID = '#000000', QUIET = '#0057b7', GROUND = '#000000';
+  const FORMATS = [['story', 1080, 1920], ['post', 1080, 1350], ['square', 1080, 1080], ['wide', 1920, 1080]];
+  const CELLS = [['fit', 0], ['60 px', 60], ['90 px', 90], ['135 px', 135]];
+  const q = new URLSearchParams(location.search);
+  const qw = +q.get('w'), qh = +q.get('h');
+  if (qw > 0 && qh > 0) FORMATS.unshift([`${qw} x ${qh}`, Math.round(qw), Math.round(qh)]);
+
+  const d = mount({ name: 'social/days', what: 'Every day of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
+    readout: { days: '', 'with an alert': '', without: '', square: 'px' }, index: '/social/', indexLabel: 'social' });
+  const h1 = d.head.querySelector('.pos-name');
+  if (h1) h1.textContent = 'days';
+
+  const data = await (await fetch('/resources/ua-alerts/kyiv-days.json')).json();
+  const days = data.days, raids = [...days].filter((c) => c === data.raid).length;
+  let fmt = 0, cellAt0 = +q.get('cell') > 0 ? CELLS.findIndex(([, c]) => c === +q.get('cell')) : 0, page = 0, g = null;
+  if (cellAt0 < 0) { CELLS.push([`${+q.get('cell')} px`, +q.get('cell')]); cellAt0 = CELLS.length - 1; }
+  let cell = cellAt0;
+
+  const canvas = el('canvas', 'sd-pic');
+  canvas.setAttribute('aria-label', `${days.length} days in Kyiv, ${raids} with an air-raid alert`);
+  const draw = () => {
+    const [, w, h] = FORMATS[fmt];
+    canvas.width = w; canvas.height = h;
+    g = drawDays(canvas.getContext('2d'), { days, w, h, page, minCell: CELLS[cell][1], colours: { 1: RAID, 0: QUIET }, bg: GROUND });
+    d.set('days', days.length); d.set('with an alert', raids); d.set('without', days.length - raids); d.set('square', g.cell);
+    pages.options(Array.from({ length: g.pages }, (_, i) => `page ${i + 1} of ${g.pages}`), page);
+    pages.el.hidden = g.pages < 2;
+  };
+
+  const choose = (list, set) => (i) => { set((i + list.length) % list.length); page = 0; draw(); };
+  const fmtPick = createPicker({ what: 'size', prev: () => choose(FORMATS, (i) => (fmt = i))(fmt - 1), next: () => choose(FORMATS, (i) => (fmt = i))(fmt + 1), onPick: choose(FORMATS, (i) => (fmt = i)) });
+  fmtPick.options(FORMATS.map(([n, w, h]) => (n.includes(' x ') ? n : `${n} ${w} x ${h}`)), fmt);
+  const cellPick = createPicker({ what: 'square size', prev: () => choose(CELLS, (i) => (cell = i))(cell - 1), next: () => choose(CELLS, (i) => (cell = i))(cell + 1), onPick: choose(CELLS, (i) => (cell = i)) });
+  cellPick.options(CELLS.map(([n]) => n), cell);
+  const turn = (i) => { page = (i + g.pages) % g.pages; draw(); };
+  const pages = createPicker({ what: 'page', prev: () => turn(page - 1), next: () => turn(page + 1), onPick: turn });
+
+  const save = async (all = true) => {
+    const name = `kyiv-days-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}`;
+    const keep = page;
+    for (const p of all ? Array.from({ length: g.pages }, (_, i) => i) : [page]) {
+      page = p; draw();
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+      const a = el('a', '', '', { href: URL.createObjectURL(blob), download: g.pages > 1 ? `${name}-${p + 1}.png` : `${name}.png` });
+      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      if (all) await new Promise((r) => setTimeout(r, 300));
+    }
+    page = keep; draw();
+    d.log(`saved ${name}${all && g.pages > 1 ? `, ${g.pages} pictures` : ''}`);
+  };
+  // every page of the current size, one file each
+  const dl = createButtonGroup({ buttons: [{ id: 'save', label: 'download', onPress: () => save(true) }] });
+
+  const row = el('div', 'sd-row');
+  row.append(fmtPick.el, cellPick.el, pages.el, dl.el);
+  d.el.append(canvas, row);
+  draw();
+
+  window.__demo.days = { layout: () => g, page: () => page, canvas };
+
+  if (SELFCHECK) {
+    d.assert('every day since 24 February 2022 is in the data', data.start === '2022-02-24' && days.length > 1700 && /^[01]+$/.test(days), `${days.length} days to ${data.end}`);
+    const ctx = canvas.getContext('2d');
+    const px = (k) => ctx.getImageData(cellAt(g, 0, k).x + 1, cellAt(g, 0, k).y + 1, 1, 1).data.slice(0, 3).join(',');
+    const blueAt = days.indexOf('0'), blackAt = days.indexOf('1');
+    d.assert('a quiet day is blue and an alert day black', px(blueAt) === '0,87,183' && px(blackAt) === '0,0,0', `${px(blueAt)} at day ${blueAt + 1}, ${px(blackAt)} at day ${blackAt + 1}`);
+    d.assert('the story fits every day on one page', g.pages === 1 && g.cols * g.rows >= days.length, `${g.cols} x ${g.rows}, ${g.cell} px`);
+    cell = CELLS.findIndex(([, c]) => c === 90); page = 0; draw();
+    const p1 = g.pages, lastPage = g.pages - 1;
+    turn(lastPage);
+    d.assert('a 90 px square pages the days, and the last page ends on the last day', p1 > 1 && cellAt(g, lastPage, days.length - 1 - lastPage * g.per).i === days.length - 1 && !pages.el.hidden, `${p1} pages of ${g.per}`);
+    cell = cellAt0; page = 0; draw();
+  }
+  d.ready();
+</script>
