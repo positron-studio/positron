@@ -5,7 +5,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>POSITRON social/days</title>
+<title>POSITRON social/hours</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   .sd-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
@@ -26,10 +26,10 @@
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
   const FORMATS = [['IG story', 1080, 1920], ['OG card', 1200, 630]];
 
-  const d = mount({ name: 'social/days', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
+  const d = mount({ name: 'social/hours', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
     readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
   const h1 = d.head.querySelector('.pos-name');
-  if (h1) h1.textContent = 'days';
+  if (h1) h1.textContent = 'Every hour';
 
   const data = await (await fetch('/resources/ua-alerts/kyiv-days.json')).json();
   const sans = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
@@ -48,11 +48,11 @@
   }, ['']);
   function title(ctx, w, room) {
     const k = Math.min(w, room * 3.6) / 1080, x = Math.round(72 * k), TS = Math.round(64 * k), SS = Math.round(32 * k), LH = Math.round(44 * k);
-    const say = `Every hour, a week a row, from ${when(data.start)} to ${when(data.end)}. Black when the sirens sounded, blue when they did not.`;
+    const say = `Every hour, a week a row, from ${when(data.start)} to ${when(data.end)}.`;
     ctx.font = `400 ${SS}px ${sans}`;
     const lines = wrap(ctx, say, w - 2 * x), tall = TS + Math.round(28 * k) + lines.length * LH;
     let y = Math.round((room - tall) / 2) + TS;
-    ctx.fillStyle = INK; ctx.font = font(600, TS); ctx.fillText('Air-raid alerts in Kyiv', x, y);
+    ctx.fillStyle = INK; ctx.font = font(600, TS); ctx.fillText('Air raids in Kyiv', x, y);
     y += Math.round(28 * k);
     ctx.fillStyle = DIM; ctx.font = `400 ${SS}px ${sans}`;
     for (const ln of lines) { y += LH; ctx.fillText(ln, x, y - Math.round(12 * k)); }
@@ -88,7 +88,7 @@
   d.el.append(canvas, row);
   draw();
 
-  window.__demo.days = { layout: () => g, size: pick, canvas };
+  window.__demo.hours = { layout: () => g, size: pick, canvas };
 
   if (SELFCHECK) {
     d.assert('every day since 24 February 2022 is in the data, 24 hours of each', data.start === '2022-02-24' && data.days.length > 1700 && /^[012]+$/.test(hours) && hours.length === 24 * data.days.length, `${data.days.length} days to ${data.end}`);

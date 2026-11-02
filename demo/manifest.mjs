@@ -328,7 +328,7 @@ export const DEMOS = [
   { name: 'radio1965', title: 'Radio1965', group: 'radio', act: 0, created: '2026-10-23', built: true,
     one: 'the scan landscape, full screen, after the radio1965 broadcast',
     tags: ['WebGL2', 'WebAudio'] },
-  { name: 'social/days', title: 'days', group: 'kit', act: 0, created: '2026-11-02', built: true, unlisted: true,
+  { name: 'social/hours', title: 'Every hour', group: 'kit', act: 0, created: '2026-11-02', built: true, unlisted: true,
     one: 'every hour of the war in Kyiv as a square, black with an air-raid alert and blue without, for a story or a share card',
     tags: ['shell', 'no network'] },
   { name: 'social/radio', title: 'radio', group: 'kit', act: 0, created: '2026-10-14', built: true, unlisted: true,
