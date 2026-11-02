@@ -1,5 +1,7 @@
 ## Open
 
+- **Ambient work, step 1: a sketch in the browser** (2026-11-02). Asked: *"start ambient work. note that i might have noise source: real radio"*, *"constrol via mk425c"*, then (answers) *"Browser now, Pi later"*, the radio's route *"Not decided yet"*, and *"its not connected"* (the MK-425C, plugged in nowhere today). plans/plan-ambient-piece.md section 10 step 2 (drone and two bentEcho, then reverb and limiter) as a page, sclang-lite programs so the same code moves to the Pi's scsynth later; MIDI from the MK-425C by name when it is plugged in, on-screen keys and knobs meanwhile; any audio input as the radio (getUserMedia, a device picker), opened on a press.
+
 - **A 2.4" ILI9341 TFT on the Pi** (2026-11-02). Asked: *"can pi drive https://www.oomipood.ee/product/tft_display_24_320x240_rgb_33v_spi_ttl"*, *"write to plan"*, *"how many colors?"* (65K, RGB565). PLAN DONE: plans/plan-pi-tft.md (yes; SPI0, pins clear of the OLED; route B, the board pushes RGB565 frames; 20 to 30 fps inferred). Not bought.
 
 - ~~**/social/days/: every day of the war in Kyiv as a square, black with an alert, flag blue without**~~ (2026-11-02). Asked: *"create a page where you haev a ig story like canvas with w and h divided for days in since beggiing of war and days without are ukrainian flag blue and raid ones black. its a reusable pattern generation that should fit any w and h and also support pagign"*. demo/shell/day-grid.mjs (layout and draw, day-grid-test.mjs), data from research/ua-alerts/days.mjs. DONE 2026-11-02.
