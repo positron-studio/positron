@@ -114,7 +114,53 @@ of `{ x, y, pressure, at }` until a `pointer` medium exists.
 5. Touch, if the chip is an XPT2046.
 6. Only if route B is too slow or too much code: route A, with the console kept off the panel.
 
-## 6. Open
+## 6. Bending and glitching it
+
+Asked 2026-11-02: *"circuit bending / glitching etc?"*. The ILI9341 is a good subject because most of its glitches are
+**commands**, not solder: the panel does exactly what it is told, so a wrong instruction makes a picture nobody drew
+and nothing breaks. `plan-frames.md` lists these bends for this chip; `plan-bends.md` sets the rules (bends work on
+parsed messages, consent is checked again after the bend, everything random takes a seed). All INFERRED from the
+ILI9341 command set; none tried.
+
+### 6.1 Command bends (software, reversible, no risk)
+
+| bend | what it does on screen | how |
+| --- | --- | --- |
+| window off by n | the picture shears diagonally, rows wrap into the next | CASET or PASET a few pixels wider or narrower than the frame sent |
+| byte swap | colours turn to garbage while the shapes stay | send RGB565 with the two bytes of each pixel swapped |
+| pixel format swap | 16-bit data read as 18-bit, or back: colour and stride both wrong | COLMOD 0x66 while sending 2 bytes a pixel |
+| MADCTL flips | mirror, rotate, swap rows and columns, BGR for RGB, mid-frame | MADCTL between bands of one frame |
+| vertical scroll | the whole picture slides and wraps in hardware, for free | VSCRDEF and VSCRSADD, moved every frame |
+| gamma tables | contrast and colour curves bend, solarise, posterise | write odd values to the positive and negative gamma tables |
+| tearing | half old frame, half new, the seam travelling | write without waiting for TE, at a rate near the refresh |
+| stale RAM | parts of an old frame survive | update only some windows (route B's partial writes, used wrongly on purpose) |
+| sleep, invert, idle | the panel's own modes: inverted colours, 8-colour idle mode | INVON, IDMON |
+
+Each is a transform on the `pi-1:tft:video-in` link or a `value-in` on the node, seeded, and **reset by sending the
+init sequence again**, which is the undo for all of them.
+
+### 6.2 Signal bends (still software, a little risk to the picture only)
+
+- SPI clock past what the wires hold: bit errors become coloured noise along the rows. Find the clock where it starts
+  (section 5 step 3 finds the clean ceiling anyway) and sit just above it.
+- Dropping or repeating bytes in the stream: everything after the fault shifts by a pixel, the same tear as a weak
+  signal, close to what `weak.c` draws on purpose.
+- Data-command (DC) toggled at the wrong moment: pixel bytes read as commands, which can change any of 6.1 at random.
+  Bounded by the reset in 6.1, but it can also put the panel to sleep; a RESET pulse brings it back.
+
+### 6.3 Physical bends (solderless only, owner's rule)
+
+- The backlight on PWM: flicker, strobe, a beat against the camera on `plan-screens-odd.md`'s camera feedback.
+- Long or loose jumper wires on SCK and MOSI: real noise instead of simulated. Cheap and reversible.
+- Not here: shorting pins, touching the board with fingers, 5 V on a GPIO. The Pi is the expensive half, and 3.3 V
+  logic does not survive a mistake.
+
+### 6.4 Order
+
+After section 5 step 4: MADCTL and vertical scroll first (two bytes each, very visible), then window shear and byte
+swap, then gamma; signal bends once the clean clock is measured.
+
+## 7. Open
 
 - Which touch chip, and whether the backlight pin is switched.
 - The real SPI clock this module holds on jumper wires.
