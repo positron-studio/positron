@@ -60,9 +60,12 @@
     if (ctx.measureText(t).width > width && ls.at(-1)) ls.push(word); else ls[ls.length - 1] = t;
     return ls;
   }, ['']);
-  function title(ctx, w, room) {
+  // what one row holds, said in words: 168 hours is a week, 336 two weeks
+  const rowIs = (cols) => { const days = cols / 24, weeks = days / 7, n = ['', 'one', 'two', 'three', 'four'];
+    return Number.isInteger(weeks) && n[weeks] ? `${n[weeks]} week${weeks > 1 ? 's' : ''}` : `${days} days`; };
+  function title(ctx, w, room, cols) {
     const k = Math.min(w, room * 3.6) / 1080, x = Math.round(72 * k), TS = Math.round(64 * k), SS = Math.round(32 * k), LH = Math.round(44 * k);
-    const say = `Every hour, a week a row, from ${when(data.start)} to ${when(data.end)}.`;
+    const say = `Each square is an hour and each row ${rowIs(cols)}, from ${when(data.start)} to ${when(data.end)}.`;
     ctx.font = `400 ${SS}px ${sans}`;
     const lines = wrap(ctx, say, w - 2 * x), tall = TS + Math.round(28 * k) + lines.length * LH;
     let y = Math.round((room - tall) / 2) + TS;
@@ -80,7 +83,7 @@
     const band = Math.round(w > h ? h * 0.22 : Math.min(w, h * 0.5625) * 0.3);
     g = drawDays(ctx, { days: hours, w, h: h - band, y: band, group: 24, gap: 0, edge: 'bottom', colours: { 1: RAID, 0: QUIET, 2: GROUND } });
     g = { ...g, y0: g.y0 + band };
-    title(ctx, w, g.y0);
+    title(ctx, w, g.y0, g.cols);
     d.set('days', data.days.length); d.set('hours', hours.length); d.set('with an alert', alerts); d.set('square', g.cell);
   };
 
@@ -114,6 +117,7 @@
       pick(i);
       const last = cellAt(g, 0, g.cols * g.rows - 1);
       d.assert(`the size picker names the ${n}`, fmtPick.el.textContent.startsWith(`‹${names[i]}`) && fmtPick.select.selectedIndex === i, fmtPick.el.textContent.slice(0, 24));
+      d.assert(`the ${n} says what a row is`, rowIs(g.cols) === (g.cols === 168 ? 'one week' : g.cols === 336 ? 'two weeks' : `${g.cols / 24} days`), rowIs(g.cols));
       d.assert(`the ${n} holds every hour, whole days a row, edge to edge on the bottom`, g.pages === 1 && g.cols % 24 === 0 && g.gap === 0 && g.cols * g.rows >= hours.length
         && last.x + last.w === w && last.y + last.h === h && g.y0 > 0, `${g.cols} x ${g.rows}, ${g.cell} px, title room ${g.y0} px`);
     }
