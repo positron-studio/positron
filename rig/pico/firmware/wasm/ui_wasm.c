@@ -63,3 +63,26 @@ EXPORT int footer_h(void) { return ui_footer_h(); }
  * does with its four words. */
 EXPORT int keys_right(unsigned hot, int top) { return ui_keys_right(labels(), hot, labels(), top); }
 EXPORT int banner_fit(int y, int h, int n) { return ui_banner_fit(y, h, labels(), n); }
+
+/* --- fx.c: feedback and bends, on the same frame ------------------------ */
+#include "../fx.h"
+
+EXPORT void fx_seed_(unsigned s) { fx_seed(s); }
+EXPORT void fx_feedback_(int dx, int dy, int zoom, int turn, int keep, int mode) { fx_feedback(frame, dx, dy, zoom, turn, keep, mode); }
+EXPORT void fx_grey_(int dx, int dy, int zoom, int turn, int decay, int dither) { fx_feedback_grey(frame, dx, dy, zoom, turn, decay, dither); }
+EXPORT void fx_life_(unsigned birth, unsigned survive) { fx_life(frame, birth, survive); }
+EXPORT void fx_mirror_(int h, int v) { fx_mirror(frame, h, v); }
+EXPORT void fx_bitrot_(int per_million) { fx_bitrot(frame, per_million); }
+EXPORT void fx_slip_(int chance, int max_cols) { fx_slip_random(frame, chance, max_cols); }
+EXPORT void fx_wrap_(int bytes) { fx_wrap(frame, bytes); }
+EXPORT void fx_roll_(int lines) { fx_roll(frame, lines); }
+EXPORT void fx_stale_(int chance) { fx_stale_random(frame, chance); }
+EXPORT void fx_stale_mask_(unsigned mask) { fx_stale(frame, mask); }
+EXPORT void fx_hold_(void) { fx_hold(frame); }
+EXPORT void fx_lfsr_(unsigned taps, unsigned start, int density) { fx_lfsr(frame, taps, start, density); }
+/* Databend: a font's glyph table, column bytes and all, shown as the frame. */
+EXPORT void fx_memview_(int font, int at) {
+  const ui_font *f = font >= 0 && font < UI_NFONTS ? UI_FONTS[font] : UI_FONT_DEFAULT;
+  fx_memview(frame, f->glyph, 95 * f->w, at);
+}
+EXPORT void fx_shown_(void) { fx_shown(frame); }

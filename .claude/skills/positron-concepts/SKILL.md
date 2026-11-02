@@ -387,6 +387,12 @@ scrollable. no half col scope, scope is always full w"*.
 - Sampler pages: no metallic, thin or organ-like tone.
 - No full screen button on radio concepts.
 
+## Decided in the claude.ai chat, 2026-10-24 to 11-02 (handoff of 2026-11-02)
+
+- AI on the patchbay proposes and never connects: control layer only, never the audio path, nothing on air changes without a person.
+- Everything random takes a seed (`fx.c` and `weak.c` do; a recipe is code, parameters and seed: `plans/plan-ambient-piece.md`).
+- Bends work on parsed messages, never raw bytes, and consent is checked again after the bend (`plans/plan-bends.md`).
+
 ## Retired
 
 - **The camera broadcast concept, removed 2026-10-12** (room/030 Broadcast,

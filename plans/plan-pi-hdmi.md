@@ -121,3 +121,77 @@ to fb 721 after each run. `rig/hdmi/README.md`.
 Everything on the board: whether the screen is detected after boot or needs
 `video=HDMI-A-1:...` on the kernel command line, the plane properties, the real
 CPU cost, and whether the console gives the output up cleanly.
+
+## 7. Composite and CRT televisions (joined 2026-11-02 from plan-tv)
+
+Written in a claude.ai chat on 2026-11-01 against the repository of 2026-10-22, kept word for word. A dedicated Pi 1 as a TV node is in its section 4.
+
+
+Status (2026-11-01): a plan, nothing built. READ from Positron's code
+(`rig/board/hdmi.mjs`, `rig/hdmi/hdmi-scan.c`) as of 2026-10-22; hardware facts
+from general knowledge, check against the board and OS version.
+
+**Goal.** A CRT TV as a screen node, from the Pi 4's composite jack or a
+dedicated Raspberry Pi 1, for frames, `weak.c`, fx and camera feedback.
+
+### 1. Two drivers
+
+| | Pi 4 (the board) | Pi 1 Model B (spare) |
+|---|---|---|
+| Output | composite on the 3.5 mm AV jack (4-pole cable; ring order varies) | composite on its yellow RCA jack |
+| Role | a second screen of the board | a dedicated TV node |
+| Software | the board's existing Node and C | small C (or Rust) only: official Node dropped ARMv6 |
+| Network | the board's | wired Ethernet |
+
+SCART-only TVs: a SCART-to-RCA adapter switched to input.
+
+### 2. Turning composite on (Pi 4, KMS)
+
+- `config.txt`: `dtoverlay=vc4-kms-v3d,composite`
+- `cmdline.txt`: `video=Composite-1:720x576@50ie vc4.tv_norm=PAL`
+- check `/sys/class/drm/card1-Composite-1/status`
+- composite may restrict HDMI modes: test both together
+
+### 3. What the board needs (READ)
+
+- `hdmi.mjs` hard-codes `card1-HDMI-A-1` and refuses a show when HDMI reads
+  disconnected: with only a CRT, every show is refused.
+- `hdmi-scan.c` takes the first connected connector on `card1`: with HDMI and
+  composite both on, which wins depends on their order.
+- **Change:** a connector-name argument for `hdmi-scan`; a second node
+  `pi-1:tv` with `card1-Composite-1`; tests in the style of `hdmi-test.mjs`.
+
+### 4. The Pi 1 as a TV node
+
+- Boots into one C program (in the spirit of `hdmi-scan`) that shows frames:
+  `weak.c` on test scenes or photos, the air-raid gate's state (plan-kcmd), an
+  Orca or step grid.
+- Gets state over Ethernet, or runs alone, generative.
+- Read-only root filesystem, so daily power cuts do not corrupt the card.
+- Card: 8 to 16 GB is plenty; up to 32 GB (SDHC) as is; larger only reformatted
+  to FAT32. Raspberry Pi OS Lite, 32-bit.
+
+### 5. CRT habits
+
+- Overscan: keep content 5 to 10% inside the edges.
+- Interlace: one-pixel horizontal lines flicker at 25 Hz; use large pixels.
+- 50 Hz: time animation to it.
+
+### 6. Glitches
+
+- **Analogue, real:** composite into an RF modulator, into the antenna socket,
+  then weaken the RF (long or loose cable, attenuator): snow and ghosting with
+  no software.
+- **Analogue, rendered:** snow, ghosts, sync slips as an operator beside
+  `weak.c`.
+- **Digital on a CRT:** `weak.c`'s output, as a DVB-T box on an old TV showed in
+  the 2010s.
+- **Feedback:** the Pi camera at the CRT (plan-camera-feedback).
+
+### 7. Order
+
+1. Pi 4 composite on, a test pattern from the console.
+2. `hdmi-scan` connector argument; `pi-1:tv` node; tests.
+3. `weak.c` to the CRT.
+4. The Pi 1 TV node: card, OS, one C program, read-only root.
+5. RF modulator test for analogue snow.

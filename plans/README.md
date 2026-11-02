@@ -19,10 +19,13 @@ Every plan in this folder, with the status measured against the repository on 20
 | file | subject | status | date |
 | --- | --- | --- | --- |
 | [plan-agents.md](plan-agents.md) | two agents in one checkout | partly done | 2026-09-14 |
+| [plan-ambient-piece.md](plan-ambient-piece.md) | one ambient piece, tape and read heads; tosser; recipes | open | 2026-11-02 |
 | [plan-archive-timeline.md](plan-archive-timeline.md) | 1965 newsreels on one line | done | 2026-09-08 |
 | [plan-audio-shader.md](plan-audio-shader.md) | granulator drawn per pixel | partly done | 2026-09-16 |
 | [plan-away-webrtc.md](plan-away-webrtc.md) | direct WebRTC path to Pi | done | 2026-09-30 |
+| [plan-bay-code.md](plan-bay-code.md) | the patchbay written as code | open | 2026-11-02 |
 | [plan-beat-detection.md](plan-beat-detection.md) | beat detection on radio tempo | partly done | 2026-10-11 |
+| [plan-bends.md](plan-bends.md) | circuit bending as a link transform | open | 2026-11-02 |
 | [plan-better-chords-2026-09-25.md](plan-better-chords-2026-09-25.md) | livelier chord suggestions on nola | done | 2026-09-25 |
 | [plan-board-modulation.md](plan-board-modulation.md) | granulator LFOs on the board | moved to [archive/plans/plan-board-modulation.md](../archive/plans/plan-board-modulation.md) on 2026-10-14 (was retired); a stub stays here | 2026-09-14 |
 | [plan-board-pappus.md](plan-board-pappus.md) | Pappus out of keys | retired | 2026-09-16 |
@@ -38,18 +41,22 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-code-editor.md](plan-code-editor.md) | code editor for synth pages | done | 2026-09-30 |
 | [plan-consolidate-docs-2026-10-14.md](plan-consolidate-docs-2026-10-14.md) | merging and archiving these documents | open | 2026-10-14 |
 | [plan-controller.md](plan-controller.md) | controller performance synth | retired | 2026-09-16 |
+| [plan-crossmodal.md](plan-crossmodal.md) | sound into picture and back | open | 2026-11-02 |
 | [plan-demo-structure.md](plan-demo-structure.md) | fewer time and sync pages | done | 2026-10-04 |
 | [plan-demos.md](plan-demos.md) | one demo story, one UI | superseded by the concepts front page | 2026-09-04 |
 | [plan-device-layouts.md](plan-device-layouts.md) | control types and device layouts | done | 2026-09-20 |
 | [plan-diagram.md](plan-diagram.md) | signal flow diagram drawer | done | 2026-09-13 |
 | [plan-drum-twin.md](plan-drum-twin.md) | drums in browser and Pi | partly done | 2026-09-21 |
+| [plan-esp32-controllers.md](plan-esp32-controllers.md) | ESP32 controllers on the relay | open | 2026-11-02 |
 | [plan-fasttrack-mk425c.md](plan-fasttrack-mk425c.md) | Fast Track Pro and MK-425C | done | 2026-09-20 |
 | [plan-fau.md](plan-fau.md) | Faust in tab and board | done | 2026-09-22 |
 | [plan-flipper-patchbay.md](plan-flipper-patchbay.md) | flipper as eight video channels | moved to [archive/plans/plan-flipper-patchbay.md](../archive/plans/plan-flipper-patchbay.md) on 2026-10-14 (was overruled or abandoned); a stub stays here | 2026-10-05 |
 | [plan-fonts-minimal.md](plan-fonts-minimal.md) | minimal font set | done | 2026-10-12 |
+| [plan-frames.md](plan-frames.md) | grey surface, fx chains, stills and strobe | open | 2026-11-02 |
 | [plan-gesture.md](plan-gesture.md) | recording and replaying a gesture | done | 2026-09-13 |
 | [plan-glass.md](plan-glass.md) | rVFC as fourth clock lane | moved to [archive/plans/plan-glass.md](../archive/plans/plan-glass.md) on 2026-10-14 (was retired); a stub stays here | 2026-09-07 |
 | [plan-grain-presets.md](plan-grain-presets.md) | grain presets for radio | done | 2026-09-15 |
+| [plan-hand.md](plan-hand.md) | a finger as a pointer source | open | 2026-11-02 |
 | [plan-hardware.md](plan-hardware.md) | instrument box without a laptop | done | 2026-09-10 |
 | [plan-held-in-human-2d.md](plan-held-in-human-2d.md) | Held in Human in 2D | merged into [plan-held-in-human-score.md](plan-held-in-human-score.md) as part 2 on 2026-10-14 (was done); a stub stays here | 2026-09-20 |
 | [plan-held-in-human-3d.md](plan-held-in-human-3d.md) | Held in Human in a headset | merged into [plan-held-in-human-score.md](plan-held-in-human-score.md) as part 3 on 2026-10-14 (was open); a stub stays here | 2026-09-19 |
@@ -60,6 +67,7 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-instrument.md](plan-instrument.md) | one instrument, two ends | moved to [archive/plans/plan-instrument.md](../archive/plans/plan-instrument.md) on 2026-10-14 (was retired); a stub stays here | 2026-09-10 |
 | [plan-isolated-deploys.md](plan-isolated-deploys.md) | per-demo isolated deploys | moved to [archive/plans/plan-isolated-deploys.md](../archive/plans/plan-isolated-deploys.md) on 2026-10-14 (was overruled or abandoned); a stub stays here | 2026-09-16 |
 | [plan-jam.md](plan-jam.md) | jam and instrument on one pulse | retired | 2026-09-14 |
+| [plan-kcmd.md](plan-kcmd.md) | KCMD channel on Radio 1965 | open | 2026-11-02 |
 | [plan-key-detection-2.md](plan-key-detection-2.md) | key detection second pass | open | 2026-10-13 |
 | [plan-key-detection.md](plan-key-detection.md) | key detection on Live key | done | 2026-10-11 |
 | [plan-kit-split.md](plan-kit-split.md) | kit split into part pages | done | 2026-10-06 |
@@ -67,6 +75,7 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-liquidsoap.md](plan-liquidsoap.md) | Liquidsoap ideas and integration | open | 2026-10-07 |
 | [plan-live-slides.md](plan-live-slides.md) | live instruments on slides | done | 2026-10-06 |
 | [plan-live-timeline.md](plan-live-timeline.md) | ERR live on a timeline | retired | 2026-09-08 |
+| [plan-livecoding.md](plan-livecoding.md) | live-coding engines; Strudel beside | open | 2026-11-02 |
 | [plan-loop-ui.md](plan-loop-ui.md) | loop visualisation UIs | open | 2026-10-11 |
 | [plan-looper-accuracy.md](plan-looper-accuracy.md) | pedal looper timing accuracy | done | 2026-10-11 |
 | [plan-looper.md](plan-looper.md) | local and remote looper | superseded by plans/plan-remote-looper.md | 2026-08-30 |
@@ -102,6 +111,7 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-routing-time.md](plan-routing-time.md) | light signals timed to media | partly done | 2026-10-04 |
 | [plan-sampler-pi-pico.md](plan-sampler-pi-pico.md) | sampler on Pi and Pico | partly done | 2026-10-11 |
 | [plan-score.md](plan-score.md) | one normalized score container | done | 2026-09-07 |
+| [plan-screens-odd.md](plan-screens-odd.md) | Palm Z22, camera feedback | open | 2026-11-02 |
 | [plan-session.md](plan-session.md) | keep: show over WHIP into R2 | moved to [archive/plans/plan-session.md](../archive/plans/plan-session.md) on 2026-10-14 (was retired); a stub stays here | 2026-09-08 |
 | [plan-site-names.md](plan-site-names.md) | site ids and port names | done | 2026-10-09 |
 | [plan-slider-automation.md](plan-slider-automation.md) | invisible hand on sliders | done | 2026-09-16 |
@@ -116,6 +126,7 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-synth-patch.md](plan-synth-patch.md) | WebAudio synth in the patchbay | done | 2026-10-10 |
 | [plan-synthesis-2026-10-07.md](plan-synthesis-2026-10-07.md) | project synthesis document | done (reference) | 2026-10-07 |
 | [plan-take.md](plan-take.md) | take: scrub a camera recording | done | 2026-09-07 |
+| [plan-taste.md](plan-taste.md) | taste from A/B picks; wish decides | open | 2026-11-02 |
 | [plan-tempo-key-improve.md](plan-tempo-key-improve.md) | tempo and key improvements | partly done | 2026-10-12 |
 | [plan-timeline.md](plan-timeline.md) | universal timeline substrate | partly done | 2026-08-26 |
 | [plan-tutorial-layout.md](plan-tutorial-layout.md) | tutorial slide frame layout | done | 2026-10-10 |
