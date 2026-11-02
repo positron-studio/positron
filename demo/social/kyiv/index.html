@@ -23,7 +23,8 @@
   // Every hour of the war in Kyiv as one square, a week a row: black when an air-raid alert sounded in it, the flag's
   // blue when none did, the ground where nothing was recorded. A still for an Instagram story or a share card.
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
-  const FORMATS = [['IG story', 1080, 1920], ['OG card', 1200, 630]];
+  // a week a row on the feed post as well, so each clock hour keeps its column and the nights line up
+  const FORMATS = [['IG story', 1080, 1920], ['IG post', 1080, 1350, { cols: 168 }], ['OG card', 1200, 630]];
 
   const d = mount({ name: 'social/kyiv', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
     readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
@@ -70,7 +71,8 @@
     const band = Math.round(w > h ? h * 0.22 : Math.min(w, h * 0.5625) * 0.3);
     const off = document.createElement('canvas');
     off.width = w; off.height = h;
-    let g = drawDays(off.getContext('2d'), { days: hours, w, h: h - band, y: band, group: 24, gap: 0, edge: 'bottom', colours: { 1: RAID, 0: QUIET, 2: GROUND } });
+    const opts = FORMATS.find(([, fw, fh]) => fw === w && fh === h)?.[3] ?? {};
+    let g = drawDays(off.getContext('2d'), { days: hours, w, h: h - band, y: band, group: 24, gap: 0, edge: 'bottom', ...opts, colours: { 1: RAID, 0: QUIET, 2: GROUND } });
     g = { ...g, y0: g.y0 + band };
     const s = { off, g };
     sheets.set(key, s);

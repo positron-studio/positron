@@ -48,6 +48,16 @@ for (const o of [{}, { group: 24, gap: 0 }]) {
   const last = cellAt(g, 0, g.cols * g.rows - 1), top = layoutDays({ n, w: 1080, h: 1920, edge: true, ...o });
   ok(`bottom edge: the last row ends on the bottom, the same grid as from the top ${JSON.stringify(o)}`, last.y + last.h === 1920 && g.y0 > 0 && g.cols === top.cols && g.rows === top.rows, `y0 ${g.y0}`);
 }
+{
+  // a week a row on a 4:5 post: the width filled, the last row on the bottom edge, rectangles a pixel apart at most
+  const g = layoutDays({ n: 41088, w: 1080, h: 1122, group: 24, gap: 0, edge: 'bottom', cols: 168 });
+  const cs = [0, 167, 41087, 168 * 244].map((k) => cellAt(g, 0, k)), last = cellAt(g, 0, g.cols * g.rows - 1);
+  const ws = cs.map((c) => c.w), hs = cs.map((c) => c.h);
+  ok('fixed columns: a week a row fills a 4:5 post as rectangles', g.cols === 168 && g.rows === 245 && cs[1].x + cs[1].w === 1080 && last.y + last.h === 1122 && cs[0].y >= 0
+    && Math.max(...ws) - Math.min(...ws) <= 1 && Math.max(...hs) - Math.min(...hs) <= 1 && hs[0] < ws[0], `${ws[0]} x ${hs[0]} px, top ${g.y0}`);
+  const sq = layoutDays({ n: 41088, w: 1080, h: 1920 - 324, group: 24, gap: 0, edge: 'bottom', cols: 168 });
+  ok('fixed columns that fit stay square', sq.pitchY === sq.pitch, `${sq.pitch.toFixed(2)} px`);
+}
 ok('NEGATIVE CONTROL: the centred grid is not edge to edge', !tiles(story, 1712, 1080, 1920));
 ok('NEGATIVE CONTROL: nothing to lay out is no grid', layoutDays({ n: 0, w: 100, h: 100 }).cols === 0);
 console.log(fails ? `${fails} FAILED` : 'all ok');
