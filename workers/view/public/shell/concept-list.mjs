@@ -105,7 +105,7 @@ export const CONCEPTS = [
 // The folders under demo/ that hold concept pages, the first URL segment. workers/view/build.mjs
 // refuses a build where one is also a demo slug or a listed file, or a row names a folder not here.
 // why: lessons/kit-concept-list.md#concept-dirs
-export const CONCEPT_DIRS = ['synth', 'code', 'granulator', 'remote', 'devices', 'radio', 'video', 'shader', 'room', 'typist', 'drums', 'history'];
+export const CONCEPT_DIRS = ['synth', 'code', 'granulator', 'remote', 'devices', 'radio', 'video', 'shader', 'room', 'typist', 'drums', 'history', 'ambient'];
 
 // The demos on the front page: every listed, built manifest row once, under a group. A concept group
 // draws it as a demo card, CASE_GROUPS as a use case card. Kept out of CONCEPTS so the pager skips it.

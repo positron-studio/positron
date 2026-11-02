@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Drone">
+<meta property="og:url" content="https://positron.studio/ambient/drone/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Drone</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .ad-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  /* .pos-pick sets display, which beats the browser's own [hidden] */
+  .ad-row > [hidden] { display: none; }
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createKeyboard, keyRange } from '/shell/keyboard.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { createMidiDevices } from '/shell/midi-devices.mjs';
+  import { bootScsynth } from '/shell/scsynth.mjs';
+  import { compile } from '/shell/sclang-lite.mjs';
+  import { noteName } from '/shell/midi-decode.mjs';
+  useMediumColours();
+
+  // The ambient piece's first sketch (plans/plan-ambient-piece.md section 10 step 2): a drone, a radio as a noise
+  // source, two echoes of unrelated length and a room, in SuperCollider in this tab. The programs are sclang-lite,
+  // so the same text runs on the Pi's scsynth later. A key latches the drone's root; the MK-425C's eight knobs move
+  // the eight knobs here when it is plugged in. Nothing opens on a visit: the sound on Start, the input on Radio.
+  const S = 'web';
+  const DRY = 10;                                   // the private stereo bus the drone and the radio write, the space reads
+  const ECHO_RATIO = 6.7 / 4.3;                     // the second echo's length against the first: never quite repeating
+
+  // ── the programs ────────────────────────────────────────────────────────
+  const glide = (x, t) => `Lag.kr(Lag.kr(Lag.kr(${x}, ${t}), ${t}), ${t})`;
+  const PROGRAMS = {
+    // root, fifth and octave as three saws whose shapes drift; the low-pass wanders around the tone knob
+    adrone: { bus: DRY, src: `{ var amp = Lag.kr(\\amp.kr(0.4), 2);
+  var f = ${glide('\\root.kr(36).midicps', 3)};
+  var cut = Lag.kr(\\cut.kr(600), 1) * (1 + (LFNoise2.kr(0.03) * 0.5));
+  var w = (LFNoise2.kr(0.05) * 0.3) + 0.5;
+  var s = (VarSaw.ar(f, 0, w) + (VarSaw.ar(f * 1.4983, 0, 1 - w) * 0.7) + (VarSaw.ar(f * 2.003, 0, w * 0.6) * 0.5)) * 0.5;
+  Pan2.ar(RLPF.ar(s, cut, 0.5) * amp, LFNoise2.kr(0.04) * 0.4) }` },
+    // the radio on input busses 2 and 3, through a band-pass the band knob moves
+    aradio: { bus: DRY, src: `{ var amp = Lag.kr(\\amp.kr(0.3), 1);
+  var x = Mix(In.ar(2, 2)) * 0.5;
+  var b = BPF.ar(x, Lag.kr(\\band.kr(1200), 1), 0.8) * 2;
+  Pan2.ar(LeakDC.ar(b) * amp, 0) }` },
+    // two echoes, 4.3 s and 6.7 s at rest, one each side; their length glides, so a turn bends the tape's pitch
+    aspace: { bus: 0, src: `{ var dry = In.ar(${DRY}, 2);
+  var t = Lag.kr(\\time.kr(4.3), 4);
+  var dec = Lag.kr(\\decay.kr(20), 1);
+  var x = LPF.ar(Mix(dry) * 0.5, 3000) * Lag.kr(\\echo.kr(0.4), 1);
+  var l = In.ar(${DRY}, 1) + CombC.ar(x, 9, t, dec);
+  var r = In.ar(${DRY + 1}, 1) + CombC.ar(x, 14, t * ${ECHO_RATIO.toFixed(4)}, dec);
+  var w = FreeVerb2.ar(l, r, Lag.kr(\\room.kr(0.4), 1), 0.9, 0.5);
+  Limiter.ar(w, 0.8, 0.01) }` },
+  };
+  const NODE_IDS = { adrone: 2001, aradio: 2002, aspace: 2099 };
+
+  // ── the knobs: C1 to C8 on the MK-425C, and the program each one moves ──
+  // CC numbers: the eight measured off this MK-425C (research/evo-mk425c-face-2026-09-21.md) are exactly its GM
+  // preset's set; the order C1 to C8 is that preset's (74 71 91 93 73 72 5 84), inferred, not yet turned one by one.
+  const KNOBS = [
+    { name: 'drone', to: 'adrone', param: 'amp', min: 0, max: 1, value: 0.4, cc: 74 },
+    { name: 'tone', to: 'adrone', param: 'cut', min: 100, max: 3000, value: 600, unit: 'Hz', cc: 71 },
+    { name: 'radio', to: 'aradio', param: 'amp', min: 0, max: 1, value: 0.3, cc: 91 },
+    { name: 'band', to: 'aradio', param: 'band', min: 200, max: 4000, value: 1200, unit: 'Hz', cc: 93 },
+    { name: 'echo', to: 'aspace', param: 'echo', min: 0, max: 1, value: 0.4, cc: 73 },
+    { name: 'length', to: 'aspace', param: 'time', min: 2, max: 8.6, value: 4.3, unit: 's', cc: 72 },
+    { name: 'decay', to: 'aspace', param: 'decay', min: 2, max: 60, value: 20, unit: 's', cc: 5 },
+    { name: 'room', to: 'aspace', param: 'room', min: 0, max: 1, value: 0.4, cc: 84 },
+  ];
+  const ENGINE = { adrone: 'drone', aradio: 'noise', aspace: 'space' };
+
+  // A readout on top, as concept pages with one keep it (positron-concepts: "when concept has readout move to top").
+  const d = mount({ name: 'Drone', what: '', readout: { root: '', radio: 'dB', out: 'dB', echo: 's' }, joined: false,
+    index: '/', indexLabel: 'positron' });
+
+  // ── the patch ───────────────────────────────────────────────────────────
+  const bay = createBay();
+  let sc = null, ctx = null, radioIn = null, radioMeter = null, root = 36;
+  const set = (prog, kv) => sc?.send('/n_set', NODE_IDS[prog], ...Object.entries(kv).flat());
+  const node = (id, kind, label) => bay.addNode({ id: `${S}:${id}`, kind, label, place: 'browser' });
+  const port = (id, dir, medium, extra = {}) => bay.addPort({ id: `${S}:${id}`, label: id, dir, medium, ...extra });
+  node('keys', 'person', 'keyboard');
+  port('keys:midi-out', 'out', 'midi', { emits: ['note'] });
+  port('keys:midi-in', 'in', 'midi', { accepts: ['note'], deliver: (e) => kb?.lightNote(e.d1, !!e.d2) });
+  node('cc', 'engine', 'CC to knobs');
+  port('cc:midi-in', 'in', 'midi', { accepts: ['cc'], deliver: (e) => {
+    const k = KNOBS.find((x) => x.cc === e.d1);
+    if (k) knobs.get(k.name).set(k.min + (e.d2 / 127) * (k.max - k.min), { from: 'hardware' });
+  } });
+  node('radio', 'device', 'radio input');
+  port('radio:audio-out', 'out', 'audio');
+  for (const [prog, name] of Object.entries(ENGINE)) {
+    node(name, 'engine', `${name} (SuperCollider)`);
+    port(`${name}:value-in`, 'in', 'value', { deliver: (e) => set(prog, { [e.name]: e.v }) });
+    port(`${name}:audio-out`, 'out', 'audio');
+  }
+  port('drone:midi-in', 'in', 'midi', { accepts: ['note'], deliver: (e) => { if (e.d2) latch(e.d1); } });
+  port('noise:audio-in', 'in', 'audio');
+  port('space:audio-in', 'in', 'audio');
+  node('speaker', 'screen', 'speakers');
+  port('speaker:audio-in', 'in', 'audio');
+  for (const k of KNOBS) {
+    node(`knob-${k.name}`, 'person', k.name);
+    port(`knob-${k.name}:value-out`, 'out', 'value', { shape: { of: 'param' } });
+  }
+  const hold = (a, b) => { const r = bay.link(`${S}:${a}`, `${S}:${b}`, [], { site: S }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  hold('keys:midi-out', 'drone:midi-in');
+  hold('radio:audio-out', 'noise:audio-in');
+  hold('drone:audio-out', 'space:audio-in');
+  hold('noise:audio-out', 'space:audio-in');
+  hold('space:audio-out', 'speaker:audio-in');
+  for (const k of KNOBS) hold(`knob-${k.name}:value-out`, `${ENGINE[k.to]}:value-in`);
+
+  function latch(note) {
+    root = Math.max(24, Math.min(60, note - 12));
+    set('adrone', { root });
+    d.set('root', noteName(root));
+  }
+
+  // ── the controls ────────────────────────────────────────────────────────
+  const knobs = new Map(KNOBS.map((k) => [k.name, createKnob({
+    label: k.name, min: k.min, max: k.max, value: k.value, unit: k.unit || '', hand: true,
+    title: `MK-425C C${KNOBS.indexOf(k) + 1}, CC ${k.cc}`,
+    onInput: (v) => {
+      bay.send(`${S}:knob-${k.name}:value-out`, { of: 'param', name: k.param, v });
+      if (k.param === 'time') d.set('echo', v.toFixed(1));
+    },
+  })]));
+  const grid = createKnobGrid(knobs, { row: true });
+
+  const host = el('div');
+  const kb = createKeyboard(host, {
+    ...keyRange(21), base: 48,
+    onDown: (note, how) => { if (how !== 'midi') bay.send(`${S}:keys:midi-out`, { cls: 'note', ch: 1, d1: note, d2: 100 }); },
+    onUp: (note, how) => { if (how !== 'midi') bay.send(`${S}:keys:midi-out`, { cls: 'note', ch: 1, d1: note, d2: 0 }); },
+  });
+
+  // A plugged-in MIDI keyboard: notes to the drone and the key lights, its knobs' CCs to the knobs here.
+  const { plugged, ask: askMidi } = createMidiDevices({ bay, site: S, emits: ['note', 'cc'],
+    to: [`${S}:drone:midi-in`, `${S}:keys:midi-in`, `${S}:cc:midi-in`],
+    message: (e, { send, hold: held }) => {
+      const [b0, d1, d2 = 0] = e.data, st = b0 & 0xf0;
+      if (st === 0x90 || st === 0x80) { const on = st === 0x90 && d2 > 0; held(d1, on); send({ cls: 'note', ch: 1, d1, d2: on ? d2 : 0 }); }
+      else if (st === 0xb0) send({ cls: 'cc', ch: 1, d1, d2 });
+    },
+    onChange: () => pb.refresh(), log: (line, kind) => d.log(line, kind) });
+  // a MIDI device and the CC node it feeds are drawn only while one is plugged in
+  const shown = (id) => (id.startsWith(`${S}:cc`) ? plugged.size > 0 : !id.startsWith(`${S}:midi`) || plugged.has(id.split(':').slice(0, 2).join(':')));
+
+  // ── the sound, made on Start ────────────────────────────────────────────
+  const dB = (an) => {
+    const b = new Float32Array(an.fftSize); an.getFloatTimeDomainData(b);
+    let s = 0; for (const v of b) s += v * v;
+    const r = Math.sqrt(s / b.length);
+    return r > 1e-5 ? (20 * Math.log10(r)).toFixed(0) : '';
+  };
+  async function start() {
+    if (sc) { await ctx.resume(); return; }
+    ctx = new AudioContext();
+    radioIn = ctx.createGain();
+    radioMeter = ctx.createAnalyser(); radioMeter.fftSize = 2048;
+    radioIn.connect(radioMeter);
+    sc = await bootScsynth({ audioContext: ctx, input: radioIn, log: (m) => d.log(m) });
+    for (const [name, p] of Object.entries(PROGRAMS)) {
+      const r = compile(p.src, { name, bus: p.bus });
+      if (!r.ok) { d.log(`${name} did not compile: ${r.message}`, 'bad'); continue; }
+      const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', r.bytes);
+      if (!done || done[0] !== '/done') d.log(`${name} was not taken: ${done?.[2] || 'no answer'}`, 'bad');
+    }
+    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'root', root);
+    sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0);
+    sc.send('/s_new', 'aspace', NODE_IDS.aspace, 1, 0);
+    for (const k of KNOBS) set(k.to, { [k.param]: knobs.get(k.name).value() });
+    setInterval(() => { d.set('out', dB(sc.meter)); d.set('radio', radioOn ? dB(radioMeter) : ''); }, 250);
+    pb.refresh();
+  }
+  let on = false;
+  async function toggle() {
+    if (!on) { await start(); on = true; btns.setIcon('play', 'stop', 'stop'); d.log('the drone is on'); }
+    else { await ctx.suspend(); on = false; btns.setIcon('play', 'play', 'start'); d.log('stopped'); }
+    pb.refresh();
+  }
+
+  // The radio: any audio input, raw (no echo cancelling, no noise suppression, no gain control: the noise is the point).
+  let radioOn = false, stream = null, src = null, devices = [], devAt = 0;
+  async function openInput(deviceId) {
+    stream?.getTracks().forEach((t) => t.stop());
+    src?.disconnect();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    src = ctx.createMediaStreamSource(stream);
+    src.connect(radioIn);
+    const label = stream.getAudioTracks()[0]?.label || 'an input';
+    devices = (await navigator.mediaDevices.enumerateDevices()).filter((x) => x.kind === 'audioinput');
+    devAt = Math.max(0, devices.findIndex((x) => x.label === label));
+    inputs.options(devices.map((x) => x.label || 'input'), devAt);
+    inputs.el.hidden = devices.length < 2;
+    d.log(`radio from ${label}`);
+  }
+  async function radio() {
+    if (!on) await toggle();
+    if (!radioOn) {
+      try { await openInput(null); radioOn = true; btns.setIcon('radio', 'stop', 'radio off'); }
+      catch (e) { d.log(`no input: ${e.message}`, 'warn'); }
+    } else {
+      stream?.getTracks().forEach((t) => t.stop()); src?.disconnect(); radioOn = false;
+      btns.setIcon('radio', 'radio', 'radio in'); d.set('radio', '');
+    }
+    pb.refresh();
+  }
+  const btns = createButtonGroup({ buttons: [
+    { id: 'play', icon: 'play', label: 'start', onPress: () => toggle().catch((e) => d.log(`the sound did not start: ${e.message}`, 'bad')) },
+    { id: 'radio', icon: 'radio', label: 'radio in', onPress: () => radio() },
+  ] });
+  const pickDev = (i) => { devAt = (i + devices.length) % devices.length; inputs.show(devices[devAt].label, devAt); openInput(devices[devAt].deviceId).catch((e) => d.log(`that input did not open: ${e.message}`, 'warn')); };
+  const inputs = createPicker({ what: 'input', prev: () => pickDev(devAt - 1), next: () => pickDev(devAt + 1), onPick: pickDev });
+  inputs.el.hidden = true;
+  const row = el('div', 'ad-row');
+  row.append(btns.el, inputs.el);
+
+  const pb = createPatchbay({
+    nodes: () => bay.nodes().filter((n) => shown(n.id)),
+    ports: () => bay.ports().filter((p) => shown(p.id)),
+    links: () => bay.links(),
+  }, { flowing: (l) => on && (!l.from.startsWith(`${S}:radio`) || radioOn) && l.from.includes('audio') });
+
+  d.set('root', noteName(root)); d.set('echo', '4.3');
+  d.stack.add(row, grid.el, host, pb.el);
+  askMidi();
+  window.__demo.drone = { bay, knobs, PROGRAMS, KNOBS, latch, start: toggle };
+
+  if (SELFCHECK) {
+    const bad = Object.entries(PROGRAMS).map(([n, p]) => [n, compile(p.src, { name: n, bus: p.bus })]).filter(([, r]) => !r.ok);
+    d.assert('the three programs compile', !bad.length, bad.map(([n, r]) => `${n}: ${r.message}`).join('; ') || Object.keys(PROGRAMS).join(', '));
+    d.assert('eight knobs, eight different CCs, each with its own wire', KNOBS.length === 8 && new Set(KNOBS.map((k) => k.cc)).size === 8
+      && KNOBS.every((k) => bay.links().some((l) => l.from === `${S}:knob-${k.name}:value-out`)), KNOBS.map((k) => k.cc).join(' '));
+    d.assert('a visit opens no sound and no input', !ctx && !stream);
+    latch(60);
+    d.assert('a key latches the root an octave down', root === 48, noteName(root));
+    latch(48);
+  }
+  d.ready();
+</script>
