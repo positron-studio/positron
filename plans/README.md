@@ -95,6 +95,7 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-patchbay.md](plan-patchbay.md) | universal MIDI and audio patchbay | done | 2026-09-21 |
 | [plan-pi-oled.md](plan-pi-oled.md) | Pico OLED on the Pi | open | 2026-10-12 |
 | [plan-pi-supercollider-defs.md](plan-pi-supercollider-defs.md) | Pi plays tab compiled SuperCollider | done | 2026-10-12 |
+| [plan-pi-tft.md](plan-pi-tft.md) | 2.4" ILI9341 colour screen on the Pi | open | 2026-11-02 |
 | [plan-piano-samples.md](plan-piano-samples.md) | Salamander piano samples | done | 2026-10-11 |
 | [plan-pico.md](plan-pico.md) | Pico 2 W uses | partly done | 2026-10-04 |
 | [plan-plate.md](plan-plate.md) | station as standing plate | open | 2026-09-15 |
