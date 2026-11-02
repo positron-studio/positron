@@ -6,7 +6,7 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Every hour">
-<meta property="og:description" content="Every hour of the war in Kyiv as a square, black with an air-raid alert and blue without, as a still or a story video">
+<meta property="og:description" content="Every hour of the war in Kyiv as a square, black with an air-raid alert and blue without, for a story or a share card">
 <meta property="og:url" content="https://positron.studio/social/kyiv/">
 <meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
 <meta property="og:image:width" content="1200">
@@ -31,18 +31,13 @@
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPicker } from '/shell/picker.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createSlider } from '/shell/slider.mjs';
-  import { layoutDays, drawDays, cellAt } from '/shell/day-grid.mjs';
-  import { createReel, font, W as RW, H as RH } from '/shell/reel.mjs';
+  import { drawDays, cellAt } from '/shell/day-grid.mjs';
+  import { font } from '/shell/reel.mjs';
 
   // Every hour of the war in Kyiv as one square, a week a row: black when an air-raid alert sounded in it, the flag's
-  // blue when none did, the ground where nothing was recorded. A still for an Instagram story or a share card, and a
-  // story video in which the hours appear in order under the date and hour they have reached, then hold.
+  // blue when none did, the ground where nothing was recorded. A still for an Instagram story or a share card.
   const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
   const FORMATS = [['IG story', 1080, 1920], ['OG card', 1200, 630]];
-  const LEAD = 500, HOLD = 5000;                            // ms: empty grid before, the whole picture held after
-  const STORY = 60000;                                        // an Instagram story segment is at most 60 s, so the take is too
-  let REVEAL = 20000;                                         // ms the hours take to appear, set by the speed slider
 
   const d = mount({ name: 'social/kyiv', what: 'Every hour of the war in Kyiv as a square, black when the air-raid sirens sounded and blue when they did not.',
     readout: { days: '', hours: '', 'with an alert': '', square: 'px' }, index: '/social/', indexLabel: 'social' });
@@ -133,25 +128,8 @@
   d.el.append(canvas, row);
   draw();
 
-  // the story video: the hours appear in order over REVEAL, then the whole picture holds; at rest it shows the whole
-  const shownAt = (pos) => Math.max(0, Math.min(N, Math.round((pos - LEAD) / REVEAL * N)));
-  const note = el('p', 'reel-note', '');
-  const sayNote = () => { note.textContent = `1080 x 1920, ${(LEAD + REVEAL + HOLD) / 1000} s: the hours appear over ${REVEAL / 1000} s, then the whole picture holds for ${HOLD / 1000} s. Record makes the file.`; };
-  sayNote();
-  // how long the hours take to appear; a new length is a new take, so not while one plays or records
-  const speed = createSlider({ label: 'speed', min: 5, max: Math.floor((STORY - LEAD - HOLD) / 1000), step: 1, value: REVEAL / 1000, unit: 's', ends: ['fast', 'slow'],
-    onChange: (v) => {
-      const was = REVEAL;
-      REVEAL = v * 1000;
-      if (reel.rebuild()) { sayNote(); return; }
-      REVEAL = was; speed.set(was / 1000, { quiet: true });
-      d.log('stop the video first to change its speed', 'warn');
-    } });
-  const reel = await createReel({ d, name: 'kyiv', kind: 'hours', side: [speed.el, note],
-    timeline: () => ({ end: LEAD + REVEAL + HOLD, items: [{ at: 0, payload: {} }] }),
-    draw: (ctx, { pos, idle }) => compose(ctx, RW, RH, idle ? N : shownAt(pos)) });
 
-  window.__demo.hours = { layout: () => g, size: pick, canvas, reel };
+  window.__demo.hours = { layout: () => g, size: pick, canvas };
 
   if (SELFCHECK) {
     d.assert('every day since 24 February 2022 is in the data, 24 hours of each', data.start === '2022-02-24' && data.days.length > 1700 && /^[012]+$/.test(hours) && N === 24 * data.days.length, `${data.days.length} days to ${data.end}`);
@@ -169,22 +147,11 @@
         && last.x + last.w === w && last.y + last.h === h && g.y0 > 0 && rowIs(g.cols) === (g.cols === 168 ? 'one week' : 'two weeks'), `${g.cols} x ${g.rows}, ${g.cell} px, ${rowIs(g.cols)}`);
     }
     pick(0);
-    // the video: nothing before the lead, half the hours halfway, all of them at the end and through the hold
-    const v = document.createElement('canvas'); v.width = RW; v.height = RH;
-    const vc = v.getContext('2d'), sg = sheet(RW, RH).g, firstBlue = blueAt;
-    compose(vc, RW, RH, shownAt(0));
-    const empty = px(vc, sg, firstBlue);
-    compose(vc, RW, RH, shownAt(LEAD + REVEAL / 2));
-    const half = shownAt(LEAD + REVEAL / 2), lastHalf = hours.lastIndexOf('0', half - 1), afterHalf = hours.indexOf('0', half + 1);
-    d.assert('the video starts empty and is half drawn halfway', empty !== '0,87,183' && px(vc, sg, lastHalf) === '0,87,183' && px(vc, sg, afterHalf) !== '0,87,183', `${half} of ${N} hours halfway`);
-    d.assert('the video holds the whole picture at the end', shownAt(LEAD + REVEAL) === N && shownAt(LEAD + REVEAL + HOLD) === N && reel.take.end === LEAD + REVEAL + HOLD, `${(reel.take.end / 1000).toFixed(1)} s, held ${HOLD / 1000} s`);
-    speed.set(10); REVEAL = 10000; reel.rebuild();
-    const titlePx = (k) => { compose(vc, RW, RH, k + 1); const im = vc.getImageData(0, 0, RW, sg.y0).data; let blue = 0; for (let q = 0; q < im.length; q += 4) if (im[q] === 0 && im[q + 1] === 87 && im[q + 2] === 183) blue++; return blue; };
+    // the stamp rule, drawn off screen at a quiet hour and at an alert hour
+    const v = document.createElement('canvas'); v.width = 1080; v.height = 1920;
+    const vc = v.getContext('2d'), top = sheet(1080, 1920).g.y0;
+    const titlePx = (k) => { compose(vc, 1080, 1920, k + 1); const im = vc.getImageData(0, 0, 1080, top).data; let blue = 0; for (let q = 0; q < im.length; q += 4) if (im[q] === 0 && im[q + 1] === 87 && im[q + 2] === 183) blue++; return blue; };
     d.assert('the hour is blue, and gone in an alert hour', titlePx(blueAt) > 200 && titlePx(blackAt) === 0, `${titlePx(blueAt)} blue px in a quiet hour, ${titlePx(blackAt)} in an alert hour`);
-    d.assert('the speed slider sets the length of the take', reel.take.end === LEAD + 10000 + HOLD && shownAt(LEAD + 10000) === N && shownAt(LEAD + 5000) === N / 2, `${reel.take.end / 1000} s at 10 s`);
-    speed.set(999);
-    d.assert('the slowest take still fits a 60 s story', LEAD + speed.get() * 1000 + HOLD <= STORY, `${(LEAD + speed.get() * 1000 + HOLD) / 1000} s at the slowest`);
-    speed.set(20); REVEAL = 20000; reel.rebuild(); sayNote();
   }
   d.ready();
 </script>
