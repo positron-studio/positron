@@ -40,7 +40,7 @@
 
   const data = await (await fetch('/resources/ua-alerts/kyiv-days.json')).json();
   const sans = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
-  await Promise.all([font(600, 64), `400 32px ${sans}`].map((f) => document.fonts.load(f).catch(() => {})));
+  await Promise.all([font(600, 64), font(400, 30), `400 32px ${sans}`].map((f) => document.fonts.load(f).catch(() => {})));
   const hours = data.hours, N = hours.length, alerts = [...hours].filter((c) => c === data.raid).length;
 
   // what one row holds, said in words: 168 hours is a week, 336 two weeks
