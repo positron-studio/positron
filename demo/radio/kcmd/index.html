@@ -67,21 +67,6 @@
     <p>KCMD proposed a channel on Radio VÄIN that falls silent during every air-raid alert in Kyiv and marks each all clear
     with a short piece. Below is how VÄIN runs today, then two ways to build the channel: one on VÄIN's own server, one on Cloudflare. Both carry the same programme.</p>
 
-    <h2>What the channel does</h2>
-    <p>One switch picks what is on air, highest first:</p>
-    <ol>
-      <li><strong>Silence</strong> while an alert is on in Kyiv.</li>
-      <li><strong>ALL CLEAR</strong>: one 10 to 20 s piece from the library, played to its end when an alert ends.</li>
-      <li><strong>A live show</strong>, when one is scheduled and the artist is streaming.</li>
-      <li><strong>An archive show</strong>, when one is scheduled.</li>
-      <li><strong>The default playlist</strong>, the generative layer, the rest of the time.</li>
-    </ol>
-    <p>The switch must sit behind <strong>one source that never disconnects</strong>. Icecast drops every listener when a
-    mount's source changes, and the app does not reconnect. So silence is something the station plays, not a dropped connection.</p>
-    <p>The alert gate polls both sources every 10 to 15 s. Either one reporting an alert starts the silence, and only a fresh
-    all clear ends it. If data stops during an alert, the silence holds for up to 5 hours, which covers 95 % of Kyiv's
-    alerts in 2025 and 2026.</p>
-
     <h2>Current setup</h2>
     <p>How VÄIN runs today, before any change. One VPS, <code>live.uuu.ee</code>, carries the audio, the video and the
     app's feed. Recordings and the contributor pages live on <code>eccm.ee</code>'s web hosting.</p>
@@ -130,6 +115,21 @@
       <li>Nothing switches between sources: when a source stops, its listeners drop.</li>
       <li>Publishing to the events server has no key yet, and the source passwords are in the public repository.</li>
     </ul>
+
+    <h2>What the channel does</h2>
+    <p>One switch picks what is on air, highest first:</p>
+    <ol>
+      <li><strong>Silence</strong> while an alert is on in Kyiv.</li>
+      <li><strong>ALL CLEAR</strong>: one 10 to 20 s piece from the library, played to its end when an alert ends.</li>
+      <li><strong>A live show</strong>, when one is scheduled and the artist is streaming.</li>
+      <li><strong>An archive show</strong>, when one is scheduled.</li>
+      <li><strong>The default playlist</strong>, the generative layer, the rest of the time.</li>
+    </ol>
+    <p>The switch must sit behind <strong>one source that never disconnects</strong>. Icecast drops every listener when a
+    mount's source changes, and the app does not reconnect. So silence is something the station plays, not a dropped connection.</p>
+    <p>The alert gate polls both sources every 10 to 15 s. Either one reporting an alert starts the silence, and only a fresh
+    all clear ends it. If data stops during an alert, the silence holds for up to 5 hours, which covers 95 % of Kyiv's
+    alerts in 2025 and 2026.</p>
 
     <h2>Proposal A: live.uuu.ee and Liquidsoap</h2>
     <p>Everything runs on VÄIN's server (a VPS at Virtuaal, Ubuntu, reached over ssh). Liquidsoap is the switch.
