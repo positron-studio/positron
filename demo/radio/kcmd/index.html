@@ -50,7 +50,7 @@
   };
 
   // The parts both options share, so the two pictures use the same boxes for them.
-  const studio = { id: 'studio', label: 'KCMD', sub: 'artists, anywhere', kind: 'device', tech: 'device', children: [
+  const studio = { id: 'studio', label: 'KCMD', sub: 'artists, anywhere', kind: 'device', tech: 'device', join: false, children: [
     { id: 'obs', label: 'OBS', sub: 'live shows', tech: 'device',
       note: 'An artist streams a show from OBS. A DAW goes into OBS through a loopback device, so one tool covers both.' },
     { id: 'gen', label: 'Python or Pd', sub: 'later', tech: 'sound',
@@ -58,14 +58,14 @@
   ] };
   const alerts = { id: 'alerts', label: 'Alert APIs', sub: 'two sources', tech: 'archive',
     note: 'ukrainealarm (official) and alerts.in.ua (volunteer), both for Kyiv City.' };
-  const listen = { id: 'ears', label: 'Listeners', kind: 'device', tech: 'device', children: [
+  const listen = { id: 'ears', label: 'Listeners', kind: 'device', tech: 'device', join: false, children: [
     { id: 'app', label: 'VÄIN app', sub: 'phones', tech: 'device' },
     { id: 'web', label: 'Browser', sub: 'web player', tech: 'browser' },
   ] };
 
   html(`
     <p>KCMD proposed a channel on Radio VÄIN that falls silent during every air-raid alert in Kyiv and marks each all clear
-    with a short piece. Here are two ways to build it: one on VÄIN's own server, one on Cloudflare. Both carry the same programme.</p>
+    with a short piece. Below is how VÄIN runs today, then two ways to build the channel: one on VÄIN's own server, one on Cloudflare. Both carry the same programme.</p>
 
     <h2>What the channel does</h2>
     <p>One switch picks what is on air, highest first:</p>
@@ -82,16 +82,65 @@
     all clear ends it. If data stops during an alert, the silence holds for up to 5 hours, which covers 95 % of Kyiv's
     alerts in 2025 and 2026.</p>
 
-    <h2>A. On live.uuu.ee, with Liquidsoap</h2>
+    <h2>Current setup</h2>
+    <p>How VÄIN runs today, before any change. One VPS, <code>live.uuu.ee</code>, carries the audio, the video and the
+    app's feed. Recordings and the contributor pages live on <code>eccm.ee</code>'s web hosting.</p>
+  `);
+
+  draw({
+    caption: 'Today. Every channel is an Icecast mount, and a source connecting to one is what turns into a card and a push in the app.',
+    nodes: [
+      { id: 'srcs', label: 'Contributors', sub: 'anywhere', kind: 'device', tech: 'device', join: false, children: [
+        { id: 'capp', label: 'VÄIN app', sub: 'broadcast', tech: 'device',
+          note: 'A contributor broadcasts from the app onto one of the open channels, user1 to user4, or live for managers.' },
+        { id: 'cstudio', label: 'studio', sub: 'BUTT, OBS', tech: 'device',
+          note: 'Any Icecast source can feed radio1965 or live, as positron\'s cast did during Üle Heli.' },
+      ] },
+      { id: 'cuuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', join: false, children: [
+        { id: 'cice', label: 'Icecast', sub: '6 mounts', tech: 'station',
+          note: 'radio1965, live and user1 to user4 on port 8001, plain http. Its on-connect hook announces a broadcast and starts a recording.' },
+        { id: 'crtmp', label: 'nginx-rtmp', sub: 'video', tech: 'relay',
+          note: 'Takes RTMP video and serves it to the app as HLS.' },
+        { id: 'cev', label: 'events server', sub: 'FastAPI, MySQL', tech: 'relay',
+          note: 'The feed of cards. Cron jobs publish on time, shelve after a day, and import ECCM notices from eccm.ee every 5 minutes.' },
+      ] },
+      { id: 'cecc', label: 'eccm.ee', sub: 'web hosting', tech: 'archive',
+        note: 'Recordings in /radio1965/streams, copied there after each broadcast, plus the contributor and editor pages and the Joomla API.' },
+      { id: 'cfcm', label: 'Firebase', sub: 'push', tech: 'relay',
+        note: 'Sends the push notifications to iPhones and Android phones.' },
+      { id: 'clis', label: 'Listeners', kind: 'device', tech: 'device', join: false, children: [
+        { id: 'capp2', label: 'VÄIN app', sub: 'phones', tech: 'device' },
+      ] },
+    ],
+    links: [
+      { from: 'capp', to: 'cice', label: 'Icecast' },
+      { from: 'cstudio', to: 'cice', label: 'Icecast' },
+      { from: 'cstudio', to: 'crtmp', label: 'RTMP' },
+      { from: 'cice', to: 'cecc', label: 'recordings' },
+      { from: 'cev', to: 'cfcm', label: 'push' },
+      { from: 'cice', to: 'capp2', label: 'http' },
+      { from: 'cfcm', to: 'capp2' },
+    ],
+  });
+
+  html(`
+    <ul>
+      <li>A new channel is a mount on the server and a new release of the app, which lists the channels in its code.</li>
+      <li>There is no https address for the audio, so a web page cannot play it.</li>
+      <li>Nothing switches between sources: when a source stops, its listeners drop.</li>
+      <li>Publishing to the events server has no key yet, and the source passwords are in the public repository.</li>
+    </ul>
+
+    <h2>Proposal A: live.uuu.ee and Liquidsoap</h2>
     <p>Everything runs on VÄIN's server (a VPS at Virtuaal, Ubuntu, reached over ssh). Liquidsoap is the switch.
     The parts are standard open-source tools, kept in one git repository and started with Docker Compose.</p>
   `);
 
   draw({
-    caption: 'Option A. Every box inside live.uuu.ee is new except Icecast, nginx and the events server, which get config changes.',
+    caption: 'Proposal A. Every box inside live.uuu.ee is new except Icecast, nginx and the events server, which get config changes.',
     nodes: [
       studio, alerts,
-      { id: 'uuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', children: [
+      { id: 'uuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', join: false, children: [
         { id: 'rtmp', label: 'nginx-rtmp', sub: 'ingest', tech: 'relay',
           note: 'Already on the server for video. A new application **kcmd** takes RTMP from OBS, one key per show.' },
         { id: 'gate', label: 'alert gate', sub: 'Python', tech: 'relay',
@@ -111,11 +160,6 @@
       { from: 'obs', to: 'rtmp', label: 'RTMP' },
       { from: 'gen', to: 'liq' },
       { from: 'alerts', to: 'gate', label: 'poll' },
-      { from: 'rtmp', to: 'liq' },
-      { from: 'gate', to: 'liq' },
-      { from: 'gate', to: 'ev' },
-      { from: 'liq', to: 'ice' },
-      { from: 'ice', to: 'tls' },
       { from: 'ice', to: 'app', label: 'http' },
       { from: 'tls', to: 'web', label: 'https' },
       { from: 'ev', to: 'app', label: 'push' },
@@ -141,16 +185,16 @@
     <p>Every change is a commit. Stopping the containers moves listeners to the fallback playlist. Files changed outside the
     repository are copied before they are touched. The first visit is read-only: an inventory of what runs there, and no changes.</p>
 
-    <h2>B. On Cloudflare, with positron's edgecast</h2>
+    <h2>Proposal B: Cloudflare and positron's edgecast</h2>
     <p>The switch runs in positron's edgecast on Cloudflare, which already fills dry air with silent MP3 frames and keeps
     one connection to the mount. live.uuu.ee only gets a new mount.</p>
   `);
 
   draw({
-    caption: 'Option B. The switch, the gate and the library live on Cloudflare; VÄIN\'s server only receives one stream.',
+    caption: 'Proposal B. The switch, the gate and the library live on Cloudflare; VÄIN\'s server only receives one stream.',
     nodes: [
       studio, alerts,
-      { id: 'cf', label: 'Cloudflare', sub: 'positron', kind: 'cloud', tech: 'cloudflare', children: [
+      { id: 'cf', label: 'Cloudflare', sub: 'positron', kind: 'cloud', tech: 'cloudflare', join: false, children: [
         { id: 'sfu', label: 'positron-sfu', sub: 'WHIP room', tech: 'cloudflare',
           note: 'Takes a live show from OBS over WHIP. Built and measured with OBS 32.' },
         { id: 'cgate', label: 'alert gate', sub: 'Durable Object', tech: 'cloudflare',
@@ -160,7 +204,7 @@
         { id: 'edge', label: 'edgecast', sub: 'the switch', tech: 'cloudflare',
           note: 'Decodes, switches and encodes MP3, and keeps the mount fed with silence between items.' },
       ] },
-      { id: 'uuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', children: [
+      { id: 'uuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', join: false, children: [
         { id: 'ice', label: 'Icecast', sub: '/kcmd', tech: 'station',
           note: 'A new mount with its own source password. Nothing else on the server changes.' },
         { id: 'ev', label: 'events server', sub: 'FastAPI', tech: 'relay',
@@ -243,15 +287,15 @@
   `);
 
   draw({
-    caption: 'The radio1965 engine as the default layer of option A, on a C-S VPS. The Caster that controls it today could stay on Cloudflare.',
+    caption: 'The radio1965 engine as the default layer of proposal A, on a C-S VPS. The Caster that controls it today could stay on Cloudflare.',
     nodes: [
-      { id: 'cfc', label: 'Cloudflare', sub: 'positron', kind: 'cloud', tech: 'cloudflare', children: [
+      { id: 'cfc', label: 'Cloudflare', sub: 'positron', kind: 'cloud', tech: 'cloudflare', join: false, children: [
         { id: 'caster', label: 'Caster', sub: 'Durable Object', tech: 'cloudflare',
           note: 'Starts and steers the engine over HTTP today. Could stay here, or become a small script on the server.' },
         { id: 'rr2', label: 'recordings', sub: 'R2', tech: 'cloudflare',
           note: 'The archive files the engine plays. Synced to the server\'s disk instead of fetched one by one.' },
       ] },
-      { id: 'vps', label: 'VPS', sub: 'live.uuu.ee or its own', kind: 'device', tech: 'station', children: [
+      { id: 'vps', label: 'VPS', sub: 'live.uuu.ee or its own', kind: 'device', tech: 'station', join: false, children: [
         { id: 'eng', label: 'radio1965 engine', sub: 'Docker', tech: 'sound',
           note: 'node, ffmpeg, scsynth and JACK, the same image as on Cloudflare. About half a core.' },
         { id: 'liq2', label: 'Liquidsoap', sub: 'the switch', tech: 'sound',
@@ -262,8 +306,6 @@
     links: [
       { from: 'caster', to: 'eng', label: 'HTTP' },
       { from: 'rr2', to: 'eng', label: 'sync' },
-      { from: 'eng', to: 'liq2' },
-      { from: 'liq2', to: 'ice2' },
     ],
   });
 
@@ -273,11 +315,11 @@
       <li><strong>Work:</strong> point the engine at a local Icecast source instead of VÄIN's, sync the recordings to disk, and either keep the Caster on Cloudflare or replace it with a small local driver.</li>
       <li><strong>Against:</strong> it needs about half a core all day, so it belongs on a VPS of its own, not on U:'s lent server. The engine and the KCMD switch then share one machine.</li>
     </ul>
-    <p>The engine can also feed option B: edgecast decodes any Icecast source, so the same container on a VPS works with either switch.</p>
+    <p>The engine can also feed proposal B: edgecast decodes any Icecast source, so the same container on a VPS works with either switch.</p>
   `);
 
   html(`
-    <p><strong>Our suggestion:</strong> A for the channel itself, because it has to run all day and outlive deploys.
+    <p><strong>Our suggestion:</strong> proposal A for the channel itself, because it has to run all day and outlive deploys.
     B stays the place for experiments and one-off broadcasts.</p>
 
     <h2>Needed either way</h2>

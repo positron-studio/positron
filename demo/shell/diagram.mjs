@@ -923,10 +923,43 @@ function placeRow(nodes, links, { col, cols, avail, w, boxH, kidH, owner, gapX, 
    * why: lessons/kit-diagram.md#placerow-turn-step
    */
   const TURN_STEP = 13;
+  /**
+   * Every step leaving one gap gets its own vertical lane where its run overlaps another's,
+   * not only arrivals into one box: two steps out of one container into two different boxes
+   * turned at one x and drew one line down the gap (2026-11-03, /radio/kcmd/, "can we push
+   * them apart"). The step whose source is further along its own direction turns first, so
+   * the runs nest and never cross. A step that overlaps nothing keeps lane 0.
+   */
+  const gapLane = new Map(), gapBase = new Map();
+  {
+    const groups = new Map();
+    for (const l of links) {
+      if (l.back || overs.includes(l)) continue;
+      const f = at.get(l.from), t = at.get(l.to), fm = outer(l.from);
+      const key = Math.round(fm.x + fm.w);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ l, y1: f.cy, y2: arriveAt(l, t), x1: f.x + f.w + EDGE_OUT });
+    }
+    for (const list of groups.values()) {
+      const base = Math.max(...list.map((s) => s.x1));
+      const down = (s) => s.y2 >= s.y1;
+      list.sort((a, b) => (down(a) === down(b)
+        ? (down(a) ? b.y1 - a.y1 : a.y1 - b.y1) : (down(a) ? -1 : 1)));
+      const taken = [];
+      for (const s of list) {
+        const a = Math.min(s.y1, s.y2), b = Math.max(s.y1, s.y2);
+        let lv = 0;
+        // 1 px of shared ground is a join, not a collision, as in `backLevels`
+        while ((taken[lv] || []).some(([p, q]) => b - p > 1 && q - a > 1)) lv++;
+        (taken[lv] || (taken[lv] = [])).push([a, b]);
+        gapLane.set(s.l, lv);
+        gapBase.set(s.l, base);
+      }
+    }
+  }
   const turnAt = (l, x1, x2) => {
-    const list = arrivals.get(l.to);
-    const i = list && list.length > 1 ? list.indexOf(l) : 0;
-    const want = x1 + STEP_TURN + i * TURN_STEP;
+    const i = gapLane.get(l) || 0;
+    const want = (gapBase.get(l) ?? x1) + STEP_TURN + i * TURN_STEP;
     // Clamped inside the run, so the bend never doubles back or leaves backwards.
     // why: lessons/kit-diagram.md#turnat-clamp
     return Math.max(x1 + 6, Math.min(want, Math.max(x1 + 6, x2 - 6)));
