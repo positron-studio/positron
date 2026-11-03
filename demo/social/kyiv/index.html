@@ -24,10 +24,10 @@
   // Every hour of the war in Kyiv as one square, a week a row: black when an air-raid alert sounded in it, the flag's
   // blue when none did, the ground where nothing was recorded. A still for an Instagram story or a share card.
   // Two looks: dark, and light on white, where a quiet hour is the white ground itself so only the alerts show,
-  // and an hour with nothing recorded is a light grey.
+  // and an hour with nothing recorded is white as well, as the dark look keeps it the ground's colour.
   const LOOKS = {
     dark: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#161616', NONE: '#161616', INK: '#e6e6e6', DIM: '#8b93a1', HI: '#ffd400' },
-    light: { RAID: '#000000', QUIET: '#ffffff', GROUND: '#ffffff', NONE: '#d9d9d9', INK: '#000000', DIM: '#4a4f57', HI: '#c9a400' },
+    light: { RAID: '#000000', QUIET: '#ffffff', GROUND: '#ffffff', NONE: '#ffffff', INK: '#000000', DIM: '#4a4f57', HI: '#c9a400' },
   };
   let look = 'dark', L = LOOKS[look];
   // a week a row on the feed post as well, so each clock hour keeps its column and the nights line up
