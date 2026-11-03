@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>POSITRON radio/kcmd</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .kc { max-width: 46rem; }
+  .kc h2 { font: 600 15px/1.3 var(--mono); color: var(--hi); margin: 40px 0 10px; }
+  .kc h3 { font: 600 13.5px/1.3 var(--mono); margin: 24px 0 8px; }
+  .kc p { margin: 0 0 12px; color: var(--fg); }
+  .kc ul, .kc ol { margin: 0 0 12px; padding-left: 20px; }
+  .kc li { margin: 0 0 6px; }
+  .kc li::marker { color: var(--dim2); }
+  .kc code { font: 500 12.5px/1.5 var(--mono); background: var(--card2); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+  .kc strong { color: #f4f4f5; }
+  .kc .tw { overflow-x: auto; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 4px; }
+  .kc table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 13.5px; }
+  .kc th { text-align: left; font: 600 10px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim2);
+    padding: 9px 12px; background: var(--card2); border-bottom: 1px solid var(--line); }
+  .kc td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .kc tbody tr:last-child td { border-bottom: 0; }
+  .kc .pos-dg { margin: 16px 0 20px; }
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createDiagram } from '/shell/diagram.mjs';
+
+  // A proposal for KCMD's channel on Radio VÄIN: the same channel built two ways, each drawn with diagram.mjs.
+  // Written 2026-11-03 from plans/plan-kcmd.md (both halves) and what live.uuu.ee was found to be that day.
+  const d = mount({
+    name: 'radio/kcmd',
+    what: 'Two ways to run KCMD\'s channel on Radio VÄIN, silent while there is an air-raid alert in Kyiv.',
+    readout: null, showLog: false, index: '/', indexLabel: 'positron',
+  });
+  const h1 = d.head.querySelector('.pos-name');
+  if (h1) h1.textContent = 'KCMD on VÄIN';
+
+  const body = el('div', 'kc');
+  d.el.append(body);
+  const html = (s) => { const t = document.createElement('template'); t.innerHTML = s.trim(); body.append(t.content); };
+  const cuts = [];
+  const draw = (spec) => {
+    const holder = el('div');
+    body.append(holder);
+    return createDiagram(holder, spec, { onRender: (i) => { cuts.push(...i.cuts); } });
+  };
+
+  // The parts both options share, so the two pictures use the same boxes for them.
+  const studio = { id: 'studio', label: 'KCMD', sub: 'artists, anywhere', kind: 'device', tech: 'device', children: [
+    { id: 'obs', label: 'OBS', sub: 'live shows', tech: 'device',
+      note: 'An artist streams a show from OBS. A DAW goes into OBS through a loopback device, so one tool covers both.' },
+    { id: 'gen', label: 'Python or Pd', sub: 'later', tech: 'sound',
+      note: 'KCMD\'s generative layer runs on their own machine and streams in like a show that never ends.' },
+  ] };
+  const alerts = { id: 'alerts', label: 'Alert APIs', sub: 'two sources', tech: 'archive',
+    note: 'ukrainealarm (official) and alerts.in.ua (volunteer), both for Kyiv City.' };
+  const listen = { id: 'ears', label: 'Listeners', kind: 'device', tech: 'device', children: [
+    { id: 'app', label: 'VÄIN app', sub: 'phones', tech: 'device' },
+    { id: 'web', label: 'Browser', sub: 'web player', tech: 'browser' },
+  ] };
+
+  html(`
+    <p>KCMD proposed a channel on Radio VÄIN that falls silent during every air-raid alert in Kyiv and marks each all clear
+    with a short piece. Here are two ways to build it: one on VÄIN's own server, one on Cloudflare. Both carry the same programme.</p>
+
+    <h2>What the channel does</h2>
+    <p>One switch picks what is on air, highest first:</p>
+    <ol>
+      <li><strong>Silence</strong> while an alert is on in Kyiv.</li>
+      <li><strong>ALL CLEAR</strong>: one 10 to 20 s piece from the library, played to its end when an alert ends.</li>
+      <li><strong>A live show</strong>, when one is scheduled and the artist is streaming.</li>
+      <li><strong>An archive show</strong>, when one is scheduled.</li>
+      <li><strong>The default playlist</strong>, the generative layer, the rest of the time.</li>
+    </ol>
+    <p>The switch must sit behind <strong>one source that never disconnects</strong>. Icecast drops every listener when a
+    mount's source changes, and the app does not reconnect. So silence is something the station plays, not a dropped connection.</p>
+    <p>The alert gate polls both sources every 10 to 15 s. Either one reporting an alert starts the silence, and only a fresh
+    all clear ends it. If data stops during an alert, the silence holds for up to 5 hours, which covers 95 % of Kyiv's
+    alerts in 2025 and 2026.</p>
+
+    <h2>A. On live.uuu.ee, with Liquidsoap</h2>
+    <p>Everything runs on VÄIN's server (a VPS at Virtuaal, Ubuntu, reached over ssh). Liquidsoap is the switch.
+    The parts are standard open-source tools, kept in one git repository and started with Docker Compose.</p>
+  `);
+
+  draw({
+    caption: 'Option A. Every box inside live.uuu.ee is new except Icecast, nginx and the events server, which get config changes.',
+    nodes: [
+      studio, alerts,
+      { id: 'uuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', children: [
+        { id: 'rtmp', label: 'nginx-rtmp', sub: 'ingest', tech: 'relay',
+          note: 'Already on the server for video. A new application **kcmd** takes RTMP from OBS, one key per show.' },
+        { id: 'gate', label: 'alert gate', sub: 'Python', tech: 'relay',
+          note: 'Polls both sources, keeps the state, and tells Liquidsoap over its local control port. Logs every alert.' },
+        { id: 'liq', label: 'Liquidsoap', sub: 'the switch', tech: 'sound',
+          note: 'The priority chain from silence down to the playlist, as one source that never leaves the mount.' },
+        { id: 'ice', label: 'Icecast', sub: '/kcmd', tech: 'station',
+          note: 'A new mount, with **fallback-mount** to a playlist so listeners move rather than drop if Liquidsoap stops.' },
+        { id: 'tls', label: 'nginx', sub: 'https', tech: 'relay',
+          note: 'An https address for /kcmd with CORS, so a web page can play it.' },
+        { id: 'ev', label: 'events server', sub: 'FastAPI', tech: 'relay',
+          note: 'Alert and ALL CLEAR texts appear in the app as text cards, once publishing needs a key.' },
+      ] },
+      listen,
+    ],
+    links: [
+      { from: 'obs', to: 'rtmp', label: 'RTMP' },
+      { from: 'gen', to: 'liq' },
+      { from: 'alerts', to: 'gate', label: 'poll' },
+      { from: 'rtmp', to: 'liq' },
+      { from: 'gate', to: 'liq' },
+      { from: 'gate', to: 'ev' },
+      { from: 'liq', to: 'ice' },
+      { from: 'ice', to: 'tls' },
+      { from: 'ice', to: 'app', label: 'http' },
+      { from: 'tls', to: 'web', label: 'https' },
+      { from: 'ev', to: 'app', label: 'push' },
+    ],
+  });
+
+  html(`
+    <h3>What changes on live.uuu.ee</h3>
+    <ul>
+      <li>Icecast: mounts <code>/kcmd</code> and <code>/kcmd-test</code>, each with its own source password and a <code>fallback-mount</code>.</li>
+      <li>nginx-rtmp: an application <code>kcmd</code> with per-show stream keys. SRT or WHIP can be added later through MediaMTX.</li>
+      <li>nginx: an https location for <code>/kcmd</code> with CORS for the web player.</li>
+      <li>New: a folder with <code>compose.yaml</code> for Liquidsoap and the alert gate, versions pinned, secrets in <code>.env</code> on the server only.</li>
+      <li>Events server: publishing needs a key, before alert texts go through it.</li>
+      <li>VÄIN app: <code>kcmd</code> in its channel list, or one of <code>user1</code> to <code>user4</code> until a release.</li>
+    </ul>
+    <h3>For and against</h3>
+    <ul>
+      <li><strong>For:</strong> Liquidsoap is made for exactly this, and it runs all day on thousands of stations. It sits next to Icecast, so nothing crosses the internet between the switch and the mount. Anyone who knows Linux can run it.</li>
+      <li><strong>Against:</strong> it is a service that must stay up on a server lent by U:, and someone has to answer for it during a raid. Live input other than RTMP means one more tool.</li>
+    </ul>
+    <h3>Rollback</h3>
+    <p>Every change is a commit. Stopping the containers moves listeners to the fallback playlist. Files changed outside the
+    repository are copied before they are touched. The first visit is read-only: an inventory of what runs there, and no changes.</p>
+
+    <h2>B. On Cloudflare, with positron's edgecast</h2>
+    <p>The switch runs in positron's edgecast on Cloudflare, which already fills dry air with silent MP3 frames and keeps
+    one connection to the mount. live.uuu.ee only gets a new mount.</p>
+  `);
+
+  draw({
+    caption: 'Option B. The switch, the gate and the library live on Cloudflare; VÄIN\'s server only receives one stream.',
+    nodes: [
+      studio, alerts,
+      { id: 'cf', label: 'Cloudflare', sub: 'positron', kind: 'cloud', tech: 'cloudflare', children: [
+        { id: 'sfu', label: 'positron-sfu', sub: 'WHIP room', tech: 'cloudflare',
+          note: 'Takes a live show from OBS over WHIP. Built and measured with OBS 32.' },
+        { id: 'cgate', label: 'alert gate', sub: 'Durable Object', tech: 'cloudflare',
+          note: 'The same states and holds as in A, on its own alarm. Its state is public JSON other channels can follow.' },
+        { id: 'r2', label: 'library', sub: 'R2', tech: 'cloudflare',
+          note: 'ALL CLEAR pieces, archive shows and the playlist, each checked for length and loudness on upload.' },
+        { id: 'edge', label: 'edgecast', sub: 'the switch', tech: 'cloudflare',
+          note: 'Decodes, switches and encodes MP3, and keeps the mount fed with silence between items.' },
+      ] },
+      { id: 'uuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', children: [
+        { id: 'ice', label: 'Icecast', sub: '/kcmd', tech: 'station',
+          note: 'A new mount with its own source password. Nothing else on the server changes.' },
+        { id: 'ev', label: 'events server', sub: 'FastAPI', tech: 'relay',
+          note: 'Alert texts in the app, the same as in A.' },
+      ] },
+      listen,
+    ],
+    links: [
+      { from: 'obs', to: 'sfu', label: 'WHIP' },
+      { from: 'gen', to: 'edge' },
+      { from: 'alerts', to: 'cgate', label: 'poll' },
+      { from: 'edge', to: 'ice', label: 'MP3' },
+      { from: 'cgate', to: 'ev', label: 'texts' },
+      { from: 'ev', to: 'app', label: 'push' },
+      { from: 'ice', to: 'app', label: 'http' },
+      { from: 'ice', to: 'web', label: 'https',
+        note: 'Through positron\'s **shout** relay on Cloudflare, which gave radio1965 its https address at Üle Heli.' },
+    ],
+  });
+
+  html(`
+    <h3>What changes on live.uuu.ee</h3>
+    <ul>
+      <li>Icecast: the mount <code>/kcmd</code> with its own source password.</li>
+      <li>Events server and app: the same two changes as in A.</li>
+    </ul>
+    <h3>Built and still to build</h3>
+    <ul>
+      <li><strong>Built:</strong> MP3 decode and encode, silence fill, the relay to an Icecast mount, WHIP from OBS, the https relay.</li>
+      <li><strong>To build:</strong> the gate, the switch, the library and its upload, schedules, per-show keys, recording.</li>
+      <li><strong>To prove:</strong> a 24 h run (the longest live run so far is 2 minutes), resuming after a restart, and memory headroom.</li>
+    </ul>
+    <h3>For and against</h3>
+    <ul>
+      <li><strong>For:</strong> nothing new to install or run on VÄIN's server. WHIP from OBS is already working. The gate's state is public, so VÄIN's other channels can fall silent too.</li>
+      <li><strong>Against:</strong> unproven for a channel that runs all day. Every deploy of the relay drops all listeners. It runs on positron's account, so the channel depends on one person.</li>
+    </ul>
+
+    <h2>Side by side</h2>
+    <div class="tw"><table>
+      <thead><tr><th></th><th>A. live.uuu.ee and Liquidsoap</th><th>B. Cloudflare and edgecast</th></tr></thead>
+      <tbody>
+        <tr><td>Where the switch runs</td><td>VÄIN's server, next to Icecast</td><td>Cloudflare, across the internet from Icecast</td></tr>
+        <tr><td>Changes on live.uuu.ee</td><td>Mounts, nginx-rtmp, nginx https, a Compose folder</td><td>One mount</td></tr>
+        <tr><td>Live input</td><td>RTMP now, SRT or WHIP later</td><td>WHIP now</td></tr>
+        <tr><td>Proven for 24/7</td><td>Yes, widely</td><td>Not yet</td></tr>
+        <tr><td>Who keeps it running</td><td>Whoever looks after live.uuu.ee</td><td>positron</td></tr>
+        <tr><td>Cost a month</td><td>0 on live.uuu.ee, or 8 to 17 € for a VPS of its own</td><td>about $5 to $10, live shows free inside the SFU's free tier</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>What it costs</h2>
+    <h3>A. A server</h3>
+    <ul>
+      <li><strong>On live.uuu.ee:</strong> nothing extra. The server is U:'s, lent to VÄIN for free.</li>
+      <li><strong>On a VPS of its own at Virtuaal</strong>, so KCMD's channel does not depend on a lent server
+        (prices with VAT, paid yearly or monthly):
+        <ul>
+          <li>C-XS, 1 vCPU, 2 GB, 50 GB: <strong>7.64 or 8.49 € a month</strong>. Enough for Icecast, Liquidsoap and the gate.</li>
+          <li>C-S, 2 vCPU, 4 GB, 80 GB: <strong>15.29 or 16.99 € a month</strong>. Room for the radio1965 sound engine as well (below).</li>
+        </ul></li>
+      <li>Every size includes 5 TB of traffic a month, which is about 120 listeners at 128 kbit/s around the clock, on a 250 Mbit/s port. Weekly backups cost extra.</li>
+    </ul>
+    <h3>B. Cloudflare usage</h3>
+    <ul>
+      <li><strong>The switch:</strong> one Durable Object running all day, about $0.17 a day, so about $5 a month.</li>
+      <li><strong>Live shows through the SFU:</strong> Realtime is billed on egress at $0.05 per GB, and the WebSocket adapter
+        that brings a show into edgecast counts as egress. A show is 0.69 GB of audio an hour, so about $0.035 an hour. The first
+        1,000 GB a month are free, shared by all of positron's SFU and TURN use. That covers about 1,400 hours of shows,
+        so in practice it costs nothing unless positron's rooms use up the free tier. Publishing into the SFU is free.</li>
+      <li><strong>To Icecast and the web player:</strong> Workers have no egress charge. The library in R2 costs cents.</li>
+      <li><strong>The plan:</strong> Workers Paid at $5 a month, which positron already has.</li>
+      <li><strong>The radio1965 sound engine</strong>, if it plays the generative layer: its Cloudflare container is about $1.33 a day, so about $40 a month.</li>
+    </ul>
+
+    <h2>The radio1965 sound on the server</h2>
+    <p>The generative layer could be the processing heard on radio1965 at Üle Heli: archive recordings through SuperCollider
+    granulators, echoes and drones. Today that engine runs in a Cloudflare container at about $40 a month. Its image is
+    plain Debian with node, ffmpeg, scsynth and JACK, so it runs under Docker on a VPS unchanged.</p>
+  `);
+
+  draw({
+    caption: 'The radio1965 engine as the default layer of option A, on a C-S VPS. The Caster that controls it today could stay on Cloudflare.',
+    nodes: [
+      { id: 'cfc', label: 'Cloudflare', sub: 'positron', kind: 'cloud', tech: 'cloudflare', children: [
+        { id: 'caster', label: 'Caster', sub: 'Durable Object', tech: 'cloudflare',
+          note: 'Starts and steers the engine over HTTP today. Could stay here, or become a small script on the server.' },
+        { id: 'rr2', label: 'recordings', sub: 'R2', tech: 'cloudflare',
+          note: 'The archive files the engine plays. Synced to the server\'s disk instead of fetched one by one.' },
+      ] },
+      { id: 'vps', label: 'VPS', sub: 'live.uuu.ee or its own', kind: 'device', tech: 'station', children: [
+        { id: 'eng', label: 'radio1965 engine', sub: 'Docker', tech: 'sound',
+          note: 'node, ffmpeg, scsynth and JACK, the same image as on Cloudflare. About half a core.' },
+        { id: 'liq2', label: 'Liquidsoap', sub: 'the switch', tech: 'sound',
+          note: 'Takes the engine as its default layer, under silence, ALL CLEAR and live shows.' },
+        { id: 'ice2', label: 'Icecast', sub: '/kcmd', tech: 'station' },
+      ] },
+    ],
+    links: [
+      { from: 'caster', to: 'eng', label: 'HTTP' },
+      { from: 'rr2', to: 'eng', label: 'sync' },
+      { from: 'eng', to: 'liq2' },
+      { from: 'liq2', to: 'ice2' },
+    ],
+  });
+
+  html(`
+    <ul>
+      <li><strong>For:</strong> the same sound for about a third of the price, next to the switch, with nothing crossing the internet.</li>
+      <li><strong>Work:</strong> point the engine at a local Icecast source instead of VÄIN's, sync the recordings to disk, and either keep the Caster on Cloudflare or replace it with a small local driver.</li>
+      <li><strong>Against:</strong> it needs about half a core all day, so it belongs on a VPS of its own, not on U:'s lent server. The engine and the KCMD switch then share one machine.</li>
+    </ul>
+    <p>The engine can also feed option B: edgecast decodes any Icecast source, so the same container on a VPS works with either switch.</p>
+  `);
+
+  html(`
+    <p><strong>Our suggestion:</strong> A for the channel itself, because it has to run all day and outlive deploys.
+    B stays the place for experiments and one-off broadcasts.</p>
+
+    <h2>Needed either way</h2>
+    <ul>
+      <li><strong>From KCMD:</strong> API keys for alerts.in.ua and ukrainealarm, a loudness target (we suggest -16 LUFS), who keeps the ALL CLEAR library, and the first show to test with.</li>
+      <li><strong>From VÄIN:</strong> a mount and a test mount, a key on publishing to the events server, rotated source passwords kept out of the public repository, and the channel in the app.</li>
+      <li><strong>To decide together:</strong> what plays when no source answers at all (silence, or the programme with a notice), whether the programme returns by itself after ALL CLEAR, and whether VÄIN's other channels follow the gate.</li>
+    </ul>
+    <h3>Order</h3>
+    <ol>
+      <li>Access and agreement on what may be touched.</li>
+      <li>The gate alone, logging only, for a week, checked against the alert record.</li>
+      <li>The switch with silence and the playlist, on the test mount.</li>
+      <li>ALL CLEAR, then one live test show.</li>
+      <li>The web player.</li>
+      <li>A supervised night on the real mount, with KCMD and VÄIN listening.</li>
+    </ol>
+  `);
+
+  window.__demo = { ...(window.__demo || {}), cuts };
+</script>
