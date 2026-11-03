@@ -37,10 +37,11 @@
 
   // Every hour of the war in Kyiv as one square, a week a row: black when an air-raid alert sounded in it, the flag's
   // blue when none did, the ground where nothing was recorded. A still for an Instagram story or a share card.
-  // Two looks: dark, and light on white, where an hour with nothing recorded is a light grey so it is not the ground.
+  // Two looks: dark, and light on white, where a quiet hour is the white ground itself so only the alerts show,
+  // and an hour with nothing recorded is a light grey.
   const LOOKS = {
     dark: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#161616', NONE: '#161616', INK: '#e6e6e6', DIM: '#8b93a1' },
-    light: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#ffffff', NONE: '#d9d9d9', INK: '#000000', DIM: '#4a4f57' },
+    light: { RAID: '#000000', QUIET: '#ffffff', GROUND: '#ffffff', NONE: '#d9d9d9', INK: '#000000', DIM: '#4a4f57' },
   };
   let look = 'dark', L = LOOKS[look];
   // a week a row on the feed post as well, so each clock hour keeps its column and the nights line up
@@ -154,7 +155,7 @@
     pick(0);
     lookPick.set(1);
     const corner = ctx.getImageData(2, 2, 1, 1).data.slice(0, 3).join(',');
-    d.assert('the light look is white ground, black alert hours and blue quiet ones', look === 'light' && corner === '255,255,255' && px(ctx, g, blueAt) === '0,87,183' && px(ctx, g, blackAt) === '0,0,0', corner);
+    d.assert('the light look is white ground, black alert hours and white quiet ones', look === 'light' && corner === '255,255,255' && px(ctx, g, blueAt) === '255,255,255' && px(ctx, g, blackAt) === '0,0,0', corner);
     lookPick.set(0);
     d.assert('two lines under the title, the dates in them, nothing wrapped', descOf(168).length === 2 && descOf(168)[0].includes('24.02.2022 to ') && descOf(168)[0].endsWith(`${data.end.split('-').reverse().join('.')}.`), descOf(168)[0]);
   }
