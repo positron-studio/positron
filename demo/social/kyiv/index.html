@@ -17,12 +17,18 @@
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPicker } from '/shell/picker.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createChoice } from '/shell/choice.mjs';
   import { drawDays, cellAt } from '/shell/day-grid.mjs';
   import { font } from '/shell/reel.mjs';
 
   // Every hour of the war in Kyiv as one square, a week a row: black when an air-raid alert sounded in it, the flag's
   // blue when none did, the ground where nothing was recorded. A still for an Instagram story or a share card.
-  const RAID = '#000000', QUIET = '#0057b7', GROUND = '#161616', INK = '#e6e6e6', DIM = '#8b93a1';
+  // Two looks: dark, and light on white, where an hour with nothing recorded is a light grey so it is not the ground.
+  const LOOKS = {
+    dark: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#161616', NONE: '#161616', INK: '#e6e6e6', DIM: '#8b93a1' },
+    light: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#ffffff', NONE: '#d9d9d9', INK: '#000000', DIM: '#4a4f57' },
+  };
+  let look = 'dark', L = LOOKS[look];
   // a week a row on the feed post as well, so each clock hour keeps its column and the nights line up
   const FORMATS = [['IG story', 1080, 1920], ['IG post', 1080, 1350, { cols: 168 }], ['OG card', 1200, 630]];
 
@@ -51,9 +57,9 @@
     while (SS > 8 && Math.max(...lines.map((ln) => ctx.measureText(ln).width)) > w - 2 * x) ctx.font = `400 ${--SS}px ${sans}`;
     const tall = TS + Math.round(28 * k) + lines.length * LH;
     let y = Math.round((room - tall) / 2) + TS;
-    ctx.fillStyle = INK; ctx.font = font(600, TS); ctx.fillText('Air raids in Kyiv', x, y);
+    ctx.fillStyle = L.INK; ctx.font = font(600, TS); ctx.fillText('Air raids in Kyiv', x, y);
     y += Math.round(28 * k);
-    ctx.fillStyle = DIM; ctx.font = `400 ${SS}px ${sans}`;
+    ctx.fillStyle = L.DIM; ctx.font = `400 ${SS}px ${sans}`;
     for (const ln of lines) { y += LH; ctx.fillText(ln, x, y - Math.round(12 * k)); }
     return SS;
   }
@@ -62,14 +68,14 @@
   // One layout and one drawn grid per size; a frame copies the first `shown` hours off it, whole rows then the part row.
   const sheets = new Map();
   function sheet(w, h) {
-    const key = `${w}x${h}`;
+    const key = `${w}x${h}-${look}`;
     if (sheets.has(key)) return sheets.get(key);
     // the band takes about a sixth of a story's height and a fifth of a card's, whatever the grid leaves above it besides
     const band = Math.round(w > h ? h * 0.22 : Math.min(w, h * 0.5625) * 0.3);
     const off = document.createElement('canvas');
     off.width = w; off.height = h;
     const opts = FORMATS.find(([, fw, fh]) => fw === w && fh === h)?.[3] ?? {};
-    let g = drawDays(off.getContext('2d'), { days: hours, w, h: h - band, y: band, group: 24, gap: 0, edge: 'bottom', ...opts, colours: { 1: RAID, 0: QUIET, 2: GROUND } });
+    let g = drawDays(off.getContext('2d'), { days: hours, w, h: h - band, y: band, group: 24, gap: 0, edge: 'bottom', ...opts, colours: { 1: L.RAID, 0: L.QUIET, 2: L.NONE } });
     g = { ...g, y0: g.y0 + band };
     const s = { off, g };
     sheets.set(key, s);
@@ -77,7 +83,7 @@
   }
   function compose(ctx, w, h, shown) {
     const { off, g } = sheet(w, h);
-    ctx.fillStyle = GROUND; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = L.GROUND; ctx.fillRect(0, 0, w, h);
     const rowY = (j) => (j >= g.rows ? h : cellAt(g, 0, j * g.cols).y);
     const r = Math.floor(shown / g.cols), c = shown % g.cols, top = g.y0;
     if (r > 0) ctx.drawImage(off, 0, top, w, rowY(r) - top, 0, top, w, rowY(r) - top);
@@ -100,8 +106,10 @@
   const pick = (i) => { fmt = (i + FORMATS.length) % FORMATS.length; fmtPick.show(names[fmt], fmt); draw(); };
   const fmtPick = createPicker({ what: 'size', prev: () => pick(fmt - 1), next: () => pick(fmt + 1), onPick: pick });
   fmtPick.options(names, fmt);
+  const setLook = (v) => { look = v; L = LOOKS[v]; draw(); };
+  const lookPick = createChoice({ label: 'look', options: [['dark', 'dark'], ['light', 'light']], at: 0, onPick: setLook });
   const save = async () => {
-    const name = `kyiv-alerts-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}`;
+    const name = `kyiv-alerts-${FORMATS[fmt][1]}x${FORMATS[fmt][2]}${look === 'light' ? '-light' : ''}`;
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
     const a = el('a', '', '', { href: URL.createObjectURL(blob), download: `${name}.png` });
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -109,12 +117,12 @@
   };
   const dl = createButtonGroup({ buttons: [{ id: 'save', label: 'download', onPress: save }] });
   const row = el('div', 'sd-row');
-  row.append(fmtPick.el, dl.el);
+  row.append(fmtPick.el, lookPick.el, dl.el);
   d.el.append(canvas, row);
   draw();
 
 
-  window.__demo.hours = { layout: () => g, size: pick, canvas };
+  window.__demo.hours = { layout: () => g, size: pick, look: (v) => lookPick.set(['dark', 'light'].indexOf(v)), canvas };
 
   if (SELFCHECK) {
     d.assert('every day since 24 February 2022 is in the data, 24 hours of each', data.start === '2022-02-24' && data.days.length > 1700 && /^[012]+$/.test(hours) && N === 24 * data.days.length, `${data.days.length} days to ${data.end}`);
@@ -130,6 +138,10 @@
         && last.x + last.w === w && last.y + last.h === h && g.y0 > 0 && rowIs(g.cols) === (g.cols === 168 ? 'one week' : 'two weeks'), `${g.cols} x ${g.rows}, ${g.cell} px, ${rowIs(g.cols)}, lines at ${g.desc} px`);
     }
     pick(0);
+    lookPick.set(1);
+    const corner = ctx.getImageData(2, 2, 1, 1).data.slice(0, 3).join(',');
+    d.assert('the light look is white ground, black alert hours and blue quiet ones', look === 'light' && corner === '255,255,255' && px(ctx, g, blueAt) === '0,87,183' && px(ctx, g, blackAt) === '0,0,0', corner);
+    lookPick.set(0);
     d.assert('two lines under the title, the dates in them, nothing wrapped', descOf(168).length === 2 && descOf(168)[0].includes('24.02.2022 to ') && descOf(168)[0].endsWith(`${data.end.split('-').reverse().join('.')}.`), descOf(168)[0]);
   }
   d.ready();
