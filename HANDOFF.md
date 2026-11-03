@@ -1,3 +1,11 @@
+# Handoff, 2026-11-03, session 91: KCMD proposal page, Kyiv light look, diagram.mjs lanes and heights; v2in split off
+
+- **https://positron.studio/radio/kcmd/ (unlisted, folder demo/radio/kcmd/, not in CONCEPTS):** a proposal for KCMD's channel on Väin. Current setup (live.uuu.ee: six mounts /radio1965 /live /user1-4, recorder and rsync to eccm.ee, events server, Firebase), a web player today (the nginx https and CORS block), what the channel does, proposal A (live.uuu.ee + Liquidsoap), proposal B (edgecast), side by side, costs (Virtuaal VPS C-XS 7.64/8.49 EUR, C-S 15.29/16.99; Realtime $0.05/GB past 1,000 GB), the radio1965 engine on a VPS, where eccm.ee comes in, needed either way. plans/plan-kcmd.md has a 2026-11-03 section with the facts read that day.
+- **diagram.mjs, two engine changes (every diagram):** each forward step leaving one gap takes its own lane where runs overlap ("can we push them apart"); in a row a plain box keeps its own height, machines still share one ("too h boxes"). diagram-test 93/93, its row-height check rewritten to the new rule. Only /radio/kcmd/ was looked at.
+- **https://positron.studio/social/kyiv/:** a dark/light LOOK choice. Light: white ground, black raids, quiet and no-data hours white, so only the alerts show. The overline POSITRON.STUDIO in the wordmark's style (mono 400, tracked 0.14 em, the dot in the accent, a darker accent on white), the credit line gone; mono 400 preloaded. Last BUILD c316c417-193542-bb87.
+- **v2in** (the Ukrainian channel work) is its own private repository now, ~/personal/v2in, github kristjanjansen/v2in; nothing of it lives in positron. It reuses (copies) edgecast-relay, listeners.mjs, measure-gains, shout and the cast engines.
+- **Not pushed** (the personal account dance). Commits today end at 36f9310d.
+
 # Handoff, 2026-11-02, session 90: radio1965 closed, the chat handoff taken in, Kyiv air raids as a picture, the ambient sketch
 
 - **On air:** nothing. All six cast stations read `playing: false` (radio1965 stopped itself at its 7 day cap about 2026-10-30). Site BUILD `4f9f45af-134138-b172`, confirmed. No cast deploy this session. **Not pushed:** 63 commits since `d599e758` (the personal account dance in CLAUDE.md). No headless Chrome left; OrbStack stopped again after the emcc builds.
