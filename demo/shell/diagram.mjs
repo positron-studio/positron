@@ -634,7 +634,7 @@ export function layout(spec, { width, measure, metrics = METRICS } = {}) {
   const shared = { sibs, kidIx, sibSpan, childGap, childInset, align };
   const out = mode === 'row'
     ? placeRow(nodes, links, { col, cols, avail, w, boxH, kidH, owner, gapX, m, measure, cuts,
-                               ...shared })
+                               ownH: colH, ...shared })
     : placeColumn(links, { order, rowOf, avail, w, boxH, kidH, owner, leftInset, rightInset,
                            backBudget, skipBudget, m, measure, cuts, colH, insetL,
                            dives, diveLevel, diveLanes, backLevel, skipLevel, ...shared });
@@ -814,7 +814,7 @@ export function checkOverlaps(out, cuts, measure, m = METRICS) {
 }
 
 function placeRow(nodes, links, { col, cols, avail, w, boxH, kidH, owner, gapX, m, measure, cuts,
-                                  sibs, kidIx, sibSpan, childGap, childInset, align }) {
+                                  sibs, kidIx, sibSpan, childGap, childInset, align, ownH = new Map() }) {
   const total = cols * w + (cols - 1) * gapX;
   /**
    * Centred by default; `align: 'left'` is for a picture sitting beside something else
@@ -828,7 +828,14 @@ function placeRow(nodes, links, { col, cols, avail, w, boxH, kidH, owner, gapX, 
     const c = col.get(n.id);
     (inCol[c] || (inCol[c] = [])).push(n);
   }
-  const colH = inCol.map((list) => list.length * boxH + (list.length - 1) * GAP_Y);
+  /**
+   * Machines share one height in a row; a plain box keeps its own. Stretched to the tallest
+   * machine, eccm.ee and Firebase on /radio/kcmd/ were tall empty slabs ("too h boxes",
+   * 2026-11-03).
+   */
+  const hOf = (n) => (n._kids && n._kids.length ? boxH : (ownH.get(n.id) ?? boxH));
+  const colH = inCol.map((list) => list.reduce((sum, n) => sum + hOf(n), 0)
+    + (list.length - 1) * GAP_Y);
   const tallest = Math.max(...colH);
 
   // A forward link that skips a column runs over the row, as a return runs under it.
@@ -849,8 +856,9 @@ function placeRow(nodes, links, { col, cols, avail, w, boxH, kidH, owner, gapX, 
     const c = col.get(n.id);
     const r = inCol[c].indexOf(n);
     const x = left + c * (w + gapX);
-    const y = top + Math.round((tallest - colH[c]) / 2) + r * (boxH + GAP_Y);
-    return box(n, x, y, w, boxH, m, kidH, childGap, childInset);
+    let y = top + Math.round((tallest - colH[c]) / 2);
+    for (let i = 0; i < r; i++) y += hOf(inCol[c][i]) + GAP_Y;
+    return box(n, x, y, w, hOf(n), m, kidH, childGap, childInset);
   });
   const at = new Map();
   for (const p of placed) { at.set(p.id, p); for (const k of p.kids || []) at.set(k.id, k); }

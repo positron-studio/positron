@@ -529,11 +529,12 @@ console.log('\n== a box inside a box ==');
   ok('NEGATIVE CONTROL: a third box inside makes the container taller',
      three.boxH > two.boxH && three.height > two.height,
      `${two.boxH} px becomes ${three.boxH} px, and the picture ${two.height} -> ${three.height}`);
-  // and the plain box beside it keeps up, because a row of unequal boxes ranks
-  // them — which is the rule that was already here for two lines of type
+  // and the plain box beside it keeps its own height, centred on the machine: stretched to
+  // the machine it was a tall empty slab ("too h boxes", 2026-11-03, /radio/kcmd/)
   const you = boxOf(three, 'you'), pi = boxOf(three, 'pi');
-  ok('and every box in the row is still one height', you.h === pi.h,
-     `${you.h} px and ${pi.h} px`);
+  ok('and the plain box beside it keeps its own height, centred on the machine',
+     you.h < pi.h && Math.abs((you.y + you.h / 2) - (pi.y + pi.h / 2)) <= 1,
+     `${you.h} px beside ${pi.h} px, centres ${you.y + you.h / 2} and ${pi.y + pi.h / 2}`);
 }
 
 {
