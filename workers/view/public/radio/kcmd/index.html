@@ -86,7 +86,7 @@
   `);
 
   draw({
-    caption: 'Today. Every channel is an Icecast mount, and a source connecting to one is what turns into a card and a push in the app.',
+    caption: 'Today. Every channel is an Icecast mount (the boxes starting with a slash), and a source connecting to one is what turns into a card and a push in the app.',
     nodes: [
       { id: 'srcs', label: 'Contributors', sub: 'anywhere', kind: 'device', tech: 'device', join: false, children: [
         { id: 'capp', label: 'VÄIN app', sub: 'broadcast', tech: 'device',
@@ -95,15 +95,21 @@
           note: 'Any Icecast source can feed radio1965 or live, as positron\'s cast did during Üle Heli.' },
       ] },
       { id: 'cuuu', label: 'live.uuu.ee', sub: 'VPS at Virtuaal', kind: 'device', tech: 'station', join: false, children: [
-        { id: 'cice', label: 'Icecast', sub: '6 mounts', tech: 'station',
-          note: 'radio1965, live and user1 to user4 on port 8001, plain http. Its on-connect hook announces a broadcast and starts a recording.' },
+        { id: 'm1965', label: '/radio1965', sub: 'always on', tech: 'station',
+          note: 'The station\'s own channel. Fed by one source at a time, such as a playlist or positron\'s cast at Üle Heli.' },
+        { id: 'mlive', label: '/live', sub: 'managers', tech: 'station',
+          note: 'For managers broadcasting from the app or a studio.' },
+        { id: 'muser', label: '/user1 to /user4', sub: 'contributors', tech: 'station',
+          note: 'Four open channels any signed-up contributor can broadcast on from the app. Plain http on port 8001, like the others.' },
+        { id: 'crec', label: 'recorder', sub: 'ffmpeg', tech: 'sound',
+          note: 'Started by the on-connect hook when a broadcast is to be kept. Copies the mount to an MP3, stopped when the source leaves.' },
         { id: 'crtmp', label: 'nginx-rtmp', sub: 'video', tech: 'relay',
           note: 'Takes RTMP video and serves it to the app as HLS.' },
         { id: 'cev', label: 'events server', sub: 'FastAPI, MySQL', tech: 'relay',
           note: 'The feed of cards. Cron jobs publish on time, shelve after a day, and import ECCM notices from eccm.ee every 5 minutes.' },
       ] },
       { id: 'cecc', label: 'eccm.ee', sub: 'web hosting', tech: 'archive',
-        note: 'Recordings in /radio1965/streams, copied there after each broadcast, plus the contributor and editor pages and the Joomla API.' },
+        note: 'Recordings in /radio1965/streams, copied there by rsync after each broadcast, plus the contributor and editor pages and the Joomla API.' },
       { id: 'cfcm', label: 'Firebase', sub: 'push', tech: 'relay',
         note: 'Sends the push notifications to iPhones and Android phones.' },
       { id: 'clis', label: 'Listeners', kind: 'device', tech: 'device', join: false, children: [
@@ -111,12 +117,15 @@
       ] },
     ],
     links: [
-      { from: 'capp', to: 'cice', label: 'Icecast' },
-      { from: 'cstudio', to: 'cice', label: 'Icecast' },
+      { from: 'capp', to: 'muser' },
+      { from: 'capp', to: 'mlive' },
+      { from: 'cstudio', to: 'm1965' },
       { from: 'cstudio', to: 'crtmp', label: 'RTMP' },
-      { from: 'cice', to: 'cecc', label: 'recordings' },
+      { from: 'crec', to: 'cecc', label: 'rsync' },
+      { from: 'cecc', to: 'capp2', label: 'MP3',
+        note: 'A kept broadcast becomes a recording card whose link is the MP3 on **eccm.ee**. The app plays that file directly.' },
       { from: 'cev', to: 'cfcm', label: 'push' },
-      { from: 'cice', to: 'capp2', label: 'http' },
+      { from: 'm1965', to: 'capp2', label: 'http' },
       { from: 'cfcm', to: 'capp2' },
     ],
   });
@@ -124,7 +133,9 @@
   html(`
     <ul>
       <li>A new channel is a mount on the server and a new release of the app, which lists the channels in its code.</li>
-      <li>There is no https address for the audio, so a web page cannot play it.</li>
+      <li>There is no https address for live audio, so a web page cannot play it.</li>
+      <li>A kept broadcast is recorded on the server by ffmpeg, copied to <code>eccm.ee/radio1965/streams/</code> when the source
+        leaves, and turned into a recording card. Played back, it comes from eccm.ee, not from live.uuu.ee.</li>
       <li>Nothing switches between sources: when a source stops, its listeners drop.</li>
       <li>Publishing to the events server has no key yet, and the source passwords are in the public repository.</li>
     </ul>
