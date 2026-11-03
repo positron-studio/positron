@@ -137,6 +137,21 @@
       <li>Publishing to the events server has no key yet, and the source passwords are built into the app and in the public repository.</li>
     </ul>
 
+    <h3>Where eccm.ee comes in</h3>
+    <p>VÄIN leans on ECCM's old Joomla hosting in three ways:</p>
+    <div class="tw"><table>
+      <thead><tr><th>What</th><th>On eccm.ee</th><th>Used by</th></tr></thead>
+      <tbody>
+        <tr><td>ECCM's notices</td><td>the Joomla API, category 47</td><td>live.uuu.ee's cron job, every 5 minutes</td></tr>
+        <tr><td>Editor and contributor pages</td><td><code>/radio1965/editor/</code>, <code>/radio1965/contributor/</code>, put there over ssh</td><td>contributors' browsers</td></tr>
+        <tr><td>Recordings</td><td><code>/radio1965/streams/</code>, 44 MP3s, put there over ssh</td><td>the app, playing them back</td></tr>
+      </tbody>
+    </table></div>
+    <p>eccm.ee is moving to a new site on Cloudflare. It answers the same Joomla API calls and passes
+    <code>/radio1965/*</code> on to the old server under a second name, <code>old.eccm.ee</code>, so links and the
+    editor keep working. The uploads do not: they go over ssh to the name <code>eccm.ee</code>, which will point at
+    Cloudflare. They should go to <code>old.eccm.ee</code> before the move, and in the long run to VÄIN's own server.</p>
+
     <h2>A web player today</h2>
     <p>Only nginx needs to change on live.uuu.ee. Icecast stays as it is. A web page needs two things from the stream,
     and today it gets neither.</p>
