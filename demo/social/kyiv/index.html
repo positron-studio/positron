@@ -49,15 +49,20 @@
   // The band above the grid: the title, then two lines, what a square and a row are with the dates, and the credit.
   // The two lines are set smaller rather than wrapped when the first is wider than the frame.
   const dmy = (day) => day.split('-').reverse().join('.');
-  const descOf = (cols) => [`Each square is an hour and each row ${rowIs(cols)}, ${dmy(data.start)} to ${dmy(data.end)}.`, 'Visualized by positron.studio'];
+  const descOf = (cols) => [`Each square is an hour and each row ${rowIs(cols)}, ${dmy(data.start)} to ${dmy(data.end)}.`];
+  // the site's name as an overline above the title, in place of a credit line under it
+  const OVER = 'positron.studio';
   function title(ctx, w, room, cols) {
     const k = Math.min(w, room * 3.6) / 1080, x = Math.round(72 * k), TS = Math.round(64 * k), LH = Math.round(44 * k);
     const lines = descOf(cols);
     let SS = Math.round(32 * k);
     ctx.font = `400 ${SS}px ${sans}`;
     while (SS > 8 && Math.max(...lines.map((ln) => ctx.measureText(ln).width)) > w - 2 * x) ctx.font = `400 ${--SS}px ${sans}`;
-    const tall = TS + Math.round(28 * k) + lines.length * LH;
-    let y = Math.round((room - tall) / 2) + TS;
+    const OS = SS, OGAP = Math.round(20 * k);
+    const tall = OS + OGAP + TS + Math.round(28 * k) + lines.length * LH;
+    let y = Math.round((room - tall) / 2) + OS;
+    ctx.fillStyle = L.DIM; ctx.font = `400 ${OS}px ${sans}`; ctx.fillText(OVER, x, y);
+    y += OGAP + TS;
     ctx.fillStyle = L.INK; ctx.font = font(600, TS); ctx.fillText('Air raids in Kyiv', x, y);
     y += Math.round(28 * k);
     ctx.fillStyle = L.DIM; ctx.font = `400 ${SS}px ${sans}`;
@@ -143,7 +148,7 @@
     const corner = ctx.getImageData(2, 2, 1, 1).data.slice(0, 3).join(',');
     d.assert('the light look is white ground, black alert hours and white quiet ones', look === 'light' && corner === '255,255,255' && px(ctx, g, blueAt) === '255,255,255' && px(ctx, g, blackAt) === '0,0,0', corner);
     lookPick.set(0);
-    d.assert('two lines under the title, the dates in them, nothing wrapped', descOf(168).length === 2 && descOf(168)[0].includes('24.02.2022 to ') && descOf(168)[0].endsWith(`${data.end.split('-').reverse().join('.')}.`), descOf(168)[0]);
+    d.assert('one line under the title, the dates in it, nothing wrapped', descOf(168).length === 1 && descOf(168)[0].includes('24.02.2022 to ') && descOf(168)[0].endsWith(`${data.end.split('-').reverse().join('.')}.`), descOf(168)[0]);
   }
   d.ready();
 </script>
