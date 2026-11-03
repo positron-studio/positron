@@ -1,6 +1,6 @@
 # plan-kcmd: KCMD's channel on Radio Tallinn 1965, through edgecast or on their own server
 
-Status (2026-11-02): open. A plan only, nothing built, no connection to live.uuu.ee or to KCMD's server. Pick one route: edgecast (the first section, the owner's own proposal of 2026-10-29) or self-hosted (the second, the fallback).
+Status (2026-11-03): open, written up as a proposal page for KCMD at https://positron.studio/radio/kcmd/ (unlisted), which recommends the self-hosted route (Liquidsoap on live.uuu.ee) for the channel and keeps edgecast for experiments. Nothing built, no connection to live.uuu.ee. What changed on 2026-11-03 is the last section, `2026-11-03: the proposal page`.
 
 Related: `plan-edgecast-modular.md`, the edgecast the first route builds on.
 
@@ -378,3 +378,49 @@ watching, so the first rollback is not in an emergency.
 - Docker allowed on their server, or plain systemd units instead (then the
   rollback is per-unit, and the repo holds the unit files).
 - Upload bandwidth: 128 kbit/s per listener, about 13 Mbit/s for 100.
+
+## 2026-11-03: the proposal page
+
+Asked 2026-11-03: *"create a proposal page to ukrainian project using diagram engine with a) live.uuu + liquidsoap + ukrainan silence fetching stuff plus config changes to stream rtmp or smth b) positron edgecast-based"*, then *"add edgecast costs with upcoming sfu pricing. also look up virtuaal vps prices. also consider porting radio64 supercollider stuff to uuu/liquidsoap"*, *"copy a to 'current setup' and 'proposal a'. cf is proposal b"*.
+
+**The page:** https://positron.studio/radio/kcmd/, `demo/radio/kcmd/index.html`, a folder under `radio` (a CONCEPT_DIRS group, so no manifest row: a row named `radio/kcmd` refused the build) and not in CONCEPTS, so off the front page. Sections: current setup, what the channel does, proposal A, proposal B, side by side, what it costs, the radio1965 sound on the server, needed either way, order. Four diagrams by `diagram.mjs`, every container `join: false`.
+
+### What live.uuu.ee is, READ and MEASURED 2026-11-03
+
+- **The server:** a KVM VPS at Virtuaal.com, Ubuntu, ssh by private key only (Maria Hansar, chat 2026-11-03). Icecast, nginx-rtmp for video, the FastAPI events server and its MySQL database.
+- **The domain:** `uuu.ee` belongs to MTÜ Ansambel U, registrar Virtuaal, **expires 2026-12-20** (`whois.tld.ee`, MEASURED). `eccm.ee` is ECCM's, a separate Virtuaal account with shared hosting only.
+- **Six mounts** on port 8001, plain http: `/radio1965` (always on), `/live` (managers, its own source password), `/user1` to `/user4` (contributors). READ `~/personal/radio1965` at `34cc096`.
+- **How the app broadcasts** (READ `app/icecastbroadcaster.cpp`): `QAudioSource` from the microphone, mono, 44.1 kHz (the hardware rate on iPhone), gain in the app, `libmp3lame` at 128 kbit/s CBR, a hand-written Icecast source over `QTcpSocket`: `PUT /<mount> HTTP/1.0` with Basic auth `source:<password>`, `ice-name`, `ice-description`, and `ice-audio-info` carrying `send_notification`, `save_stream` and the contributor's token for the on-connect hook. Built on desktop, Android and iOS (`RADIO65_ENABLE_BROADCAST`).
+- 🔴 **The source passwords are compiled into the app as constants** (`ICECAST_PASSWORD`, `ICECAST_LIVE_PASSWORD` in `icecastbroadcaster.cpp`) and are in the public repository. Anyone can broadcast on any mount. Rotating them means an app release. Not quoted here.
+- **Recordings** (READ `server/icecast_on_connect.sh`, `icecast_on_disconnect.sh`): on connect with `save_stream`, ffmpeg copies `http://localhost:8001/<mount>` to an MP3 on the VPS; on disconnect it is stopped and rsynced over ssh to `eccm.ee:/home/eccmee1/www/radio1965/streams/`, and the event becomes a `streamrecording` card whose URL is `https://eccm.ee/radio1965/streams/<file>.mp3`. The app plays that URL directly. 44 files there on 2026-11-03 (MEASURED, the directory listing is public).
+- **Channels are in the app's code** (`PlaybackController.qml:27`, `BroadcastPage.qml:46`), so a new mount is an app release; `/user1` to `/user4` are the quick start for KCMD.
+- **`POST /events/publish` still has no authentication** (`server/main.py:510`).
+
+### Costs, as on the page
+
+- **Virtuaal VPS** (virtuaal.com/teenused/vps, read 2026-11-03, VAT included, yearly or monthly): C-XS 1 vCPU, 2 GB, 50 GB at 7.64 or 8.49 € a month; C-S 2 vCPU, 4 GB, 80 GB at 15.29 or 16.99 €; C-M 4 vCPU, 8 GB at 31.49 or 34.99 €. 5 TB traffic on every size, 250 Mbit/s port on XS and S, weekly backups extra.
+- **Realtime SFU** (developers.cloudflare.com/realtime/sfu/platform/pricing, updated 2026-09-22): $0.05 per GB of egress, the first 1,000 GB a month free and shared with TURN, WebSocket adapter egress counted, publishing in free. A live show into edgecast is 0.69 GB an hour of PCM, about $0.035 an hour past the free tier. No further change announced was found.
+- **edgecast:** one Durable Object all day, about $0.17 a day (COMPUTED in `plan-edgecast-modular.md`), about $5 a month. Workers egress to Icecast free.
+- **The radio1965 cast container:** about $1.33 a day on Cloudflare (`plan-cast-cheaper.md`), about $40 a month.
+
+### The radio1965 engine on the VPS (INFERRED, not tried)
+
+The cast container (`workers/cast/container`, Debian with node 22, ffmpeg, scsynth 3.13, jackd2) runs under Docker on a C-S VPS unchanged. Work: point it at a local Icecast source (Liquidsoap's harbor) instead of Väin's mount, sync the recordings from R2 to disk, keep the Caster on Cloudflare or write a small local driver. About half a core all day (43 % measured on Cloudflare during Üle Heli), so a VPS of its own, not U:'s.
+
+### OBS into Icecast
+
+OBS's Stream button speaks RTMP, SRT and WHIP, not Icecast. A Custom Output (FFmpeg) recording to an `icecast://` URL works in principle, started by Start Recording, with no reconnect and an encoder that depends on the build (INFERRED, not tested). So shows go RTMP to nginx-rtmp (A) or WHIP to positron-sfu (B); audio-only artists use BUTT.
+
+### diagram.mjs, changed for this page
+
+- Every forward step leaving one gap takes its own lane where its run overlaps another's, the one further along its direction turning first ("can we push them apart").
+- In a row, a plain box keeps its own height, centred; machines still share one ("too h boxes"). `diagram-test.mjs` updated, 93/93.
+- Both reach every page with a diagram; only /radio/kcmd/ was looked at.
+
+### Next
+
+1. Send the page to KCMD and Tarmo, with the asks in its last section.
+2. Read-only ssh to live.uuu.ee and the inventory (`plan-kcmd-selfhosted` §2).
+3. Tarmo: rotate the source passwords out of the app, a key on `/events/publish`, a channel list from the server, whether uuu.ee renews before 2026-12-20.
+4. The alert gate, logging only, for a week (`research/ua-alerts/` has the history to compare against).
+

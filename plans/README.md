@@ -67,7 +67,7 @@ Every plan in this folder, with the status measured against the repository on 20
 | [plan-instrument.md](plan-instrument.md) | one instrument, two ends | moved to [archive/plans/plan-instrument.md](../archive/plans/plan-instrument.md) on 2026-10-14 (was retired); a stub stays here | 2026-09-10 |
 | [plan-isolated-deploys.md](plan-isolated-deploys.md) | per-demo isolated deploys | moved to [archive/plans/plan-isolated-deploys.md](../archive/plans/plan-isolated-deploys.md) on 2026-10-14 (was overruled or abandoned); a stub stays here | 2026-09-16 |
 | [plan-jam.md](plan-jam.md) | jam and instrument on one pulse | retired | 2026-09-14 |
-| [plan-kcmd.md](plan-kcmd.md) | KCMD channel on Radio 1965 | open | 2026-11-02 |
+| [plan-kcmd.md](plan-kcmd.md) | KCMD channel on Radio 1965, proposal page /radio/kcmd/ | open | 2026-11-03 |
 | [plan-key-detection-2.md](plan-key-detection-2.md) | key detection second pass | open | 2026-10-13 |
 | [plan-key-detection.md](plan-key-detection.md) | key detection on Live key | done | 2026-10-11 |
 | [plan-kit-split.md](plan-kit-split.md) | kit split into part pages | done | 2026-10-06 |
