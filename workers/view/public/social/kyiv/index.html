@@ -40,8 +40,8 @@
   // Two looks: dark, and light on white, where a quiet hour is the white ground itself so only the alerts show,
   // and an hour with nothing recorded is a light grey.
   const LOOKS = {
-    dark: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#161616', NONE: '#161616', INK: '#e6e6e6', DIM: '#8b93a1' },
-    light: { RAID: '#000000', QUIET: '#ffffff', GROUND: '#ffffff', NONE: '#d9d9d9', INK: '#000000', DIM: '#4a4f57' },
+    dark: { RAID: '#000000', QUIET: '#0057b7', GROUND: '#161616', NONE: '#161616', INK: '#e6e6e6', DIM: '#8b93a1', HI: '#ffd400' },
+    light: { RAID: '#000000', QUIET: '#ffffff', GROUND: '#ffffff', NONE: '#d9d9d9', INK: '#000000', DIM: '#4a4f57', HI: '#c9a400' },
   };
   let look = 'dark', L = LOOKS[look];
   // a week a row on the feed post as well, so each clock hour keeps its column and the nights line up
@@ -64,18 +64,22 @@
   // The two lines are set smaller rather than wrapped when the first is wider than the frame.
   const dmy = (day) => day.split('-').reverse().join('.');
   const descOf = (cols) => [`Each square is an hour and each row ${rowIs(cols)}, ${dmy(data.start)} to ${dmy(data.end)}.`];
-  // the site's name as an overline above the title, in place of a credit line under it
-  const OVER = 'positron.studio';
+  // the site's name as an overline above the title, set as the wordmark is in reel.mjs (drawWordmark): the mono face,
+  // capitals tracked 0.14 em, dim, the dot in the accent; the light look takes a darker yellow so the dot shows on white
+  const OVER = [['POSITRON', 'DIM'], ['.', 'HI'], ['STUDIO', 'DIM']];
   function title(ctx, w, room, cols) {
     const k = Math.min(w, room * 3.6) / 1080, x = Math.round(72 * k), TS = Math.round(64 * k), LH = Math.round(44 * k);
     const lines = descOf(cols);
     let SS = Math.round(32 * k);
     ctx.font = `400 ${SS}px ${sans}`;
     while (SS > 8 && Math.max(...lines.map((ln) => ctx.measureText(ln).width)) > w - 2 * x) ctx.font = `400 ${--SS}px ${sans}`;
-    const OS = SS, OGAP = Math.round(20 * k);
+    const OS = Math.round(30 * k), OGAP = Math.round(24 * k);
     const tall = OS + OGAP + TS + Math.round(28 * k) + lines.length * LH;
     let y = Math.round((room - tall) / 2) + OS;
-    ctx.fillStyle = L.DIM; ctx.font = `400 ${OS}px ${sans}`; ctx.fillText(OVER, x, y);
+    ctx.font = font(400, OS); ctx.letterSpacing = `${(OS * 0.14).toFixed(1)}px`;
+    let ox = x;
+    for (const [t, c] of OVER) { ctx.fillStyle = L[c]; ctx.fillText(t, ox, y); ox += ctx.measureText(t).width; }
+    ctx.letterSpacing = '0px';
     y += OGAP + TS;
     ctx.fillStyle = L.INK; ctx.font = font(600, TS); ctx.fillText('Air raids in Kyiv', x, y);
     y += Math.round(28 * k);
