@@ -24,6 +24,8 @@
   .kc td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   .kc tbody tr:last-child td { border-bottom: 0; }
   .kc .pos-dg { margin: 16px 0 20px; }
+  .kc pre { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 12px; overflow-x: auto; margin: 0 0 12px; }
+  .kc pre code { background: none; border: 0; padding: 0; font-size: 12px; line-height: 1.65; }
 </style>
 <script type="module">
   import { mount, el } from '/shell/shell.mjs';
@@ -78,6 +80,8 @@
       { id: 'srcs', label: 'Contributors', sub: 'anywhere', kind: 'device', tech: 'device', join: false, children: [
         { id: 'capp', label: 'VÄIN app', sub: 'broadcast', tech: 'device',
           note: 'A contributor broadcasts from the app onto one of the open channels, user1 to user4, or live for managers.' },
+        { id: 'cgem', label: 'editor', sub: 'Share a gem', tech: 'browser',
+          note: 'A web page served from eccm.ee. A signed-in contributor writes a card in it and it posts straight to the events server.' },
         { id: 'cstudio', label: 'studio', sub: 'BUTT, OBS', tech: 'device',
           note: 'Any Icecast source can feed radio1965 or live, as positron\'s cast did during Üle Heli.' },
       ] },
@@ -93,7 +97,7 @@
         { id: 'crtmp', label: 'nginx-rtmp', sub: 'video', tech: 'relay',
           note: 'Takes RTMP video and serves it to the app as HLS.' },
         { id: 'cev', label: 'events server', sub: 'FastAPI, MySQL', tech: 'relay',
-          note: 'The feed of cards. Cron jobs publish on time, shelve after a day, and import ECCM notices from eccm.ee every 5 minutes.' },
+          note: 'The feed of cards at /radio1965/api. Written by the editor, by Icecast\'s hook when someone goes on air, and by a cron job importing ECCM notices.' },
       ] },
       { id: 'cecc', label: 'eccm.ee', sub: 'web hosting', tech: 'archive',
         note: 'Recordings in /radio1965/streams, copied there by rsync after each broadcast, plus the contributor and editor pages and the Joomla API.' },
@@ -108,7 +112,12 @@
       { from: 'capp', to: 'mlive' },
       { from: 'cstudio', to: 'm1965' },
       { from: 'cstudio', to: 'crtmp', label: 'RTMP' },
+      { from: 'cgem', to: 'cev', label: 'new card' },
       { from: 'crec', to: 'cecc', label: 'rsync' },
+      { from: 'cev', to: 'cecc', label: 'import',
+        note: 'Every 5 minutes a cron job on live.uuu.ee pulls ECCM\'s notices, Joomla category 47, from **eccm.ee**\'s API and turns them into cards.' },
+      { from: 'cev', to: 'capp2',
+        note: 'The app reads its cards over https from live.uuu.ee/radio1965/api. Firebase only wakes it up.' },
       { from: 'cecc', to: 'capp2', label: 'MP3',
         note: 'A kept broadcast becomes a recording card whose link is the MP3 on **eccm.ee**. The app plays that file directly.' },
       { from: 'cev', to: 'cfcm', label: 'push' },
@@ -124,8 +133,37 @@
       <li>A kept broadcast is recorded on the server by ffmpeg, copied to <code>eccm.ee/radio1965/streams/</code> when the source
         leaves, and turned into a recording card. Played back, it comes from eccm.ee, not from live.uuu.ee.</li>
       <li>Nothing switches between sources: when a source stops, its listeners drop.</li>
-      <li>Publishing to the events server has no key yet, and the source passwords are in the public repository.</li>
+      <li>Cards reach the events server three ways: the editor page, Icecast's hook when a broadcast starts, and a cron job importing ECCM's notices from eccm.ee.</li>
+      <li>Publishing to the events server has no key yet, and the source passwords are built into the app and in the public repository.</li>
     </ul>
+
+    <h2>A web player today</h2>
+    <p>Only nginx needs to change on live.uuu.ee. Icecast stays as it is. A web page needs two things from the stream,
+    and today it gets neither.</p>
+    <ol>
+      <li><strong>https.</strong> A page served over https may not play audio from <code>http://live.uuu.ee:8001</code>:
+        the browser blocks it as mixed content. The server already answers https on port 443 for the events API, so nginx
+        only has to pass the mounts through as well.</li>
+      <li><strong>CORS, for a waveform.</strong> A plain audio element plays a stream from another address without it, but
+        to draw a waveform, a level or a spectrum the page reads the audio through Web Audio, and the browser hands it only
+        zeros unless the response allows it with <code>Access-Control-Allow-Origin</code>.</li>
+    </ol>
+    <p>One block in the nginx server that already has the certificate does both, for every mount and the status JSON:</p>
+    <pre><code>location /stream/ {
+    proxy_pass http://127.0.0.1:8001/;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout 24h;
+    proxy_hide_header Access-Control-Allow-Origin;
+    add_header Access-Control-Allow-Origin * always;
+}</code></pre>
+    <p>Then <code>https://live.uuu.ee/stream/radio1965</code> plays on any page with a waveform, the same for
+    <code>/stream/live</code> and <code>/stream/user1</code> to <code>/stream/user4</code>, and
+    <code>/stream/status-json.xsl</code> gives what is playing and how many listen. <code>nginx -t</code>, then a reload,
+    which drops nobody. Icecast sees web listeners as coming from 127.0.0.1, and they use the VPS's bandwidth like the app's.
+    Not tried yet.</p>
+    <p>Without touching live.uuu.ee, positron's <strong>shout</strong> relay on Cloudflare does the same, as it did for
+    radio1965 at Üle Heli, but then every web listener passes through positron.</p>
 
     <h2>What the channel does</h2>
     <p>One switch picks what is on air, highest first:</p>
