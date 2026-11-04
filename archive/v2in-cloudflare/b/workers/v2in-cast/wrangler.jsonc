@@ -1,0 +1,28 @@
+// v2in-cast: option B's channels, one Durable Object per channel (worker.mjs). Reads v2in-gate by a service binding
+// and the playout copies in R2 v2in-media/cast/ (b/tools/media.mjs).
+// Deploy from b/: node tools/deploy-cast.mjs [message], which uploads a version and deploys it through the API with
+// code_update_strategy {"mode": "deferred", "max_delay": 86400}: a busy object keeps its old code, its listeners and a
+// live show for up to 24 h (wrangler 4.107 cannot set that field). A plain `wrangler deploy` (needed for a new
+// migration) gives busy objects 300 s; then they reset, and the watchdog in worker.mjs ends their streams so players
+// dial again (measured 2026-11-04: the stream ended 10 s after the reset, no silence in it, back 1.3 s later).
+{
+  "name": "v2in-cast",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  // the player's audio and titles on b.v2in.positron.studio (v2in-web owns the host; a route wins over a custom domain),
+  // and WHIP live input from OBS at /whip/<channel>
+  "routes": [{ "pattern": "b.v2in.positron.studio/stream/*", "zone_name": "positron.studio" },
+             { "pattern": "b.v2in.positron.studio/whip/*", "zone_name": "positron.studio" }],
+  "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }],
+  // GATE_LIVE: the gate's named entrypoint Live (publish, beat, done), reachable only by this binding
+  "services": [{ "binding": "GATE", "service": "v2in-gate" }, { "binding": "GATE_LIVE", "service": "v2in-gate", "entrypoint": "Live" }],
+  // positron's Realtime SFU app (the one positron-sfu uses); its secret CF_REALTIME_APP_SECRET is a Worker secret,
+  // the value in positron's .env: wrangler secret put CF_REALTIME_APP_SECRET -c workers/v2in-cast/wrangler.jsonc
+  "vars": { "CF_REALTIME_APP_ID": "8c2a974bb21528d398ff927116bcca9e" },
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "v2in-media" }],
+  "durable_objects": { "bindings": [{ "name": "CHANNEL", "class_name": "Channel" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Channel"] }],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "observability": { "enabled": true }
+}

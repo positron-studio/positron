@@ -1,0 +1,15 @@
+// v2in-web: the web player and the admin page (the repository's web/, as static assets, no build step) at
+// https://b.v2in.positron.studio, pointed at option B by being same-origin: /state, /layers and /admin/* go to v2in-gate
+// by a service binding (worker.mjs), and /stream/* is v2in-cast's own route on this host (a route wins over a custom
+// domain), so a deploy of this worker never touches a listener.
+// Deploy from b/: env -u CF_API_TOKEN -u CLOUDFLARE_API_TOKEN npx wrangler deploy -c workers/v2in-web/wrangler.jsonc
+{
+  "name": "v2in-web",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": false,
+  "routes": [{ "pattern": "b.v2in.positron.studio", "custom_domain": true }],
+  "assets": { "directory": "../../../web", "binding": "ASSETS", "run_worker_first": ["/state", "/layers", "/layers.json", "/admin/*"] },
+  "services": [{ "binding": "GATE", "service": "v2in-gate" }],
+  "observability": { "enabled": true }
+}

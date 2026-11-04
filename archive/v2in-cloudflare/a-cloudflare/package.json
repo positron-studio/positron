@@ -1,0 +1,8 @@
+{
+  "name": "v2in-a-cloudflare",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}

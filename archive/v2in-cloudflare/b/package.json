@@ -1,0 +1,14 @@
+{
+  "name": "v2in-b",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "werift": "0.22.9",
+    "workerd": "1.20260701.1",
+    "wrangler": "4.107.0"
+  },
+  "overrides": {
+    "workerd": "1.20260701.1",
+    "@cloudflare/workerd-darwin-arm64": "1.20260701.1"
+  }
+}

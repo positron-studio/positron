@@ -1,0 +1,31 @@
+// v2in-a: option A's one container on Cloudflare Containers, positron's account, https://a.v2in.positron.studio.
+// Deploy from a/cloudflare/ (wrangler 4.148 here; b/ keeps its pinned 4.107, deploying never runs workerd):
+//   npm install && env -u CF_API_TOKEN -u CLOUDFLARE_API_TOKEN npx wrangler deploy
+// Secrets, never in git: ICECAST_SOURCE_PASSWORD ICECAST_ADMIN_PASSWORD HARBOR_PASSWORD ADMIN_TOKEN
+//   (env -u CF_API_TOKEN -u CLOUDFLARE_API_TOKEN npx wrangler secret put <NAME>)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "v2in-a",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-29",
+  "routes": [{ "pattern": "a.v2in.positron.studio", "custom_domain": true }],
+  "workers_dev": false,
+  "containers": [
+    {
+      "class_name": "Station",
+      "scheduling_policy": "durable_object",
+      // the build context is the repository root, as for docker compose (core/ and web/ are shared)
+      "images": { "a": { "dockerfile": "../Dockerfile", "build_context": "../.." } }
+    }
+  ],
+  "durable_objects": { "bindings": [{ "name": "STATION", "class_name": "Station" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Station"] }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "v2in-media" }],
+  "vars": {
+    // where the container fetches its media and database at boot (a/conductor/boot.mjs): a host the Station intercepts
+    "BOOT_URL": "http://v2in.boot",
+    // /media/<folder> from R2 prefixes: kcmd plays the UbuWeb poems (eccm-radio/uploads/ubu-*) as option B does, live the radio1965 recordings
+    "MEDIA_MAP": "radio1965=radio1965/,allclear=allclear/,kcmd=eccm-radio/uploads/ubu-,live=radio1965/"
+  },
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>v2in B test</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  section { margin: 1.5rem 0; }
+  audio { width: 100%; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+<h1>v2in, option B</h1>
+<p>Three channels from Cloudflare Workers. The gate: <b id="gate">?</b>
+  <button data-raid="true">Raid on</button> <button data-raid="false">Raid off</button></p>
+<div id="ch"></div>
+<script type="module">
+  const GATE = 'https://v2in-gate.kristjan-jansen.workers.dev';
+  const box = document.getElementById('ch');
+  for (const c of ['kcmd', 'radio1965', 'live']) {
+    box.insertAdjacentHTML('beforeend', `<section><h2>${c}</h2><audio controls preload="none" src="/${c}.mp3"></audio><div><small id="t-${c}">?</small></div></section>`);
+  }
+  for (const b of document.querySelectorAll('[data-raid]')) b.onclick = () => fetch(`${GATE}/sim`, { method: 'POST', body: JSON.stringify({ raid: b.dataset.raid === 'true' }) });
+  async function poll() {
+    try {
+      const g = await (await fetch(`${GATE}/state`)).json();
+      document.getElementById('gate').textContent = `${g.state} since ${g.since.slice(11, 19)} UTC`;
+      for (const c of g.channels) {
+        const s = await (await fetch(`/${c}/status`)).json();
+        const el = document.getElementById(`t-${c}`);
+        if (el) el.textContent = s.running ? `${s.layer}: ${s.title} (${s.listeners} listening)` : 'nobody listening';
+      }
+    } catch (e) { document.getElementById('gate').textContent = String(e); }
+    setTimeout(poll, 2000);
+  }
+  poll();
+</script>
+</body>
+</html>

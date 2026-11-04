@@ -1,0 +1,16 @@
+// v2in-gate: the raid gate for option B (worker.mjs). Public on workers.dev and, through v2in-web, on b.v2in.positron.studio;
+// v2in-cast reads it by a service binding.
+// Deploy from b/: env -u CF_API_TOKEN -u CLOUDFLARE_API_TOKEN npx wrangler deploy -c workers/v2in-gate/wrangler.jsonc
+{
+  "name": "v2in-gate",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  // a/config/layers.txt is bundled as text, the default until PUT /admin/layers stores another in the object
+  // ADMIN_TOKEN is a secret (wrangler secret put ADMIN_TOKEN -c workers/v2in-gate/wrangler.jsonc), its value in b/.dev.vars
+  "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "v2in-media" }],
+  "durable_objects": { "bindings": [{ "name": "GATE", "class_name": "Gate" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Gate"] }],
+  "observability": { "enabled": true }
+}
