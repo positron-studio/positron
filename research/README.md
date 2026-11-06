@@ -48,6 +48,7 @@ Every research document in this folder, with the status measured against the rep
 | [hardware-board.md](hardware-board.md) | Smallest box that plays MIDI | done | 2026-09-20 |
 | [held-in-human-score-2026-09-19.txt](held-in-human-score-2026-09-19.txt) | Held in Human score, verbatim | done (reference) | 2026-09-19 |
 | [idaidaida-2026-09.md](idaidaida-2026-09.md) | IDA Radio live feed | done | 2026-09-15 |
+| [jamulus-sonobus-2026-11-06.md](jamulus-sonobus-2026-11-06.md) | Jamulus and SonoBus, real-time jamming for positron and v2in | done (reference) | 2026-11-06 |
 | [kurenniemi-archive-2026-08.md](kurenniemi-archive-2026-08.md) | Kurenniemi public sources probe | done (reference) | 2026-08-28 |
 | [kurenniemi-audio-hunt-2026-09.md](kurenniemi-audio-hunt-2026-09.md) | Kurenniemi audio, what plays | merged into [kurenniemi-sources-2026-09.md](kurenniemi-sources-2026-09.md) as its final section on 2026-10-14 (was partly done); a stub stays here | 2026-09-15 |
 | [kurenniemi-sources-2026-09.md](kurenniemi-sources-2026-09.md) | Other digitised Kurenniemi sources, with the audio hunt (partly done) as its final section | done | 2026-09-14 |
