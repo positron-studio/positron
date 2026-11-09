@@ -56,8 +56,8 @@
         ],
         "memory": 80,
         "revisit": 0.3,
-        "past": 0.25,
-        "gateDb": -45,
+        "past": 0,
+        "gateDb": -38,
         "minLcm": 600,
         "speech": 0.2,
         "apart": 8,
@@ -288,12 +288,12 @@
       ],
       "solo": {
         "every": [
-          30,
-          90
+          20,
+          60
         ],
         "hold": [
-          8,
-          40
+          15,
+          45
         ],
         "fade": [
           3,
