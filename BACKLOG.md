@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**v2in: deploy**~~ DONE 2026-11-09 (layers test brought up to 49b2062, run 42666680920 test and deploy success, engine mem restarted and steady, the mem mount reads MEM: listening, colours), (2026-11-09). Asked: *"deploy?"*. CI skips the deploy while core/layers-test.mjs fails (video on the community slots, failing since before the MEM port).
+
 - ~~**v2in: push the MEM port; measure a spectrogram for the player**~~ DONE 2026-11-09 (pushed; MEASURED headless at 375 px, dpr 3, CPU 4x slower: waveform 1.8 %, spectrogram 1.7 to 2.8 % of the main thread, all 60 fps; GPU raster and a real phone not measured), (2026-11-09). Asked: *"push. measure specro"*. Push v2in main (its CI may deploy); measure a scrolling spectrogram against the player's waveform, per frame, at phone settings.
 
 - ~~**MEM: music soloing too**~~ DONE 2026-11-09, (2026-11-09). Asked: *"want music soloing too"*. Solos went to any playing loop, mostly talk on AM; now solo.music 0.7: a music loop is chosen when one plays, 70 per cent of the time. demo/shell/mem.mjs, mem-presets.json, then v2in.
