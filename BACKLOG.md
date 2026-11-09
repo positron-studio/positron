@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: music soloing too**~~ DONE 2026-11-09, (2026-11-09). Asked: *"want music soloing too"*. Solos went to any playing loop, mostly talk on AM; now solo.music 0.7: a music loop is chosen when one plays, 70 per cent of the time. demo/shell/mem.mjs, mem-presets.json, then v2in.
+
 - ~~**MEM: not too reverby or wet, it is too washed**~~ (2026-11-09). Said: *"do not go too reverby / wet its too wahhed"*. colours: reverb level 0.9 to 0.65, send 1.6 to 1.2, the walk 0.5 to 1.0 of the level (was 0.6 to 1.3), dry moments kept. DONE 2026-11-09.
 
 - **MEM: port to v2in, only colours, one engine file in both** (2026-11-09). Asked: *"ok its fine. port to v2in. rm other presets"*, then *"can you unify?"*. mem.mjs and mem-presets.mjs identical in both repositories (mem.mjs imports only its neighbours; each side has thin re-exports for sclang-lite, the master and QUANTUM, and passes its own boot), presets cut to colours (the default) in both, v2in run.mjs and config on colours, a check that the copies match.
