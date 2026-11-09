@@ -48,9 +48,9 @@
 
   // MEM, the memory looper of v2in's hcmf// channel, in this tab: recordings in, loops out, every preset number a knob,
   // and offline renders measured for comparison. The engine is demo/shell/mem.mjs in a Web Worker (mem-worker.mjs).
-  // Nothing opens on a visit: the files are read in the tab and never sent. plans/plan-v2in-for-positron.md section 9.
+  // Nothing opens on a visit: the files are read in the tab and never sent, and the input opens on live in. plans/plan-v2in-for-positron.md section 9.
   const S = 'web';
-  const FILES_OUT = `${S}:files:audio-out`, KNOBS_OUT = `${S}:knobs:value-out`;
+  const FILES_OUT = `${S}:files:audio-out`, INPUT_OUT = `${S}:input:audio-out`, KNOBS_OUT = `${S}:knobs:value-out`;
   const MEM_IN = `${S}:mem:audio-in`, MEM_PARAM = `${S}:mem:value-in`, MEM_OUT = `${S}:mem:audio-out`, MEM_STATE = `${S}:mem:value-out`;
   const REN_IN = `${S}:render:audio-in`, REN_OUT = `${S}:render:audio-out`;
   const PIC_IN = `${S}:picture:value-in`, SCOPE_IN = `${S}:scope:audio-in`, SPK_IN = `${S}:speaker:audio-in`;
@@ -61,8 +61,9 @@
   const node = (id, kind, label) => bay.addNode({ id: `${S}:${id}`, kind, label, place: 'browser' });
   node('files', 'store', 'recordings'); node('knobs', 'person', 'knobs'); node('mem', 'engine', 'MEM');
   node('render', 'engine', 'render'); node('picture', 'screen', 'room and loops'); node('scope', 'screen', 'spectrum');
-  node('speaker', 'screen', 'speakers');
+  node('speaker', 'screen', 'speakers'); node('input', 'device', 'audio input');
   bay.addPort({ id: FILES_OUT, dir: 'out', medium: 'audio' });
+  bay.addPort({ id: INPUT_OUT, dir: 'out', medium: 'audio' });
   bay.addPort({ id: KNOBS_OUT, dir: 'out', medium: 'value', shape: { of: 'param' } });
   bay.addPort({ id: MEM_IN, dir: 'in', medium: 'audio' });
   bay.addPort({ id: MEM_PARAM, dir: 'in', medium: 'value', shape: { of: 'param' }, deliver: (e) => param(e) });
@@ -80,7 +81,7 @@
 
   const hold = (a, b) => { const r = bay.link(a, b, [], { site: S }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
   const holds = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
-  hold(FILES_OUT, MEM_IN); hold(FILES_OUT, REN_IN); hold(KNOBS_OUT, MEM_PARAM);
+  hold(FILES_OUT, MEM_IN); hold(INPUT_OUT, MEM_IN); hold(FILES_OUT, REN_IN); hold(KNOBS_OUT, MEM_PARAM);
   hold(MEM_OUT, SPK_IN); hold(MEM_OUT, SCOPE_IN); hold(MEM_STATE, PIC_IN); hold(REN_OUT, SPK_IN);
 
   // ── presets: the built in ones and this browser's saved ones ────────────
@@ -135,8 +136,83 @@
     if (playAt < ctx.currentTime + 0.05) playAt = ctx.currentTime + 0.15;
     s.start(playAt); playAt += n / r;
   }
+  // ── the live input: any audio input, raw, into MEM's ring as it arrives ─
+  // Captured at the context's rate, low-passed and resampled to the host's rate here, as v2in's ffmpeg does with -ar.
+  const CAPTURE = `class Cap extends AudioWorkletProcessor {
+    constructor() { super(); this.n = 0; this.L = new Float32Array(2048); this.R = new Float32Array(2048); }
+    process(ins) {
+      const i = ins[0]; if (!i || !i.length) return true;
+      const l = i[0], r = i[1] || i[0];
+      this.L.set(l, this.n); this.R.set(r, this.n); this.n += l.length;
+      if (this.n >= 2048) { this.port.postMessage({ L: this.L, R: this.R }, [this.L.buffer, this.R.buffer]); this.L = new Float32Array(2048); this.R = new Float32Array(2048); this.n = 0; }
+      return true;
+    } }
+  registerProcessor('mem-cap', Cap);`;
+  let inFrames = 0, inPeak = 0;
+  let liveOn = false, stream = null, inSrc = null, lps = [], cap = null, devices = [], devAt = 0, rs = null;
+  /** Linear resampling with its phase carried across blocks; -1 is the last sample of the block before. */
+  function resampler(inRate, outRate) {
+    const step = inRate / outRate; let pos = 0, lastL = 0, lastR = 0;
+    return (L, R) => {
+      const n = L.length, out = new Int16Array(2 * Math.ceil((n + 1) / step) + 2); let o = 0;
+      const q = (v) => Math.max(-32768, Math.min(32767, Math.round(v * 32767)));
+      for (; Math.floor(pos) + 1 < n; pos += step) {
+        const i = Math.floor(pos), f = pos - i, aL = i < 0 ? lastL : L[i], aR = i < 0 ? lastR : R[i];
+        out[o++] = q(aL + (L[i + 1] - aL) * f); out[o++] = q(aR + (R[i + 1] - aR) * f);
+      }
+      pos -= n; lastL = L[n - 1]; lastR = R[n - 1];
+      return out.subarray(0, o);
+    };
+  }
+  function shapeInput() {
+    const r = HOSTS[host].rate;
+    lps.forEach((f) => f.frequency.setValueAtTime(Math.min(r, ctx.sampleRate) * 0.45, ctx.currentTime));
+    rs = { rate: r, run: resampler(ctx.sampleRate, r) };
+  }
+  async function openInput(deviceId) {
+    ctx ??= new AudioContext(); await ctx.resume();
+    if (!cap) {
+      await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([CAPTURE], { type: 'text/javascript' })));
+      cap = new AudioWorkletNode(ctx, 'mem-cap', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      const mute = ctx.createGain(); mute.gain.value = 0; cap.connect(mute); mute.connect(ctx.destination);
+      lps = [0, 1].map(() => { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.707; return f; });
+      lps[0].connect(lps[1]); lps[1].connect(cap);
+      cap.port.onmessage = ({ data: b }) => {
+        if (!live || !liveOn) return;
+        if (rs?.rate !== HOSTS[host].rate) shapeInput();
+        const pcm = rs.run(b.L, b.R);
+        inFrames += pcm.length >> 1; for (let i = 0; i < pcm.length; i += 16) inPeak = Math.max(inPeak, Math.abs(pcm[i]));
+        if (pcm.length) live.postMessage({ type: 'input', pcm }, [pcm.buffer]);
+      };
+    }
+    stream?.getTracks().forEach((t) => t.stop()); inSrc?.disconnect();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } });
+    inSrc = ctx.createMediaStreamSource(stream); inSrc.connect(lps[0]); shapeInput();
+    const label = stream.getAudioTracks()[0]?.label || 'an input';
+    devices = (await navigator.mediaDevices.enumerateDevices()).filter((x) => x.kind === 'audioinput');
+    devAt = Math.max(0, devices.findIndex((x) => x.label === label));
+    inputs.options(devices.map((x) => x.label || 'input'), devAt);
+    inputs.el.hidden = devices.length < 2;
+    d.log(`live from ${label}, at ${ctx.sampleRate} Hz into MEM at ${HOSTS[host].rate} Hz`);
+  }
+  function closeInput() {
+    stream?.getTracks().forEach((t) => t.stop()); stream = null; inSrc?.disconnect(); inSrc = null;
+    inputs.el.hidden = true;
+  }
+  async function liveIn() {
+    if (!liveOn) {
+      try { await openInput(null); } catch (e) { d.log(`no input: ${e.message}`, 'warn'); return; }
+      liveOn = true;
+    } else { closeInput(); liveOn = false; d.log(files.length ? 'live off, back to the recordings' : 'live off'); }
+    srcBtns.setIcon('live', liveOn ? 'stop' : 'radio', liveOn ? 'live off' : 'live in');
+    if (liveOn) { if (playing) restart(); else play(); }
+    else if (playing) { if (files.length) restart(); else stop(); }
+    pb.refresh();
+  }
+
   async function play() {
-    if (!files.length) { d.log('open some recordings first', 'warn'); return; }
+    if (!files.length && !liveOn) { d.log('open some recordings or press live in', 'warn'); return; }
     stopHearing();
     await audio();
     playing = true; face();
@@ -144,8 +220,9 @@
     let feed = null;
     live.onmessage = ({ data: m }) => {
       if (m.type === 'ready') {
-        rate = m.rate; feed = feeder(live, rate, seed); feed();
-        d.log(`MEM on ${host}: ${rate} Hz, ring ${m.host.ringS} s, at most ${m.host.players} players, preset ${P.name}, seed ${seed}`);
+        rate = m.rate;
+        if (liveOn) live.postMessage({ type: 'live', on: true }); else { feed = feeder(live, rate, seed); feed(); }
+        d.log(`MEM on ${host}: ${rate} Hz, ring ${m.host.ringS} s, at most ${m.host.players} players, preset ${P.name}, seed ${seed}, ${liveOn ? 'live' : 'recordings'}`);
         const chunk = 128 * Math.round(rate * 0.2 / 128);
         pump = setInterval(() => { while (playing && inflight < 2 && playAt - ctx.currentTime < 1.0 + inflight * 0.2) { inflight++; live.postMessage({ type: 'pull', frames: chunk }); } }, 40);
       } else if (m.type === 'need') feed?.();
@@ -168,7 +245,9 @@
   }
   function restart() { if (playing) { stop(); play(); } }
 
+  let lastStatus = null;
   function readout(s, st) {
+    lastStatus = s;
     const loops = s.loops.filter((l) => l && !l.resting && !l.leaving), talk = loops.filter((l) => l.speech >= 0.5).length;
     d.set('time', Math.round(s.t)); d.set('players', `${loops.length} of ${s.want}`); d.set('mood', s.mood ?? 'none');
     d.set('room', s.arrangement); d.set('takes', s.takes); d.set('talk', loops.length ? Math.round(100 * talk / loops.length) : 0);
@@ -350,6 +429,11 @@
     beside: 'or drag recordings here', empty: '', maxBytes: 512 * 1024 * 1024, says: (m, k) => d.log(m, k),
     onOpen: (fs) => { files = fs; d.log(`${fs.length} recordings, ${(fs.reduce((a, f) => a + f.size, 0) / 1048576).toFixed(0)} MB, read in this tab`); restart(); } });
 
+  const srcBtns = createButtonGroup({ buttons: [{ id: 'live', icon: 'radio', label: 'live in', title: 'any audio input into MEM, raw', onPress: () => liveIn() }] });
+  const pickDev = (i) => { devAt = (i + devices.length) % devices.length; inputs.show(devices[devAt].label, devAt); openInput(devices[devAt].deviceId).catch((e) => d.log(`that input did not open: ${e.message}`, 'warn')); };
+  const inputs = createPicker({ what: 'input', prev: () => pickDev(devAt - 1), next: () => pickDev(devAt + 1), onPick: pickDev });
+  inputs.el.hidden = true;
+
   // ── renders: the same numbers offline, measured, kept for comparison ────
   let renderer = null, renders = [], heard = null, src = null, hout = null, startedAt = 0, offset = 0;
   let renderSeconds = 600;
@@ -447,18 +531,22 @@
   const pb = createPatchbay(bay, { flowing: (l) => {
     if (l.from === REN_OUT) return !!src;
     if (l.to === REN_IN) return !!renderer;
+    if (l.from === INPUT_OUT) return playing && liveOn;
+    if (l.from === FILES_OUT) return playing && !liveOn;
     return playing;
   } });
 
   // ── the page, top to bottom ─────────────────────────────────────────────
   const top = el('div', 'cc-row'); top.append(transport.el, picker.el, seedStep.el, hostChoice.el);
+  const srcRow = el('div', 'cc-row'); srcRow.append(srcBtns.el, inputs.el);
   const keepRow = el('div', 'cc-row'); keepRow.append(keep.el);
   const renderRow = el('div', 'cc-row'); renderRow.append(renderBtn.el, lenPick.el, hearBtns.el);
   buildKnobs();
-  d.stack.add(drop.el, top, panel.el, specPanel.el, knobHost, keepRow, json, renderRow, table.el, rPanel.el, pb.el);
+  d.stack.add(drop.el, srcRow, top, panel.el, specPanel.el, knobHost, keepRow, json, renderRow, table.el, rPanel.el, pb.el);
   window.__demo.bay = bay;
   window.__demo.preset = () => P;
   window.__demo.spectrum = () => { if (!analyser) return null; const f = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(f); const s = [...f].filter(Number.isFinite).sort((a, b) => a - b); return { min: s[0], p50: s[s.length >> 1], p90: s[Math.floor(s.length * 0.9)], max: s.at(-1), rate: ctx.sampleRate }; };
+  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, next: lastStatus?.nextTake ?? null });
   window.__demo.renders = () => renders.map(({ pcm, bands, ...x }) => x);
   d.ready();
 </script>
