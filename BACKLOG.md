@@ -1,5 +1,7 @@
 ## Open
 
+- **v2in video: the 720p viewer row reads as horrible pricing** (2026-11-09). Said, quoting the row (1.63 a day, 49.64 a month): *"horrible pricing"*. Answered in chat: one viewer around the clock is 993 GB, inside the free 1,000 GB; the cheap route is HLS segments in R2 served by Workers (no egress charge, QUOTED plan section 4), made by the bridge. WAITING on whether to write that route into plan-v2in-cf-cost and the page.
+
 - ~~**/radio/v2in/: the month total in the brand yellow; now is v2in, in v2in green**~~ (2026-11-09). Asked: *"colorize regular month total to brand yellow"*. demo/radio/v2in/index.html, var(--hi) on the Total row's month cell. Then *"now = v2in and use v2in green"*: the column is v2in, in #42b649 (v2in web/v2in.css --accent, the logo's green). DONE 2026-11-09.
 
 - ~~**/radio/v2in/: the Gate row shorter**~~ (2026-11-09). Asked: *"The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000 - shorten"*. Now *"The Gate, polling every 10 s"*. DONE 2026-11-09.
