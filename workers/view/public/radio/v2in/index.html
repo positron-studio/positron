@@ -25,6 +25,7 @@
   .v2-plan { display: flex; flex-direction: column; gap: 8px; }
   .v2-note { margin: 0; font-size: 12px; color: var(--dim); }
   .v2-plan .pos-tbl-row:not(.pos-tbl-head) .pos-tbl-c:not(.r) { font: 400 12px/1.5 var(--sans); }   /* words read, numbers stay mono */
+  .v2-plan .pos-tbl-c:last-child { color: var(--wish); }   /* now: what v2in pays today, set apart from the plan */
   .v2-plan { --tbl-h: none; }   /* the whole table, so the total row is never scrolled out of sight */
 </style>
 <script type="module">
@@ -148,7 +149,8 @@
     appReqs: 1800 * 24 * PRICE.req,                       // the app's incoming messages, 20 to 1
     chunks: 1800 * 24 * PRICE.r2Write,                    // live chunks into R2
     mem: 110592 / 10 * PRICE.gbs,                         // MEM's festival GB-s over its ten days
-    bridge: 5.99 * PRICE.usdPerEur / MONTH_DAYS,          // a Hetzner CX23 before VAT, at the plan's lower rate
+    bridge: 5.99 * PRICE.usdPerEur / MONTH_DAYS,
+    now: 15.29 * PRICE.usdPerEur,                         // v2in today: Virtuaal C-S, a month, the whole service          // a Hetzner CX23 before VAT, at the plan's lower rate
   };
   const FLOOR = ['Workers Paid, 5 USD a month, is the floor', 'quoted', DAY.floor];
   const GATE = ['The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000', 'inferred', DAY.gate];
@@ -227,14 +229,17 @@
   } });
 
   const say = el('p', 'v2-say');
+  // A phone gets no day column: five columns do not fit 375 px, and the month says the same thing thirty times over.
+  const narrow = matchMedia('(max-width: 560px)').matches;
   const planT = createTable({ empty: '', columns: [
     { key: 'what', label: 'item', grow: true, hi: true },
-    { key: 'known', label: 'known', width: 64 },
-    { key: 'day', label: 'day', width: 52, align: 'right' },
-    { key: 'month', label: 'month', width: 60, align: 'right' },
+    { key: 'known', label: 'known', width: 60 },
+    ...(narrow ? [] : [{ key: 'day', label: 'day', width: 52, align: 'right' }]),
+    { key: 'month', label: 'month', width: 56, align: 'right' },
+    { key: 'now', label: 'now', width: 48, align: 'right' },
   ] });
   const usd = (x) => (x == null ? '' : x === 0 ? '0' : x < 0.01 ? '<0.01' : x.toFixed(2));
-  const priced = el('p', 'v2-note', 'USD for a whole day or month of this moment, past the free allowances. Inside them most of it is 0.');
+  const priced = el('p', 'v2-note', (narrow ? 'USD for a whole month of this moment,' : 'USD for a whole day or month of this moment,') + ' past the free allowances. Inside them most of it is 0. Now is v2in today on its Virtuaal server, 15.29 EUR a month at 1.10.');
   const plan = el('div', 'v2-plan');
   plan.append(planT.el, priced);
 
@@ -248,7 +253,7 @@
     const rows = [...m.plan, ...(m.plan.includes(FLOOR) ? [] : [FLOOR, GATE])];
     const total = rows.reduce((a, r) => a + (r[2] || 0), 0);
     planT.set([...rows.map(([what, known, day]) => ({ what, known, day: usd(day), month: usd(day == null ? null : day * MONTH_DAYS) })),
-      { what: 'Total', known: '', day: usd(total), month: usd(total * MONTH_DAYS) }]);
+      { what: 'Total', known: '', day: usd(total), month: usd(total * MONTH_DAYS), now: usd(DAY.now) }]);
     window.__demo.dayTotal = total;
     // A push goes out only when what the pages show changes; listening to Waves changes nothing they show.
     const state = m.push || pushed;
