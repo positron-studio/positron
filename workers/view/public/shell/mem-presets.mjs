@@ -811,9 +811,9 @@ export const PRESETS = {
             ]
           },
           "rate": [
-          0.2,
-          0.3
-        ],
+            0.2,
+            0.3
+          ],
           "tier": "mid",
           "life": [
             180,
@@ -879,12 +879,12 @@ export const PRESETS = {
         },
         "reverse": 0.1,
         "disintegrate": [
-          0.1,
-          0.45
+          0.05,
+          0.2
         ],
         "maxPasses": 45,
         "freeze": {
-          "p": 0.06,
+          "p": 0,
           "len": [
             0.6,
             2
@@ -926,8 +926,8 @@ export const PRESETS = {
         "reverb": {
           "room": 0.85,
           "damp": 0.55,
-          "level": 0.65,
-          "send": 1.1
+          "level": 0.9,
+          "send": 1.6
         }
       },
       "moods": [
