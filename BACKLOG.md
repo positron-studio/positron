@@ -1,5 +1,7 @@
 ## Open
 
+- **MEM: hard to listen to compared with radio1965** (2026-11-09). Said: *"copared to the readio65 its hard listen"*; on four proposed changes (wetter, no stutter, talk only as an instrument, drones as a trick): *"i do not know"*. Then *"i do not want to go full radio65"*: the wet preset was stopped before any of it was written. MEM keeps its character; the owner tries the existing knobs in the lab (room reverb level and send, freeze, disintegrate) to find how far toward it. WAITING on that listen.
+
 - ~~**MEM: voices stuck in the middle of the stereo, perhaps some reverb**~~ DONE 2026-11-09 (L/R correlation of the opening 1.000 to 0.570), (2026-11-09). Said: *"voices stuck in the middle of stereo... perhaps some reverb?"*. The dry feed (the opening) is mono, the same to both sides and outside the room and reverb. demo/shell/mem.mjs.
 
 - ~~**MEM: no Darth Vader voices**~~ DONE 2026-11-09, (2026-11-09). Said: *"darth vader voices: no"*. Slowed talk: the drones (speed 0.45 to 0.6) were allowed talk, and speed glides go to 0.7. Then *"only if sumer low and stretched"*: talk in a drone goes down to about 0.2 to 0.27 (its speed times 0.45), talk anywhere else stays at 0.9 or faster. demo/shell/mem.mjs.
