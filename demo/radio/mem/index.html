@@ -472,8 +472,8 @@
   ] });
   function amUk() {
     if (liveOn) { closeInput(); liveOn = false; srcBtns.setIcon('live', 'radio', 'live in'); }
-    // the tone and data recordings (a fax tone, LF data carriers, a time signal, a whistling band) are left out: hard to listen to
-    files = AM_UK.filter((x) => !/tone|data|time signal|whistling/i.test(x.title)).map((x) => ({ name: x.file, title: x.title, url: AM_BASE + encodeURIComponent(x.file), size: x.size }));
+    // radio only: the noise (tones, data carriers, a hum) and the talk recordings are left out (am-uk.mjs, kind)
+    files = AM_UK.filter((x) => x.kind === 'radio').map((x) => ({ name: x.file, title: x.title, url: AM_BASE + encodeURIComponent(x.file), size: x.size }));
     d.log(`AM UK: ${files.length} recordings, fetched one at a time as MEM needs them`);
     if (playing) restart(); else play();
     pb.refresh();

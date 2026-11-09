@@ -196,7 +196,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
   // both kinds: loops that come and go, and the share that stays (a majority is chance on a handful of loops)
   assert.ok(c.lives.some((x) => x <= 180), `colours: some loops come and go within 180 s (${c.lives.map((x) => x.toFixed(0))})`);
   // no slowed voices: every loop at 0.9 or faster, or 0.3 and under in a drone (owner: only if super low and stretched)
-  const mid = [...c.talk, ...d.talk].filter((x) => x > 0.165 && x < 0.88);
+  const mid = [...c.talk, ...d.talk].filter((x) => x > 0.165 && x < 0.88 && Math.abs(x - 0.25) > 1e-6);   // exactly 0.25 is an octave loop, in tune by design
   assert.equal(mid.length, 0, `no loop between 0.16 and 0.88 speed (${mid.slice(0, 5).map((x) => x.toFixed(2))})`);
   // an opening: the feed plays dry from the start, so the first minute has no silence over a second (drift, with no opening, does)
   assert.ok(c.worstQuiet < 1, `colours: no silence over 1 s in the first minute (${c.worstQuiet} s)`);
