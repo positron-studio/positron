@@ -228,12 +228,13 @@
 
   const say = el('p', 'v2-say');
   const planT = createTable({ empty: '', columns: [
-    { key: 'what', label: 'from the cost plan', grow: true, hi: true },
-    { key: 'known', label: 'known', width: 72 },
-    { key: 'day', label: 'USD a day', width: 88, align: 'right' },
+    { key: 'what', label: 'item', grow: true, hi: true },
+    { key: 'known', label: 'known', width: 64 },
+    { key: 'day', label: 'day', width: 52, align: 'right' },
+    { key: 'month', label: 'month', width: 60, align: 'right' },
   ] });
-  const usd = (x) => (x == null ? '' : x === 0 ? '0' : x < 0.01 ? 'under 0.01' : x.toFixed(2));
-  const priced = el('p', 'v2-note', 'A whole day of this moment, priced past the free allowances. Inside them most of it is 0.');
+  const usd = (x) => (x == null ? '' : x === 0 ? '0' : x < 0.01 ? '<0.01' : x.toFixed(2));
+  const priced = el('p', 'v2-note', 'USD for a whole day or month of this moment, past the free allowances. Inside them most of it is 0.');
   const plan = el('div', 'v2-plan');
   plan.append(planT.el, priced);
 
@@ -246,8 +247,8 @@
     // The floor and the Gate are there in every moment; the quiet one lists them already.
     const rows = [...m.plan, ...(m.plan.includes(FLOOR) ? [] : [FLOOR, GATE])];
     const total = rows.reduce((a, r) => a + (r[2] || 0), 0);
-    planT.set([...rows.map(([what, known, day]) => ({ what, known, day: usd(day) })),
-      { what: 'Total', known: '', day: usd(total) }]);
+    planT.set([...rows.map(([what, known, day]) => ({ what, known, day: usd(day), month: usd(day == null ? null : day * MONTH_DAYS) })),
+      { what: 'Total', known: '', day: usd(total), month: usd(total * MONTH_DAYS) }]);
     window.__demo.dayTotal = total;
     // A push goes out only when what the pages show changes; listening to Waves changes nothing they show.
     const state = m.push || pushed;
