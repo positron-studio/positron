@@ -428,7 +428,7 @@ what cf offers. 100 liserners is realistic"*, *"we still need herzner, right?"*,
 - **100 listeners is the realistic case**: scenario B with push in place and engines only while listened is about
   5 to 8 USD a month (INFERRED from sections 4 and 6 without the poll).
 - **The server's one remaining job is the senders Cloudflare cannot take**: RTMP (OBS on its default setting) and
-  Icecast source (BUTT, today's VÄIN app builds). OBS 30+ can send WHIP, a browser sends WHIP, and the app can move
+  Icecast source (Mixxx, today's VÄIN app builds). OBS 30+ can send WHIP, a browser sends WHIP, and the app can move
   to MP3 over a WebSocket; if every sender moves, no server is needed. If they must keep working, a small bridge does
   only that: RTMP and Icecast in, MP3 over a WebSocket (or PCM) to the channel's object out, no listeners, no files, no
   Liquidsoap. The smallest Hetzner (or any few-euro VPS) carries it; positron measured ffmpeg's WHIP sender failing

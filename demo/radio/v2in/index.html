@@ -32,7 +32,7 @@
   node('sender:browser', 'person', 'a browser on /live');
   node('sender:app', 'device', 'VÄIN app');
   node('sender:rtmp', 'device', 'OBS on RTMP');
-  node('sender:butt', 'device', 'BUTT');
+  node('sender:mixxx', 'device', 'Mixxx');
   node('hetzner:bridge', 'engine', 'RTMP and Icecast in');
   node('alerts:kyiv', 'external', 'alerts.in.ua');
   // ── Cloudflare ──
@@ -50,7 +50,7 @@
   node('listener:web', 'screen', 'web player');
   node('listener:app', 'screen', 'VÄIN app');
 
-  for (const id of ['sender:obs', 'sender:browser', 'sender:app', 'sender:rtmp', 'sender:butt', 'hetzner:bridge', 'cf:sfu',
+  for (const id of ['sender:obs', 'sender:browser', 'sender:app', 'sender:rtmp', 'sender:mixxx', 'hetzner:bridge', 'cf:sfu',
     'cf:waves', 'cf:mem', 'cf:stream']) port(`${id}:audio-out`, 'out', 'audio');
   for (const id of ['hetzner:bridge', 'cf:sfu', 'cf:live', 'cf:mix', 'cf:mem', 'cf:stream', 'listener:web', 'listener:app']) port(`${id}:audio-in`, 'in', 'audio');
   port('cf:live:audio-out', 'out', 'audio');
@@ -77,7 +77,7 @@
     ['sender:browser:audio-out', 'cf:sfu:audio-in', 'whip'],
     ['sender:app:audio-out', 'cf:live:audio-in', 'websocket'],
     ['sender:rtmp:audio-out', 'hetzner:bridge:audio-in'],
-    ['sender:butt:audio-out', 'hetzner:bridge:audio-in', 'icecast'],
+    ['sender:mixxx:audio-out', 'hetzner:bridge:audio-in', 'icecast'],
     ['hetzner:bridge:audio-out', 'cf:live:audio-in', 'websocket'],
     ['alerts:kyiv:state-out', 'cf:gate:state-in', 'https'],
     ['cf:sfu:audio-out', 'cf:live:audio-in'],
@@ -148,7 +148,7 @@
         ['The live object: 460.8 GB-s an hour', 'inferred'],
         ['About 1,800 billed requests an hour at 10 messages a second', 'inferred']] },
     { name: 'live through the bridge', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
-      say: 'OBS on RTMP, or BUTT on Icecast, reaches a small bridge on a VPS, which sends MP3 over a WebSocket.',
+      say: 'OBS on RTMP, or Mixxx on Icecast, reaches a small bridge on a VPS, which sends MP3 over a WebSocket.',
       lit: [K('sender:rtmp:audio-out', 'hetzner:bridge:audio-in'), K('hetzner:bridge:audio-out', 'cf:live:audio-in'), ...LIVE, ...OUT],
       plan: [['The bridge keeps no listeners and no files', 'inferred'],
         ['Containers take HTTP only, so the bridge is not on Cloudflare', 'measured'],
