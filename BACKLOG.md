@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**v2in huddersfield: talk and harsh tones deleted**~~ (2026-11-09). The owner deleted the 15 talk and 4 harsh tone recordings in /admin (*"done file stuff"*); the 162 kHz hum and the 129.1 kHz tone kept. DONE 2026-11-09.
+
+- **v2in: a Visualization setting, Wave or Spectre; MEM Spectre, the others Wave** (2026-11-09). Asked: *"have setting dropdown show visualization: 'Wave, Spectre', MAM gets last. othes Wave."*. A channel setting beside video (channels.json, core/layers.mjs, /api/now, admin dropdown), the player draws a spectrogram for Spectre (one image column a frame, measured as cheap as the wave).
+
 - ~~**MEM: tones are cool, it depends how harsh**~~ DONE 2026-11-09 (kept: 162 kHz hum, 129.1 kHz steady 829 Hz tone; out: 7880 1475 Hz, 77.5 ticking 1 kHz, 147.3 teletype warble, 1044 whistle in hiss), (2026-11-09). Said: *"tones are cool. really deponds on tone how harsh it is"*. Judge each tone recording by pitch, burstiness and brightness, keep the gentle ones in AM UK and on v2in.
 
 - ~~**MEM: remove the talk recordings**~~ DONE 2026-11-09 (lab; v2in by the owner in admin), (2026-11-09). Asked: *"rm talk recordings"*. Which ones by MEM's own speech measure over each whole file; out of AM UK in the lab, and a list by title for v2in's huddersfield folder.
