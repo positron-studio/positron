@@ -298,6 +298,51 @@ export class Mem {
     pl.colour = { hp: oct(w.from.hp, w.to.hp), lp: oct(w.from.lp, w.to.lp), drive: w.from.drive + (w.to.drive - w.from.drive) * e };
     this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
   }
+  /**
+   * The reverb that moves (preset `room.reverb.walk`): its level glides to a share of the preset's (`amount`) and holds,
+   * and now and then (`dryP`) to almost nothing (`dry`) for `dryHold` s: dry moments. The node's own 2 s lag smooths it.
+   */
+  walkReverb(t) {
+    const W = this.p.room.reverb.walk, r = this.r;
+    let w = this.rw;
+    if (!w || t >= w.t0 + w.T + w.hold) {
+      const dry = r.chance(W.dryP ?? 0), to = dry ? r.range(W.dry ?? [0.03, 0.12]) : r.range(W.amount ?? [0.6, 1.3]);
+      w = this.rw = { from: w ? w.at : 1, to, at: w ? w.at : 1, t0: t, T: Math.max(1, r.range(W.glide ?? [6, 20])) * this.sr,
+        hold: r.range(dry ? W.dryHold ?? [10, 30] : W.hold ?? [10, 40]) * this.sr };
+    }
+    const u = Math.min(1, (t - w.t0) / w.T), e = (1 - Math.cos(Math.PI * u)) / 2;
+    w.at = w.from + (w.to - w.from) * e;
+    this.w?.send('/n_set', NODE.rev, 'level', this.p.room.reverb.level * w.at);
+  }
+  /**
+   * Solo passages (preset `solo`): every `every` s one sounding loop stays and every other goes, drones too, holds
+   * `hold` s, and all come back; never the same player twice running. Each way is a fade of `fade` s or, at `sudden`, a
+   * cut of 0.2 to 0.8 s, decided apart, so it can surprise (owner: *keep surprise element*). The others keep looping
+   * underneath, so they come back where they are.
+   */
+  stepSolo(t) {
+    const S = this.p.solo, r = this.r, sr = this.sr;
+    this.soloNext ??= t + r.range(S.every) * sr;
+    const o = this.soloState;
+    if (!o) {
+      if (t < this.soloNext) return;
+      const can = this.players.filter((pl) => !pl.leaving && !pl.rest && pl.voices.some((v) => !v.out) && pl !== this.soloLast);
+      if (can.length < 1 || this.players.filter((pl) => pl.voices.some((v) => !v.out)).length < 3) { this.soloNext = t + 10 * sr; return; }
+      const pl = r.pick(can);
+      const way = () => Math.max(1, (r.chance(S.sudden ?? 0) ? r.range([0.2, 0.8]) : r.range(S.fade ?? [3, 8])) * sr);
+      // `drones`: the share of passages where the kept slots (the drones) stay under the lone loop
+      this.soloState = { pl, t0: t, hold: r.range(S.hold) * sr, out: way(), back: way(), drones: r.chance(S.drones ?? 0) }; this.soloLast = pl; this.counts.solos = (this.counts.solos || 0) + 1;
+      return;
+    }
+    if (t >= o.t0 + o.out + o.hold + o.back) { this.soloState = null; this.soloNext = t + r.range(S.every) * sr; }
+  }
+  /** How much of a player is heard under a solo: 1, or down to 0 and back for everyone but the soloist. */
+  soloGain(pl, t) {
+    const o = this.soloState;
+    if (!o || pl === o.pl || (o.drones && this.slotAt(pl.k)?.keep)) return 1;
+    const x = t - o.t0, c = (u) => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, u)))) / 2;
+    return x < o.out ? 1 - c(x / o.out) : x < o.out + o.hold ? 0 : c((x - o.out - o.hold) / o.back);
+  }
   /** The dry feed's level, and as much again into the reverb at half, so the feed sits in the room. */
   setDry(x) { this.w?.send('/n_set', NODE.dry, 'dry', x); this.w?.send('/n_set', NODE.rev, 'sd', x * 0.5); }
   /** The opening's dry feed: held until the first loop has played `hold` s, then down to the preset's `dry` over `fade` s. */
@@ -593,7 +638,12 @@ export class Mem {
     if (t >= this.enterAt) this.enter();
     if (t >= this.balanceAt) { if (t >= this.moodEnd) this.newMood(); this.balance(); this.balanceAt = t + this.sr; }
     if (t >= this.colourNext && this.opening) this.openStep(t);
-    if (t >= this.colourNext) { this.colourNext = t + this.sr / 4; if (this.p.colour.walk) for (const pl of this.players) this.walkColour(pl, t); }
+    if (t >= this.colourNext) {
+      this.colourNext = t + this.sr / 4;
+      if (this.p.colour.walk) for (const pl of this.players) this.walkColour(pl, t);
+      if (this.p.room.reverb?.walk) this.walkReverb(t);
+      if (this.p.solo) this.stepSolo(t);
+    }
     for (let j = this.players.length - 1; j >= 0; j--) {   // a leaving player whose loop has faded is let go
       const pl = this.players[j];
       if (pl.leaving && !pl.voices.length) this.drop(pl);
@@ -752,7 +802,7 @@ export class Mem {
   /** One player's mono quantum: its voices, each read at its computed position. */
   fill(pl, out) {
     out.fill(0);
-    const t = this.t, P = this.p.process, sg = this.slotAt(pl.k)?.gain ?? 1;   // a slot's own level (the drone's lift)
+    const t = this.t, P = this.p.process, sg = (this.slotAt(pl.k)?.gain ?? 1) * this.soloGain(pl, this.t);   // a slot's own level (the drone's lift)
     for (const v of pl.voices) {
       const d = v.take.data, len = v.len, g = v.take.gain * this.gk * sg;
       // this quantum's pass: darker, quieter and more holes the more passes
@@ -826,7 +876,7 @@ export class Mem {
       const v = pl.voices.find((x) => !x.out) || pl.voices[0];
       if (!v) { loops.push(null); continue; }
       const ph = phaseAt(v, this.t), pos = ((ph % v.len) + v.len) % v.len;
-      loops.push({ player: pl.i + 1, leaving: pl.leaving, slot: this.slotAt(pl.k)?.name ?? null, take: v.take.id, ringAt: v.take.ringAt ?? null, file: v.take.file ?? null, len: v.cs / 100, pos: +(pos / this.sr).toFixed(2), pass: v.pass, rate: +rateAt(v, this.t).toFixed(3),
+      loops.push({ player: pl.i + 1, leaving: pl.leaving, slot: this.slotAt(pl.k)?.name ?? null, alone: this.soloState?.pl === pl, take: v.take.id, ringAt: v.take.ringAt ?? null, file: v.take.file ?? null, len: v.cs / 100, pos: +(pos / this.sr).toFixed(2), pass: v.pass, rate: +rateAt(v, this.t).toFixed(3),
         frozen: pl.freezing, dis: +v.dis.toFixed(2), speech: +(v.take.speech ?? 0).toFixed(2), tier: pl.tier ?? null, resting: !!pl.rest, a: Math.round(pl.at?.a ?? 0), d: +(pl.at?.d ?? 0).toFixed(1), from: v.take.from, wall: v.take.wall });
     }
     const mb = (this.takes.reduce((s, x) => s + x.data.length * 2, 0) + this.ring.d.length * 2) / 1048576;
