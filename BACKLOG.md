@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**/radio/v2in/: a current a month column, its own colour**~~ (2026-11-09). Asked: *"add current/mo col (diff color)"*, then chose *"v2in's server now"*: Virtuaal C-S 15.29 EUR a month on the Total row, in USD at 1.10, teal. demo/radio/v2in/index.html. DONE 2026-11-09: now 16.82 on the Total row; a phone drops the day column so the rest fit 375 px.
+
 - ~~**/radio/v2in/: a USD a month column**~~ (2026-11-09). Asked: *"add usd a month col"*. demo/radio/v2in/index.html: the day price times the plan's month (2,628,000 s). DONE 2026-11-09; headings day and month, USD said in the note, the first heading item so nothing is cut at 375.
 
 - ~~**/radio/v2in/: the table in the sans face, numbers in the mono; Total**~~ (2026-11-09). Asked: *"use sans inside table  exept nrs"*. demo/radio/v2in/index.html; the headings stay mono (they name). Then *"A day of this moment - Total? rm known from it"*: the last row reads Total with no known. DONE 2026-11-09.
