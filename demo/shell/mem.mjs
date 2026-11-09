@@ -241,8 +241,13 @@ export class Mem {
     this.calmUntil = 0; this.wakeAt = 0; this.balanceAt = 0; this.colourNext = 0; this.mood = null; this.moodEnd = 0; this.moodPlayers = this.n;
     this.newMood(true);
     this.spreadAt = this.r.next();
-    { const rank = [...this.players].sort((x, y) => this.spread(x) - this.spread(y)); rank.forEach((pl, j) => { pl.rest = j >= this.moodPlayers; }); }   // a thin mood starts with fewer
+    // a slot that keeps (the drone) is ranked first, so a thin opening mood never rests it
+    // a slot that keeps (the drone) plays on top of the mood's count and never rests
+    { const rank = [...this.players].filter((pl) => !this.slotAt(pl.k)?.keep).sort((x, y) => this.spread(x) - this.spread(y)); rank.forEach((pl, j) => { pl.rest = j >= this.moodPlayers; }); }   // a thin mood starts with fewer
     this.nextTake = 0; this.firstTake = true;
+    // preset `open` { dry, hold, fade }: the feed itself, dry, from the first frame until the loops have taken over, so
+    // nothing waits in silence for the first take; then it fades to the preset's own `dry`
+    this.opening = !!this.p.open; this.openFade = null;
     const rm = this.p.room;
     this.arr = { from: this.r.pick(rm.arrangements), to: null, side: this.r.chance(0.5) ? 1 : -1, moveAt: 0, moveS: 0, holdUntil: this.r.range(rm.hold) * this.sr };
     this.roomAt = 0; this.dryRead = 0; this.ins = []; this.out = new Int16Array(0);
@@ -279,6 +284,15 @@ export class Mem {
     pl.colour = { hp: oct(w.from.hp, w.to.hp), lp: oct(w.from.lp, w.to.lp), drive: w.from.drive + (w.to.drive - w.from.drive) * e };
     this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
   }
+  /** The opening's dry feed: held until the first loop has played `hold` s, then down to the preset's `dry` over `fade` s. */
+  openStep(t) {
+    const O = this.p.open || {}, to = this.p.dry ?? 0;
+    if (!this.openFade) { if (this.counts.replaced > 0) this.openFade = { t0: t + (O.hold ?? 10) * this.sr, T: Math.max(1, (O.fade ?? 15) * this.sr) }; return; }
+    if (t < this.openFade.t0) return;
+    const u = Math.min(1, (t - this.openFade.t0) / this.openFade.T), from = O.dry ?? 0.5;
+    this.w?.send('/n_set', NODE.dry, 'dry', from + (to - from) * (1 - Math.cos(Math.PI * u)) / 2);
+    if (u >= 1) this.opening = false;
+  }
   /** A speaker's slow walk around its place: two slow sines each in angle and distance, or none (it stands still). */
   newWalk() {
     const W = this.p.room.walk || { p: 0.6, angle: 12, distance: 0.3, period: [60, 180] }, r = this.r;
@@ -307,15 +321,17 @@ export class Mem {
   /** Players to rest or wake, toward the mood's count: a resting one fades at its next change, a waking one enters. */
   balance() {
     const t = this.t, r = this.r, want = this.mood ? Math.min(this.n, this.moodPlayers) : this.n;
-    const active = this.players.filter((pl) => !pl.leaving && !pl.rest), keep = active.filter((pl) => !pl.toRest);
+    // a kept slot (the drone) is outside the mood's count: always on, never rested or woken here
+    const kept = (pl) => !!this.slotAt(pl.k)?.keep;
+    const active = this.players.filter((pl) => !pl.leaving && !pl.rest && !kept(pl)), keep = active.filter((pl) => !pl.toRest);
     if (keep.length > want) {
-      keep.filter((pl) => !this.slotAt(pl.k)?.keep).sort((x, y) => this.spread(y) - this.spread(x)).slice(0, keep.length - want).forEach((pl) => {
+      keep.sort((x, y) => this.spread(y) - this.spread(x)).slice(0, keep.length - want).forEach((pl) => {
         pl.toRest = true; pl.replaceAt = Math.min(pl.replaceAt, t + r.range([15, 60]) * this.pace * this.sr);
       });
     } else if (keep.length < want) {
       let k = keep.length;
       for (const pl of active) if (pl.toRest && k < want) { pl.toRest = false; k++; }
-      const resting = this.players.filter((pl) => pl.rest && !pl.leaving).sort((x, y) => this.spread(x) - this.spread(y));
+      const resting = this.players.filter((pl) => pl.rest && !pl.leaving && !kept(pl)).sort((x, y) => this.spread(x) - this.spread(y));
       if (k < want && resting.length && t >= this.wakeAt && !this.firstTake) {
         const pl = resting[0]; pl.rest = false; pl.replaceAt = t; this.wakeAt = t + r.range(this.p.enter) * this.pace * this.sr;
       }
@@ -361,7 +377,7 @@ export class Mem {
     if ((await boot(w.ask(done('/notify'), 3000, '/notify', 1)))?.[0] !== '/done') throw new Error('wasm scsynth did not answer /notify');
     for (const d of defs) { const a = await boot(w.ask(done('/d_recv'), 5000, '/d_recv', d.bytes)); if (a?.[0] !== '/done') throw new Error(`scsynth refused ${d.name}: ${a ? a.join(' ') : 'no answer'}`); }
     for (const pl of this.players) this.spk(pl);
-    w.send('/s_new', 'mdry', NODE.dry, 1, 0, 'dry', this.p.dry ?? 0);
+    w.send('/s_new', 'mdry', NODE.dry, 1, 0, 'dry', this.opening ? this.p.open.dry ?? 0.5 : this.p.dry ?? 0);
     const rv = this.p.room.reverb;
     w.send('/s_new', 'mrev', NODE.rev, 1, 0, 'room', rv.room, 'damp', rv.damp, 'level', rv.level);
     w.send('/s_new', 'mmst', NODE.mst, 1, 0);
@@ -376,7 +392,7 @@ export class Mem {
   //   comes first), each moved to its strongest onset within 2 s and kept only if it passes the level gate and does not
   //   overlap the last few takes (with `apart` seconds to spare); then one of those drawn with talk weighted down by
   //   `takes.speech` (1 takes talk as anything else, 0.2 at a fifth the weight, 0 never unless there is nothing else).
-  takeFromRing(seconds) {
+  takeFromRing(seconds, { talk = false } = {}) {   // talk: take talk as it comes (a drone slot, where it is texture)
     const T = this.p.takes, r = this.r, need = Math.round(seconds * 100), span = need + 3;
     const lastCell = Math.floor(this.ring.w / this.grid) - 2, firstCell = Math.ceil(this.ring.from / this.grid);
     if (lastCell - firstCell < span + 3) return 'not enough heard yet';
@@ -401,7 +417,8 @@ export class Mem {
     // talk is also passed over outright at the same odds, unless nothing has been taken for a long while (a feed that
     // is all talk still gives takes): the players keep what they have or take an older take meanwhile
     const long = (this.t - (this.lastTakeAt ?? 0)) / this.sr > (this.takes.length ? 1.5 * T.every[1] : 45);   // at the start, 45 s at most
-    if (pick.speech >= 0.5 && !long && r.next() > (T.speech ?? 1)) { this.counts.passed = (this.counts.passed || 0) + 1; return 'talk'; }
+    // an opening takes its first take, talk or not
+    if (pick.speech >= 0.5 && !long && !talk && !(this.firstTake && this.p.open) && r.next() > (T.speech ?? 1)) { this.counts.passed = (this.counts.passed || 0) + 1; return 'talk'; }
     this.recentTakes = [...recent, [pick.c, pick.c + span]].slice(-4);
     const f0 = pick.c * this.grid, data = this.ring.mono(f0, need * this.grid + this.seam + 2);
     // ringAt: the frame of the feed it was cut at, so a host that knows what it fed can name the source
@@ -471,11 +488,18 @@ export class Mem {
     const old = this.takes.filter(fits), calmOld = old.filter((x) => !talky(x));
     let revisit = old.length > 0 && r.chance(T.revisit);
     if (!fresh.length && !revisit) {   // nothing new of this length in memory: a take now, if the feed has sound
-      const got = this.takeFromRing(r.range([lo, hi]));
+      const got = this.takeFromRing(r.range([lo, hi]), { talk: !!slot?.tier });
       if (typeof got !== 'string') fresh = [got];
     }
     // a slot with its own tier (the low drone) waits for a take that long rather than looping a short one
-    if (slot?.tier && !fresh.length && !old.length) { pl.replaceAt = this.t + 5 * this.sr; return; }
+    // and after 15 s with nothing that long, the longest take there is
+    if (slot?.tier && !fresh.length && !old.length) {
+      pl.waitSince ??= this.t;
+      const longest = this.takes.reduce((a, x) => (!a || x.cs > a.cs ? x : a), null);
+      if (this.t - pl.waitSince < 15 * this.sr || !longest) { pl.replaceAt = this.t + 5 * this.sr; return; }
+      fresh = [longest];
+    }
+    pl.waitSince = null;
     if (!revisit && fresh.length && talky(fresh[0]) && calmOld.length && r.next() > (T.speech ?? 1)) revisit = true;
     const take = fresh.length && !revisit ? fresh[0] : r.pick(revisit && calmOld.length && r.next() > (T.speech ?? 1) ? calmOld : old.length ? old : this.takes);
     take.played = true;
@@ -485,7 +509,7 @@ export class Mem {
     const v = this.newVoice(take, n, 0, { base: slot?.rate ? r.range(slot.rate) : 1 });
     const x = r.range(T.xfade) * (tier === 'long' ? 1.5 : 1);
     if (cur) this.fadeOut(cur, x);
-    if (cur) this.fadeIn(v, x); else this.fadeIn(v, T.fadeIn ? r.range(T.fadeIn) : Math.max(2, x * 0.7), true);   // preset `takes.fadeIn`, seconds
+    if (cur) this.fadeIn(v, x); else if (this.p.open && !this.counts.replaced) this.fadeIn(v, 3, true); else this.fadeIn(v, T.fadeIn ? r.range(T.fadeIn) : Math.max(2, x * 0.7), true);   // preset `takes.fadeIn`, seconds
     pl.voices.push(v); pl.freezing = false; pl.tier = tier; this.counts.replaced++; this.changed();
     // a long loop lives long enough to be heard round three times, within the preset's longest life
     const talkLife = take.speech >= 0.5 ? 0.5 + 0.5 * (T.speech ?? 1) : 1;   // talk, when it comes, does not stay long
@@ -522,20 +546,22 @@ export class Mem {
   perform() {
     const t = this.t, T = this.p.takes, r = this.r;
     if (t >= this.nextTake) {
-      const secs = this.takeSeconds();
+      const secs = this.firstTake && this.p.open ? this.r.range([2, 4]) : this.takeSeconds();   // an opening's first take is short, so it comes soon
       const why = this.recordings && r.chance(T.past) ? this.takeFromPast(secs) : this.takeFromRing(secs);
       if (typeof why === 'string') { if (why === 'no sound') this.counts.gated++; this.nextTake = t + (why === 'talk' ? r.range(T.every) * this.pace : 2) * this.sr; }   // talk passed over: the next try at the usual pace, so talk comes in at `speech` times the rate
       else {
         this.nextTake = t + r.range(T.every) * this.pace * this.sr;
         if (this.firstTake) {   // the players come in one by one after the first take, as a looper fills
           this.firstTake = false;
-          let at = t; for (const pl of this.players) if (!pl.rest) { pl.replaceAt = at; at += r.range(this.p.enter) * this.sr; }
+          // a kept slot (the drone) waits for its own long take and takes no place in the line
+          let at = t; for (const pl of this.players) if (!pl.rest) { pl.replaceAt = at; if (!this.slotAt(pl.k)?.keep) at += r.range(this.p.enter) * this.sr; }
           this.wakeAt = at;
         }
       }
     }
     if (t >= this.enterAt) this.enter();
     if (t >= this.balanceAt) { if (t >= this.moodEnd) this.newMood(); this.balance(); this.balanceAt = t + this.sr; }
+    if (t >= this.colourNext && this.opening) this.openStep(t);
     if (t >= this.colourNext) { this.colourNext = t + this.sr / 4; if (this.p.colour.walk) for (const pl of this.players) this.walkColour(pl, t); }
     for (let j = this.players.length - 1; j >= 0; j--) {   // a leaving player whose loop has faded is let go
       const pl = this.players[j];
@@ -695,9 +721,9 @@ export class Mem {
   /** One player's mono quantum: its voices, each read at its computed position. */
   fill(pl, out) {
     out.fill(0);
-    const t = this.t, P = this.p.process;
+    const t = this.t, P = this.p.process, sg = this.slotAt(pl.k)?.gain ?? 1;   // a slot's own level (the drone's lift)
     for (const v of pl.voices) {
-      const d = v.take.data, len = v.len, g = v.take.gain * this.gk;
+      const d = v.take.data, len = v.len, g = v.take.gain * this.gk * sg;
       // this quantum's pass: darker, quieter and more holes the more passes
       const ph = phaseAt(v, t);
       v.pass = Math.floor(Math.abs(ph - v.phStart) / len);
@@ -742,7 +768,7 @@ export class Mem {
       this.gk += (this.gainTarget() - this.gk) * this.levelK;
       for (const pl of this.players) this.fill(pl, this.ins[pl.i]);
       // the dry feed: read a little behind what has been written (and a little longer after a preset without it)
-      if ((this.p.dry ?? 0) > 0 || this.t < this.dryUntil) {
+      if ((this.p.dry ?? 0) > 0 || this.t < this.dryUntil || this.opening) {
         const w = this.ring.w;
         if (this.dryRead > w - QUANTUM || this.dryRead < w - this.sr * 3) this.dryRead = Math.max(0, w - Math.round(this.sr * (this.p.dryDelay ?? 0.5)));
         for (let i = 0; i < QUANTUM; i++) { const [l, r] = this.dryRead + i < w ? this.ring.frame(this.dryRead + i) : [0, 0]; dl[i] = l; dr[i] = r; }

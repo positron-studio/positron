@@ -708,7 +708,12 @@ export const PRESETS = {
         "spacing": 4,
         "level": 1,
         "dry": 0,
-        "takes": {
+        "open": {
+        "dry": 0.6,
+        "hold": 10,
+        "fade": 15
+      },
+      "takes": {
           "min": 2,
           "max": 40,
           "tiers": {
@@ -762,18 +767,18 @@ export const PRESETS = {
           }
         },
         "colour": {
-          "hp": [
-            70,
-            1200
-          ],
-          "lp": [
-            1200,
-            11000
-          ],
-          "drive": [
-            1,
-            3.4
-          ],
+        "hp": [
+          70,
+          900
+        ],
+        "lp": [
+          1200,
+          8000
+        ],
+        "drive": [
+          1,
+          2.4
+        ],
           "walk": {
             "glide": [
               4,
@@ -788,6 +793,7 @@ export const PRESETS = {
         "slots": [
         {
           "name": "low",
+        "gain": 1.8,
           "players": 2,
           "colour": {
             "hp": [
@@ -795,9 +801,9 @@ export const PRESETS = {
               50
             ],
             "lp": [
-              220,
-              650
-            ],
+            400,
+            1200
+          ],
             "drive": [
               1.3,
               2.8
@@ -807,7 +813,7 @@ export const PRESETS = {
             0.45,
             0.6
           ],
-          "tier": "long",
+          "tier": "mid",
           "life": [
             180,
             600
@@ -837,16 +843,16 @@ export const PRESETS = {
           "players": 2,
           "colour": {
             "hp": [
-              700,
-              1800
+              600,
+              1400
             ],
             "lp": [
-              5000,
-              12000
+              4500,
+              8000
             ],
             "drive": [
               1,
-              2
+              1.6
             ]
           },
           "rate": [

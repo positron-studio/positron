@@ -97,8 +97,11 @@
         const bytes = f.bytes ? f.bytes.buffer.slice(f.bytes.byteOffset, f.bytes.byteOffset + f.bytes.byteLength) : await (await fetch(f.url)).arrayBuffer();
         if (f.url) d.log(`AM: ${f.title}`);
         const buf = await new OfflineAudioContext(2, 1, rate).decodeAudioData(bytes);
-        const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, pcm = new Int16Array(buf.length * 2);
-        for (let k = 0; k < buf.length; k++) { pcm[2 * k] = Math.max(-32768, Math.min(32767, Math.round(L[k] * 32767))); pcm[2 * k + 1] = Math.max(-32768, Math.min(32767, Math.round(R[k] * 32767))); }
+        // a piece of 20 to 50 s from a random point, so the ring holds many sources, not minutes of one
+        const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+        const n = Math.min(buf.length, Math.round((20 + 30 * r.next()) * rate)), at = Math.floor(r.next() * (buf.length - n + 1));
+        const pcm = new Int16Array(n * 2), fade = Math.min(n >> 1, Math.round(rate * 0.5));   // half a second in and out, no click at a seam
+        for (let k = 0; k < n; k++) { const e = Math.min(1, k / fade, (n - 1 - k) / fade); pcm[2 * k] = Math.max(-32768, Math.min(32767, Math.round(L[at + k] * e * 32767))); pcm[2 * k + 1] = Math.max(-32768, Math.min(32767, Math.round(R[at + k] * e * 32767))); }
         worker.postMessage({ type: 'source', pcm, name: f.name }, [pcm.buffer]);
       } catch (e) { d.log(`could not decode a file: ${e?.message || e}`, 'warn'); }
       busy = false;
@@ -187,12 +190,12 @@
     devices = (await navigator.mediaDevices.enumerateDevices()).filter((x) => x.kind === 'audioinput');
     devAt = Math.max(0, devices.findIndex((x) => x.label === label));
     inputs.options(devices.map((x) => x.label || 'input'), devAt);
-    inputs.el.hidden = devices.length < 2;
+    inputsBox.hidden = devices.length < 2;
     d.log(`live from ${label}, at ${ctx.sampleRate} Hz into MEM at ${HOSTS[host].rate} Hz`);
   }
   function closeInput() {
     stream?.getTracks().forEach((t) => t.stop()); stream = null; inSrc?.disconnect(); inSrc = null;
-    inputs.el.hidden = true;
+    inputsBox.hidden = true;
   }
   async function liveIn() {
     if (!liveOn) {
@@ -443,14 +446,14 @@
   ] });
   function amUk() {
     if (liveOn) { closeInput(); liveOn = false; srcBtns.setIcon('live', 'radio', 'live in'); }
-    files = AM_UK.map((x) => ({ name: x.file, title: x.title, url: AM_BASE + encodeURIComponent(x.file), size: x.size }));
+    // the tone and data recordings (a fax tone, LF data carriers, a time signal, a whistling band) are left out: hard to listen to
+    files = AM_UK.filter((x) => !/tone|data|time signal|whistling/i.test(x.title)).map((x) => ({ name: x.file, title: x.title, url: AM_BASE + encodeURIComponent(x.file), size: x.size }));
     d.log(`AM UK: ${files.length} recordings, fetched one at a time as MEM needs them`);
     if (playing) restart(); else play();
     pb.refresh();
   }
   const pickDev = (i) => { devAt = (i + devices.length) % devices.length; inputs.show(devices[devAt].label, devAt); openInput(devices[devAt].deviceId).catch((e) => d.log(`that input did not open: ${e.message}`, 'warn')); };
   const inputs = createPicker({ what: 'input', prev: () => pickDev(devAt - 1), next: () => pickDev(devAt + 1), onPick: pickDev });
-  inputs.el.hidden = true;
 
   // ── renders: the same numbers offline, measured, kept for comparison ────
   let renderer = null, renders = [], heard = null, src = null, hout = null, startedAt = 0, offset = 0;
@@ -556,7 +559,9 @@
 
   // ── the page, top to bottom ─────────────────────────────────────────────
   const top = el('div', 'cc-row'); top.append(transport.el, picker.el, seedStep.el, hostChoice.el);
-  const srcRow = el('div', 'cc-row'); srcRow.append(srcBtns.el, inputs.el);
+  // the picker sits in a span, because the kit's own display rule beats [hidden] on the picker itself
+  const inputsBox = el('span'); inputsBox.append(inputs.el); inputsBox.hidden = true;
+  const srcRow = el('div', 'cc-row'); srcRow.append(srcBtns.el, inputsBox);
   const keepRow = el('div', 'cc-row'); keepRow.append(keep.el);
   const renderRow = el('div', 'cc-row'); renderRow.append(renderBtn.el, lenPick.el, hearBtns.el);
   buildKnobs();

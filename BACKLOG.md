@@ -1,5 +1,13 @@
 ## Open
 
+- ~~**MEM: some frequency noise and squelch is hard to listen to. By design?**~~ DONE 2026-11-09, (2026-11-09). Asked: *"some freq noise squelch is hard to listen. by design?"*. No: the lab sat on m7gmg-hf-7880 (a steady DWD fax tone in hiss), and six of the 36 are tones or data; colours opened lp to 11 to 12 kHz and drive to 3.4. Leave those six out of AM UK, short pieces from many files, colours tamed. demo/radio/mem/, mem-presets.mjs.
+
+- ~~**MEM: the low drones cannot be heard**~~ DONE 2026-11-09, (2026-11-09). Said: *"can not hear lower drones"*. Two causes: the drone players were rested at boot by a thin mood (keep ignored), and a low-pass of 220 to 650 Hz on half-speed AM sits under what a laptop speaker plays. demo/shell/mem.mjs, mem-presets.mjs.
+
+- ~~**MEM lab: the same file all the time; an empty input picker**~~ DONE 2026-11-09, (2026-11-09). Said, on a screenshot of every loop from m7gmg-hf-7880: *"same file all tehe time??"*. The feeder plays each recording whole, so minutes of one file fill the ring. Feed short pieces from many files instead. The input picker beside AM UK shows empty when it should be hidden. demo/radio/mem/index.html.
+
+- ~~**MEM: too much silence at the start**~~ DONE 2026-11-09, (2026-11-09). Said, on a screenshot of a 3 min colours render whose first 12 to 15 s are empty: *"so much silenge..."*. The first take waits for the ring, the drones wait for a 14 s take, the entry fade is 8 to 20 s from flat. demo/shell/mem.mjs.
+
 - ~~**MEM: lower, drony loops too; frequency slots?**~~ (2026-11-09). Asked: *"do lower drony stuff too. freq slots?"*. Read as: speakers given a register each (a low slot, a middle, a high), the low ones slower, longer and darker so they drone under the rest. demo/shell/mem.mjs, mem-presets.mjs (colours). DONE 2026-11-09: preset slots (low 2, mid 4, high 2 on colours); low at 0.45 to 0.6 speed, dark (lp 220 to 650 Hz), long takes only, 3 to 10 min lives, never rested; each loop row names its slot. Slots have no knobs yet.
 
 - ~~**MEM lab: show the source file names**~~ (2026-11-09). Asked: *"want to see source filenames"*. Each loop's take named by the recording (or input) it was cut from: demo/shell/mem.mjs keeps where a take was cut, mem-worker.mjs maps that to the file, the page draws it. DONE 2026-11-09: each loop row ends with its source (a Kiwi file as receiver, band and kHz, m7gmg-hf-7880); a phone gets a 3 by 4 picture so the rows no longer overlap.

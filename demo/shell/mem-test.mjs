@@ -166,12 +166,14 @@ for (const [name, h] of Object.entries(HOSTS)) {
 {
   const run = async (name, seconds) => {
     const m = await new Mem({ preset: presetOf(name), seed: 13 }).boot(bootSync, vendor), cr = rng(17);
-    const hp = new Map(), lives = [], due = new Map(), low = { rates: [], lens: [], rested: 0 }; let most = 0, firstLoop = null, outside = 0;
+    const hp = new Map(), lives = [], due = new Map(), low = { rates: [], lens: [], rested: 0 }; let quiet = 0, worstQuiet = 0; let most = 0, firstLoop = null, outside = 0;
     for (let k = 0; k < seconds * 10; k++) {
       const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }
-      m.ring.write(b); m.render(SR / 10);
+      m.ring.write(b); const o = m.render(SR / 10);
+      let ss = 0; for (let i = 0; i < o.length; i++) ss += (o[i] / 32768) ** 2; const db = 10 * Math.log10(ss / o.length + 1e-12);
+      if (k < 600) { if (db < -50) { quiet++; worstQuiet = Math.max(worstQuiet, quiet); } else quiet = 0; }
       const st = m.status(), n = st.loops.filter(Boolean).length;
-      for (const l of st.loops) if (l && l.slot === 'low' && !l.leaving) { low.rates.push(Math.abs(l.rate)); low.lens.push(l.len); if (l.resting) low.rested++; } most = Math.max(most, n); if (n && firstLoop == null) firstLoop = k / 10;
+      for (const l of st.loops) if (l && l.slot === 'low' && !l.leaving) { low.rates.push(Math.abs(l.rate)); low.lens.push(l.len / Math.max(0.01, Math.abs(l.rate))); if (l.resting) low.rested++; } most = Math.max(most, n); if (n && firstLoop == null) firstLoop = k / 10;
       // a life is read once, when that player's own replacement time moves to a new loop's
       for (const pl of m.players) if (pl.replaceAt !== due.get(pl)) { if (pl.voices.length && pl.replaceAt > m.t && pl.replaceAt !== Infinity && st.counts.replaced) lives.push((pl.replaceAt - m.t) / SR); due.set(pl, pl.replaceAt); }
       if (k % 10 === 0) for (const pl of m.players) {
@@ -179,7 +181,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
         (hp.get(pl) || hp.set(pl, new Set()).get(pl)).add(Math.round(pl.colour.hp));
       }
     }
-    return { moving: [...hp.values()].map((x) => x.size), lives, most, firstLoop, outside, low };
+    return { moving: [...hp.values()].map((x) => x.size), lives, most, firstLoop, outside, low, worstQuiet: worstQuiet / 10 };
   };
   const c = await run('colours', 180), d = await run('drift', 60);
   assert.ok(c.moving.every((x) => x >= 5), `colours: every speaker's colour moves (${c.moving})`);
@@ -190,9 +192,13 @@ for (const [name, h] of Object.entries(HOSTS)) {
   // the low slot drones: slower than 0.7 (its base 0.45 to 0.6 under the varispeed's 0.7 to 1.05), never rested by a mood
   assert.ok(c.low.rates.length && c.low.rates.every((x) => x < 0.7), `colours: the low slot plays slow (${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)})`);
   assert.equal(c.low.rested, 0, 'colours: the low slot is never sent to rest');
-  assert.ok(c.low.lens.every((x) => x >= 14), `colours: the low slot loops are long, its tier (${Math.min(...c.low.lens).toFixed(1)} s and up)`);
+  const lowLong = c.low.lens.filter((x) => x >= 5).length / c.low.lens.length;
+  assert.ok(lowLong > 0.7, `colours: the low slot's loops mostly sound 5 s and longer a pass (${Math.round(lowLong * 100)} %)`);
+  // an opening: the feed plays dry from the start, so the first minute has no silence over a second (drift, with no opening, does)
+  assert.ok(c.worstQuiet < 1, `colours: no silence over 1 s in the first minute (${c.worstQuiet} s)`);
+  assert.ok(d.worstQuiet >= 1, `drift, no opening: silent at the start (${d.worstQuiet} s), the control`);
   assert.ok(c.most >= 5 && c.firstLoop != null && c.firstLoop < 20, `colours: loops soon and many (first at ${c.firstLoop} s, at most ${c.most})`);
-  console.log(`  colours: every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 100).length} of ${c.lives.length} loop lives over 100 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot ${Math.min(...c.low.lens).toFixed(1)} s loops and up at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
+  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 100).length} of ${c.lives.length} loop lives over 100 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
 }
 console.log('mem ok');
 process.exit(0);
