@@ -21,11 +21,13 @@
 <title>POSITRON v2in on Cloudflare</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
+  :root { --v2in: #42b649; }   /* v2in web/v2in.css --accent, the logo's green */
   .v2-say { margin: 0; max-width: 62ch; color: var(--fg); }
   .v2-plan { display: flex; flex-direction: column; gap: 8px; }
   .v2-note { margin: 0; font-size: 12px; color: var(--dim); }
   .v2-plan .pos-tbl-row:not(.pos-tbl-head) .pos-tbl-c:not(.r) { font: 400 12px/1.5 var(--sans); }   /* words read, numbers stay mono */
-  .v2-plan .pos-tbl-c:last-child { color: var(--wish); }   /* now: what v2in pays today, set apart from the plan */
+  .v2-plan .pos-tbl-c:last-child { color: var(--v2in); }   /* what v2in pays today, in its own green */
+  .v2-plan .pos-tbl-row.v2-total .pos-tbl-c:nth-last-child(2) { color: var(--hi); }   /* the Cloudflare month, against now beside it */
   .v2-plan { --tbl-h: none; }   /* the whole table, so the total row is never scrolled out of sight */
 </style>
 <script type="module">
@@ -236,10 +238,10 @@
     { key: 'known', label: 'known', width: 60 },
     ...(narrow ? [] : [{ key: 'day', label: 'day', width: 52, align: 'right' }]),
     { key: 'month', label: 'month', width: 56, align: 'right' },
-    { key: 'now', label: 'now', width: 48, align: 'right' },
+    { key: 'now', label: 'v2in', width: 48, align: 'right' },
   ] });
   const usd = (x) => (x == null ? '' : x === 0 ? '0' : x < 0.01 ? '<0.01' : x.toFixed(2));
-  const priced = el('p', 'v2-note', (narrow ? 'USD for a whole month of this moment,' : 'USD for a whole day or month of this moment,') + ' past the free allowances. Inside them most of it is 0. Now is v2in today on its Virtuaal server, 15.29 EUR a month at 1.10.');
+  const priced = el('p', 'v2-note', (narrow ? 'USD for a whole month of this moment,' : 'USD for a whole day or month of this moment,') + ' past the free allowances. Inside them most of it is 0. v2in is what it costs today on its Virtuaal server, 15.29 EUR a month at 1.10.');
   const plan = el('div', 'v2-plan');
   plan.append(planT.el, priced);
 
@@ -255,6 +257,7 @@
     planT.set([...rows.map(([what, known, day]) => ({ what, known, day: usd(day), month: usd(day == null ? null : day * MONTH_DAYS) })),
       { what: 'Total', known: '', day: usd(total), month: usd(total * MONTH_DAYS), now: usd(DAY.now) }]);
     window.__demo.dayTotal = total;
+    [...planT.el.querySelectorAll('.pos-tbl-body .pos-tbl-row')].at(-1)?.classList.add('v2-total');
     // A push goes out only when what the pages show changes; listening to Waves changes nothing they show.
     const state = m.push || pushed;
     if (state !== pushed) {
