@@ -1,0 +1,365 @@
+{
+  "default": "colours",
+  "presets": {
+    "colours": {
+      "says": "colour always moving, calm: two low drones under three middle loops and one high, loops that live minutes, new ones every half minute or so, a few staying a long time",
+      "players": 6,
+      "enter": [
+        8,
+        20
+      ],
+      "spacing": 10,
+      "level": 1,
+      "dry": 0,
+      "open": {
+        "dry": 0.6,
+        "hold": 10,
+        "fade": 15
+      },
+      "takes": {
+        "min": 2,
+        "max": 40,
+        "tiers": {
+          "short": [
+            4,
+            8
+          ],
+          "mid": [
+            8,
+            18
+          ],
+          "long": [
+            18,
+            40
+          ]
+        },
+        "mix": {
+          "short": 0.15,
+          "mid": 0.45,
+          "long": 0.4
+        },
+        "every": [
+          20,
+          45
+        ],
+        "life": [
+          60,
+          180
+        ],
+        "fadeIn": [
+          8,
+          20
+        ],
+        "xfade": [
+          8,
+          16
+        ],
+        "memory": 80,
+        "revisit": 0.3,
+        "past": 0.25,
+        "gateDb": -45,
+        "minLcm": 600,
+        "speech": 0.2,
+        "apart": 8,
+        "stay": {
+          "p": 0.4,
+          "life": [
+            300,
+            900
+          ]
+        },
+        "alone": true
+      },
+      "colour": {
+        "hp": [
+          70,
+          900
+        ],
+        "lp": [
+          1200,
+          8000
+        ],
+        "drive": [
+          1,
+          2.4
+        ],
+        "walk": {
+          "glide": [
+            15,
+            45
+          ],
+          "hold": [
+            5,
+            20
+          ]
+        }
+      },
+      "slots": [
+        {
+          "name": "low",
+          "gain": 2.4,
+          "players": 2,
+          "colour": {
+            "hp": [
+              25,
+              50
+            ],
+            "lp": [
+              400,
+              1200
+            ],
+            "drive": [
+              1.3,
+              2.8
+            ]
+          },
+          "rate": [
+            0.1,
+            0.16
+          ],
+          "tier": "mid",
+          "life": [
+            180,
+            600
+          ],
+          "keep": true
+        },
+        {
+          "name": "mid",
+          "players": 3,
+          "colour": {
+            "hp": [
+              120,
+              450
+            ],
+            "lp": [
+              1500,
+              6000
+            ],
+            "drive": [
+              1,
+              2.6
+            ]
+          }
+        },
+        {
+          "name": "high",
+          "players": 1,
+          "colour": {
+            "hp": [
+              600,
+              1400
+            ],
+            "lp": [
+              4500,
+              8000
+            ],
+            "drive": [
+              1,
+              1.6
+            ]
+          },
+          "rate": [
+            1,
+            1.15
+          ]
+        }
+      ],
+      "process": {
+        "speed": {
+          "p": 0.3,
+          "lo": 0.7,
+          "hi": 1.05,
+          "every": [
+            120,
+            300
+          ],
+          "glide": [
+            40,
+            90
+          ],
+          "max": 1
+        },
+        "reverse": 0.1,
+        "disintegrate": [
+          0.05,
+          0.2
+        ],
+        "maxPasses": 45,
+        "freeze": {
+          "p": 0,
+          "len": [
+            0.6,
+            2
+          ],
+          "hold": [
+            12,
+            35
+          ],
+          "max": 1
+        }
+      },
+      "room": {
+        "arrangements": [
+          "ring",
+          "pairs",
+          "corner",
+          "line"
+        ],
+        "hold": [
+          120,
+          260
+        ],
+        "move": [
+          90,
+          200
+        ],
+        "width": 1,
+        "distance": 1.3,
+        "itd": 0.0006,
+        "walk": {
+          "p": 0.75,
+          "angle": 28,
+          "distance": 0.6,
+          "period": [
+            70,
+            240
+          ]
+        },
+        "reverb": {
+          "room": 0.85,
+          "damp": 0.55,
+          "level": 0.65,
+          "send": 1.2,
+          "walk": {
+            "amount": [
+              0.5,
+              1
+            ],
+            "dry": [
+              0.03,
+              0.12
+            ],
+            "dryP": 0.25,
+            "glide": [
+              6,
+              20
+            ],
+            "hold": [
+              10,
+              40
+            ],
+            "dryHold": [
+              10,
+              30
+            ]
+          }
+        }
+      },
+      "moods": [
+        {
+          "name": "gather",
+          "s": [
+            90,
+            180
+          ],
+          "players": [
+            2,
+            3
+          ],
+          "mix": {
+            "short": 0.1,
+            "mid": 0.5,
+            "long": 0.4
+          },
+          "pace": 1.1,
+          "process": 0.9
+        },
+        {
+          "name": "full",
+          "s": [
+            120,
+            240
+          ],
+          "players": [
+            3,
+            4
+          ],
+          "mix": {
+            "short": 0.15,
+            "mid": 0.45,
+            "long": 0.4
+          },
+          "pace": 1,
+          "process": 1
+        },
+        {
+          "name": "thin",
+          "s": [
+            60,
+            150
+          ],
+          "players": [
+            1,
+            2
+          ],
+          "mix": {
+            "short": 0,
+            "mid": 0.4,
+            "long": 0.6
+          },
+          "pace": 1.3,
+          "process": 0.7
+        }
+      ],
+      "solo": {
+        "every": [
+          60,
+          240
+        ],
+        "hold": [
+          8,
+          40
+        ],
+        "fade": [
+          3,
+          8
+        ],
+        "sudden": 0.4,
+        "drones": 0.5
+      }
+    }
+  },
+  "hosts": {
+    "server": {
+      "says": "a server with memory to spare: the engine as v2in runs it",
+      "rate": 44100,
+      "ringS": 300,
+      "players": 12
+    },
+    "tab": {
+      "says": "a desk browser tab",
+      "rate": 44100,
+      "ringS": 300,
+      "players": 8
+    },
+    "pi": {
+      "says": "the Raspberry Pi beside the receiver",
+      "rate": 24000,
+      "ringS": 300,
+      "players": 6
+    },
+    "worker": {
+      "says": "a Cloudflare Durable Object, 128 MB in all",
+      "rate": 12000,
+      "ringS": 240,
+      "players": 6
+    },
+    "phone": {
+      "says": "a phone tab",
+      "rate": 24000,
+      "ringS": 90,
+      "players": 4
+    }
+  }
+}

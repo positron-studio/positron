@@ -5,6 +5,10 @@ import { createHash } from 'node:crypto';
 import { rng, gcd, chooseLength, findStart, Ring, place, PRESETS, HOSTS, presetOf, GRID, speechOf, Mem, SR } from './mem.mjs';
 import { bootSync, glueOf } from './scsynth-sync.mjs';
 
+// the engine's earlier presets, kept here as fixtures: they drive the switch, host and count checks, and drift is the
+// control with no walk and no opening. The product ships only colours (mem-presets.json).
+const FIX = JSON.parse(readFileSync(new URL('./mem-test-presets.json', import.meta.url), 'utf8'));
+const old = (name) => presetOf(name, FIX);
 const vendor = {
   wasmModule: await WebAssembly.compile(readFileSync(new URL('./vendor/scsynth-nrt.wasm', import.meta.url))),
   glue: glueOf(readFileSync(new URL('./vendor/clockwork_audio_worklet.js', import.meta.url), 'utf8')),
@@ -57,7 +61,7 @@ for (const name of Object.keys(PRESETS.presets)) { const q = presetOf(name); for
 // a new preset while playing (setPreset): no exception, no NaN, no silence at the switch, and the players settle at the
 // new count, by entering (sparse 4 to dense 8) and by leaving (dense 8 to far 6). The presets' timings are shortened
 // here (takes every few seconds, lives of 6 to 12 s) so the switch settles in seconds of render, not minutes.
-const quick = (name) => { const q = presetOf(name); return { ...q, name, enter: [1, 3], spacing: 0, moods: undefined, takes: { ...q.takes, every: [2, 4], life: [6, 12], xfade: [1, 2] } }; };
+const quick = (name) => { const q = old(name); return { ...q, name, enter: [1, 3], spacing: 0, moods: undefined, takes: { ...q.takes, every: [2, 4], life: [6, 12], xfade: [1, 2] } }; };
 const mem = await new Mem({ preset: quick('sparse'), seed: 7 }).boot(bootSync, vendor);
 const fr = rng(3);
 let fed = 0;
@@ -104,7 +108,7 @@ assert.equal(db.slice(first).filter((x) => x < -60).length, 0, 'once it sounds, 
 // moods, tiers and spacing (dense, its moods shortened to 20 to 40 s): how many play follows the moods, short and long
 // loops play at once, and no two changes (a new take, a freeze, a rest) fall closer than the preset's spacing
 {
-  const q = presetOf('dense'), fast = { ...q, name: 'dense-fast', enter: [2, 4], moods: q.moods.map((m) => ({ ...m, s: [20, 40] })),
+  const q = old('dense'), fast = { ...q, name: 'dense-fast', enter: [2, 4], moods: q.moods.map((m) => ({ ...m, s: [20, 40] })),
     takes: { ...q.takes, every: [3, 6], life: [10, 30] } };
   const m2 = await new Mem({ preset: fast, seed: 11 }).boot(bootSync, vendor);
   const counts = new Set(), changes = []; let lastRepl = 0, both = false, tiers = new Set();
@@ -126,7 +130,7 @@ assert.equal(db.slice(first).filter((x) => x < -60).length, 0, 'once it sounds, 
 // and no take overlaps one of the last few, `apart` seconds to spare
 const shares = {};
 for (const speech of [0.2, 1]) {
-  const q = presetOf('sparse'), m3 = await new Mem({ preset: { ...q, name: 'sparse-x', takes: { ...q.takes, speech, min: 2, max: 4 } }, seed: 3 }).boot(bootSync, vendor);
+  const q = old('sparse'), m3 = await new Mem({ preset: { ...q, name: 'sparse-x', takes: { ...q.takes, speech, min: 2, max: 4 } }, seed: 3 }).boot(bootSync, vendor);
   const st = new Int16Array(SR * 2);
   for (let k = 0; k < 50; k++) {   // 300 s: 6 s talk, 6 s chord, ...
     const src = k % 2 ? SIG.chord : SIG.talk; for (let i = 0; i < src.length; i += SR) { for (let j = 0; j < SR; j++) st[2 * j] = st[2 * j + 1] = src[i + j]; m3.ring.write(st); }
@@ -165,7 +169,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
 // (takes.stay), and many play soon. NEGATIVE CONTROL: drift has no walk, so its colours stand still between presets.
 {
   const run = async (name, seconds) => {
-    const m = await new Mem({ preset: presetOf(name), seed: 13 }).boot(bootSync, vendor), cr = rng(17);
+    const m = await new Mem({ preset: FIX.presets[name] ? old(name) : presetOf(name), seed: 13 }).boot(bootSync, vendor), cr = rng(17);
     const hp = new Map(), lives = [], due = new Map(), low = { rates: [], lens: [], rested: 0 }, talk = []; let quiet = 0, worstQuiet = 0; let most = 0, firstLoop = null, outside = 0;
     for (let k = 0; k < seconds * 10; k++) {
       const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }

@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**MEM: not too reverby or wet, it is too washed**~~ (2026-11-09). Said: *"do not go too reverby / wet its too wahhed"*. colours: reverb level 0.9 to 0.65, send 1.6 to 1.2, the walk 0.5 to 1.0 of the level (was 0.6 to 1.3), dry moments kept. DONE 2026-11-09.
+
+- **MEM: port to v2in, only colours, one engine file in both** (2026-11-09). Asked: *"ok its fine. port to v2in. rm other presets"*, then *"can you unify?"*. mem.mjs and mem-presets.mjs identical in both repositories (mem.mjs imports only its neighbours; each side has thin re-exports for sclang-lite, the master and QUANTUM, and passes its own boot), presets cut to colours (the default) in both, v2in run.mjs and config on colours, a check that the copies match.
+
 - ~~**MEM: solo passages, one loop left alone, then all back, then another**~~ DONE 2026-11-09, (2026-11-09). Asked: *"also sudden mayhem - 1 loop onlu - mayhem"*, then *"i mean for some passages fade out other loops and leave single. then gome all back. then something else stays etc"*. preset solo: every 90 to 200 s one sounding loop stays, the rest fade out over 6 s for 15 to 40 s and come back; a different one next time. Then *"keep surprise element"*: 40 % of fades out and in are sudden (0.2 to 0.8 s), each side decided apart, at uneven times. Then *"drones can stay in those section to, sometimes"*: in about half, the drones stay under the lone loop. demo/shell/mem.mjs, mem-presets.mjs, the lab row.
 
 - ~~**MEM: animate the reverb, with dry moments**~~ DONE 2026-11-09, (2026-11-09). Asked: *"animate reverb. have dty moments"*. room.reverb.walk: the reverb level glides between amounts, and about a quarter of the time drops almost dry for 10 to 30 s. demo/shell/mem.mjs, mem-presets.mjs (colours).
