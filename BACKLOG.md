@@ -1,5 +1,11 @@
 ## Open
 
+- ~~**v2in: the state (On air and so on) up, its top line level with the play button**~~ DONE 2026-11-09 (MEASURED at 390: the state 3 px higher, its top at the button's), (2026-11-09). Asked: *"move on air etc a bit up so topline is ame as play button"*. web/v2in.css.
+
+- ~~**v2in admin: no Save on the Link field, it saves itself**~~ (2026-11-09). Asked: *"rm save button, its autosave"*; also *"open in new win"* (Visit already opens a new tab). Saved on leaving the field or Enter, when changed and valid. DONE 2026-11-09.
+
+- **v2in: Visit in the description's style, bottom-aligned with it** (2026-11-09). Said: *"its text is same style as desc and its botom-alignerd with it"*. Visit moves into the description line, at its right, on its baseline.
+
 - ~~**VÄIN app PR4: remove the waveforms**~~ Nothing to remove: tarmoj/radio1965#4 draws no wave (its diff has none; plan-app-player section 5 kept it out). The owner: *"ok if out then out, good"*. Closed 2026-11-09, (2026-11-09). Asked: *"rm waveforms from the app (pr 4)"*. Tarmo's radio1965, the PR4 branch.
 
 - ~~**v2in: a Link field per channel, Visit with an arrow under the status**~~ DONE 2026-11-09, deployed (/api/now carries link), (2026-11-09). Asked: *"Add Link field to each channel settings and put Visit + rightarrow under 'on air' etc"*. channels.json link (checked, out of Liquidsoap), /api/now, admin field, the player card.
