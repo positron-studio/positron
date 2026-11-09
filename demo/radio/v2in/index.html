@@ -9,7 +9,9 @@
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   .v2-say { margin: 0; max-width: 62ch; color: var(--fg); }
-  .v2-plan { display: flex; flex-direction: column; }
+  .v2-plan { display: flex; flex-direction: column; gap: 8px; }
+  .v2-note { margin: 0; font-size: 12px; color: var(--dim); }
+  .v2-plan { --tbl-h: none; }   /* the whole table, so the total row is never scrolled out of sight */
 </style>
 <script type="module">
   import { conceptNav } from '/shell/concept-nav.mjs';
@@ -119,46 +121,66 @@
   const PUSH = [K('cf:gate:state-out', 'cf:now:state-in'), K('cf:now:state-out', 'listener:web:state-in'),
     K('cf:now:state-out', 'listener:app:state-in')];
   const TITLE = PUSH.slice(1);
+  // ── a day of each thing, past the free allowances, from the plan's quoted prices (sections 2, 4, 5, 6) ──
+  const PRICE = { gbs: 12.5 / 1e6, req: 0.15 / 1e6, sfuGB: 0.05, r2Write: 4.5 / 1e6, usdPerEur: 1.10 };
+  const MONTH_DAYS = 2628000 / 86400;                     // the plan's month, 2,628,000 s
+  const DAY = {
+    floor: 5 / MONTH_DAYS,                                // Workers Paid
+    gate: (10000 * PRICE.gbs + 262800 * PRICE.req) / MONTH_DAYS,   // its GB-s and its alarms, a month
+    object: 460.8 * 24 * PRICE.gbs,                       // one object awake all day
+    sfuLive: 0.69 * 24 * PRICE.sfuGB,                     // PCM out of the SFU to the live object
+    sfuMix: 2.76 * 24 * PRICE.sfuGB,                      // four senders mixed
+    viewer: 1.36 * 24 * PRICE.sfuGB,                      // one 720p viewer
+    appReqs: 1800 * 24 * PRICE.req,                       // the app's incoming messages, 20 to 1
+    chunks: 1800 * 24 * PRICE.r2Write,                    // live chunks into R2
+    mem: 110592 / 10 * PRICE.gbs,                         // MEM's festival GB-s over its ten days
+    bridge: 5.99 * PRICE.usdPerEur / MONTH_DAYS,          // a Hetzner CX23 before VAT, at the plan's lower rate
+  };
+  const FLOOR = ['Workers Paid, 5 USD a month, is the floor', 'quoted', DAY.floor];
+  const GATE = ['The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000', 'inferred', DAY.gate];
+  const CHUNKS = ['Live chunks: 1,800 R2 writes a live hour', 'inferred', DAY.chunks];
+  const LIVE_OBJ = ['The live object: 460.8 GB-s an hour', 'inferred', DAY.object];
+  const SFU_LIVE = ['0.69 GB of SFU egress per live hour, PCM to the live object', 'measured', DAY.sfuLive];
   const MOMENTS = [
     { name: 'quiet', air: 'playlist', awake: ['Gate'], gate: 'clear', push: 'playlist',
       say: 'File channels play from R2 on a stateless Worker, placed by the wall clock. The Gate is the one object awake.',
       lit: [...FILES, ...OUT],
-      plan: [['Workers Paid, 5 USD a month, is the floor', 'quoted'],
-        ['The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000', 'inferred'],
-        ['A stateless Worker: no charge or limit for duration', 'quoted'],
+      plan: [FLOOR, GATE,
+        ['A stateless Worker: no charge or limit for duration', 'quoted', 0],
         ['Today\'s quiet audience: about 5.15 to 5.30 USD a month', 'inferred']] },
     { name: 'Waves listened', air: 'Waves', awake: ['Gate', 'Waves'], gate: 'clear',
       say: 'Somebody opens radio1965. Its Waves object wakes for them and stops when the last listener leaves.',
       lit: [...FILES, ...OUT, K('cf:r2:file-out', 'cf:waves:file-in'), K('cf:waves:audio-out', 'cf:stream:audio-in')],
-      plan: [['Waves while listened: 460.8 GB-s per listened hour', 'inferred'],
+      plan: [['Waves while listened: 460.8 GB-s per listened hour', 'inferred', DAY.object],
         ['edgecast\'s station boots to sound in 264 to 542 ms', 'measured'],
         ['One object reaches about 100 to 300 listeners', 'inferred']] },
     { name: 'live by WHIP', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
       say: 'A show goes live from OBS. The SFU hands its sound to a live object, which writes 2 s MP3 chunks to R2.',
       lit: [K('sender:obs:audio-out', 'cf:sfu:audio-in'), K('sender:obs:video-out', 'cf:sfu:video-in'),
         K('cf:sfu:audio-out', 'cf:live:audio-in'), K('cf:sfu:video-out', 'listener:web:video-in'), ...LIVE, ...OUT],
-      plan: [['0.69 GB of SFU egress per live hour, PCM to the live object', 'measured'],
+      plan: [SFU_LIVE,
         ['0 USD inside the free 1,000 GB, 0.035 USD an hour past it', 'inferred'],
-        ['The live object: 460.8 GB-s an hour', 'inferred'],
-        ['A 720p viewer at 3 Mbit/s is 1.36 GB an hour', 'read']] },
+        LIVE_OBJ, CHUNKS,
+        ['A 720p viewer at 3 Mbit/s is 1.36 GB an hour', 'read', DAY.viewer]] },
     { name: 'live from the app', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
       say: 'A show goes live from the VÄIN app as MP3 over a WebSocket, straight into the live object.',
       lit: [K('sender:app:audio-out', 'cf:live:audio-in'), ...LIVE, ...OUT],
-      plan: [['No SFU at all', 'inferred'],
-        ['The live object: 460.8 GB-s an hour', 'inferred'],
-        ['About 1,800 billed requests an hour at 10 messages a second', 'inferred']] },
+      plan: [['No SFU at all', 'inferred', 0], LIVE_OBJ, CHUNKS,
+        ['About 1,800 billed requests an hour at 10 messages a second', 'inferred', DAY.appReqs]] },
     { name: 'live through the bridge', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
       say: 'OBS on RTMP, or Mixxx on Icecast, reaches a small bridge on a VPS, which sends MP3 over a WebSocket.',
       lit: [K('sender:rtmp:audio-out', 'hetzner:bridge:audio-in'), K('hetzner:bridge:audio-out', 'cf:live:audio-in'), ...LIVE, ...OUT],
-      plan: [['The bridge keeps no listeners and no files', 'inferred'],
+      plan: [['The bridge on a Hetzner CX23, 5.99 EUR a month before VAT, at 1.10 USD a euro', 'read', DAY.bridge],
+        LIVE_OBJ, CHUNKS,
+        ['The bridge keeps no listeners and no files', 'inferred'],
         ['Containers take HTTP only, so the bridge is not on Cloudflare', 'measured'],
         ['ffmpeg\'s WHIP sender failed with the SFU, so the bridge speaks WebSocket', 'measured']] },
     { name: 'community', air: 'community mix', awake: ['Gate', 'mix'], gate: 'clear', push: 'show live',
       say: 'Browsers send by WHIP into the community slots. A mix object runs only while a slot is live.',
       lit: [K('sender:browser:audio-out', 'cf:sfu:audio-in'), K('cf:sfu:audio-out', 'cf:mix:audio-in'),
         K('cf:mix:file-out', 'cf:r2:file-in'), ...FILES, ...OUT],
-      plan: [['Four WHIP senders mixed: 2.76 GB of SFU egress an hour', 'inferred'],
-        ['One mix object while one or more of its four slots is live', 'inferred']] },
+      plan: [['Four WHIP senders mixed: 2.76 GB of SFU egress an hour', 'inferred', DAY.sfuMix],
+        ['One mix object while one or more of its four slots is live', 'inferred', DAY.object], CHUNKS] },
     { name: 'air raid', air: 'silence', awake: ['Gate'], gate: 'alert', push: 'raid',
       say: 'An alert starts in Kyiv. The Gate pushes it once to every open page and the Worker writes silent frames.',
       lit: [...OUT],
@@ -175,9 +197,9 @@
       say: 'During hcmf//, 20 to 29 November, MEM plays over a live show. The live object posts it PCM.',
       lit: [K('sender:obs:audio-out', 'cf:sfu:audio-in'), K('cf:sfu:audio-out', 'cf:live:audio-in'),
         K('cf:live:audio-out', 'cf:mem:audio-in'), K('cf:mem:audio-out', 'cf:stream:audio-in'), ...LIVE, ...OUT],
-      plan: [['MEM for the festival\'s ten days: 110,592 GB-s', 'inferred'],
+      plan: [['MEM for the festival\'s ten days: 110,592 GB-s', 'inferred', DAY.mem], SFU_LIVE, LIVE_OBJ, CHUNKS,
         ['68 to 88 MB with PCM input, in a 128 MB isolate', 'inferred'],
-        ['About 2 to 5 % of a core, which an object does not bill', 'inferred'],
+        ['About 2 to 5 % of a core, which an object does not bill', 'inferred', 0],
         ['12 kHz mono 16-bit PCM, 24 KB a second, object to object', 'inferred']] },
   ];
 
@@ -194,9 +216,12 @@
   const planT = createTable({ empty: '', columns: [
     { key: 'what', label: 'from the cost plan', grow: true, hi: true },
     { key: 'known', label: 'known', width: 72 },
+    { key: 'day', label: 'USD a day', width: 88, align: 'right' },
   ] });
+  const usd = (x) => (x == null ? '' : x === 0 ? '0' : x < 0.01 ? 'under 0.01' : x.toFixed(2));
+  const priced = el('p', 'v2-note', 'A whole day of this moment, priced past the free allowances. Inside them most of it is 0.');
   const plan = el('div', 'v2-plan');
-  plan.append(planT.el);
+  plan.append(planT.el, priced);
 
   function show(i) {
     at = (i + MOMENTS.length) % MOMENTS.length;
@@ -204,7 +229,12 @@
     picker.show(m.name, at);
     lit = new Set(m.lit);
     say.textContent = m.say;
-    planT.set(m.plan.map(([what, known]) => ({ what, known })));
+    // The floor and the Gate are there in every moment; the quiet one lists them already.
+    const rows = [...m.plan, ...(m.plan.includes(FLOOR) ? [] : [FLOOR, GATE])];
+    const total = rows.reduce((a, r) => a + (r[2] || 0), 0);
+    planT.set([...rows.map(([what, known, day]) => ({ what, known, day: usd(day) })),
+      { what: 'A day of this moment', known: 'inferred', day: usd(total) }]);
+    window.__demo.dayTotal = total;
     // A push goes out only when what the pages show changes; listening to Waves changes nothing they show.
     const state = m.push || pushed;
     if (state !== pushed) {

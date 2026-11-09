@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**/radio/v2in/: a price a day per row, and a total**~~ (2026-11-09). Asked, on a screenshot of the quiet moment's table: *"add prices col per day and total"*. demo/radio/v2in/index.html, prices from plan-v2in-cf-cost sections 2, 4, 5, 6. DONE 2026-11-09: computed in the page from the quoted unit prices, past the free allowances; quiet 0.17 a day matches the plan's 5.15 to 5.30 a month.
+
 - ~~**/radio/v2in/: Mixxx in place of BUTT**~~ (2026-11-09). Asked: *"replace butt with mixxx"*. The Icecast sender through the bridge is Mixxx (its live broadcasting is an Icecast source too); demo/radio/v2in/index.html and plan-v2in-cf-cost section 8. DONE 2026-11-09.
 
 - **MEM lab: AM radio as the input, not a mic** (2026-11-09). Asked: *"can we get am radio live input. i do not care about mics. i want to fix that sound. copy files or gimme am input"*. The R2 upload of the 36 recordings was started and stopped by the owner, then *"no kiwi live input. i mean is it possible"*: answered in chat (possible three ways, each costs one slot on a volunteer's KiwiSDR). WAITING on which route, if any.
