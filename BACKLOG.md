@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: no Darth Vader voices**~~ DONE 2026-11-09, (2026-11-09). Said: *"darth vader voices: no"*. Slowed talk: the drones (speed 0.45 to 0.6) were allowed talk, and speed glides go to 0.7. Then *"only if sumer low and stretched"*: talk in a drone goes down to about 0.2 to 0.27 (its speed times 0.45), talk anywhere else stays at 0.9 or faster. demo/shell/mem.mjs.
+
 - ~~**MEM colours: nervous, hard to listen to for long**~~ DONE 2026-11-09, (2026-11-09). Said: *"nervous, hard to listen long"*. colours calmer: 6 players (2 low, 3 mid, 1 high), takes every 20 to 45 s, lives 60 to 180 s with 40 % staying 5 to 15 min, longer crossfades, slower colour walk, less reversing and speed change, changes 10 s apart; measured as changes a minute before and after. demo/shell/mem-presets.mjs.
 
 - ~~**MEM: too many loops, too short. Because of the worker limit?**~~ DONE 2026-11-09, (2026-11-09). Asked, on a screenshot of eight loops of 2.3 to 4.3 s, all from m7gmg-mw-558: *"too many too short. becasue of worker limit?"*. Not the host: the opening's one short first take was reused by every player entering in the first minute. No two players on one take, early takes every 3 to 6 s, the dry fades once 3 loops play, pieces 12 to 30 s. demo/shell/mem.mjs, demo/radio/mem/index.html.
