@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**VÄIN app PR4: remove the waveforms**~~ Nothing to remove: tarmoj/radio1965#4 draws no wave (its diff has none; plan-app-player section 5 kept it out). The owner: *"ok if out then out, good"*. Closed 2026-11-09, (2026-11-09). Asked: *"rm waveforms from the app (pr 4)"*. Tarmo's radio1965, the PR4 branch.
+
+- ~~**v2in: a Link field per channel, Visit with an arrow under the status**~~ DONE 2026-11-09, deployed (/api/now carries link), (2026-11-09). Asked: *"Add Link field to each channel settings and put Visit + rightarrow under 'on air' etc"*. channels.json link (checked, out of Liquidsoap), /api/now, admin field, the player card.
+
 - **MEM from kcmd: a centre, brighter, as loud as the others** (2026-11-09). MEASURED 90 s each: kcmd -9.3 LUFS, LRA 10.8, centroid 4.0 kHz, L/R phase 0.73; mem -20.7, 6.3, 2.1 kHz, 0.00. Asked: *"do it, fast"*: room width 0.45, reverb send 0.8, lp 4 to 9 kHz (mid 4 to 8.5, high 6 to 9.5), master TARGET 0.14 GMAX 3. v2in.
 
 - **New skywave recordings tonight** (2026-11-09). Asked: *"yes.yes."* to recording a set tonight and to the kcmd measurement. One Kiwi slot at a time, music-leaning night channels, then measured for talk and harsh tones before they join AM UK and huddersfield. 20:00 UTC: through the VPN Manchester (port 8073) does not answer, Southport's status does (1 of 7) but kiwirecorder hangs (no TLS); stopped, no slot held. WAITING on the VPN being off.
