@@ -785,7 +785,77 @@ export const PRESETS = {
             ]
           }
         },
-        "process": {
+        "slots": [
+        {
+          "name": "low",
+          "players": 2,
+          "colour": {
+            "hp": [
+              25,
+              50
+            ],
+            "lp": [
+              220,
+              650
+            ],
+            "drive": [
+              1.3,
+              2.8
+            ]
+          },
+          "rate": [
+            0.45,
+            0.6
+          ],
+          "tier": "long",
+          "life": [
+            180,
+            600
+          ],
+          "keep": true
+        },
+        {
+          "name": "mid",
+          "players": 4,
+          "colour": {
+            "hp": [
+              120,
+              450
+            ],
+            "lp": [
+              1500,
+              6000
+            ],
+            "drive": [
+              1,
+              2.6
+            ]
+          }
+        },
+        {
+          "name": "high",
+          "players": 2,
+          "colour": {
+            "hp": [
+              700,
+              1800
+            ],
+            "lp": [
+              5000,
+              12000
+            ],
+            "drive": [
+              1,
+              2
+            ]
+          },
+          "rate": [
+            1,
+            1.15
+          ]
+        }
+      ],
+      "process": {
           "speed": {
             "p": 0.5,
             "lo": 0.7,
