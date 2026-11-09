@@ -140,7 +140,7 @@
     now: 15.29 * PRICE.usdPerEur,                         // v2in today: Virtuaal C-S, a month, the whole service          // a Hetzner CX23 before VAT, at the plan's lower rate
   };
   const FLOOR = ['Workers Paid, 5 USD a month, is the floor', 'quoted', DAY.floor];
-  const GATE = ['The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000', 'inferred', DAY.gate];
+  const GATE = ['The Gate, polling every 10 s', 'inferred', DAY.gate];
   const CHUNKS = ['Live chunks: 1,800 R2 writes a live hour', 'inferred', DAY.chunks];
   const LIVE_OBJ = ['The live object: 460.8 GB-s an hour', 'inferred', DAY.object];
   const SFU_LIVE = ['0.69 GB of SFU egress per live hour, PCM to the live object', 'measured', DAY.sfuLive];

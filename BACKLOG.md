@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**/radio/v2in/: the Gate row shorter**~~ (2026-11-09). Asked: *"The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000 - shorten"*. Now *"The Gate, polling every 10 s"*. DONE 2026-11-09.
+
 - ~~**/radio/v2in/: a current a month column, its own colour**~~ (2026-11-09). Asked: *"add current/mo col (diff color)"*, then chose *"v2in's server now"*: Virtuaal C-S 15.29 EUR a month on the Total row, in USD at 1.10, teal. demo/radio/v2in/index.html. DONE 2026-11-09: now 16.82 on the Total row; a phone drops the day column so the rest fit 375 px.
 
 - ~~**/radio/v2in/: a USD a month column**~~ (2026-11-09). Asked: *"add usd a month col"*. demo/radio/v2in/index.html: the day price times the plan's month (2,628,000 s). DONE 2026-11-09; headings day and month, USD said in the note, the first heading item so nothing is cut at 375.
