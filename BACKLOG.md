@@ -1,5 +1,17 @@
 ## Open
 
+- **v2in: kcmd is really nice, what to learn from it for MEM?** (2026-11-09). Asked: *"listen kcmd, its really nice, what to lear from it?"*. Measure kcmd against mem from their own streams (loudness, range, brightness, width, how often it changes), say what to take. Then, on what is liked: *"all. keeps me listeing. but radiou noise and am has its historic charm nostalgic"*. Keep the AM character (band, hiss, fading as a quiet bed) and take kcmd's steadiness. WAITING on the VPN being off: v2in.stream does not answer through it, and the local kcmd files are 40 s test files.
+
+- **v2in: fix the icon on the iPhone lock screen, asked many times** (2026-11-09). Said, on a lock screen photo (the artwork a rounded black square with white corners): *"Fix icon. Asked so many times"*. The media artwork must be a full black square, no corners of its own.
+
+- **v2in: the spectre as high as a collapsed station row, so an open card is twice its collapsed height** (2026-11-09). Asked: *"make spectro as high as collapsed station row, so its 2x height from collapsed state"*. web/v2in.css, from the measured collapsed card.
+
+- **v2in: many spectral holes in mem that cannot be heard** (2026-11-09). Said: *"many specral holes in mem but i can not listen them auraly"*. The spectre maps a fixed -90 to -20 dBFS while MEM plays quieter, and a WebKit tap reads exact zeros between pieces. drawSpectre levels to the recent loudest bin (60 dB under it) and skips a frame of exact silence.
+
+- **v2in: no padding under the spectre** (2026-11-09). Asked: *"rm lower padding from spectre"*. An open card's spectrogram reaches its bottom edge. web/v2in.css (only that line committed; the owner's own changes in the file left alone).
+
+- **v2in: the spectre on every channel, no wave, no setting** (2026-11-09). Asked: *"do spectre viz on all, rm wave and setting"*. drawSpectre everywhere (the player and the go live page), drawWave and the visual setting removed (layers, now, gate, admin, channels.json, tests).
+
 - ~~**v2in MEM: hardly any solos; work only on v2in for now**~~ DONE 2026-11-09 (v2in run 42682822308, MEM restarted, /api/now mem spectre), (2026-11-09). Said: *"i hardly get those solos. work only on v2in for now"*. Solos every 20 to 60 s, from 2 sounding loops, holding 15 to 45 s. The engine edited in positron's master copy, not deployed there; v2in deploys.
 
 - ~~**v2in MEM: still that horrible squelch after the files went; getting really loud**~~ DONE 2026-11-09 (v2in run 42682822308, MEM restarted, /api/now mem spectre), (2026-11-09). Said: *"still that horrible squelch but i removed files.. in mem"*, *"also gettin really loud"*. MEM keeps 5 min of memory and loops that stay up to 15 min; a take is boosted up to 8x to a common level, so faint hiss and whistles come up loudest; the master sits at -16 LUFS.
