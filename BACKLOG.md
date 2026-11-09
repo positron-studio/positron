@@ -1,5 +1,7 @@
 ## Open
 
+- **New skywave recordings tonight** (2026-11-09). Asked: *"yes.yes."* to recording a set tonight and to the kcmd measurement. One Kiwi slot at a time, music-leaning night channels, then measured for talk and harsh tones before they join AM UK and huddersfield. 20:00 UTC: through the VPN Manchester (port 8073) does not answer, Southport's status does (1 of 7) but kiwirecorder hangs (no TLS); stopped, no slot held. WAITING on the VPN being off.
+
 - **v2in: kcmd is really nice, what to learn from it for MEM?** (2026-11-09). Asked: *"listen kcmd, its really nice, what to lear from it?"*. Measure kcmd against mem from their own streams (loudness, range, brightness, width, how often it changes), say what to take. Then, on what is liked: *"all. keeps me listeing. but radiou noise and am has its historic charm nostalgic"*. Keep the AM character (band, hiss, fading as a quiet bed) and take kcmd's steadiness. Then *"mem change is not bad, someting faster changing something slower is fine"*: the pace stays, the comparison is about level and brightness steadiness, space and the AM character. WAITING on the VPN being off: v2in.stream does not answer through it, and the local kcmd files are 40 s test files.
 
 - **v2in: fix the icon on the iPhone lock screen, asked many times** (2026-11-09). Said, on a lock screen photo (the artwork a rounded black square with white corners): *"Fix icon. Asked so many times"*. The media artwork must be a full black square, no corners of its own.
