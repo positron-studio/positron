@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: tones are cool, it depends how harsh**~~ DONE 2026-11-09 (kept: 162 kHz hum, 129.1 kHz steady 829 Hz tone; out: 7880 1475 Hz, 77.5 ticking 1 kHz, 147.3 teletype warble, 1044 whistle in hiss), (2026-11-09). Said: *"tones are cool. really deponds on tone how harsh it is"*. Judge each tone recording by pitch, burstiness and brightness, keep the gentle ones in AM UK and on v2in.
+
 - ~~**MEM: remove the talk recordings**~~ DONE 2026-11-09 (lab; v2in by the owner in admin), (2026-11-09). Asked: *"rm talk recordings"*. Which ones by MEM's own speech measure over each whole file; out of AM UK in the lab, and a list by title for v2in's huddersfield folder.
 
 - ~~**MEM colours: tune the colour to dampen the nervousness**~~ DONE 2026-11-09 (lab; v2in by the owner in admin), (2026-11-09). Asked: *"can w eactually tune colors to dampen the nervousness"*, then *"yes"* to: colour walk glide 40 to 120 s, hold 20 to 60 s; ranges hp 80 to 400, lp 2.5 to 7 kHz, drive 1 to 1.6 (the slots narrowed the same); sudden solo edges 15 per cent; reverb walk glide 20 to 60 s. Lab and v2in.
