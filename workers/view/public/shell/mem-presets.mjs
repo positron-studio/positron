@@ -699,74 +699,75 @@ export const PRESETS = {
       ]
     },
       "colours": {
-        "says": "colour always moving: eight speakers coming in fast, most loops short-lived and a few staying for minutes, each speaker's filters gliding on their own",
-        "players": 8,
-        "enter": [
-          3,
-          10
-        ],
-        "spacing": 4,
-        "level": 1,
-        "dry": 0,
-        "open": {
+      "says": "colour always moving, calm: two low drones under three middle loops and one high, loops that live minutes, new ones every half minute or so, a few staying a long time",
+      "players": 6,
+      "enter": [
+        8,
+        20
+      ],
+      "spacing": 10,
+      "level": 1,
+      "dry": 0,
+      "open": {
         "dry": 0.6,
         "hold": 10,
         "fade": 15
       },
       "takes": {
-          "min": 2,
-          "max": 40,
-          "tiers": {
-            "short": [
-              2,
-              5
-            ],
-            "mid": [
-              5,
-              14
-            ],
-            "long": [
-              14,
-              40
-            ]
-          },
-          "mix": {
-            "short": 0.25,
-            "mid": 0.35,
-            "long": 0.4
-          },
-          "every": [
+        "min": 2,
+        "max": 40,
+        "tiers": {
+          "short": [
+            4,
+            8
+          ],
+          "mid": [
             8,
-            25
+            18
           ],
-          "life": [
-            25,
-            90
-          ],
-          "fadeIn": [
+          "long": [
+            18,
+            40
+          ]
+        },
+        "mix": {
+          "short": 0.15,
+          "mid": 0.45,
+          "long": 0.4
+        },
+        "every": [
+          20,
+          45
+        ],
+        "life": [
+          60,
+          180
+        ],
+        "fadeIn": [
           8,
           20
         ],
         "xfade": [
-            3,
-            8
-          ],
-          "memory": 80,
-          "revisit": 0.3,
-          "past": 0.25,
-          "gateDb": -45,
-          "minLcm": 600,
-          "speech": 0.2,
-          "apart": 8,
-          "stay": {
-            "p": 0.3,
-            "life": [
-              240,
-              720
-            ]
-          }
+          8,
+          16
+        ],
+        "memory": 80,
+        "revisit": 0.3,
+        "past": 0.25,
+        "gateDb": -45,
+        "minLcm": 600,
+        "speech": 0.2,
+        "apart": 8,
+        "stay": {
+          "p": 0.4,
+          "life": [
+            300,
+            900
+          ]
         },
-        "colour": {
+        "alone": true
+      },
+      "colour": {
         "hp": [
           70,
           900
@@ -779,21 +780,21 @@ export const PRESETS = {
           1,
           2.4
         ],
-          "walk": {
-            "glide": [
-              4,
-              18
-            ],
-            "hold": [
-              0,
-              6
-            ]
-          }
-        },
-        "slots": [
+        "walk": {
+          "glide": [
+            15,
+            45
+          ],
+          "hold": [
+            5,
+            20
+          ]
+        }
+      },
+      "slots": [
         {
           "name": "low",
-        "gain": 1.8,
+          "gain": 1.8,
           "players": 2,
           "colour": {
             "hp": [
@@ -801,9 +802,9 @@ export const PRESETS = {
               50
             ],
             "lp": [
-            400,
-            1200
-          ],
+              400,
+              1200
+            ],
             "drive": [
               1.3,
               2.8
@@ -822,7 +823,7 @@ export const PRESETS = {
         },
         {
           "name": "mid",
-          "players": 4,
+          "players": 3,
           "colour": {
             "hp": [
               120,
@@ -840,7 +841,7 @@ export const PRESETS = {
         },
         {
           "name": "high",
-          "players": 2,
+          "players": 1,
           "colour": {
             "hp": [
               600,
@@ -862,130 +863,130 @@ export const PRESETS = {
         }
       ],
       "process": {
-          "speed": {
-            "p": 0.5,
-            "lo": 0.7,
-            "hi": 1.05,
-            "every": [
-              80,
-              200
-            ],
-            "glide": [
-              20,
-              60
-            ],
-            "max": 1
-          },
-          "reverse": 0.25,
-          "disintegrate": [
-            0.1,
-            0.45
+        "speed": {
+          "p": 0.3,
+          "lo": 0.7,
+          "hi": 1.05,
+          "every": [
+            120,
+            300
           ],
-          "maxPasses": 45,
-          "freeze": {
-            "p": 0.12,
-            "len": [
-              0.6,
-              2
-            ],
-            "hold": [
-              12,
-              35
-            ],
-            "max": 1
-          }
+          "glide": [
+            40,
+            90
+          ],
+          "max": 1
         },
-        "room": {
-          "arrangements": [
-            "ring",
-            "pairs",
-            "corner",
-            "line"
+        "reverse": 0.1,
+        "disintegrate": [
+          0.1,
+          0.45
+        ],
+        "maxPasses": 45,
+        "freeze": {
+          "p": 0.06,
+          "len": [
+            0.6,
+            2
           ],
           "hold": [
-            120,
-            260
+            12,
+            35
           ],
-          "move": [
-            90,
-            200
-          ],
-          "width": 1,
-          "distance": 1.3,
-          "itd": 0.0006,
-          "walk": {
-            "p": 0.75,
-            "angle": 28,
-            "distance": 0.6,
-            "period": [
-              70,
-              240
-            ]
-          },
-          "reverb": {
-            "room": 0.85,
-            "damp": 0.55,
-            "level": 0.65,
-            "send": 1.1
-          }
+          "max": 1
+        }
+      },
+      "room": {
+        "arrangements": [
+          "ring",
+          "pairs",
+          "corner",
+          "line"
+        ],
+        "hold": [
+          120,
+          260
+        ],
+        "move": [
+          90,
+          200
+        ],
+        "width": 1,
+        "distance": 1.3,
+        "itd": 0.0006,
+        "walk": {
+          "p": 0.75,
+          "angle": 28,
+          "distance": 0.6,
+          "period": [
+            70,
+            240
+          ]
         },
-        "moods": [
-          {
-            "name": "gather",
-            "s": [
-              60,
-              120
-            ],
-            "players": [
-              3,
-              5
-            ],
-            "mix": {
-              "short": 0.4,
-              "mid": 0.4,
-              "long": 0.2
-            },
-            "pace": 0.7,
-            "process": 1
+        "reverb": {
+          "room": 0.85,
+          "damp": 0.55,
+          "level": 0.65,
+          "send": 1.1
+        }
+      },
+      "moods": [
+        {
+          "name": "gather",
+          "s": [
+            90,
+            180
+          ],
+          "players": [
+            2,
+            3
+          ],
+          "mix": {
+            "short": 0.1,
+            "mid": 0.5,
+            "long": 0.4
           },
-          {
-            "name": "swarm",
-            "s": [
-              90,
-              180
-            ],
-            "players": [
-              6,
-              8
-            ],
-            "mix": {
-              "short": 0.5,
-              "mid": 0.3,
-              "long": 0.2
-            },
-            "pace": 0.5,
-            "process": 1.2
+          "pace": 1.1,
+          "process": 0.9
+        },
+        {
+          "name": "full",
+          "s": [
+            120,
+            240
+          ],
+          "players": [
+            3,
+            4
+          ],
+          "mix": {
+            "short": 0.15,
+            "mid": 0.45,
+            "long": 0.4
           },
-          {
-            "name": "thin",
-            "s": [
-              40,
-              90
-            ],
-            "players": [
-              2,
-              3
-            ],
-            "mix": {
-              "short": 0.2,
-              "mid": 0.4,
-              "long": 0.4
-            },
-            "pace": 0.8,
-            "process": 0.8
-          }
-        ]
-      }
+          "pace": 1,
+          "process": 1
+        },
+        {
+          "name": "thin",
+          "s": [
+            60,
+            150
+          ],
+          "players": [
+            1,
+            2
+          ],
+          "mix": {
+            "short": 0,
+            "mid": 0.4,
+            "long": 0.6
+          },
+          "pace": 1.3,
+          "process": 0.7
+        }
+      ]
+    }
   }
 };
 

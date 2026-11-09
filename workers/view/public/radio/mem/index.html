@@ -110,9 +110,9 @@
         const bytes = f.bytes ? f.bytes.buffer.slice(f.bytes.byteOffset, f.bytes.byteOffset + f.bytes.byteLength) : await (await fetch(f.url)).arrayBuffer();
         if (f.url) d.log(`AM: ${f.title}`);
         const buf = await new OfflineAudioContext(2, 1, rate).decodeAudioData(bytes);
-        // a piece of 20 to 50 s from a random point, so the ring holds many sources, not minutes of one
+        // a piece of 12 to 30 s from a random point, so the ring holds many sources, not minutes of one
         const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
-        const n = Math.min(buf.length, Math.round((20 + 30 * r.next()) * rate)), at = Math.floor(r.next() * (buf.length - n + 1));
+        const n = Math.min(buf.length, Math.round((12 + 18 * r.next()) * rate)), at = Math.floor(r.next() * (buf.length - n + 1));
         const pcm = new Int16Array(n * 2), fade = Math.min(n >> 1, Math.round(rate * 0.5));   // half a second in and out, no click at a seam
         for (let k = 0; k < n; k++) { const e = Math.min(1, k / fade, (n - 1 - k) / fade); pcm[2 * k] = Math.max(-32768, Math.min(32767, Math.round(L[at + k] * e * 32767))); pcm[2 * k + 1] = Math.max(-32768, Math.min(32767, Math.round(R[at + k] * e * 32767))); }
         worker.postMessage({ type: 'source', pcm, name: f.name }, [pcm.buffer]);
