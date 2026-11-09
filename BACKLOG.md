@@ -1,6 +1,6 @@
 ## Open
 
-- **v2in video: the 720p viewer row reads as horrible pricing** (2026-11-09). Said, quoting the row (1.63 a day, 49.64 a month): *"horrible pricing"*. Answered in chat: one viewer around the clock is 993 GB, inside the free 1,000 GB; the cheap route is HLS segments in R2 served by Workers (no egress charge, QUOTED plan section 4), made by the bridge. WAITING on whether to write that route into plan-v2in-cf-cost and the page.
+- **v2in video: the 720p viewer row reads as horrible pricing** (2026-11-09). Said, quoting the row (1.63 a day, 49.64 a month): *"horrible pricing"*. Answered in chat: one viewer around the clock is 993 GB, inside the free 1,000 GB; the cheap route is HLS segments in R2 served by Workers (no egress charge, QUOTED plan section 4), made by the bridge. The owner said *"yes"* to writing that route into plan-v2in-cf-cost and the page; started, paused for the AM files.
 
 - ~~**/radio/v2in/: the month total in the brand yellow; now is v2in, in v2in green**~~ (2026-11-09). Asked: *"colorize regular month total to brand yellow"*. demo/radio/v2in/index.html, var(--hi) on the Total row's month cell. Then *"now = v2in and use v2in green"*: the column is v2in, in #42b649 (v2in web/v2in.css --accent, the logo's green). DONE 2026-11-09.
 
@@ -16,7 +16,7 @@
 
 - ~~**/radio/v2in/: Mixxx in place of BUTT**~~ (2026-11-09). Asked: *"replace butt with mixxx"*. The Icecast sender through the bridge is Mixxx (its live broadcasting is an Icecast source too); demo/radio/v2in/index.html and plan-v2in-cf-cost section 8. DONE 2026-11-09.
 
-- **MEM lab: AM radio as the input, not a mic** (2026-11-09). Asked: *"can we get am radio live input. i do not care about mics. i want to fix that sound. copy files or gimme am input"*. The R2 upload of the 36 recordings was started and stopped by the owner, then *"no kiwi live input. i mean is it possible"*: answered in chat (possible three ways, each costs one slot on a volunteer's KiwiSDR). WAITING on which route, if any.
+- ~~**MEM lab: AM radio as the input, not a mic**~~ (2026-11-09). Asked: *"can we get am radio live input. i do not care about mics. i want to fix that sound. copy files or gimme am input"*. The R2 upload of the 36 recordings was started and stopped by the owner, then *"no kiwi live input. i mean is it possible"*: answered in chat (possible three ways, each costs one slot on a volunteer's KiwiSDR). Then *"i asked you to copy files. where are they. or live input from kiwi"*: the 36 copied to R2 positron-station am/uk-2026-11-07/ (211 MB, 36 of 36 ok) and an AM UK button on /radio/mem/, each fetched when its turn comes. MEASURED headless: first take at 10 s, two loops by 40 s. DONE 2026-11-09. Live Kiwi still not built.
 
 - ~~**/radio/v2in/: a simulated v2in patchbay**~~ (2026-11-09). Asked: *"make in bg a a simulated v2in patchbay how it would work radio/v2in"*. A concept page drawing v2in as plans/plan-v2in-cf-cost.md shapes it (senders, the bridge, channel objects, stateless Workers from R2, the `now` push object, the raid gate, MEM, listeners), with simulated traffic and nothing opened. Unlisted, like /radio/kcmd/. Background agent; folder demo/radio/v2in/. DONE 2026-11-09: nine moments, 20 nodes, 26 links, timers only, nothing opened.
 

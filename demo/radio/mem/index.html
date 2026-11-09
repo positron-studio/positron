@@ -32,6 +32,7 @@
   import { createTable } from '/shell/table.mjs';
   import { createDrop } from '/shell/drop.mjs';
   import { PRESETS, HOSTS, rng } from '/shell/mem.mjs';
+  import { AM_UK, AM_BASE } from './am-uk.mjs';
 
   // MEM, the memory looper of v2in's hcmf// channel, in this tab: recordings in, loops out, every preset number a knob,
   // and offline renders measured for comparison. The engine is demo/shell/mem.mjs in a Web Worker (mem-worker.mjs).
@@ -89,7 +90,10 @@
       busy = true;
       try {
         const f = order[i++ % order.length];
-        const buf = await new OfflineAudioContext(2, 1, rate).decodeAudioData(f.bytes.buffer.slice(f.bytes.byteOffset, f.bytes.byteOffset + f.bytes.byteLength));
+        // a recording in R2 is fetched when its turn comes, never on a visit
+        const bytes = f.bytes ? f.bytes.buffer.slice(f.bytes.byteOffset, f.bytes.byteOffset + f.bytes.byteLength) : await (await fetch(f.url)).arrayBuffer();
+        if (f.url) d.log(`AM: ${f.title}`);
+        const buf = await new OfflineAudioContext(2, 1, rate).decodeAudioData(bytes);
         const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, pcm = new Int16Array(buf.length * 2);
         for (let k = 0; k < buf.length; k++) { pcm[2 * k] = Math.max(-32768, Math.min(32767, Math.round(L[k] * 32767))); pcm[2 * k + 1] = Math.max(-32768, Math.min(32767, Math.round(R[k] * 32767))); }
         worker.postMessage({ type: 'source', pcm, name: f.name }, [pcm.buffer]);
@@ -416,7 +420,17 @@
     beside: 'or drag recordings here', empty: '', maxBytes: 512 * 1024 * 1024, says: (m, k) => d.log(m, k),
     onOpen: (fs) => { files = fs; d.log(`${fs.length} recordings, ${(fs.reduce((a, f) => a + f.size, 0) / 1048576).toFixed(0)} MB, read in this tab`); restart(); } });
 
-  const srcBtns = createButtonGroup({ buttons: [{ id: 'live', icon: 'radio', label: 'live in', title: 'any audio input into MEM, raw', onPress: () => liveIn() }] });
+  const srcBtns = createButtonGroup({ buttons: [
+    { id: 'am', label: 'AM UK', title: '36 KiwiSDR recordings from Manchester and Southport, 2026-11-07, one after another', onPress: () => amUk() },
+    { id: 'live', icon: 'radio', label: 'live in', title: 'any audio input into MEM, raw', onPress: () => liveIn() },
+  ] });
+  function amUk() {
+    if (liveOn) { closeInput(); liveOn = false; srcBtns.setIcon('live', 'radio', 'live in'); }
+    files = AM_UK.map((x) => ({ name: x.file, title: x.title, url: AM_BASE + encodeURIComponent(x.file), size: x.size }));
+    d.log(`AM UK: ${files.length} recordings, fetched one at a time as MEM needs them`);
+    if (playing) restart(); else play();
+    pb.refresh();
+  }
   const pickDev = (i) => { devAt = (i + devices.length) % devices.length; inputs.show(devices[devAt].label, devAt); openInput(devices[devAt].deviceId).catch((e) => d.log(`that input did not open: ${e.message}`, 'warn')); };
   const inputs = createPicker({ what: 'input', prev: () => pickDev(devAt - 1), next: () => pickDev(devAt + 1), onPick: pickDev });
   inputs.el.hidden = true;
