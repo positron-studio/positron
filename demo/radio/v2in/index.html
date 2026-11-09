@@ -61,8 +61,10 @@
   for (const id of ['hetzner:bridge', 'cf:sfu', 'cf:live', 'cf:mix', 'cf:mem', 'cf:stream', 'listener:web', 'listener:app']) port(`${id}:audio-in`, 'in', 'audio');
   port('cf:live:audio-out', 'out', 'audio');
   port('sender:obs:video-out', 'out', 'video'); port('cf:sfu:video-in', 'in', 'video');
+  port('sender:rtmp:video-out', 'out', 'video'); port('hetzner:bridge:video-in', 'in', 'video');
+  port('cf:stream:video-out', 'out', 'video');
   port('cf:sfu:video-out', 'out', 'video'); port('listener:web:video-in', 'in', 'video');
-  for (const id of ['cf:live', 'cf:mix', 'cf:cron']) port(`${id}:file-out`, 'out', 'file');
+  for (const id of ['cf:live', 'cf:mix', 'cf:cron', 'hetzner:bridge']) port(`${id}:file-out`, 'out', 'file');
   port('cf:r2:file-in', 'in', 'file'); port('cf:r2:file-out', 'out', 'file');
   for (const id of ['cf:waves', 'cf:mem', 'cf:stream']) port(`${id}:file-in`, 'in', 'file');
   for (const id of ['alerts:kyiv', 'cf:gate', 'cf:now']) port(`${id}:state-out`, 'out', 'state');
@@ -74,15 +76,17 @@
   conceptNav('radio/v2in');
 
   // ── the links: the whole design is held, and a moment lights the part of it that carries something ──
-  // `via` names the wire where it leaves a site. The kit has no `rtmp` transport, so that one link is
-  // made without and told its wire in the picture below.
-  const RTMP = 'sender:rtmp:audio-out hetzner:bridge:audio-in';
+  // `via` names the wire where it leaves a site. The kit has no `rtmp` transport, so those two links are
+  // made without and told their wire in the picture below.
+  const RTMP = ['sender:rtmp:audio-out hetzner:bridge:audio-in', 'sender:rtmp:video-out hetzner:bridge:video-in'];
   const LINKS = [
     ['sender:obs:audio-out', 'cf:sfu:audio-in', 'whip'],
     ['sender:obs:video-out', 'cf:sfu:video-in', 'whip'],
     ['sender:browser:audio-out', 'cf:sfu:audio-in', 'whip'],
     ['sender:app:audio-out', 'cf:live:audio-in', 'websocket'],
     ['sender:rtmp:audio-out', 'hetzner:bridge:audio-in'],
+    ['sender:rtmp:video-out', 'hetzner:bridge:video-in'],
+    ['hetzner:bridge:file-out', 'cf:r2:file-in'],
     ['sender:mixxx:audio-out', 'hetzner:bridge:audio-in', 'icecast'],
     ['hetzner:bridge:audio-out', 'cf:live:audio-in', 'websocket'],
     ['alerts:kyiv:state-out', 'cf:gate:state-in', 'https'],
@@ -101,6 +105,7 @@
     ['cf:gate:state-out', 'cf:stream:state-in'],
     ['cf:gate:state-out', 'cf:now:state-in'],
     ['cf:stream:audio-out', 'listener:web:audio-in', 'https'],
+    ['cf:stream:video-out', 'listener:web:video-in', 'r2-hls'],
     ['cf:stream:audio-out', 'listener:app:audio-in', 'https'],
     ['cf:now:state-out', 'listener:web:state-in', 'websocket'],
     ['cf:now:state-out', 'listener:app:state-in', 'websocket'],
@@ -113,7 +118,7 @@
   const drawn = {
     nodes: () => bay.nodes(),
     ports: () => bay.ports(),
-    links: () => bay.links().map((l) => (`${l.from} ${l.to}` === RTMP ? { ...l, session: null, via: 'rtmp' } : l)),
+    links: () => bay.links().map((l) => (RTMP.includes(`${l.from} ${l.to}`) ? { ...l, session: null, via: 'rtmp' } : l)),
   };
 
   // ── the moments ──
@@ -126,7 +131,9 @@
     K('cf:now:state-out', 'listener:app:state-in')];
   const TITLE = PUSH.slice(1);
   // ── a day of each thing, past the free allowances, from the plan's quoted prices (sections 2, 4, 5, 6) ──
-  const PRICE = { gbs: 12.5 / 1e6, req: 0.15 / 1e6, sfuGB: 0.05, r2Write: 4.5 / 1e6, usdPerEur: 1.10 };
+  const PRICE = { gbs: 12.5 / 1e6, req: 0.15 / 1e6, workerReq: 0.30 / 1e6, sfuGB: 0.05, r2Write: 4.5 / 1e6, usdPerEur: 1.10 };
+  const HLS_SEG = 2;                                       // s, as the audio's chunks; the plan's section 9 prices 4 s too
+  const HLS_HOUR = (3600 / HLS_SEG) * 2;                   // a segment and a playlist rewrite, and a viewer's two GETs
   const MONTH_DAYS = 2628000 / 86400;                     // the plan's month, 2,628,000 s
   const DAY = {
     floor: 5 / MONTH_DAYS,                                // Workers Paid
@@ -139,7 +146,9 @@
     chunks: 1800 * 24 * PRICE.r2Write,                    // live chunks into R2
     mem: 110592 / 10 * PRICE.gbs,                         // MEM's festival GB-s over its ten days
     bridge: 5.99 * PRICE.usdPerEur / MONTH_DAYS,
-    now: 15.29 * PRICE.usdPerEur,                         // v2in today: Virtuaal C-S, a month, the whole service          // a Hetzner CX23 before VAT, at the plan's lower rate
+    now: 15.29 * PRICE.usdPerEur,                         // v2in today: Virtuaal C-S, a month, the whole service
+    hlsWrites: HLS_HOUR * 24 * PRICE.r2Write,             // video segments and playlist into R2, whatever the audience
+    hlsReqs: HLS_HOUR * 24 * PRICE.workerReq,             // one viewer's requests to the Worker
   };
   const FLOOR = ['Workers Paid, 5 USD a month, is the floor', 'quoted', DAY.floor];
   const GATE = ['The Gate, polling every 10 s', 'inferred', DAY.gate];
@@ -166,7 +175,8 @@
       plan: [SFU_LIVE,
         ['0 USD inside the free 1,000 GB, 0.035 USD an hour past it', 'inferred'],
         LIVE_OBJ, CHUNKS,
-        ['A 720p viewer at 3 Mbit/s is 1.36 GB an hour', 'read', DAY.viewer]] },
+        ['A 720p viewer at 3 Mbit/s is 1.36 GB an hour', 'read', DAY.viewer],
+        ['The same viewer by HLS from R2 pays no egress', 'quoted', 0]] },
     { name: 'live from the app', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
       say: 'A show goes live from the VÄIN app as MP3 over a WebSocket, straight into the live object.',
       lit: [K('sender:app:audio-out', 'cf:live:audio-in'), ...LIVE, ...OUT],
@@ -180,6 +190,18 @@
         ['The bridge keeps no listeners and no files', 'inferred'],
         ['Containers take HTTP only, so the bridge is not on Cloudflare', 'measured'],
         ['ffmpeg\'s WHIP sender failed with the SFU, so the bridge speaks WebSocket', 'measured']] },
+    { name: 'video by HLS', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
+      say: 'The bridge also cuts the show into 2 s HLS segments in R2. Viewers get them from the Worker, a few seconds late.',
+      lit: [K('sender:rtmp:audio-out', 'hetzner:bridge:audio-in'), K('sender:rtmp:video-out', 'hetzner:bridge:video-in'),
+        K('hetzner:bridge:file-out', 'cf:r2:file-in'), K('hetzner:bridge:audio-out', 'cf:live:audio-in'),
+        K('cf:stream:video-out', 'listener:web:video-in'), ...LIVE, ...OUT],
+      plan: [['The bridge on a Hetzner CX23, also cutting the segments', 'read', DAY.bridge],
+        ['Whether a CX23 can encode one 720p rendition', 'unknown'],
+        [`Segments and playlist: ${HLS_HOUR.toLocaleString('en-US')} R2 writes a live hour`, 'inferred', DAY.hlsWrites],
+        ['A 720p viewer through the Worker pays no egress', 'quoted', 0],
+        [`A viewer's ${HLS_HOUR.toLocaleString('en-US')} Worker requests an hour`, 'inferred', DAY.hlsReqs],
+        ['About 6 s behind the show, against under 1 s by WHEP', 'inferred'],
+        LIVE_OBJ, CHUNKS] },
     { name: 'community', air: 'community mix', awake: ['Gate', 'mix'], gate: 'clear', push: 'show live',
       say: 'Browsers send by WHIP into the community slots. A mix object runs only while a slot is live.',
       lit: [K('sender:browser:audio-out', 'cf:sfu:audio-in'), K('cf:sfu:audio-out', 'cf:mix:audio-in'),

@@ -49,6 +49,10 @@ comparison needs one currency, 15.29 EUR is about 17 to 18 USD at 1.10 to 1.17 (
     response survives a deploy, scsynth's real size with a cut arena, whether a Container's own Durable Object bills
     duration, the real listened-hours of today's audience, and whether alarm-only objects bill between alarms. Each is
     in section 7 with the measurement that settles it.
+11. **Video as HLS from R2 (section 9, added 2026-11-09):** the bridge cuts the show into 2 s segments in R2 and the
+    stateless Worker serves them, egress free. At 100 live hours: 0 USD for 1 or 10 viewers; 108 to 119 USD for 1,000
+    (Worker requests, 3,600 a viewer-hour), against 6,750 by the SFU and 6,000 by Stream. About 6 s behind the show.
+    Whether a CX23 can encode one 720p rendition is NOT MEASURED (INFERRED).
 
 ## 1. The channels, one by one: object, stateless Worker, or object only while live
 
@@ -434,3 +438,88 @@ what cf offers. 100 liserners is realistic"*, *"we still need herzner, right?"*,
   Liquidsoap. The smallest Hetzner (or any few-euro VPS) carries it; positron measured ffmpeg's WHIP sender failing
   with the SFU, so the bridge speaks WebSocket, not WHIP. Cloudflare Containers cannot be it: they take HTTP only
   (MEASURED 2026-11-04).
+
+## 9. Video as HLS from R2 (added 2026-11-09)
+
+Asked: the WHIP moment's row *"A 720p viewer at 3 Mbit/s is 1.36 GB an hour"* prices at 1.63 USD a day and 49.64
+USD a month on positron's `/radio/v2in/`, called *"horrible pricing"*; the owner said yes to writing a cheaper video
+route into this plan and the page. Nothing was built or run for this section except one local arithmetic script
+(`hls-cost.mjs` in the session scratchpad, its output quoted below).
+
+**The route (INFERRED, not built).** The bridge on the Hetzner CX23 (section 8) already takes OBS on RTMP. It also
+cuts the incoming show into HLS segments with ffmpeg and writes each segment and the rewritten playlist to R2. Viewers
+fetch the playlist and the segments from the same stateless Worker that serves the audio (`/stream/*`, section 1),
+which reads R2 through the Cache API. No SFU, no WHEP, no Stream. Audio for the radio still goes the bridge's way:
+MP3 over a WebSocket to the live object, 2 s chunks into R2.
+
+- **Egress is free.** Workers: *"There are no additional charges for data transfer (egress) or throughput
+  (bandwidth)"* (QUOTED, section 4). R2: egress free (QUOTED, section 6). The 1.36 GB a viewer-hour (READ) that
+  costs 0.068 USD on the SFU costs 0 here.
+- **What it pays for instead** (INFERRED, segment and playlist counts not measured):
+  - **R2 writes**, fixed per live hour whatever the audience: with 2 s segments, 1,800 segments plus 1,800 playlist
+    rewrites, **3,600 Class A writes a live hour**, 0.0162 USD past the free million. 100 live hours are 360,000
+    writes; with the audio's 180,000 live chunks that is 540,000, inside the free 1 M. With 4 s segments, 1,800 a
+    live hour and 360,000 a month with the audio.
+  - **Worker requests, one per segment and one per playlist poll per viewer**: 3,600 a viewer-hour at 2 s, 1,800 at
+    4 s. This is the per-viewer cost that is not 0: 0.30 USD a million past the free 10 M (QUOTED, section 4). It is
+    0 at 1 and 10 viewers and **105 USD a month at 1,000 viewers** with 2 s segments (51 USD at 4 s).
+  - **Worker CPU** at an assumed 0.5 to 2 ms a request (INFERRED, a cache hit returned as it is): 0 at 1 and 10
+    viewers, 3.00 to 13.80 USD a month at 1,000 (1.20 to 6.60 at 4 s).
+  - **R2 reads** through the cache: one miss per segment per colo, the playlist at a 1 s cache life; five colos read
+    27,000 times a live hour, 2.7 M a month, inside the free 10 M. Without a zone (`workers.dev`) every viewer request
+    reaches R2: 126 USD more a month at 1,000 viewers (61.20 at 4 s).
+  - **R2 storage**: 136 GB if a month's 100 hours are kept, 1.89 USD a month at 0.015 past 10 GB; 0 if a lifecycle
+    rule deletes segments after a day (deletes are free, QUOTED section 6).
+  - **The bridge**: the same 5.99 EUR a month before VAT (READ, section 6) that section 8 already pays; its upload to
+    R2 is 1.36 GB a live hour, 136 GB a month, against Hetzner's included traffic (not read today).
+- **The trade: a few seconds of delay.** HLS players start about three segments behind the live edge, so about 6 s at
+  2 s segments and 12 s at 4 s (INFERRED, not measured), against WHEP's under a second. For a radio show with a
+  picture that is a fair price; for a performer watching their own return it is not, and that case stays on WHEP.
+
+**Side by side, 100 live hours a month, one 720p rendition at 3 Mbit/s (INFERRED from READ and QUOTED rates; the
+free allowances applied to video alone, though in practice they are shared with the audio and positron):**
+
+| viewers | viewer-hours | SFU (WHEP): GB, USD a month | Stream: minutes, USD a month | HLS from R2, 2 s segments: USD a month | HLS from R2, 4 s |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 100 | 136 GB: **0** (inside 1,000 GB) | 6,000: **6.00** | **0** | **0** |
+| 10 | 1,000 | 1,360 GB: **18.00** | 60,000: **60.00** | **0** | **0** |
+| 1,000 | 100,000 | 136,000 GB: **6,750.00** | 6,000,000: **6,000.00** | **108.00 to 118.80** (requests 105, CPU 3.00 to 13.80) | **52.20 to 57.60** |
+
+**Per live hour, past every free allowance:**
+
+| | 1 viewer | 10 viewers | 1,000 viewers |
+| --- | --- | --- | --- |
+| SFU at 0.05 USD a GB | 0.068 | 0.68 | 68.00 |
+| Stream at 1 USD per 1,000 minutes | 0.06 | 0.60 | 60.00 |
+| HLS from R2, 2 s: 0.0162 of writes plus Worker requests | 0.0173 | 0.0270 | 1.0962 |
+
+(Stream counts delivery only: its storage and any live input charge were not read for this section. The Hetzner
+bridge is not in any column, because section 8 keeps it for RTMP and Icecast either way.)
+
+**Findings.**
+
+1. **At 1 and 10 viewers, HLS from R2 costs nothing past what is already paid**: Workers Paid and the bridge. The
+   SFU is 0 or 18 USD and Stream 6 or 60 USD for the same month.
+2. **At 1,000 viewers it is about 108 to 119 USD a month, not 0**, and almost all of that is Worker requests, not
+   bytes. It is still about 60 times cheaper than the SFU (6,750) or Stream (6,000). 4 s segments halve it to 52 to 58.
+3. **The per-viewer remainder goes if the segments do not pass through a Worker at all**: R2 on a custom domain on
+   the zone, served from Cloudflare's cache, bills no Worker request for a cache hit and an R2 read only on a miss
+   (INFERRED, the R2 custom domain and cache pages were not read today). The Worker would then answer the playlist
+   only, or nothing. Asked for was the same stateless Worker, so that is the route above, and this is its next step.
+4. **The fixed cost is the writes**, 3,600 a live hour at 2 s, and it is inside the free million at 100 live hours
+   together with the audio's chunks. It leaves the free million at about 185 live hours a month at 2 s (1 M over
+   5,400 writes a live hour with the audio), about 278 at 4 s.
+
+**What could not be settled, and what would settle it:**
+
+| figure | mark | measurement |
+| --- | --- | --- |
+| a CX23 can encode one 720p rendition live | **NOT MEASURED** | ffmpeg on the CX23 with `libx264 -preset veryfast` at 720p30, 3 Mbit/s, from a test RTMP input for an hour: CPU, dropped frames, speed above 1.0x. If OBS already sends H.264 at 720p with a 2 s keyframe interval, ffmpeg can copy the video (`-c:v copy`) and only cut it, which needs almost no CPU (INFERRED) |
+| segment length, and so the writes and requests | INFERRED, 2 s or 4 s | the length the encoder can hold with a keyframe on every boundary; count R2 Class A operations for one test hour in the dashboard |
+| a few seconds of delay | INFERRED, about 6 s at 2 s | a clock burnt into a test picture, read off a phone running hls.js against the Worker, against the sender's clock |
+| 0.5 to 2 ms of Worker CPU a request | INFERRED | `cpuTime` from `wrangler tail` while 10 node clients fetch a test playlist and its segments for 10 minutes |
+| the cache keeps R2 reads per colo | INFERRED | R2 Class B counts before and after an hour of test clients through a zone hostname |
+| hls.js polls the playlist once per target duration | INFERRED | the request log of the same test |
+
+**Cost of this section:** about 25 minutes, no page read on the web, one local arithmetic script. All rates are the
+ones quoted in sections 4, 5 and 6.
