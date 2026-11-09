@@ -1,11 +1,15 @@
 // demo/shell/mem.mjs: MEM, a memory looper. Takes cut from a live ring at onsets loop in N small speakers placed in a
 // stereo room, through slow moods; JS decides everything, scsynth does each speaker's colour, the room and the master.
 // One engine for node, a Web Worker and a Durable Object: the host gives the rate, the ring and the player cap.
+// The same file, byte for byte, in v2in server/engines/mem/: it imports only its neighbours, and each repository
+// supplies its own sclang-lite.mjs, mem-master.mjs and scsynth-sync.mjs beside it. The host passes its own boot.
 // why: lessons/mem.md#header
 import { compile } from './sclang-lite.mjs';
-import { program as masterProgram, MASTER } from '../radio/cast/master.mjs';
-import { PRESETS, HOSTS } from './mem-presets.mjs';
+import { program as masterProgram, MASTER } from './mem-master.mjs';
+import DATA from './mem-presets.json' with { type: 'json' };
 import { QUANTUM } from './scsynth-sync.mjs';
+
+const PRESETS = { default: DATA.default, presets: DATA.presets }, HOSTS = DATA.hosts;
 
 export { PRESETS, HOSTS };
 // the defaults, a server's: lengths are counted on a 10 ms grid, so a host's rate must be a multiple of 100
