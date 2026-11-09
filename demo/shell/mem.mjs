@@ -24,7 +24,7 @@ const GLIDE_S = 8;                            // a new preset's places, colour a
 
 // Waves's master, gentler: a slow leveller with less lift, so a far arrangement stays quieter than a near one; its
 // limiter's ceiling (0.65) keeps true peaks near -3.7 dBTP after MP3. A preset's `master` overrides.
-const MEM_MASTER = { TARGET: 0.07, GMAX: 2, SLOW: 12, GLIDE: 6 };   // about 3 dB under what it was: MEM played louder than its source
+const MEM_MASTER = { TARGET: 0.14, GMAX: 3, SLOW: 12, GLIDE: 6 };   // about -16 LUFS, level with v2in's other channels
 const dB = (x) => (x > 0 ? 10 * Math.log10(x) : -120);
 
 
