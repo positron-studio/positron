@@ -1,5 +1,9 @@
 ## Open
 
+- **MEM: lower, drony loops too; frequency slots?** (2026-11-09). Asked: *"do lower drony stuff too. freq slots?"*. Read as: speakers given a register each (a low slot, a middle, a high), the low ones slower, longer and darker so they drone under the rest. demo/shell/mem.mjs, mem-presets.mjs (colours).
+
+- ~~**MEM lab: show the source file names**~~ (2026-11-09). Asked: *"want to see source filenames"*. Each loop's take named by the recording (or input) it was cut from: demo/shell/mem.mjs keeps where a take was cut, mem-worker.mjs maps that to the file, the page draws it. DONE 2026-11-09: each loop row ends with its source (a Kiwi file as receiver, band and kHz, m7gmg-hf-7880); a phone gets a 3 by 4 picture so the rows no longer overlap.
+
 - ~~**MEM: a new source enters too suddenly**~~ (2026-11-09). Said, listening: *"new souce entry was too sudden"*. demo/shell/mem.mjs: the fade a loop enters with, and its shape. DONE 2026-11-09.
 
 - ~~**MEM: the colour moving all the time, more sources faster, some coming and going and some staying**~~ (2026-11-09). Asked, after the group hands: *"color group animation was most intersting, keep doing it more and add morr sources faster, they can come and go, some nede to stay longer"*. In MEM itself (demo/shell/mem.mjs, mem-presets.mjs): each player's colour walks on its own; a preset with more players entering faster and short lives, and a share of loops that stay long. DONE 2026-11-09.

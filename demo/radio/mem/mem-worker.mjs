@@ -10,7 +10,14 @@ const queue = [];            // { pcm: Int16Array stereo, at: frame } waiting to
 let queued = 0, asked = false, starved = 0, waiters = [];
 // A live input goes into the ring as it arrives and silence fills a gap over 3 s at the wall's pace, as v2in's run.mjs
 // live() does with its ffmpeg feed, so the gate sees quiet and takes nothing stale.
-let liveIn = false, lastData = 0, filled = 0;
+let liveIn = false, lastData = 0, filled = 0, inputName = '';
+// Where each source began in the ring, so a take's `ringAt` names the file (or the input) it was cut from.
+const segs = [];   // { w: ring frame, name }, in order
+const mark = (w, name) => { if (segs.at(-1)?.name !== name) segs.push({ w, name }); if (segs.length > 400) segs.shift(); };
+// a take may start a moment before its source's first frame (the gate keeps a little lead-in), so before the first
+// source is the first source
+const nameAt = (w) => { let n = segs[0]?.name ?? null; for (const x of segs) { if (x.w <= w) n = x.name; else break; } return n; };
+function named(st) { for (const l of st.loops) if (l && l.file == null && l.ringAt != null) l.file = nameAt(l.ringAt); return st; }
 const post = (m, t) => self.postMessage(m, t || []);
 const log = (line) => post({ type: 'log', line });
 
@@ -21,6 +28,7 @@ function take(n, out) {
   let o = 0;
   while (o < n && queue.length) {
     const q = queue[0], left = (q.pcm.length >> 1) - q.at, k = Math.min(left, n - o);
+    if (q.at === 0 && mem) mark(mem.ring.w + o, q.name);
     out.set(q.pcm.subarray(q.at * 2, (q.at + k) * 2), o * 2);
     q.at += k; o += k; queued -= k;
     if (q.at * 2 >= q.pcm.length) queue.shift();
@@ -141,13 +149,13 @@ self.onmessage = async ({ data: m }) => {
       want();
       if (mode === 'render') render(m.seconds);
     } else if (m.type === 'source') {
-      queue.push({ pcm: m.pcm, at: 0 }); queued += m.pcm.length >> 1; asked = false;
+      queue.push({ pcm: m.pcm, at: 0, name: m.name || 'a recording' }); queued += m.pcm.length >> 1; asked = false;
       waiters = waiters.filter((w) => (enough(w.n) ? (w.ok(), false) : true));
       want();
     } else if (m.type === 'live') {
-      liveIn = !!m.on; lastData = filled = Date.now();
+      liveIn = !!m.on; lastData = filled = Date.now(); inputName = m.name || 'live input';
     } else if (m.type === 'input' && mem && liveIn) {
-      mem.ring.write(m.pcm); lastData = filled = Date.now();
+      mark(mem.ring.w, inputName); mem.ring.write(m.pcm); lastData = filled = Date.now();
     } else if (m.type === 'pull' && mem) {
       const n = m.frames;
       if (liveIn) {
@@ -162,7 +170,7 @@ self.onmessage = async ({ data: m }) => {
       meter.feed(pcm);
       while (mem.t >= nextWatch) { watch.tick(); nextWatch += sr; }
       const out = { type: 'audio', pcm, t: mem.t / sr };
-      if (mem.t >= ctlAt) { ctlAt = mem.t + sr / 4; out.status = mem.status(); out.st = meter.last(3); out.starved = starved; }
+      if (mem.t >= ctlAt) { ctlAt = mem.t + sr / 4; out.status = named(mem.status()); out.st = meter.last(3); out.starved = starved; }
       post(out, [pcm.buffer]);
     } else if (m.type === 'edit' && mem) {
       mem.edit(m.preset);

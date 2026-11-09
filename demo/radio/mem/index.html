@@ -13,7 +13,7 @@
   .cc-ghead { margin: 0 0 8px; } .cc-ghead .cc-h { margin: 0; }
   .cc-stack .pos-knob-hand { display: none; }   /* the group's hand button drives them */
   .cc-h { margin: 0 0 8px; font-size: 14px; color: var(--dim); font-weight: 500; }
-  .cc-pic { display: block; width: 100%; height: 300px; background: var(--card); }
+  .cc-pic { display: block; width: 100%; background: var(--card); }   /* its height is the panel's aspect */
   .cc-spec { display: block; width: 100%; height: 120px; background: var(--card); }
   .cc-rpic { display: block; width: 100%; height: 140px; background: var(--card); }
   .cc-json { width: 100%; min-height: 160px; font: 400 12px/1.4 var(--mono); }
@@ -215,7 +215,7 @@
     live.onmessage = ({ data: m }) => {
       if (m.type === 'ready') {
         rate = m.rate;
-        if (liveOn) live.postMessage({ type: 'live', on: true }); else { feed = feeder(live, rate, seed); feed(); }
+        if (liveOn) live.postMessage({ type: 'live', on: true, name: stream?.getAudioTracks()[0]?.label || 'live input' }); else { feed = feeder(live, rate, seed); feed(); }
         d.log(`MEM on ${host}: ${rate} Hz, ring ${m.host.ringS} s, at most ${m.host.players} players, preset ${P.name}, seed ${seed}, ${liveOn ? 'live' : 'recordings'}`);
         const chunk = 128 * Math.round(rate * 0.2 / 128);
         pump = setInterval(() => { while (playing && inflight < 2 && playAt - ctx.currentTime < 1.0 + inflight * 0.2) { inflight++; live.postMessage({ type: 'pull', frames: chunk }); } }, 40);
@@ -252,6 +252,8 @@
   const pic = el('canvas', 'cc-pic');
   const TIER = { short: '#6fb8e8', mid: '#9ad16b', long: '#ee9a4d', all: '#c9ced6' };
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  // a source's short name: a KiwiSDR file is its receiver, band and kHz; the log has each one's full title as it starts
+  const short = (f) => f.replace(/\.(flac|mp3|wav|ogg|opus|m4a|aac)$/i, '').replace(/^kiwi-/, '').replace(/-\d{8}-\d{4}$/, '');
   function drawPicture(s) {
     const dpr = devicePixelRatio || 1, W = pic.clientWidth, H = pic.clientHeight;
     if (pic.width !== W * dpr) { pic.width = W * dpr; pic.height = H * dpr; }
@@ -283,7 +285,7 @@
       if (l.speech >= 0.5) g.strokeRect(bx, y + 3, bw, rowH - 8); else g.fillRect(bx, y + 3, bw, rowH - 8);
       g.fillStyle = fg; g.fillRect(bx + bw * (l.pos / l.len), y + 1, 2, rowH - 4);
       g.fillStyle = dim; g.globalAlpha = 1;
-      g.fillText(`${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}`, bx + bw + 8, y + rowH * 0.7);
+      g.fillText(`${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}${l.file ? `  ${short(l.file)}` : ''}`, bx + bw + 8, y + rowH * 0.7);
     });
   }
 
@@ -306,7 +308,8 @@
   }
   requestAnimationFrame(frame);
 
-  const panel = createVideoPanel({ media: pic, aspect: 'auto', right: false, left: el('span', 'cc-say', 'room and loops') });
+  // A phone stacks the room over the rows, so the picture is taller there: 3 by 4, a full row for each of eight loops.
+  const panel = createVideoPanel({ media: pic, aspect: matchMedia('(max-width: 640px)').matches ? '3 / 4' : 'auto', right: false, left: el('span', 'cc-say', 'room and loops') });
   const specPanel = createVideoPanel({ media: spec, aspect: 'auto', right: false, left: el('span', 'cc-say', 'spectrum, last minute') });
 
   // ── the knobs: every number of the preset, one turn one event on knobs -> mem ──
@@ -561,7 +564,7 @@
   window.__demo.bay = bay;
   window.__demo.preset = () => P;
   window.__demo.spectrum = () => { if (!analyser) return null; const f = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(f); const s = [...f].filter(Number.isFinite).sort((a, b) => a - b); return { min: s[0], p50: s[s.length >> 1], p90: s[Math.floor(s.length * 0.9)], max: s.at(-1), rate: ctx.sampleRate }; };
-  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, next: lastStatus?.nextTake ?? null });
+  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, files: lastStatus?.loops.filter(Boolean).map((l) => l.file) ?? null });
   window.__demo.renders = () => renders.map(({ pcm, bands, ...x }) => x);
   d.ready();
 </script>
