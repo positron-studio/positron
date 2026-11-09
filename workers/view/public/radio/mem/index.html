@@ -91,7 +91,8 @@
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const saved = () => { try { return JSON.parse(localStorage.getItem(SAVED) || '{}'); } catch { return {}; } };
   const allPresets = () => ({ ...PRESETS.presets, ...saved() });
-  let presetName = PRESETS.default, P = { name: presetName, ...clone(allPresets()[presetName]) }, edited = false;
+  // the lab opens on colours, the one being worked on (2026-11-09); MEM's own default stays drift
+  let presetName = allPresets().colours ? 'colours' : PRESETS.default, P = { name: presetName, ...clone(allPresets()[presetName]) }, edited = false;
   let host = 'tab', seed = 1;
 
   // ── the recordings ──────────────────────────────────────────────────────
@@ -328,7 +329,8 @@
     'takes.min': [1, 30], 'takes.max': [2, 60], 'takes.every': [2, 240], 'takes.life': [5, 600], 'takes.xfade': [0.5, 20],
     'takes.memory': [4, 120, 1], 'takes.revisit': [0, 1], 'takes.past': [0, 1], 'takes.gateDb': [-70, -20, 1],
     'takes.minLcm': [0, 1200, 10], 'takes.tiers': [1, 60], 'takes.mix': [0, 1], 'takes.speech': [0, 1], 'takes.apart': [0, 30],
-    'colour.hp': [20, 1000, 1], 'colour.lp': [1000, 12000, 10], 'colour.drive': [1, 4],
+    'colour.hp': [20, 1500, 1], 'colour.lp': [500, 14000, 10], 'colour.drive': [1, 4], 'colour.walk.glide': [1, 60], 'colour.walk.hold': [0, 60],
+    'takes.stay.p': [0, 1], 'takes.stay.life': [30, 1800], 'takes.fadeIn': [1, 60],
     'process.speed.p': [0, 1], 'process.speed.lo': [0.25, 1.5], 'process.speed.hi': [0.25, 2], 'process.speed.every': [5, 600],
     'process.speed.glide': [1, 120], 'process.speed.max': [0, 6, 1], 'process.reverse': [0, 1], 'process.disintegrate': [0, 1],
     'process.maxPasses': [5, 200, 1], 'process.freeze.p': [0, 1], 'process.freeze.len': [0.1, 5], 'process.freeze.hold': [1, 120],
