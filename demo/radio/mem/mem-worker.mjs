@@ -1,17 +1,21 @@
 // demo/radio/mem/mem-worker.mjs: one MEM engine in a module Web Worker, live (the page pulls chunks to play) or as an
 // offline render (as fast as it goes, then a report). The page decodes the source files and hands them over at the
-// host's rate; the ring takes exactly the frames each chunk renders, so a render with a seed repeats.
+// host's rate; the ring takes exactly the frames each chunk renders, so a render with a seed repeats. Or, live only,
+// the page hands over an audio input at the host's rate as it is captured.
 import { Mem } from '/shell/mem.mjs';
 import { bootSync, loadVendor } from '/shell/scsynth-sync.mjs';
 
 let mem = null, sr = 44100, mode = 'live';
 const queue = [];            // { pcm: Int16Array stereo, at: frame } waiting to be fed
 let queued = 0, asked = false, starved = 0, waiters = [];
+// A live input goes into the ring as it arrives and silence fills a gap over 3 s at the wall's pace, as v2in's run.mjs
+// live() does with its ffmpeg feed, so the gate sees quiet and takes nothing stale.
+let liveIn = false, lastData = 0, filled = 0;
 const post = (m, t) => self.postMessage(m, t || []);
 const log = (line) => post({ type: 'log', line });
 
 // ── the feed ───────────────────────────────────────────────────────────────────────────────────────────────────────
-function want() { if (!asked && queued < sr * 60) { asked = true; post({ type: 'need' }); } }
+function want() { if (!liveIn && !asked && queued < sr * 60) { asked = true; post({ type: 'need' }); } }
 /** n frames of the source into `out` (stereo s16), or silence where there is none yet. Returns frames that were real. */
 function take(n, out) {
   let o = 0;
@@ -140,10 +144,20 @@ self.onmessage = async ({ data: m }) => {
       queue.push({ pcm: m.pcm, at: 0 }); queued += m.pcm.length >> 1; asked = false;
       waiters = waiters.filter((w) => (enough(w.n) ? (w.ok(), false) : true));
       want();
+    } else if (m.type === 'live') {
+      liveIn = !!m.on; lastData = filled = Date.now();
+    } else if (m.type === 'input' && mem && liveIn) {
+      mem.ring.write(m.pcm); lastData = filled = Date.now();
     } else if (m.type === 'pull' && mem) {
-      const n = m.frames, src = new Int16Array(n * 2);
-      if (take(n, src) < n) starved++;
-      mem.ring.write(src);
+      const n = m.frames;
+      if (liveIn) {
+        const now = Date.now();
+        if (now - lastData > 3000) { mem.ring.silence(Math.round((now - filled) / 1000 * sr)); filled = now; }
+      } else {
+        const src = new Int16Array(n * 2);
+        if (take(n, src) < n) starved++;
+        mem.ring.write(src);
+      }
       const pcm = mem.render(n).slice(0, n * 2);
       meter.feed(pcm);
       while (mem.t >= nextWatch) { watch.tick(); nextWatch += sr; }

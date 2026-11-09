@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>POSITRON v2in on Cloudflare</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .v2-say { margin: 0; max-width: 62ch; color: var(--fg); }
+  .v2-plan { display: flex; flex-direction: column; }
+</style>
+<script type="module">
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { mount, el } from '/shell/shell.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { createTable } from '/shell/table.mjs';
+  useMediumColours();
+
+  // v2in as plans/plan-v2in-cf-cost.md shapes it (sections 1, 5 and 8), drawn as a patch with SIMULATED traffic.
+  // Nothing here opens a connection: no fetch, no socket, no media. The wires light from timers in this tab.
+  const bay = createBay();
+  const CF = { place: 'cloudflare', net: 'cloudflare' };
+  const node = (id, kind, label, more = {}) => bay.addNode({ id, kind, label, place: id.split(':')[1], ...more });
+  const port = (id, dir, medium) => bay.addPort({ id, dir, medium });
+
+  // ── senders ──
+  node('sender:obs', 'device', 'OBS 30 or later');
+  node('sender:browser', 'person', 'a browser on /live');
+  node('sender:app', 'device', 'VÄIN app');
+  node('sender:rtmp', 'device', 'OBS on RTMP');
+  node('sender:butt', 'device', 'BUTT');
+  node('hetzner:bridge', 'engine', 'RTMP and Icecast in');
+  node('alerts:kyiv', 'external', 'alerts.in.ua');
+  // ── Cloudflare ──
+  node('cf:sfu', 'endpoint', 'Realtime SFU', CF);
+  node('cf:live', 'engine', 'live object', CF);
+  node('cf:mix', 'engine', 'community mix', CF);
+  node('cf:gate', 'engine', 'Gate, on an alarm', CF);
+  node('cf:now', 'endpoint', 'now, hibernated', CF);
+  node('cf:r2', 'store', 'R2', CF);
+  node('cf:cron', 'engine', 'Cron Triggers', CF);
+  node('cf:waves', 'engine', 'Waves', CF);
+  node('cf:mem', 'engine', 'MEM', CF);
+  node('cf:stream', 'endpoint', 'stateless Worker', CF);
+  // ── listeners ──
+  node('listener:web', 'screen', 'web player');
+  node('listener:app', 'screen', 'VÄIN app');
+
+  for (const id of ['sender:obs', 'sender:browser', 'sender:app', 'sender:rtmp', 'sender:butt', 'hetzner:bridge', 'cf:sfu',
+    'cf:waves', 'cf:mem', 'cf:stream']) port(`${id}:audio-out`, 'out', 'audio');
+  for (const id of ['hetzner:bridge', 'cf:sfu', 'cf:live', 'cf:mix', 'cf:mem', 'cf:stream', 'listener:web', 'listener:app']) port(`${id}:audio-in`, 'in', 'audio');
+  port('cf:live:audio-out', 'out', 'audio');
+  port('sender:obs:video-out', 'out', 'video'); port('cf:sfu:video-in', 'in', 'video');
+  port('cf:sfu:video-out', 'out', 'video'); port('listener:web:video-in', 'in', 'video');
+  for (const id of ['cf:live', 'cf:mix', 'cf:cron']) port(`${id}:file-out`, 'out', 'file');
+  port('cf:r2:file-in', 'in', 'file'); port('cf:r2:file-out', 'out', 'file');
+  for (const id of ['cf:waves', 'cf:mem', 'cf:stream']) port(`${id}:file-in`, 'in', 'file');
+  for (const id of ['alerts:kyiv', 'cf:gate', 'cf:now']) port(`${id}:state-out`, 'out', 'state');
+  for (const id of ['cf:gate', 'cf:now', 'cf:stream', 'listener:web', 'listener:app']) port(`${id}:state-in`, 'in', 'state');
+
+  const d = mount({ name: 'v2in on Cloudflare', joined: false, index: '/', indexLabel: 'positron',
+    what: 'v2in as the cost plan would build it, simulated. Pick a moment and see which wires carry it.',
+    readout: { 'on air': '', awake: '', gate: '', 'last push': '' } });
+  conceptNav('radio/v2in');
+
+  // ── the links: the whole design is held, and a moment lights the part of it that carries something ──
+  // `via` names the wire where it leaves a site. The kit has no `rtmp` transport, so that one link is
+  // made without and told its wire in the picture below.
+  const RTMP = 'sender:rtmp:audio-out hetzner:bridge:audio-in';
+  const LINKS = [
+    ['sender:obs:audio-out', 'cf:sfu:audio-in', 'whip'],
+    ['sender:obs:video-out', 'cf:sfu:video-in', 'whip'],
+    ['sender:browser:audio-out', 'cf:sfu:audio-in', 'whip'],
+    ['sender:app:audio-out', 'cf:live:audio-in', 'websocket'],
+    ['sender:rtmp:audio-out', 'hetzner:bridge:audio-in'],
+    ['sender:butt:audio-out', 'hetzner:bridge:audio-in', 'icecast'],
+    ['hetzner:bridge:audio-out', 'cf:live:audio-in', 'websocket'],
+    ['alerts:kyiv:state-out', 'cf:gate:state-in', 'https'],
+    ['cf:sfu:audio-out', 'cf:live:audio-in'],
+    ['cf:sfu:audio-out', 'cf:mix:audio-in'],
+    ['cf:sfu:video-out', 'listener:web:video-in', 'whep'],
+    ['cf:live:file-out', 'cf:r2:file-in'],
+    ['cf:mix:file-out', 'cf:r2:file-in'],
+    ['cf:cron:file-out', 'cf:r2:file-in'],
+    ['cf:live:audio-out', 'cf:mem:audio-in'],
+    ['cf:r2:file-out', 'cf:waves:file-in'],
+    ['cf:r2:file-out', 'cf:mem:file-in'],
+    ['cf:r2:file-out', 'cf:stream:file-in'],
+    ['cf:waves:audio-out', 'cf:stream:audio-in'],
+    ['cf:mem:audio-out', 'cf:stream:audio-in'],
+    ['cf:gate:state-out', 'cf:stream:state-in'],
+    ['cf:gate:state-out', 'cf:now:state-in'],
+    ['cf:stream:audio-out', 'listener:web:audio-in', 'https'],
+    ['cf:stream:audio-out', 'listener:app:audio-in', 'https'],
+    ['cf:now:state-out', 'listener:web:state-in', 'websocket'],
+    ['cf:now:state-out', 'listener:app:state-in', 'websocket'],
+  ];
+  for (const [a, b, via] of LINKS) {
+    // The alert source is somebody else's server: the real Gate would poll it. This page never does.
+    const r = bay.link(a, b, [], { ...(via ? { via } : {}), ...(a.startsWith('alerts:') ? { consent: true } : {}) });
+    if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
+  }
+  const drawn = {
+    nodes: () => bay.nodes(),
+    ports: () => bay.ports(),
+    links: () => bay.links().map((l) => (`${l.from} ${l.to}` === RTMP ? { ...l, session: null, via: 'rtmp' } : l)),
+  };
+
+  // ── the moments ──
+  const K = (a, b) => `${a} ${b}`;
+  const FILES = [K('cf:r2:file-out', 'cf:stream:file-in')];
+  const OUT = [K('cf:stream:audio-out', 'listener:web:audio-in'), K('cf:stream:audio-out', 'listener:app:audio-in'),
+    K('cf:gate:state-out', 'cf:stream:state-in')];
+  const LIVE = [K('cf:live:file-out', 'cf:r2:file-in'), ...FILES];
+  const PUSH = [K('cf:gate:state-out', 'cf:now:state-in'), K('cf:now:state-out', 'listener:web:state-in'),
+    K('cf:now:state-out', 'listener:app:state-in')];
+  const TITLE = PUSH.slice(1);
+  const MOMENTS = [
+    { name: 'quiet', air: 'playlist', awake: ['Gate'], gate: 'clear', push: 'playlist',
+      say: 'File channels play from R2 on a stateless Worker, placed by the wall clock. The Gate is the one object awake.',
+      lit: [...FILES, ...OUT],
+      plan: [['Workers Paid, 5 USD a month, is the floor', 'quoted'],
+        ['The Gate on a 10 s alarm: about 10,000 GB-s a month, inside the free 400,000', 'inferred'],
+        ['A stateless Worker: no charge or limit for duration', 'quoted'],
+        ['Today\'s quiet audience: about 5.15 to 5.30 USD a month', 'inferred']] },
+    { name: 'Waves listened', air: 'Waves', awake: ['Gate', 'Waves'], gate: 'clear',
+      say: 'Somebody opens radio1965. Its Waves object wakes for them and stops when the last listener leaves.',
+      lit: [...FILES, ...OUT, K('cf:r2:file-out', 'cf:waves:file-in'), K('cf:waves:audio-out', 'cf:stream:audio-in')],
+      plan: [['Waves while listened: 460.8 GB-s per listened hour', 'inferred'],
+        ['edgecast\'s station boots to sound in 264 to 542 ms', 'measured'],
+        ['One object reaches about 100 to 300 listeners', 'inferred']] },
+    { name: 'live by WHIP', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
+      say: 'A show goes live from OBS. The SFU hands its sound to a live object, which writes 2 s MP3 chunks to R2.',
+      lit: [K('sender:obs:audio-out', 'cf:sfu:audio-in'), K('sender:obs:video-out', 'cf:sfu:video-in'),
+        K('cf:sfu:audio-out', 'cf:live:audio-in'), K('cf:sfu:video-out', 'listener:web:video-in'), ...LIVE, ...OUT],
+      plan: [['0.69 GB of SFU egress per live hour, PCM to the live object', 'measured'],
+        ['0 USD inside the free 1,000 GB, 0.035 USD an hour past it', 'inferred'],
+        ['The live object: 460.8 GB-s an hour', 'inferred'],
+        ['A 720p viewer at 3 Mbit/s is 1.36 GB an hour', 'read']] },
+    { name: 'live from the app', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
+      say: 'A show goes live from the VÄIN app as MP3 over a WebSocket, straight into the live object.',
+      lit: [K('sender:app:audio-out', 'cf:live:audio-in'), ...LIVE, ...OUT],
+      plan: [['No SFU at all', 'inferred'],
+        ['The live object: 460.8 GB-s an hour', 'inferred'],
+        ['About 1,800 billed requests an hour at 10 messages a second', 'inferred']] },
+    { name: 'live through the bridge', air: 'live show', awake: ['Gate', 'live'], gate: 'clear', push: 'show live',
+      say: 'OBS on RTMP, or BUTT on Icecast, reaches a small bridge on a VPS, which sends MP3 over a WebSocket.',
+      lit: [K('sender:rtmp:audio-out', 'hetzner:bridge:audio-in'), K('hetzner:bridge:audio-out', 'cf:live:audio-in'), ...LIVE, ...OUT],
+      plan: [['The bridge keeps no listeners and no files', 'inferred'],
+        ['Containers take HTTP only, so the bridge is not on Cloudflare', 'measured'],
+        ['ffmpeg\'s WHIP sender failed with the SFU, so the bridge speaks WebSocket', 'measured']] },
+    { name: 'community', air: 'community mix', awake: ['Gate', 'mix'], gate: 'clear', push: 'show live',
+      say: 'Browsers send by WHIP into the community slots. A mix object runs only while a slot is live.',
+      lit: [K('sender:browser:audio-out', 'cf:sfu:audio-in'), K('cf:sfu:audio-out', 'cf:mix:audio-in'),
+        K('cf:mix:file-out', 'cf:r2:file-in'), ...FILES, ...OUT],
+      plan: [['Four WHIP senders mixed: 2.76 GB of SFU egress an hour', 'inferred'],
+        ['One mix object while one or more of its four slots is live', 'inferred']] },
+    { name: 'air raid', air: 'silence', awake: ['Gate'], gate: 'alert', push: 'raid',
+      say: 'An alert starts in Kyiv. The Gate pushes it once to every open page and the Worker writes silent frames.',
+      lit: [...OUT],
+      plan: [['The Gate polls alerts.in.ua every 10 s', 'read'],
+        ['The Worker reads the gate state through the cache with a 2 s life', 'inferred'],
+        ['Silence arrives within the 2 s cache life plus the 2 s lead plus the player\'s buffer', 'inferred'],
+        ['A change pushed to 1,000 pages costs one wake', 'inferred']] },
+    { name: 'all clear', air: 'ALL CLEAR', awake: ['Gate'], gate: 'clear', push: 'all clear',
+      say: 'The alert ends. Every channel plays one ALL CLEAR piece from R2, then its playlist where the clock says.',
+      lit: [...FILES, ...OUT],
+      plan: [['The same ALL CLEAR file for every channel and every listener', 'inferred'],
+        ['The cut is at a frame boundary with no fade', 'read']] },
+    { name: 'MEM at hcmf//', air: 'MEM', awake: ['Gate', 'live', 'MEM'], gate: 'clear', push: 'show live',
+      say: 'During hcmf//, 20 to 29 November, MEM plays over a live show. The live object posts it PCM.',
+      lit: [K('sender:obs:audio-out', 'cf:sfu:audio-in'), K('cf:sfu:audio-out', 'cf:live:audio-in'),
+        K('cf:live:audio-out', 'cf:mem:audio-in'), K('cf:mem:audio-out', 'cf:stream:audio-in'), ...LIVE, ...OUT],
+      plan: [['MEM for the festival\'s ten days: 110,592 GB-s', 'inferred'],
+        ['68 to 88 MB with PCM input, in a 128 MB isolate', 'inferred'],
+        ['About 2 to 5 % of a core, which an object does not bill', 'inferred'],
+        ['12 kHz mono 16-bit PCM, 24 KB a second, object to object', 'inferred']] },
+  ];
+
+  // ── simulated traffic: a moment's wires stay lit, a push or a poll flashes for a moment ──
+  let at = 0, lit = new Set(MOMENTS[0].lit), pushed = '', lastPush = '';
+  const until = new Map();          // link key -> time its flash ends
+  const flash = (keys, ms = 1400) => { const t = performance.now() + ms; for (const k of keys) until.set(k, t); };
+  const pb = createPatchbay(drawn, { flowing: (l) => {
+    const k = K(l.from, l.to);
+    return lit.has(k) || (until.get(k) || 0) > performance.now();
+  } });
+
+  const say = el('p', 'v2-say');
+  const planT = createTable({ empty: '', columns: [
+    { key: 'what', label: 'from the cost plan', grow: true, hi: true },
+    { key: 'known', label: 'known', width: 72 },
+  ] });
+  const plan = el('div', 'v2-plan');
+  plan.append(planT.el);
+
+  function show(i) {
+    at = (i + MOMENTS.length) % MOMENTS.length;
+    const m = MOMENTS[at];
+    picker.show(m.name, at);
+    lit = new Set(m.lit);
+    say.textContent = m.say;
+    planT.set(m.plan.map(([what, known]) => ({ what, known })));
+    // A push goes out only when what the pages show changes; listening to Waves changes nothing they show.
+    const state = m.push || pushed;
+    if (state !== pushed) {
+      pushed = state; lastPush = state;
+      flash(PUSH);
+      d.log(`now pushed "${state}" to every open page`);
+    }
+    d.set('on air', m.air);
+    d.set('awake', m.awake.join(', '));
+    d.set('gate', m.gate);
+    d.set('last push', lastPush);
+    window.__demo.v2in = { moment: m.name, lit: [...lit], awake: m.awake, pushed };
+  }
+  const picker = createPicker({ what: 'moment', prev: () => show(at - 1), next: () => show(at + 1), onPick: (i) => show(i) });
+  picker.options(MOMENTS.map((m) => m.name), 0);
+
+  // The Gate's alarm, every 10 s as the plan has it. A file channel's next title is pushed by the now object.
+  setInterval(() => flash([K('alerts:kyiv:state-out', 'cf:gate:state-in')], 1000), 10000);
+  setInterval(() => {
+    if (!lit.has(FILES[0])) return;
+    flash(TITLE);
+    lastPush = 'title'; d.set('last push', lastPush);
+  }, 45000);
+  // Cron Triggers for the chores, a minute at the finest.
+  const CHORES = ['sweep old recordings', 'roll up listener counts', 'back up the Gate', 'rebuild playlists'];
+  let chore = 0;
+  setInterval(() => {
+    flash([K('cf:cron:file-out', 'cf:r2:file-in')]);
+    d.log(`cron: ${CHORES[chore++ % CHORES.length]}`);
+  }, 60000);
+
+  pushed = MOMENTS[0].push;
+  show(0);
+  d.stack.add(picker.el, say, plan, pb.el);
+  d.ready();
+</script>
