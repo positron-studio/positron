@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**MEM colours: nervous, hard to listen to for long**~~ DONE 2026-11-09, (2026-11-09). Said: *"nervous, hard to listen long"*. colours calmer: 6 players (2 low, 3 mid, 1 high), takes every 20 to 45 s, lives 60 to 180 s with 40 % staying 5 to 15 min, longer crossfades, slower colour walk, less reversing and speed change, changes 10 s apart; measured as changes a minute before and after. demo/shell/mem-presets.mjs.
+
+- ~~**MEM: too many loops, too short. Because of the worker limit?**~~ DONE 2026-11-09, (2026-11-09). Asked, on a screenshot of eight loops of 2.3 to 4.3 s, all from m7gmg-mw-558: *"too many too short. becasue of worker limit?"*. Not the host: the opening's one short first take was reused by every player entering in the first minute. No two players on one take, early takes every 3 to 6 s, the dry fades once 3 loops play, pieces 12 to 30 s. demo/shell/mem.mjs, demo/radio/mem/index.html.
+
 - ~~**MEM: some frequency noise and squelch is hard to listen to. By design?**~~ DONE 2026-11-09, (2026-11-09). Asked: *"some freq noise squelch is hard to listen. by design?"*. No: the lab sat on m7gmg-hf-7880 (a steady DWD fax tone in hiss), and six of the 36 are tones or data; colours opened lp to 11 to 12 kHz and drive to 3.4. Leave those six out of AM UK, short pieces from many files, colours tamed. demo/radio/mem/, mem-presets.mjs.
 
 - ~~**MEM: the low drones cannot be heard**~~ DONE 2026-11-09, (2026-11-09). Said: *"can not hear lower drones"*. Two causes: the drone players were rested at boot by a thin mood (keep ignored), and a low-pass of 220 to 650 Hz on half-speed AM sits under what a laptop speaker plays. demo/shell/mem.mjs, mem-presets.mjs.

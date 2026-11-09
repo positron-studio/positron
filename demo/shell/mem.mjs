@@ -287,7 +287,7 @@ export class Mem {
   /** The opening's dry feed: held until the first loop has played `hold` s, then down to the preset's `dry` over `fade` s. */
   openStep(t) {
     const O = this.p.open || {}, to = this.p.dry ?? 0;
-    if (!this.openFade) { if (this.counts.replaced > 0) this.openFade = { t0: t + (O.hold ?? 10) * this.sr, T: Math.max(1, (O.fade ?? 15) * this.sr) }; return; }
+    if (!this.openFade) { if (this.players.filter((pl) => pl.voices.some((v) => !v.out)).length >= Math.min(3, this.n)) this.openFade = { t0: t + (O.hold ?? 10) * this.sr, T: Math.max(1, (O.fade ?? 15) * this.sr) }; return; }
     if (t < this.openFade.t0) return;
     const u = Math.min(1, (t - this.openFade.t0) / this.openFade.T), from = O.dry ?? 0.5;
     this.w?.send('/n_set', NODE.dry, 'dry', from + (to - from) * (1 - Math.cos(Math.PI * u)) / 2);
@@ -492,16 +492,29 @@ export class Mem {
       if (typeof got !== 'string') fresh = [got];
     }
     // a slot with its own tier (the low drone) waits for a take that long rather than looping a short one
-    // and after 15 s with nothing that long, the longest take there is
+    // and after 15 s with nothing that long, the longest take there is, if it is 4 s or more
     if (slot?.tier && !fresh.length && !old.length) {
       pl.waitSince ??= this.t;
       const longest = this.takes.reduce((a, x) => (!a || x.cs > a.cs ? x : a), null);
-      if (this.t - pl.waitSince < 15 * this.sr || !longest) { pl.replaceAt = this.t + 5 * this.sr; return; }
+      if (this.t - pl.waitSince < 15 * this.sr || !longest || longest.cs < 400) { pl.replaceAt = this.t + 5 * this.sr; return; }   // never shorter than 4 s
       fresh = [longest];
     }
     pl.waitSince = null;
     if (!revisit && fresh.length && talky(fresh[0]) && calmOld.length && r.next() > (T.speech ?? 1)) revisit = true;
-    const take = fresh.length && !revisit ? fresh[0] : r.pick(revisit && calmOld.length && r.next() > (T.speech ?? 1) ? calmOld : old.length ? old : this.takes);
+    let take;
+    if (fresh.length && !revisit) take = fresh[0];
+    else {
+      let pool = revisit && calmOld.length && r.next() > (T.speech ?? 1) ? calmOld : old.length ? old : this.takes;
+      // preset `takes.alone`: no two players loop one take; a player waits up to 20 s for one of its own
+      if (T.alone) {
+        const busy = new Set(this.players.filter((p) => p !== pl).flatMap((p) => p.voices.filter((v) => !v.out).map((v) => v.take.id)));
+        const mine = pool.filter((x) => !busy.has(x.id)), any = this.takes.filter((x) => !busy.has(x.id));
+        if (mine.length) pool = mine; else if (any.length) pool = any;
+        else { pl.aloneSince ??= this.t; if (this.t - pl.aloneSince < 20 * this.sr) { pl.replaceAt = this.t + 3 * this.sr; return; } }
+      }
+      take = r.pick(pool);
+    }
+    pl.aloneSince = null;
     take.played = true;
     const cur = pl.voices.find((v) => !v.out);
     const minCs = Math.min(lo * 100, take.cs), maxCs = Math.min(hi * 100, take.cs);
@@ -550,7 +563,8 @@ export class Mem {
       const why = this.recordings && r.chance(T.past) ? this.takeFromPast(secs) : this.takeFromRing(secs);
       if (typeof why === 'string') { if (why === 'no sound') this.counts.gated++; this.nextTake = t + (why === 'talk' ? r.range(T.every) * this.pace : 2) * this.sr; }   // talk passed over: the next try at the usual pace, so talk comes in at `speech` times the rate
       else {
-        this.nextTake = t + r.range(T.every) * this.pace * this.sr;
+        // with `alone`, a take every 3 to 6 s until there is one for each player, then at the preset's pace
+        this.nextTake = t + (T.alone && this.takes.length < this.n ? r.range([3, 6]) : r.range(T.every) * this.pace) * this.sr;
         if (this.firstTake) {   // the players come in one by one after the first take, as a looper fills
           this.firstTake = false;
           // a kept slot (the drone) waits for its own long take and takes no place in the line
