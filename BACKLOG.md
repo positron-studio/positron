@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**/radio/v2in/: a USD a month column**~~ (2026-11-09). Asked: *"add usd a month col"*. demo/radio/v2in/index.html: the day price times the plan's month (2,628,000 s). DONE 2026-11-09; headings day and month, USD said in the note, the first heading item so nothing is cut at 375.
+
 - ~~**/radio/v2in/: the table in the sans face, numbers in the mono; Total**~~ (2026-11-09). Asked: *"use sans inside table  exept nrs"*. demo/radio/v2in/index.html; the headings stay mono (they name). Then *"A day of this moment - Total? rm known from it"*: the last row reads Total with no known. DONE 2026-11-09.
 
 - ~~**/radio/v2in/: a price a day per row, and a total**~~ (2026-11-09). Asked, on a screenshot of the quiet moment's table: *"add prices col per day and total"*. demo/radio/v2in/index.html, prices from plan-v2in-cf-cost sections 2, 4, 5, 6. DONE 2026-11-09: computed in the page from the quoted unit prices, past the free allowances; quiet 0.17 a day matches the plan's 5.15 to 5.30 a month.
