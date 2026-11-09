@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: voices stuck in the middle of the stereo, perhaps some reverb**~~ DONE 2026-11-09 (L/R correlation of the opening 1.000 to 0.570), (2026-11-09). Said: *"voices stuck in the middle of stereo... perhaps some reverb?"*. The dry feed (the opening) is mono, the same to both sides and outside the room and reverb. demo/shell/mem.mjs.
+
 - ~~**MEM: no Darth Vader voices**~~ DONE 2026-11-09, (2026-11-09). Said: *"darth vader voices: no"*. Slowed talk: the drones (speed 0.45 to 0.6) were allowed talk, and speed glides go to 0.7. Then *"only if sumer low and stretched"*: talk in a drone goes down to about 0.2 to 0.27 (its speed times 0.45), talk anywhere else stays at 0.9 or faster. demo/shell/mem.mjs.
 
 - ~~**MEM colours: nervous, hard to listen to for long**~~ DONE 2026-11-09, (2026-11-09). Said: *"nervous, hard to listen long"*. colours calmer: 6 players (2 low, 3 mid, 1 high), takes every 20 to 45 s, lives 60 to 180 s with 40 % staying 5 to 15 min, longer crossfades, slower colour walk, less reversing and speed change, changes 10 s apart; measured as changes a minute before and after. demo/shell/mem-presets.mjs.

@@ -210,11 +210,14 @@ const SPEAKER = `{ var x = In.ar(\\inbus.kr(2), 1);
   var l = LPF.ar(DelayC.ar(a * \\gl.kr(0.7, 1), 0.002, \\dl.kr(0, 1)), \\fl.kr(20000, 1));
   var r = LPF.ar(DelayC.ar(a * \\gr.kr(0.7, 1), 0.002, \\dr.kr(0, 1)), \\fr.kr(20000, 1));
   [l, r] }`;
-const REVERB = (n, top = 6000) => `{ var m = ${Array.from({ length: n }, (_, i) => `(In.ar(${2 + i}, 1) * \\s${i}.kr(0, 1))`).join(' + ')};
+const REVERB = (n, top = 6000) => `{ var m = ${Array.from({ length: n }, (_, i) => `(In.ar(${2 + i}, 1) * \\s${i}.kr(0, 1))`).join(' + ')} + ((In.ar(${2 + n}, 1) + In.ar(${3 + n}, 1)) * \\sd.kr(0, 2));
   var w = LPF.ar(HPF.ar(m, 200), ${top});
   var v = FreeVerb2.ar(w, DelayC.ar(w, 0.05, 0.023), 1, \\room.kr(0.8), \\damp.kr(0.5));
   v * \\level.kr(0.3, 2) }`;
-const DRY = (n) => `{ [In.ar(${2 + n}, 1) * \\dry.kr(0, 2), In.ar(${3 + n}, 1) * \\dry.kr(0, 2)] }`;
+// the feed is mono, so the two sides take it through two slightly different short delays and it opens out rather than
+// sitting in the middle; the reverb hears it too (`sd` on the reverb, following `dry`)
+const DRY = (n) => `{ var x = ((In.ar(${2 + n}, 1) + In.ar(${3 + n}, 1)) * 0.5) * \\dry.kr(0, 2);
+  [(x * 0.75) + (DelayC.ar(x, 0.05, 0.023) * 0.45), (x * 0.75) + (DelayC.ar(x, 0.05, 0.031) * 0.45)] }`;
 
 /** A preset by name. */
 export function presetOf(name, presets = PRESETS) {
@@ -295,13 +298,15 @@ export class Mem {
     pl.colour = { hp: oct(w.from.hp, w.to.hp), lp: oct(w.from.lp, w.to.lp), drive: w.from.drive + (w.to.drive - w.from.drive) * e };
     this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
   }
+  /** The dry feed's level, and as much again into the reverb at half, so the feed sits in the room. */
+  setDry(x) { this.w?.send('/n_set', NODE.dry, 'dry', x); this.w?.send('/n_set', NODE.rev, 'sd', x * 0.5); }
   /** The opening's dry feed: held until the first loop has played `hold` s, then down to the preset's `dry` over `fade` s. */
   openStep(t) {
     const O = this.p.open || {}, to = this.p.dry ?? 0;
     if (!this.openFade) { if (this.players.filter((pl) => pl.voices.some((v) => !v.out)).length >= Math.min(3, this.n)) this.openFade = { t0: t + (O.hold ?? 10) * this.sr, T: Math.max(1, (O.fade ?? 15) * this.sr) }; return; }
     if (t < this.openFade.t0) return;
     const u = Math.min(1, (t - this.openFade.t0) / this.openFade.T), from = O.dry ?? 0.5;
-    this.w?.send('/n_set', NODE.dry, 'dry', from + (to - from) * (1 - Math.cos(Math.PI * u)) / 2);
+    this.setDry(from + (to - from) * (1 - Math.cos(Math.PI * u)) / 2);
     if (u >= 1) this.opening = false;
   }
   /** A speaker's slow walk around its place: two slow sines each in angle and distance, or none (it stands still). */
@@ -390,7 +395,7 @@ export class Mem {
     for (const pl of this.players) this.spk(pl);
     w.send('/s_new', 'mdry', NODE.dry, 1, 0, 'dry', this.opening ? this.p.open.dry ?? 0.5 : this.p.dry ?? 0);
     const rv = this.p.room.reverb;
-    w.send('/s_new', 'mrev', NODE.rev, 1, 0, 'room', rv.room, 'damp', rv.damp, 'level', rv.level);
+    w.send('/s_new', 'mrev', NODE.rev, 1, 0, 'room', rv.room, 'damp', rv.damp, 'level', rv.level, 'sd', (this.opening ? this.p.open.dry ?? 0.5 : this.p.dry ?? 0) * 0.5);
     w.send('/s_new', 'mmst', NODE.mst, 1, 0);
     this.ins = Array.from({ length: MAX_PLAYERS + 2 }, () => new Float32Array(QUANTUM));
     this.room(true);
@@ -689,7 +694,7 @@ export class Mem {
     }
     // the dry feed fades by its lag, so it is fed a little longer when the new preset has none
     if ((old.dry ?? 0) > 0) this.dryUntil = t + 6 * this.sr;
-    this.w?.send('/n_set', NODE.dry, 'dry', next.dry ?? 0);
+    this.setDry(next.dry ?? 0);
     // the arrangements: one of the new list, held for the new hold
     const rm = next.room;
     if (!rm.arrangements.includes(a.from) || (a.to && !rm.arrangements.includes(a.to))) {
@@ -714,7 +719,7 @@ export class Mem {
     this.p = next; this.counts.edits = (this.counts.edits || 0) + 1;
     const rv = next.room.reverb;
     this.w?.send('/n_set', NODE.rev, 'room', rv.room, 'damp', rv.damp, 'level', rv.level);
-    this.w?.send('/n_set', NODE.dry, 'dry', next.dry ?? 0);
+    this.setDry(next.dry ?? 0);
     if (!same(next.colour, old.colour)) {
       for (const pl of this.players) if (!pl.leaving) {
         const c = this.colourAt(pl.k);
