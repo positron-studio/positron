@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: the low drone should be slower, probably a voice not recognised**~~ DONE 2026-11-09, (2026-11-09). Said, on a screenshot (low 11.0 s speed 0.16 m7gmg-mw-558 between a low talk at 0.26 and a mid at 1): *"middle lower should be slower. its misclassified voice probably"*. Drones 0.10 to 0.16 and capped there, gain 1.8 to 2.4 so they stay audible. demo/shell/mem.mjs, mem-presets.mjs.
+
 - ~~**MEM colours: the suggested knob changes**~~ (2026-11-09). Said: *"you suggest know changes are fine"*: reverb level 0.65 to 0.9, reverb send 1.1 to 1.6, freeze p 0.06 to 0, disintegrate 0.1 to 0.45 to 0.05 to 0.2, in colours. DONE 2026-11-09.
 
 - ~~**MEM: how to avoid the Darth Vader voices; they play now**~~ DONE 2026-11-09, (2026-11-09). Asked: *"how to avoid darthvadering"*, then *"they play currently"*. Talk that MEM does not recognise as talk is still slowed (drones 0.45 to 0.6, glides to 0.7). The rule for every loop: no speed between 0.3 and 0.9; the drones at 0.2 to 0.3. demo/shell/mem.mjs, mem-presets.mjs, mem-test.mjs.

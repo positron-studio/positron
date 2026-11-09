@@ -194,8 +194,8 @@ for (const [name, h] of Object.entries(HOSTS)) {
   // the low slot drones: slower than 0.7 (its base 0.45 to 0.6 under the varispeed's 0.7 to 1.05), never rested by a mood
   assert.ok(c.low.rates.length && c.low.rates.every((x) => x < 0.7), `colours: the low slot plays slow (${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)})`);
   // no slowed voices: every loop at 0.9 or faster, or 0.3 and under in a drone (owner: only if super low and stretched)
-  const mid = [...c.talk, ...d.talk].filter((x) => x > 0.3 && x < 0.88);
-  assert.equal(mid.length, 0, `no loop between 0.3 and 0.88 speed (${mid.slice(0, 5).map((x) => x.toFixed(2))})`);
+  const mid = [...c.talk, ...d.talk].filter((x) => x > 0.165 && x < 0.88);
+  assert.equal(mid.length, 0, `no loop between 0.16 and 0.88 speed (${mid.slice(0, 5).map((x) => x.toFixed(2))})`);
   assert.equal(c.low.rested, 0, 'colours: the low slot is never sent to rest');
   const lowLong = c.low.lens.filter((x) => x >= 5).length / c.low.lens.length;
   assert.ok(lowLong > 0.7, `colours: the low slot's loops mostly sound 5 s and longer a pass (${Math.round(lowLong * 100)} %)`);
@@ -203,7 +203,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
   assert.ok(c.worstQuiet < 1, `colours: no silence over 1 s in the first minute (${c.worstQuiet} s)`);
   assert.ok(d.worstQuiet >= 1, `drift, no opening: silent at the start (${d.worstQuiet} s), the control`);
   assert.ok(c.most >= 4 && c.firstLoop != null && c.firstLoop < 20, `colours: loops soon and many (first at ${c.firstLoop} s, at most ${c.most})`);
-  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, loops heard ${c.talk.length + d.talk.length} times, never between 0.3 and 0.88; drones at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
+  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, loops heard ${c.talk.length + d.talk.length} times, never between 0.16 and 0.88; drones at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
 }
 console.log('mem ok');
 process.exit(0);
