@@ -173,7 +173,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
       let ss = 0; for (let i = 0; i < o.length; i++) ss += (o[i] / 32768) ** 2; const db = 10 * Math.log10(ss / o.length + 1e-12);
       if (k < 600) { if (db < -50) { quiet++; worstQuiet = Math.max(worstQuiet, quiet); } else quiet = 0; }
       const st = m.status(), n = st.loops.filter(Boolean).length;
-      for (const l of st.loops) if (l && l.speech >= 0.5 && !l.leaving && !l.resting) talk.push(Math.abs(l.rate));
+      for (const l of st.loops) if (l && !l.leaving && !l.resting) talk.push(Math.abs(l.rate));
       for (const l of st.loops) if (l && l.slot === 'low' && !l.leaving) { low.rates.push(Math.abs(l.rate)); low.lens.push(l.len / Math.max(0.01, Math.abs(l.rate))); if (l.resting) low.rested++; } most = Math.max(most, n); if (n && firstLoop == null) firstLoop = k / 10;
       // a life is read once, when that player's own replacement time moves to a new loop's
       for (const pl of m.players) if (pl.replaceAt !== due.get(pl)) { if (pl.voices.length && pl.replaceAt > m.t && pl.replaceAt !== Infinity && st.counts.replaced) lives.push((pl.replaceAt - m.t) / SR); due.set(pl, pl.replaceAt); }
@@ -192,9 +192,9 @@ for (const [name, h] of Object.entries(HOSTS)) {
   assert.ok(c.lives.filter((x) => x <= 180).length > c.lives.length / 2, 'colours: most loops come and go within 180 s');
   // the low slot drones: slower than 0.7 (its base 0.45 to 0.6 under the varispeed's 0.7 to 1.05), never rested by a mood
   assert.ok(c.low.rates.length && c.low.rates.every((x) => x < 0.7), `colours: the low slot plays slow (${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)})`);
-  // no slowed voices: talk plays at 0.9 or faster, or very low in a drone (owner: only if super low and stretched)
+  // no slowed voices: every loop at 0.9 or faster, or 0.3 and under in a drone (owner: only if super low and stretched)
   const mid = [...c.talk, ...d.talk].filter((x) => x > 0.3 && x < 0.88);
-  assert.equal(mid.length, 0, `no talk between 0.3 and 0.88 speed (${mid.slice(0, 5).map((x) => x.toFixed(2))})`);
+  assert.equal(mid.length, 0, `no loop between 0.3 and 0.88 speed (${mid.slice(0, 5).map((x) => x.toFixed(2))})`);
   assert.equal(c.low.rested, 0, 'colours: the low slot is never sent to rest');
   const lowLong = c.low.lens.filter((x) => x >= 5).length / c.low.lens.length;
   assert.ok(lowLong > 0.7, `colours: the low slot's loops mostly sound 5 s and longer a pass (${Math.round(lowLong * 100)} %)`);
@@ -202,7 +202,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
   assert.ok(c.worstQuiet < 1, `colours: no silence over 1 s in the first minute (${c.worstQuiet} s)`);
   assert.ok(d.worstQuiet >= 1, `drift, no opening: silent at the start (${d.worstQuiet} s), the control`);
   assert.ok(c.most >= 4 && c.firstLoop != null && c.firstLoop < 20, `colours: loops soon and many (first at ${c.firstLoop} s, at most ${c.most})`);
-  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, talk heard ${c.talk.length + d.talk.length} times, never between 0.3 and 0.88; drones at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
+  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, loops heard ${c.talk.length + d.talk.length} times, never between 0.3 and 0.88; drones at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
 }
 console.log('mem ok');
 process.exit(0);

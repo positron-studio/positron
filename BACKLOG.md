@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: how to avoid the Darth Vader voices; they play now**~~ DONE 2026-11-09, (2026-11-09). Asked: *"how to avoid darthvadering"*, then *"they play currently"*. Talk that MEM does not recognise as talk is still slowed (drones 0.45 to 0.6, glides to 0.7). The rule for every loop: no speed between 0.3 and 0.9; the drones at 0.2 to 0.3. demo/shell/mem.mjs, mem-presets.mjs, mem-test.mjs.
+
 - ~~**MEM: make sure it works on a live source**~~ DONE 2026-11-09 (180 s on live in: sound from 2 s, no quiet stretch, input at the host rate, 7 takes, 4 loops by 140 s, drones in by 40 s; the high slot never came in), (2026-11-09). Asked: *"i want to make sure it works on live source"*. The lab on live in with colours, headless Chrome fed a 3 min mix of stations as its microphone: loops, slots, drones, sound sampled every 2 s.
 
 - **MEM: hard to listen to compared with radio1965** (2026-11-09). Said: *"copared to the readio65 its hard listen"*; on four proposed changes (wetter, no stutter, talk only as an instrument, drones as a trick): *"i do not know"*. Then *"i do not want to go full radio65"*: the wet preset was stopped before any of it was written. MEM keeps its character; the owner tries the existing knobs in the lab (room reverb level and send, freeze, disintegrate) to find how far toward it. WAITING on that listen.
