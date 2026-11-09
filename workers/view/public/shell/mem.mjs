@@ -155,6 +155,17 @@ export function findStart(cells, need, search, gateDb) {
   return best;
 }
 
+/**
+ * Slowed talk is a voice slowed down, never a texture, except very low (owner, 2026-11-09: no slowed voices, *only if
+ * super low and stretched*). Talk in a slowed slot (a drone) goes to 0.45 of its speed, about 0.2; anywhere else it
+ * plays at 0.9 or faster. Anything that is not talk passes as it is.
+ */
+function talkRate(rate, base, take) {
+  if ((take?.speech ?? 0) < 0.5) return rate;
+  const a = Math.abs(rate), s = Math.sign(rate) || 1;
+  return base < 0.9 ? s * a * 0.45 : s * Math.max(a, 0.9);
+}
+
 // ── a voice: one take looping in one player ─────────────────────────────────────────────────────────────────────────
 // The unwrapped phase in take frames at engine frame t, from the voice's anchor: a glide from rate r0 to r1 over T
 // frames is a ramp, so its integral is a quadratic. Re-anchoring (a new glide) is a state change; nothing is summed.
@@ -468,6 +479,7 @@ export class Mem {
     let rate = base;   // a slot's base speed; the varispeed glides are relative to it
     if (proc && r.chance(P.speed.p * this.proc)) rate = base * r.range([P.speed.lo, P.speed.hi]);
     if (proc && r.chance(P.reverse * this.proc)) rate = -rate;
+    rate = talkRate(rate, base, take);
     const v = { id: ++this.vid, take, cs, len: cs * this.grid, in: inF, t0: this.t, ph0: 0, r0: rate, r1: rate, T: 0, phStart: 0,
       base, seed: (this.seed ^ Math.imul(this.vid, 2654435761)) | 0, dis: proc ? r.range(P.disintegrate) * Math.min(1.5, this.proc) : 0, cg: 1, lp: 0, pass: 0,
       speedAt: proc && P.speed.p > 0 ? this.t + r.range(P.speed.every) * this.pace * this.sr : Infinity, fin: null, out: null };
@@ -551,7 +563,7 @@ export class Mem {
   glide(v) {
     const P = this.p.process.speed, r = this.r, t = this.t;
     const ph = phaseAt(v, t), now = rateAt(v, t), sign = Math.sign(now) || 1;
-    v.ph0 = ph; v.t0 = t; v.r0 = now; v.r1 = sign * r.range([P.lo, P.hi]) * (v.base ?? 1); v.T = r.range(P.glide) * this.sr;
+    v.ph0 = ph; v.t0 = t; v.r0 = now; v.r1 = talkRate(sign * r.range([P.lo, P.hi]) * (v.base ?? 1), v.base ?? 1, v.take); v.T = r.range(P.glide) * this.sr;
     v.speedAt = t + r.range(P.every) * this.pace * this.sr; this.counts.glides++; this.changed(0.5);
   }
 
