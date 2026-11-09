@@ -158,11 +158,12 @@ export function findStart(cells, need, search, gateDb) {
 /**
  * No speed between 0.3 and 0.9, for any loop, talk or not: slowed AM is a voice slowed down (owner, 2026-11-09: *Darth
  * Vader voices: no*, *only if super low and stretched*), and talk is not always recognised as talk. A slowed slot (a
- * drone) stays at 0.3 or under; anything else plays at 0.9 or faster.
+ * drone) stays at 0.16 or under, where a voice is gone (0.16 was still heard as one); anything else plays at 0.9 or
+ * faster.
  */
 function talkRate(rate, base) {
   const a = Math.abs(rate), s = Math.sign(rate) || 1;
-  return base < 0.9 ? s * Math.min(a, 0.3) : s * Math.max(a, 0.9);
+  return base < 0.9 ? s * Math.min(a, 0.16) : s * Math.max(a, 0.9);
 }
 
 // ── a voice: one take looping in one player ─────────────────────────────────────────────────────────────────────────

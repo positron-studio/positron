@@ -794,7 +794,7 @@ export const PRESETS = {
       "slots": [
         {
           "name": "low",
-          "gain": 1.8,
+          "gain": 2.4,
           "players": 2,
           "colour": {
             "hp": [
@@ -811,9 +811,9 @@ export const PRESETS = {
             ]
           },
           "rate": [
-            0.2,
-            0.3
-          ],
+          0.1,
+          0.16
+        ],
           "tier": "mid",
           "life": [
             180,
