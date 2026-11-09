@@ -1,12 +1,13 @@
 // demo/radio/mem/am-uk.mjs: v2in's 36 UK KiwiSDR recordings of 2026-11-07 (Manchester M7GMG and Southport), copied to
 // R2 at positron-station am/uk-2026-11-07/ on 2026-11-09. Titles from their sidecars. Fetched one at a time, on a press.
-// kind: noise (a tone, a data carrier, a hum), talk (MEM's speech measure 40 per cent or more, or a talk station by its
+// kind: noise (a harsh tone: high, pulsing, warbling or whistling; the low hum at 162 kHz and the steady 829 Hz tone at
+// 129.1 kHz are radio, gentle enough, measured 2026-11-09), talk (MEM's speech measure 40 per cent or more, or a talk station by its
 // title) or radio (music, mixed, night skywave); AM UK plays radio only.
 export const AM_BASE = 'https://positron-station.kristjan-jansen.workers.dev/media/am/uk-2026-11-07/';
 export const AM_UK = [
   {"file":"kiwi-m7gmg-41m-7350-20261107-2137.flac","title":"Weak shortwave speech with a data burst, 41 m, 7350 kHz, Manchester M7GMG","size":6479078,"kind":"noise"},
   {"file":"kiwi-m7gmg-hf-7880-20261107-2123.flac","title":"A single steady tone in shortwave hiss (DWD fax frequency), 7880 kHz, Manchester M7GMG","size":6762463,"kind":"noise"},
-  {"file":"kiwi-m7gmg-lf-129.1-20261107-2117.flac","title":"Longwave data carrier with bursts every few seconds (DCF49 band), 129.1 kHz, Manchester M7GMG","size":3094895,"kind":"noise"},
+  {"file":"kiwi-m7gmg-lf-129.1-20261107-2117.flac","title":"Longwave data carrier with bursts every few seconds (DCF49 band), 129.1 kHz, Manchester M7GMG","size":3094895,"kind":"radio"},
   {"file":"kiwi-m7gmg-lf-147.3-20261107-2120.flac","title":"Longwave data tone (DDH47 weather RTTY, Pinneberg), 147.3 kHz, Manchester M7GMG","size":3225421,"kind":"noise"},
   {"file":"kiwi-m7gmg-lf-77.5-20261107-2114.flac","title":"DCF77 time signal (Mainflingen), carrier as a 1 kHz tone, 77.5 kHz, Manchester M7GMG","size":3156177,"kind":"noise"},
   {"file":"kiwi-m7gmg-mw-1044-20261107-2150.flac","title":"Medium wave night: a whistling band over a faint station, 1044 kHz, Manchester M7GMG","size":5824667,"kind":"noise"},
@@ -33,7 +34,7 @@ export const AM_UK = [
   {"file":"kiwi-southport-837-20261107-1339.flac","title":"BBC Radio Cumbria (Barrow-in-Furness, by the Kiwi's label), 837 kHz, Southport","size":2103380,"kind":"talk"},
   {"file":"kiwi-southport-963-20261107-1341.flac","title":"Unidentified station, 963 kHz, Southport","size":2324898,"kind":"radio"},
   {"file":"kiwi-southport-963-20261107-1354.flac","title":"Unidentified station, 963 kHz, Southport","size":17047587,"kind":"talk"},
-  {"file":"kiwi-southport-lw-162-20261107-2143.flac","title":"Longwave carrier hum, quiet (ALS162 Allouis), 162 kHz, Southport","size":4414911,"kind":"noise"},
+  {"file":"kiwi-southport-lw-162-20261107-2143.flac","title":"Longwave carrier hum, quiet (ALS162 Allouis), 162 kHz, Southport","size":4414911,"kind":"radio"},
   {"file":"kiwi-southport-lw-225-20261107-2148.flac","title":"Longwave music and speech, fading (likely Polskie Radio, Solec Kujawski), 225 kHz, Southport","size":6495915,"kind":"radio"},
   {"file":"kiwi-southport-lw-252-20261107-2154.flac","title":"Longwave speech (likely Chaîne 3, Algeria), 252 kHz, Southport","size":5150882,"kind":"talk"},
   {"file":"kiwi-southport-night-1179-20261107-1743.flac","title":"skywave, likely SER Radio Club Tenerife and others, 1179 kHz at night, Southport","size":11552006,"kind":"radio"},
