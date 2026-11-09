@@ -252,7 +252,8 @@ function isTest(name) { return name.endsWith('-test.mjs') || name === 'run-tests
 // Without git it falls back to the directory listing and says so on stderr.
 // why: lessons/workers-view.md#shell-files
 function shellFiles() {
-  const OK = new Set(['.mjs', '.js', '.css']);
+  // .json for data a module imports (mem-presets.json); a test's fixtures stay home
+  const OK = new Set(['.mjs', '.js', '.css', '.json']);
   let names;
   try {
     names = execSync('git ls-files -z -- demo/shell', { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -266,7 +267,7 @@ function shellFiles() {
     catch { return []; }
   }
   // tracked AND on disk: a file deleted in the working tree is not shipped
-  return names.filter((n) => OK.has(extname(n)) && !isTest(n) && existsSync(join(REPO, 'demo/shell', n))).sort()
+  return names.filter((n) => OK.has(extname(n)) && !isTest(n) && !/-test[-.]/.test(n) && existsSync(join(REPO, 'demo/shell', n))).sort()
     .map((n) => [`demo/shell/${n}`, `shell/${n}`]);
 }
 
