@@ -332,7 +332,9 @@ export class Mem {
       if (t < this.soloNext) return;
       const can = this.players.filter((pl) => !pl.leaving && !pl.rest && pl.voices.some((v) => !v.out) && pl !== this.soloLast);
       if (can.length < 1 || this.players.filter((pl) => pl.voices.some((v) => !v.out)).length < 3) { this.soloNext = t + 10 * sr; return; }
-      const pl = r.pick(can);
+      // `music`: the share of passages given to a loop that is not talk, when one plays
+      const music = can.filter((x) => (x.voices.find((v) => !v.out)?.take.speech ?? 1) < 0.5);
+      const pl = r.pick(music.length && r.chance(S.music ?? 0) ? music : can);
       const way = () => Math.max(1, (r.chance(S.sudden ?? 0) ? r.range([0.2, 0.8]) : r.range(S.fade ?? [3, 8])) * sr);
       // `drones`: the share of passages where the kept slots (the drones) stay under the lone loop
       this.soloState = { pl, t0: t, hold: r.range(S.hold) * sr, out: way(), back: way(), drones: r.chance(S.drones ?? 0) }; this.soloLast = pl; this.counts.solos = (this.counts.solos || 0) + 1;
