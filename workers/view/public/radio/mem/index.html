@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MEM">
+<meta property="og:url" content="https://positron.studio/radio/mem/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>MEM</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .cc-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .cc-say { font-size: 12px; color: var(--dim); }
+  .cc-h { margin: 0 0 8px; font-size: 14px; color: var(--dim); font-weight: 500; }
+  .cc-pic { display: block; width: 100%; height: 300px; background: var(--card); }
+  .cc-spec { display: block; width: 100%; height: 120px; background: var(--card); }
+  .cc-rpic { display: block; width: 100%; height: 140px; background: var(--card); }
+  .cc-json { width: 100%; min-height: 160px; font: 400 12px/1.4 var(--mono); }
+  .cc-json[hidden] { display: none; }
+</style>
+<script type="module">
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { mount, el } from '/shell/shell.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { createStepper } from '/shell/stepper.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createTable } from '/shell/table.mjs';
+  import { createDrop } from '/shell/drop.mjs';
+  import { PRESETS, HOSTS, rng } from '/shell/mem.mjs';
+
+  // MEM, the memory looper of v2in's hcmf// channel, in this tab: recordings in, loops out, every preset number a knob,
+  // and offline renders measured for comparison. The engine is demo/shell/mem.mjs in a Web Worker (mem-worker.mjs).
+  // Nothing opens on a visit: the files are read in the tab and never sent. plans/plan-v2in-for-positron.md section 9.
+  const S = 'web';
+  const FILES_OUT = `${S}:files:audio-out`, KNOBS_OUT = `${S}:knobs:value-out`;
+  const MEM_IN = `${S}:mem:audio-in`, MEM_PARAM = `${S}:mem:value-in`, MEM_OUT = `${S}:mem:audio-out`, MEM_STATE = `${S}:mem:value-out`;
+  const REN_IN = `${S}:render:audio-in`, REN_OUT = `${S}:render:audio-out`;
+  const PIC_IN = `${S}:picture:value-in`, SCOPE_IN = `${S}:scope:audio-in`, SPK_IN = `${S}:speaker:audio-in`;
+  const SAVED = 'mem-presets';
+
+  // ── the bay ─────────────────────────────────────────────────────────────
+  const bay = createBay();
+  const node = (id, kind, label) => bay.addNode({ id: `${S}:${id}`, kind, label, place: 'browser' });
+  node('files', 'store', 'recordings'); node('knobs', 'person', 'knobs'); node('mem', 'engine', 'MEM');
+  node('render', 'engine', 'render'); node('picture', 'screen', 'room and loops'); node('scope', 'screen', 'spectrum');
+  node('speaker', 'screen', 'speakers');
+  bay.addPort({ id: FILES_OUT, dir: 'out', medium: 'audio' });
+  bay.addPort({ id: KNOBS_OUT, dir: 'out', medium: 'value', shape: { of: 'param' } });
+  bay.addPort({ id: MEM_IN, dir: 'in', medium: 'audio' });
+  bay.addPort({ id: MEM_PARAM, dir: 'in', medium: 'value', shape: { of: 'param' }, deliver: (e) => param(e) });
+  bay.addPort({ id: MEM_OUT, dir: 'out', medium: 'audio' });
+  bay.addPort({ id: MEM_STATE, dir: 'out', medium: 'value', shape: { of: 'state' } });
+  bay.addPort({ id: REN_IN, dir: 'in', medium: 'audio' });
+  bay.addPort({ id: REN_OUT, dir: 'out', medium: 'audio' });
+  bay.addPort({ id: PIC_IN, dir: 'in', medium: 'value', shape: { of: 'state' }, deliver: (e) => drawPicture(e.status) });
+  bay.addPort({ id: SCOPE_IN, dir: 'in', medium: 'audio' });
+  bay.addPort({ id: SPK_IN, dir: 'in', medium: 'audio' });
+
+  const d = mount({ name: 'MEM', what: '', joined: false, index: '/', indexLabel: 'positron',
+    readout: { time: 's', players: '', mood: '', room: '', takes: '', talk: '%', loudness: 'LUFS', memory: 'MB' } });
+  conceptNav('radio/mem');
+
+  const hold = (a, b) => { const r = bay.link(a, b, [], { site: S }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  const holds = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
+  hold(FILES_OUT, MEM_IN); hold(FILES_OUT, REN_IN); hold(KNOBS_OUT, MEM_PARAM);
+  hold(MEM_OUT, SPK_IN); hold(MEM_OUT, SCOPE_IN); hold(MEM_STATE, PIC_IN); hold(REN_OUT, SPK_IN);
+
+  // ── presets: the built in ones and this browser's saved ones ────────────
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+  const saved = () => { try { return JSON.parse(localStorage.getItem(SAVED) || '{}'); } catch { return {}; } };
+  const allPresets = () => ({ ...PRESETS.presets, ...saved() });
+  let presetName = PRESETS.default, P = { name: presetName, ...clone(allPresets()[presetName]) }, edited = false;
+  let host = 'tab', seed = 1;
+
+  // ── the recordings ──────────────────────────────────────────────────────
+  let files = [];
+  /** A source for one engine: the files in a seeded order, round and round, decoded at the engine's rate. */
+  function feeder(worker, rate, s) {
+    const r = rng(s), order = files.map((f) => [r.next(), f]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+    let i = 0, busy = false;
+    return async () => {
+      if (busy || !order.length) return;
+      busy = true;
+      try {
+        const f = order[i++ % order.length];
+        const buf = await new OfflineAudioContext(2, 1, rate).decodeAudioData(f.bytes.buffer.slice(f.bytes.byteOffset, f.bytes.byteOffset + f.bytes.byteLength));
+        const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L, pcm = new Int16Array(buf.length * 2);
+        for (let k = 0; k < buf.length; k++) { pcm[2 * k] = Math.max(-32768, Math.min(32767, Math.round(L[k] * 32767))); pcm[2 * k + 1] = Math.max(-32768, Math.min(32767, Math.round(R[k] * 32767))); }
+        worker.postMessage({ type: 'source', pcm, name: f.name }, [pcm.buffer]);
+      } catch (e) { d.log(`could not decode a file: ${e?.message || e}`, 'warn'); }
+      busy = false;
+    };
+  }
+
+  // ── the live engine and the speakers ────────────────────────────────────
+  let ctx = null, out = null, analyser = null, live = null, playing = false, playAt = 0, inflight = 0, pump = null, rate = 0;
+  function audio() {
+    ctx ??= new AudioContext();
+    if (!out) {
+      out = ctx.createGain(); analyser = ctx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0; analyser.minDecibels = -100; analyser.maxDecibels = -30;
+      const pull = ctx.createGain(); pull.gain.value = 0; analyser.connect(pull); pull.connect(ctx.destination);
+    }
+    route();
+    return ctx.resume();
+  }
+  // The sound follows the links: mem -> speakers and mem -> spectrum.
+  function route() {
+    if (!out) return;
+    try { out.disconnect(); } catch { /* not connected */ }
+    if (holds(MEM_OUT, SCOPE_IN)) out.connect(analyser);
+    if (holds(MEM_OUT, SPK_IN)) out.connect(ctx.destination);
+  }
+  function schedule(pcm, r) {
+    const n = pcm.length >> 1, b = ctx.createBuffer(2, n, r), L = b.getChannelData(0), R = b.getChannelData(1);
+    for (let i = 0; i < n; i++) { L[i] = pcm[2 * i] / 32768; R[i] = pcm[2 * i + 1] / 32768; }
+    const s = ctx.createBufferSource(); s.buffer = b; s.connect(out);
+    if (playAt < ctx.currentTime + 0.05) playAt = ctx.currentTime + 0.15;
+    s.start(playAt); playAt += n / r;
+  }
+  async function play() {
+    if (!files.length) { d.log('open some recordings first', 'warn'); return; }
+    stopHearing();
+    await audio();
+    playing = true; face();
+    live = new Worker(new URL('./mem-worker.mjs', import.meta.url), { type: 'module' });
+    let feed = null;
+    live.onmessage = ({ data: m }) => {
+      if (m.type === 'ready') {
+        rate = m.rate; feed = feeder(live, rate, seed); feed();
+        d.log(`MEM on ${host}: ${rate} Hz, ring ${m.host.ringS} s, at most ${m.host.players} players, preset ${P.name}, seed ${seed}`);
+        const chunk = 128 * Math.round(rate * 0.2 / 128);
+        pump = setInterval(() => { while (playing && inflight < 2 && playAt - ctx.currentTime < 1.0 + inflight * 0.2) { inflight++; live.postMessage({ type: 'pull', frames: chunk }); } }, 40);
+      } else if (m.type === 'need') feed?.();
+      else if (m.type === 'audio') {
+        inflight--;
+        if (!playing) return;
+        schedule(m.pcm, rate);
+        if (m.status) { bay.send(MEM_STATE, { of: 'state', status: m.status }); readout(m.status, m.st); }
+      } else if (m.type === 'log') d.log(m.line);
+      else if (m.type === 'error') d.log(`MEM: ${m.message}`, 'warn');
+    };
+    live.postMessage({ type: 'boot', mode: 'live', host, preset: P, seed });
+    pb.refresh();
+  }
+  function stop() {
+    playing = false; clearInterval(pump); pump = null; inflight = 0; playAt = 0;
+    live?.terminate(); live = null;
+    if (out) { out.disconnect(); out = null; }
+    face(); pb.refresh();
+  }
+  function restart() { if (playing) { stop(); play(); } }
+
+  function readout(s, st) {
+    const loops = s.loops.filter((l) => l && !l.resting && !l.leaving), talk = loops.filter((l) => l.speech >= 0.5).length;
+    d.set('time', Math.round(s.t)); d.set('players', `${loops.length} of ${s.want}`); d.set('mood', s.mood ?? 'none');
+    d.set('room', s.arrangement); d.set('takes', s.takes); d.set('talk', loops.length ? Math.round(100 * talk / loops.length) : 0);
+    d.set('loudness', st == null ? '' : st.toFixed(1)); d.set('memory', s.memoryMB);
+  }
+
+  // ── the picture: the room from above, and one row per loop ──────────────
+  const pic = el('canvas', 'cc-pic');
+  const TIER = { short: '#6fb8e8', mid: '#9ad16b', long: '#ee9a4d', all: '#c9ced6' };
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  function drawPicture(s) {
+    const dpr = devicePixelRatio || 1, W = pic.clientWidth, H = pic.clientHeight;
+    if (pic.width !== W * dpr) { pic.width = W * dpr; pic.height = H * dpr; }
+    const g = pic.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    if (!s) return;
+    const mono = css('--mono') || 'monospace', dim = css('--dim') || '#888', fg = css('--fg') || '#ddd';
+    const narrow = W < 640, rw = narrow ? W : Math.min(W * 0.42, H * 2), rh = narrow ? H * 0.5 : H;
+    // the room: the listener at the foot, each speaker at its angle, nearer the further it is drawn from the edge
+    const cx = rw / 2, cy = rh - 18, rad = Math.min(rw / 2 - 16, rh - 32), dmax = 4;
+    g.strokeStyle = dim; g.globalAlpha = 0.35; g.beginPath(); g.arc(cx, cy, rad, Math.PI, 2 * Math.PI); g.stroke(); g.globalAlpha = 1;
+    g.fillStyle = fg; g.beginPath(); g.arc(cx, cy, 3, 0, 7); g.fill();
+    for (const l of s.loops) {
+      if (!l) continue;
+      const a = (l.a * Math.PI) / 180, rr = rad * Math.min(1, l.d / dmax), x = cx + Math.sin(a) * rr, y = cy - Math.cos(a) * rr;
+      g.globalAlpha = l.resting || l.leaving ? 0.3 : 1;
+      g.fillStyle = TIER[l.tier] || TIER.all; g.beginPath(); g.arc(x, y, l.frozen ? 8 : 6, 0, 7); g.fill();
+      g.fillStyle = fg; g.font = `400 11px ${mono}`; g.fillText(String(l.player), x + 9, y + 4);
+    }
+    g.globalAlpha = 1;
+    // the loops: a bar as long as the loop on a 40 s scale, the head where it is, talk drawn hollow
+    const x0 = narrow ? 8 : rw + 24, y0 = narrow ? rh + 8 : 12, w = W - x0 - 12, rowH = Math.min(22, ((narrow ? H - rh : H) - 20) / Math.max(1, s.loops.length));
+    s.loops.forEach((l, i) => {
+      const y = y0 + i * rowH;
+      g.fillStyle = dim; g.font = `400 11px ${mono}`; g.fillText(l ? String(l.player) : '', x0, y + rowH * 0.7);
+      if (!l) return;
+      const bw = Math.max(2, (w - 150) * Math.min(1, l.len / 40)), bx = x0 + 18;
+      g.globalAlpha = l.resting || l.leaving ? 0.3 : 1;
+      g.strokeStyle = g.fillStyle = TIER[l.tier] || TIER.all;
+      if (l.speech >= 0.5) g.strokeRect(bx, y + 3, bw, rowH - 8); else g.fillRect(bx, y + 3, bw, rowH - 8);
+      g.fillStyle = fg; g.fillRect(bx + bw * (l.pos / l.len), y + 1, 2, rowH - 4);
+      g.fillStyle = dim; g.globalAlpha = 1;
+      g.fillText(`${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}`, bx + bw + 8, y + rowH * 0.7);
+    });
+  }
+
+  // ── the spectrum, scrolling, from the analyser on mem -> spectrum ───────
+  const spec = el('canvas', 'cc-spec');
+  let bins = null;
+  function frame() {
+    requestAnimationFrame(frame);
+    if (!playing || !analyser || !holds(MEM_OUT, SCOPE_IN)) return;
+    const dpr = devicePixelRatio || 1, W = spec.clientWidth * dpr, H = spec.clientHeight * dpr;
+    if (spec.width !== W || spec.height !== H) { spec.width = W; spec.height = H; }
+    bins ??= new Uint8Array(analyser.frequencyBinCount); analyser.getByteFrequencyData(bins);
+    // 'copy' replaces what is there: drawn over itself, a translucent picture adds up to solid in a few hundred frames
+    const g = spec.getContext('2d'); g.globalCompositeOperation = 'copy'; g.drawImage(spec, -2, 0); g.globalCompositeOperation = 'source-over';
+    const ny = ctx.sampleRate / 2;
+    for (let y = 0; y < H; y++) {
+      const f = 50 * (Math.min(16000, ny) / 50) ** (1 - y / H), v = (bins[Math.min(bins.length - 1, Math.round(f / ny * bins.length))] / 255) ** 2;
+      g.fillStyle = `rgba(238,154,77,${v.toFixed(3)})`; g.fillRect(W - 2, y, 2, 1);
+    }
+  }
+  requestAnimationFrame(frame);
+
+  const panel = createVideoPanel({ media: pic, aspect: 'auto', right: false, left: el('span', 'cc-say', 'room and loops') });
+  const specPanel = createVideoPanel({ media: spec, aspect: 'auto', right: false, left: el('span', 'cc-say', 'spectrum, last minute') });
+
+  // ── the knobs: every number of the preset, one turn one event on knobs -> mem ──
+  // Ranges by path, the index of a [lo, hi] pair dropped; anything unlisted gets 0 to twice its value.
+  const SPEC = {
+    players: [1, 12, 1], enter: [0, 120], spacing: [0, 40], level: [0, 2], dry: [0, 1], dryDelay: [0, 3],
+    'takes.min': [1, 30], 'takes.max': [2, 60], 'takes.every': [2, 240], 'takes.life': [5, 600], 'takes.xfade': [0.5, 20],
+    'takes.memory': [4, 120, 1], 'takes.revisit': [0, 1], 'takes.past': [0, 1], 'takes.gateDb': [-70, -20, 1],
+    'takes.minLcm': [0, 1200, 10], 'takes.tiers': [1, 60], 'takes.mix': [0, 1], 'takes.speech': [0, 1], 'takes.apart': [0, 30],
+    'colour.hp': [20, 1000, 1], 'colour.lp': [1000, 12000, 10], 'colour.drive': [1, 4],
+    'process.speed.p': [0, 1], 'process.speed.lo': [0.25, 1.5], 'process.speed.hi': [0.25, 2], 'process.speed.every': [5, 600],
+    'process.speed.glide': [1, 120], 'process.speed.max': [0, 6, 1], 'process.reverse': [0, 1], 'process.disintegrate': [0, 1],
+    'process.maxPasses': [5, 200, 1], 'process.freeze.p': [0, 1], 'process.freeze.len': [0.1, 5], 'process.freeze.hold': [1, 120],
+    'process.freeze.max': [0, 4, 1], 'room.hold': [10, 600], 'room.move': [5, 400], 'room.width': [0, 1.5], 'room.distance': [0.3, 4],
+    'room.itd': [0, 0.001, 0.00005], 'room.reverb.room': [0, 1], 'room.reverb.damp': [0, 1], 'room.reverb.level': [0, 1.5],
+    'room.reverb.send': [0, 2], 'room.walk.p': [0, 1], 'room.walk.angle': [0, 60], 'room.walk.distance': [0, 1], 'room.walk.period': [10, 600],
+  };
+  const GROUPS = [['general', ''], ['takes', 'takes'], ['colour', 'colour'], ['process', 'process'], ['room', 'room']];
+  function leaves(o, path = []) {
+    const out = [];
+    for (const [k, v] of Object.entries(o)) {
+      if (['says', 'name', 'moods', 'arrangements', 'master'].includes(k)) continue;
+      const p = [...path, k];
+      if (typeof v === 'number') out.push(p);
+      else if (Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === 'number')) out.push([...p, 0], [...p, 1]);
+      else if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...leaves(v, p));
+    }
+    return out;
+  }
+  const getPath = (o, p) => p.reduce((x, k) => x?.[k], o);
+  function setPath(o, p, v) { const last = p.at(-1), host_ = p.slice(0, -1).reduce((x, k) => x[k], o); host_[last] = v; }
+  function specOf(p) {
+    const key = p.filter((k) => typeof k !== 'number');
+    for (let n = key.length; n > 0; n--) { const s = SPEC[key.slice(0, n).join('.')]; if (s) return s; }
+    const v = Math.abs(getPath(P, p)) || 1; return [0, v * 2];
+  }
+  function labelOf(p, group) {
+    const words = (group ? p.slice(1) : p).filter((k) => typeof k !== 'number'), end = typeof p.at(-1) === 'number' ? (p.at(-1) ? 'hi' : 'lo') : '';
+    return { label: words.at(-1), sub: [...words.slice(0, -1), end].filter(Boolean).join(' ') };
+  }
+  const knobHost = el('div', 'cc-stack');
+  function buildKnobs() {
+    knobHost.textContent = '';
+    const all = leaves(P);
+    for (const [title, prefix] of GROUPS) {
+      const mine = all.filter((p) => (prefix ? p[0] === prefix : !GROUPS.some(([, g]) => g && g === p[0])));
+      if (!mine.length) continue;
+      const knobs = new Map(mine.map((p) => {
+        const [lo, hi, step] = specOf(p), v = getPath(P, p);
+        const { label, sub } = labelOf(p, prefix), min = Math.min(lo, v), max = Math.max(hi, v);
+        return [p.join('.'), createKnob({ label, sub, title: p.join('.'), min, max, step: step && step <= max - min ? step : undefined, value: v,
+          onInput: (x) => bay.send(KNOBS_OUT, { of: 'param', name: p.join('.'), v: x }) })];
+      }));
+      const box = el('div');
+      box.append(el('h3', 'cc-h', title), createKnobGrid(knobs, { row: true }).el);
+      knobHost.append(box);
+    }
+  }
+  let editTimer = 0;
+  function param(e) {
+    if (!e?.name || !Number.isFinite(e.v)) return;
+    setPath(P, e.name.split('.').map((k) => (/^\d+$/.test(k) ? Number(k) : k)), e.v);
+    edited = true; showPreset();
+    clearTimeout(editTimer); editTimer = setTimeout(() => live?.postMessage({ type: 'edit', preset: P }), 150);
+  }
+
+  // ── the controls ────────────────────────────────────────────────────────
+  const transport = createButtonGroup({ buttons: [
+    { id: 'play', icon: 'play', label: 'play', onPress: () => (playing ? stop() : play()) },
+  ] });
+  function face() { transport.setIcon('play', playing ? 'stop' : 'play', playing ? 'stop' : 'play'); }
+  face();
+  const presetNames = () => Object.keys(allPresets());
+  const picker = createPicker({ what: 'preset',
+    prev: () => pickPreset((presetNames().indexOf(presetName) - 1 + presetNames().length) % presetNames().length),
+    next: () => pickPreset((presetNames().indexOf(presetName) + 1) % presetNames().length),
+    onPick: (i) => pickPreset(i) });
+  function showPreset() { const n = presetNames(); picker.options(n.map((x) => (x === presetName && edited ? `${x} edited` : x)), n.indexOf(presetName)); }
+  function pickPreset(i) {
+    presetName = presetNames()[i]; P = { name: presetName, ...clone(allPresets()[presetName]) }; edited = false;
+    showPreset(); buildKnobs();
+    live?.postMessage({ type: 'preset', preset: P });
+    d.log(`preset ${presetName}: ${P.says || ''}`);
+  }
+  showPreset();
+  const hosts = Object.keys(HOSTS);
+  const hostChoice = createChoice({ label: 'host', options: hosts.map((h) => [h, h]), at: hosts.indexOf(host),
+    title: (h) => `${HOSTS[h].says}: ${HOSTS[h].rate} Hz, ring ${HOSTS[h].ringS} s, ${HOSTS[h].players} players`,
+    onPick: (h) => { host = h; d.log(`host ${h}: ${HOSTS[h].says}`); restart(); } });
+  const seeds = Array.from({ length: 99 }, (_, i) => String(i + 1));
+  const seedStep = createStepper({ what: 'seed',
+    prev: () => setSeed(seed > 1 ? seed - 1 : 99), next: () => setSeed(seed < 99 ? seed + 1 : 1),
+    pick: { options: seeds, at: 0, onPick: (i) => setSeed(i + 1) } });
+  function setSeed(s) { seed = s; seedStep.show(String(s), s - 1); restart(); }
+
+  const json = el('textarea', 'cc-json'); json.hidden = true; json.readOnly = true; json.spellcheck = false;
+  const keep = createButtonGroup({ buttons: [
+    { id: 'save', label: 'save', title: 'keep these numbers in this browser as a preset of their own', onPress: () => {
+      const all = saved(), base = presetName.replace(/ \d+$/, ''); let n = 1; while (allPresets()[`${base} ${n}`]) n++;
+      const name = `${base} ${n}`, { name: _, ...body } = P;
+      all[name] = body; try { localStorage.setItem(SAVED, JSON.stringify(all)); } catch { d.log('this browser keeps nothing here', 'warn'); }
+      presetName = name; P.name = name; edited = false; showPreset(); d.log(`saved as ${name}, in this browser`);
+    } },
+    { id: 'json', label: 'json', title: 'the preset as presets.json holds it, to send on', onPress: () => {
+      const { name, ...body } = P;
+      json.value = JSON.stringify({ [name]: body }, null, 2); json.hidden = !json.hidden;
+      navigator.clipboard?.writeText(json.value).then(() => d.log('preset copied'), () => {});
+    } },
+    { id: 'reset', label: 'reset', title: 'back to the preset as it was', onPress: () => pickPreset(presetNames().indexOf(presetName)) },
+  ] });
+
+  // ── files ───────────────────────────────────────────────────────────────
+  const drop = createDrop({ accept: ['.flac', '.mp3', '.wav', '.ogg', '.opus', '.m4a', '.aac'], label: 'open',
+    beside: 'or drag recordings here', empty: '', maxBytes: 512 * 1024 * 1024, says: (m, k) => d.log(m, k),
+    onOpen: (fs) => { files = fs; d.log(`${fs.length} recordings, ${(fs.reduce((a, f) => a + f.size, 0) / 1048576).toFixed(0)} MB, read in this tab`); restart(); } });
+
+  // ── renders: the same numbers offline, measured, kept for comparison ────
+  let renderer = null, renders = [], heard = null, src = null, hout = null, startedAt = 0, offset = 0;
+  let renderSeconds = 600;
+  const renderBtn = createButtonGroup({ buttons: [{ id: 'go', label: 'render', onPress: () => startRender() }] });
+  const lenPick = createChoice({ label: '', options: [['3 min', 180], ['10 min', 600], ['20 min', 1200]], at: 1, onPick: (v) => { renderSeconds = v; } });
+  function startRender() {
+    if (!files.length) { d.log('open some recordings first', 'warn'); return; }
+    if (renderer) return;
+    const snap = clone(P), h = host, s = seed, secs = renderSeconds;
+    renderer = new Worker(new URL('./mem-worker.mjs', import.meta.url), { type: 'module' });
+    let feed = null;
+    renderBtn.enable('go', false, 'rendering');
+    renderer.onmessage = ({ data: m }) => {
+      if (m.type === 'ready') { feed = feeder(renderer, m.rate, s); feed(); d.log(`render ${secs / 60} min of ${snap.name}${edited ? ' edited' : ''} on ${h}, seed ${s}`); }
+      else if (m.type === 'need') feed?.();
+      else if (m.type === 'progress') renderBtn.button('go').textContent = `${Math.round(100 * m.t / m.of)} %`;
+      else if (m.type === 'report') {
+        const r = m.report, f1 = (x) => (x == null ? '' : x.toFixed(1));
+        renders.push({ n: renders.length + 1, preset: `${snap.name}${edited ? ' edited' : ''}`, host: h, seed: s, rate: m.rate, pcm: m.pcm, bands: m.bands, r, preset_: snap,
+          loud: f1(r.lufs), lra: f1(r.lra), peak: f1(r.peak), mono: f1(r.mono), players: f1(r.players),
+          changes: f1(r.replaced + r.glides + r.freezes), talk: `${Math.round(r.talk * 100)}`, lens: r.len.map((x) => (x ?? 0).toFixed(1)).join(' ') });
+        table.set(renders.map(rowOf));
+        d.log(`render ${renders.length} done in ${(m.ms / 1000).toFixed(1)} s: ${f1(r.lufs)} LUFS, range ${f1(r.lra)} LU, peak ${f1(r.peak)} dBFS, ${f1(r.players)} players, ${f1(r.replaced)} new loops a minute, talk ${Math.round(r.talk * 100)} %`);
+        stopRender(); pick(renders.length - 1);
+      } else if (m.type === 'error') { d.log(`render: ${m.message}`, 'warn'); stopRender(); }
+      else if (m.type === 'log') { /* the engine's own lines stay out of the log during a render */ }
+    };
+    renderer.postMessage({ type: 'boot', mode: 'render', host: h, preset: snap, seed: s, seconds: secs });
+  }
+  function stopRender() { renderer?.terminate(); renderer = null; renderBtn.enable('go', true); renderBtn.button('go').textContent = 'render'; }
+  const rowOf = (x) => ({ n: String(x.n), preset: x.preset, host: x.host, seed: String(x.seed), loud: x.loud, lra: x.lra, peak: x.peak,
+    mono: x.mono, players: x.players, changes: x.changes, talk: x.talk, lens: x.lens });
+  const table = createTable({ minRows: 4, empty: '', onPick: (row) => pick(Number(row.n) - 1), columns: [
+    { key: 'n', label: '#', width: 32 }, { key: 'preset', label: 'preset', grow: true, clip: true },
+    { key: 'host', label: 'host', width: 64 }, { key: 'seed', label: 'seed', width: 48 },
+    { key: 'loud', label: 'LUFS', width: 56, align: 'right' }, { key: 'lra', label: 'range', width: 56, align: 'right' },
+    { key: 'peak', label: 'peak', width: 56, align: 'right' }, { key: 'mono', label: 'mono', width: 56, align: 'right' },
+    { key: 'players', label: 'loops', width: 56, align: 'right' }, { key: 'changes', label: 'per min', width: 64, align: 'right' },
+    { key: 'talk', label: 'talk', width: 48, align: 'right' }, { key: 'lens', label: 'lengths', width: 120 },
+  ] });
+  const rpic = el('canvas', 'cc-rpic');
+  const rsay = el('span', 'cc-say', '');
+  const rPanel = createVideoPanel({ media: rpic, aspect: 'auto', right: false, left: rsay });
+  const hearBtns = createButtonGroup({ buttons: [
+    { id: 'hear', icon: 'play', label: 'hear this render', onPress: () => (src ? stopHearing() : hear()) },
+    { id: 'wav', label: 'wav', title: 'the render as a file', onPress: () => wav() },
+  ] });
+  function pick(i) {
+    const was = src ? ctx.currentTime - startedAt + offset : offset;
+    heard = renders[i]; table.mark((r) => Number(r.n) === heard.n); drawRender(heard);
+    if (src) { stopHearing(); offset = was; hear(); }
+  }
+  function drawRender(x) {
+    const dpr = devicePixelRatio || 1, W = rpic.clientWidth * dpr, H = rpic.clientHeight * dpr;
+    rpic.width = W; rpic.height = H;
+    const g = rpic.getContext('2d'), n = x.bands.length, B = x.bands[0]?.length || 48;
+    const img = g.createImageData(n, B);
+    for (let t = 0; t < n; t++) for (let b = 0; b < B; b++) { const v = x.bands[t][b], o = ((B - 1 - b) * n + t) * 4; img.data[o] = 238; img.data[o + 1] = 154; img.data[o + 2] = 77; img.data[o + 3] = v; }
+    const tmp = new OffscreenCanvas(n, B); tmp.getContext('2d').putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = true; g.drawImage(tmp, 0, 0, W, H);
+    // the loops sounding, per minute, as a line over it, 0 at the foot and 12 at the top
+    const pm = x.r.perMin; g.strokeStyle = css('--fg') || '#ddd'; g.lineWidth = 1.5 * dpr; g.beginPath();
+    pm.forEach((m, k) => { const px = (k + 0.5) / pm.length * W, py = H - (m.players / 12) * H; if (k) g.lineTo(px, py); else g.moveTo(px, py); });
+    g.stroke();
+    rsay.textContent = `render ${x.n}, ${x.preset}, ${x.r.perMin.length} min`;
+  }
+  function hear() {
+    if (!heard) return;
+    stop(); ctx ??= new AudioContext(); ctx.resume();
+    const n = heard.pcm.length >> 1, b = ctx.createBuffer(2, n, heard.rate), L = b.getChannelData(0), R = b.getChannelData(1);
+    for (let i = 0; i < n; i++) { L[i] = heard.pcm[2 * i] / 32768; R[i] = heard.pcm[2 * i + 1] / 32768; }
+    hout = ctx.createGain(); if (holds(REN_OUT, SPK_IN)) hout.connect(ctx.destination);
+    src = ctx.createBufferSource(); src.buffer = b; src.connect(hout);
+    if (offset >= b.duration) offset = 0;
+    src.start(0, offset); startedAt = ctx.currentTime;
+    src.onended = () => { if (src) stopHearing(); };
+    hearBtns.setIcon('hear', 'stop', 'stop'); pb.refresh();
+  }
+  function stopHearing() {
+    if (src) { offset += ctx.currentTime - startedAt; src.onended = null; try { src.stop(); } catch { /* ended */ } src = null; hout?.disconnect(); hout = null; }
+    hearBtns.setIcon('hear', 'play', 'hear this render'); pb.refresh();
+  }
+  function wav() {
+    if (!heard) return;
+    const pcm = heard.pcm, bytes = new ArrayBuffer(44 + pcm.byteLength), v = new DataView(bytes), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + pcm.byteLength, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+    v.setUint16(22, 2, true); v.setUint32(24, heard.rate, true); v.setUint32(28, heard.rate * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, pcm.byteLength, true); new Int16Array(bytes, 44).set(pcm);
+    const a = el('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+    a.download = `mem-${heard.preset.replace(/\W+/g, '-')}-${heard.host}-seed${heard.seed}.wav`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  // A wire is lit while what it carries is moving: the live engine's, the render's while it runs, a render while heard.
+  const pb = createPatchbay(bay, { flowing: (l) => {
+    if (l.from === REN_OUT) return !!src;
+    if (l.to === REN_IN) return !!renderer;
+    return playing;
+  } });
+
+  // ── the page, top to bottom ─────────────────────────────────────────────
+  const top = el('div', 'cc-row'); top.append(transport.el, picker.el, seedStep.el, hostChoice.el);
+  const keepRow = el('div', 'cc-row'); keepRow.append(keep.el);
+  const renderRow = el('div', 'cc-row'); renderRow.append(renderBtn.el, lenPick.el, hearBtns.el);
+  buildKnobs();
+  d.stack.add(drop.el, top, panel.el, specPanel.el, knobHost, keepRow, json, renderRow, table.el, rPanel.el, pb.el);
+  window.__demo.bay = bay;
+  window.__demo.preset = () => P;
+  window.__demo.spectrum = () => { if (!analyser) return null; const f = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(f); const s = [...f].filter(Number.isFinite).sort((a, b) => a - b); return { min: s[0], p50: s[s.length >> 1], p90: s[Math.floor(s.length * 0.9)], max: s.at(-1), rate: ctx.sampleRate }; };
+  window.__demo.renders = () => renders.map(({ pcm, bands, ...x }) => x);
+  d.ready();
+</script>
