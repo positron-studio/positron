@@ -330,7 +330,8 @@ export class Mem {
     const o = this.soloState;
     if (!o) {
       if (t < this.soloNext) return;
-      const can = this.players.filter((pl) => !pl.leaving && !pl.rest && pl.voices.some((v) => !v.out) && pl !== this.soloLast);
+      // never a slowed loop (an octave down, a drone): those play under the others, not alone
+      const can = this.players.filter((pl) => !pl.leaving && !pl.rest && pl !== this.soloLast && pl.voices.some((v) => !v.out && Math.abs(v.r1) >= 0.5));
       if (can.length < 1 || this.players.filter((pl) => pl.voices.some((v) => !v.out)).length < 3) { this.soloNext = t + 10 * sr; return; }
       // `music`: the share of passages given to a loop that is not talk, when one plays
       const music = can.filter((x) => (x.voices.find((v) => !v.out)?.take.speech ?? 1) < 0.5);
@@ -536,9 +537,12 @@ export class Mem {
     if (proc && r.chance(P.speed.p * this.proc)) rate = base * r.range([P.speed.lo, P.speed.hi]);
     if (proc && r.chance(P.reverse * this.proc)) rate = -rate;
     rate = talkRate(rate, base, take);
+    // `process.octave`: now and then a loop exactly two octaves down, in tune with the rest, held there (no speed glides)
+    const octave = proc && !!P.octave && r.chance(P.octave.p * this.proc);
+    if (octave) rate = (Math.sign(rate) || 1) * 0.25;
     const v = { id: ++this.vid, take, cs, len: cs * this.grid, in: inF, t0: this.t, ph0: 0, r0: rate, r1: rate, T: 0, phStart: 0,
       base, seed: (this.seed ^ Math.imul(this.vid, 2654435761)) | 0, dis: proc ? r.range(P.disintegrate) * Math.min(1.5, this.proc) : 0, cg: 1, lp: 0, pass: 0,
-      speedAt: proc && P.speed.p > 0 ? this.t + r.range(P.speed.every) * this.pace * this.sr : Infinity, fin: null, out: null };
+      octave, speedAt: !octave && proc && P.speed.p > 0 ? this.t + r.range(P.speed.every) * this.pace * this.sr : Infinity, fin: null, out: null };
     take.uses++;
     return v;
   }
