@@ -205,5 +205,27 @@ for (const [name, h] of Object.entries(HOSTS)) {
   assert.ok(c.most >= 4 && c.firstLoop != null && c.firstLoop < 20, `colours: loops soon and many (first at ${c.firstLoop} s, at most ${c.most})`);
   console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, loops heard ${c.talk.length + d.talk.length} times, never between 0.16 and 0.88; drones at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
 }
+// solo passages and the reverb walk, on colours with its timings shortened: a solo leaves one loop heard and the rest
+// at 0, a different player each time, both kinds of edge; the reverb walks, dry moments included
+{
+  const q = presetOf('colours'), m = await new Mem({ preset: { ...q, name: 'colours-quick', solo: { ...q.solo, every: [10, 20], hold: [4, 8] },
+    room: { ...q.room, reverb: { ...q.room.reverb, walk: { ...q.room.reverb.walk, dryP: 0.5, glide: [2, 4], hold: [3, 6], dryHold: [3, 6] } } } }, seed: 21 }).boot(bootSync, vendor);
+  const cr = rng(23), soloists = [], edges = new Set(), withDrones = new Set(), noDrones = new Set(); let silentOthers = 0, heardSolo = 0, rvMin = Infinity, rvMax = -Infinity;
+  for (let k = 0; k < 2400; k++) {   // 240 s
+    const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }
+    m.ring.write(b); m.render(SR / 10);
+    const o = m.soloState;
+    if (o && soloists.at(-1) !== o) { soloists.push(o); edges.add(o.out < 0.9 * SR ? 'sudden' : 'slow'); edges.add(o.back < 0.9 * SR ? 'sudden' : 'slow'); }
+    if (o && m.t - o.t0 > o.out && m.t - o.t0 < o.out + o.hold) { heardSolo += m.soloGain(o.pl, m.t) === 1; silentOthers += m.players.filter((p) => p !== o.pl && !(o.drones && m.slotAt(p.k)?.keep)).every((p) => m.soloGain(p, m.t) === 0); if (o.drones) withDrones.add(o); else noDrones.add(o); }
+    if (m.rw) { rvMin = Math.min(rvMin, m.rw.at); rvMax = Math.max(rvMax, m.rw.at); }
+  }
+  assert.ok(soloists.length >= 3, `solo: passages come (${soloists.length} in 240 s)`);
+  assert.ok(soloists.every((x, i) => i === 0 || x.pl !== soloists[i - 1].pl), 'solo: never the same player twice running');
+  assert.ok(heardSolo > 0 && heardSolo === silentOthers, `solo: one loop heard and every other at 0 while it holds (${heardSolo}, ${silentOthers})`);
+  assert.ok(withDrones.size && noDrones.size, `solo: some with the drones under it, some alone (${withDrones.size}, ${noDrones.size})`);
+  assert.ok(edges.has('sudden') && edges.has('slow'), `solo: sudden and slow edges both (${[...edges]})`);
+  assert.ok(rvMin < 0.15 && rvMax > 0.6, `reverb walk: dry moments and wet ones (${rvMin.toFixed(2)} to ${rvMax.toFixed(2)})`);
+  console.log(`  solo: ${soloists.length} passages in 240 s, a different player each time, ${withDrones.size} with the drones under it, edges ${[...edges].join(' and ')}; reverb walked ${rvMin.toFixed(2)} to ${rvMax.toFixed(2)} of its level`);
+}
 console.log('mem ok');
 process.exit(0);

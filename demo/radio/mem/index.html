@@ -288,7 +288,7 @@
       if (l.speech >= 0.5) g.strokeRect(bx, y + 3, bw, rowH - 8); else g.fillRect(bx, y + 3, bw, rowH - 8);
       g.fillStyle = fg; g.fillRect(bx + bw * (l.pos / l.len), y + 1, 2, rowH - 4);
       g.fillStyle = dim; g.globalAlpha = 1;
-      g.fillText(`${l.slot ? `${l.slot}  ` : ''}${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}${l.file ? `  ${short(l.file)}` : ''}`, bx + bw + 8, y + rowH * 0.7);
+      g.fillText(`${l.alone ? 'alone  ' : ''}${l.slot ? `${l.slot}  ` : ''}${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}${l.file ? `  ${short(l.file)}` : ''}`, bx + bw + 8, y + rowH * 0.7);
     });
   }
 
@@ -324,6 +324,9 @@
     'takes.minLcm': [0, 1200, 10], 'takes.tiers': [1, 60], 'takes.mix': [0, 1], 'takes.speech': [0, 1], 'takes.apart': [0, 30],
     'colour.hp': [20, 1500, 1], 'colour.lp': [500, 14000, 10], 'colour.drive': [1, 4], 'colour.walk.glide': [1, 60], 'colour.walk.hold': [0, 60],
     'takes.stay.p': [0, 1], 'takes.stay.life': [30, 1800], 'takes.fadeIn': [1, 60],
+    'solo.every': [10, 600], 'solo.hold': [2, 120], 'solo.fade': [0.5, 20], 'solo.sudden': [0, 1], 'solo.drones': [0, 1],
+    'room.reverb.walk.amount': [0, 2], 'room.reverb.walk.dry': [0, 0.5], 'room.reverb.walk.dryP': [0, 1], 'room.reverb.walk.glide': [1, 60],
+    'room.reverb.walk.hold': [1, 120], 'room.reverb.walk.dryHold': [1, 120],
     'process.speed.p': [0, 1], 'process.speed.lo': [0.25, 1.5], 'process.speed.hi': [0.25, 2], 'process.speed.every': [5, 600],
     'process.speed.glide': [1, 120], 'process.speed.max': [0, 6, 1], 'process.reverse': [0, 1], 'process.disintegrate': [0, 1],
     'process.maxPasses': [5, 200, 1], 'process.freeze.p': [0, 1], 'process.freeze.len': [0.1, 5], 'process.freeze.hold': [1, 120],

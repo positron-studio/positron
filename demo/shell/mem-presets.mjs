@@ -811,9 +811,9 @@ export const PRESETS = {
             ]
           },
           "rate": [
-          0.1,
-          0.16
-        ],
+            0.1,
+            0.16
+          ],
           "tier": "mid",
           "life": [
             180,
@@ -927,7 +927,30 @@ export const PRESETS = {
           "room": 0.85,
           "damp": 0.55,
           "level": 0.9,
-          "send": 1.6
+          "send": 1.6,
+          "walk": {
+            "amount": [
+              0.6,
+              1.3
+            ],
+            "dry": [
+              0.03,
+              0.12
+            ],
+            "dryP": 0.25,
+            "glide": [
+              6,
+              20
+            ],
+            "hold": [
+              10,
+              40
+            ],
+            "dryHold": [
+              10,
+              30
+            ]
+          }
         }
       },
       "moods": [
@@ -985,7 +1008,23 @@ export const PRESETS = {
           "pace": 1.3,
           "process": 0.7
         }
-      ]
+      ],
+      "solo": {
+        "every": [
+          60,
+          240
+        ],
+        "hold": [
+          8,
+          40
+        ],
+        "fade": [
+          3,
+          8
+        ],
+        "sudden": 0.4,
+      "drones": 0.5
+      }
     }
   }
 };

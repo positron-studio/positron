@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**MEM: solo passages, one loop left alone, then all back, then another**~~ DONE 2026-11-09, (2026-11-09). Asked: *"also sudden mayhem - 1 loop onlu - mayhem"*, then *"i mean for some passages fade out other loops and leave single. then gome all back. then something else stays etc"*. preset solo: every 90 to 200 s one sounding loop stays, the rest fade out over 6 s for 15 to 40 s and come back; a different one next time. Then *"keep surprise element"*: 40 % of fades out and in are sudden (0.2 to 0.8 s), each side decided apart, at uneven times. Then *"drones can stay in those section to, sometimes"*: in about half, the drones stay under the lone loop. demo/shell/mem.mjs, mem-presets.mjs, the lab row.
+
+- ~~**MEM: animate the reverb, with dry moments**~~ DONE 2026-11-09, (2026-11-09). Asked: *"animate reverb. have dty moments"*. room.reverb.walk: the reverb level glides between amounts, and about a quarter of the time drops almost dry for 10 to 30 s. demo/shell/mem.mjs, mem-presets.mjs (colours).
+
 - ~~**MEM: the low drone should be slower, probably a voice not recognised**~~ DONE 2026-11-09, (2026-11-09). Said, on a screenshot (low 11.0 s speed 0.16 m7gmg-mw-558 between a low talk at 0.26 and a mid at 1): *"middle lower should be slower. its misclassified voice probably"*. Drones 0.10 to 0.16 and capped there, gain 1.8 to 2.4 so they stay audible. demo/shell/mem.mjs, mem-presets.mjs.
 
 - ~~**MEM colours: the suggested knob changes**~~ (2026-11-09). Said: *"you suggest know changes are fine"*: reverb level 0.65 to 0.9, reverb send 1.1 to 1.6, freeze p 0.06 to 0, disintegrate 0.1 to 0.45 to 0.05 to 0.2, in colours. DONE 2026-11-09.
