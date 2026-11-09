@@ -1,14 +1,14 @@
 ## Open
 
-- **v2in MEM: hardly any solos; work only on v2in for now** (2026-11-09). Said: *"i hardly get those solos. work only on v2in for now"*. Solos every 20 to 60 s, from 2 sounding loops, holding 15 to 45 s. The engine edited in positron's master copy, not deployed there; v2in deploys.
+- ~~**v2in MEM: hardly any solos; work only on v2in for now**~~ DONE 2026-11-09 (v2in run 42682822308, MEM restarted, /api/now mem spectre), (2026-11-09). Said: *"i hardly get those solos. work only on v2in for now"*. Solos every 20 to 60 s, from 2 sounding loops, holding 15 to 45 s. The engine edited in positron's master copy, not deployed there; v2in deploys.
 
-- **v2in MEM: still that horrible squelch after the files went; getting really loud** (2026-11-09). Said: *"still that horrible squelch but i removed files.. in mem"*, *"also gettin really loud"*. MEM keeps 5 min of memory and loops that stay up to 15 min; a take is boosted up to 8x to a common level, so faint hiss and whistles come up loudest; the master sits at -16 LUFS.
+- ~~**v2in MEM: still that horrible squelch after the files went; getting really loud**~~ DONE 2026-11-09 (v2in run 42682822308, MEM restarted, /api/now mem spectre), (2026-11-09). Said: *"still that horrible squelch but i removed files.. in mem"*, *"also gettin really loud"*. MEM keeps 5 min of memory and loops that stay up to 15 min; a take is boosted up to 8x to a common level, so faint hiss and whistles come up loudest; the master sits at -16 LUFS.
 
 - **v2in: why is live so different from mem, should they sound the same?** (2026-11-09). Asked: *"why live is so diffeernt from mem?"*, *"should be same soudning no?"*. Answered: no, mem is MEM made of live (loops, colour filters to 2.5 to 7 kHz, room and reverb); offered to open the low-pass and lower the reverb. WAITING on the owner.
 
 - ~~**v2in huddersfield: talk and harsh tones deleted**~~ (2026-11-09). The owner deleted the 15 talk and 4 harsh tone recordings in /admin (*"done file stuff"*); the 162 kHz hum and the 129.1 kHz tone kept. DONE 2026-11-09.
 
-- **v2in: a Visualization setting, Wave or Spectre; MEM Spectre, the others Wave** (2026-11-09). Asked: *"have setting dropdown show visualization: 'Wave, Spectre', MAM gets last. othes Wave."*. A channel setting beside video (channels.json, core/layers.mjs, /api/now, admin dropdown), the player draws a spectrogram for Spectre (one image column a frame, measured as cheap as the wave).
+- ~~**v2in: a Visualization setting, Wave or Spectre; MEM Spectre, the others Wave**~~ DONE 2026-11-09 (v2in run 42682822308, MEM restarted, /api/now mem spectre), (2026-11-09). Asked: *"have setting dropdown show visualization: 'Wave, Spectre', MAM gets last. othes Wave."*. A channel setting beside video (channels.json, core/layers.mjs, /api/now, admin dropdown), the player draws a spectrogram for Spectre (one image column a frame, measured as cheap as the wave).
 
 - ~~**MEM: tones are cool, it depends how harsh**~~ DONE 2026-11-09 (kept: 162 kHz hum, 129.1 kHz steady 829 Hz tone; out: 7880 1475 Hz, 77.5 ticking 1 kHz, 147.3 teletype warble, 1044 whistle in hiss), (2026-11-09). Said: *"tones are cool. really deponds on tone how harsh it is"*. Judge each tone recording by pitch, burstiness and brightness, keep the gentle ones in AM UK and on v2in.
 
