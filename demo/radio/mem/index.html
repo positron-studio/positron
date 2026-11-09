@@ -10,6 +10,8 @@
 <style>
   .cc-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
   .cc-say { font-size: 12px; color: var(--dim); }
+  .cc-ghead { margin: 0 0 8px; } .cc-ghead .cc-h { margin: 0; }
+  .cc-stack .pos-knob-hand { display: none; }   /* the group's hand button drives them */
   .cc-h { margin: 0 0 8px; font-size: 14px; color: var(--dim); font-weight: 500; }
   .cc-pic { display: block; width: 100%; height: 300px; background: var(--card); }
   .cc-spec { display: block; width: 100%; height: 120px; background: var(--card); }
@@ -354,20 +356,30 @@
       const knobs = new Map(mine.map((p) => {
         const [lo, hi, step] = specOf(p), v = getPath(P, p);
         const { label, sub } = labelOf(p, prefix), min = Math.min(lo, v), max = Math.max(hi, v);
-        return [p.join('.'), createKnob({ label, sub, title: p.join('.'), min, max, step: step && step <= max - min ? step : undefined, value: v,
+        return [p.join('.'), createKnob({ label, sub, title: p.join('.'), min, max, step: step && step <= max - min ? step : undefined, value: v, hand: true,
           onInput: (x) => bay.send(KNOBS_OUT, { of: 'param', name: p.join('.'), v: x }) })];
       }));
+      // One hand for the group: every knob in it moves by itself, each on its own path, to hear what the group does.
+      const hands = [...knobs.values()].map((k) => k.hand).filter(Boolean);
+      const handBtn = createButtonGroup({ buttons: [{ id: 'hand', label: 'hand', title: `every ${title} knob moves by itself. press again to stop`,
+        onPress: () => { const on = !hands.some((h) => h.running); hands.forEach((h) => (on ? h.start(0, 'group') : h.stop('group')));
+          handBtn.button('hand').textContent = on ? 'stop hand' : 'hand'; d.log(`${title}: ${on ? 'the hand is moving its knobs' : 'the hand let go'}`); } }] });
+      const head = el('div', 'cc-row cc-ghead'); head.append(el('h3', 'cc-h', title), handBtn.el);
       const box = el('div');
-      box.append(el('h3', 'cc-h', title), createKnobGrid(knobs, { row: true }).el);
+      box.append(head, createKnobGrid(knobs, { row: true }).el);
       knobHost.append(box);
     }
   }
   let editTimer = 0;
+  // A [lo, hi] pair goes to MEM low first: two knobs, or two hands, can pass each other.
+  const lowHigh = (o) => (Array.isArray(o) ? (o.length === 2 && o.every((x) => typeof x === 'number') ? [Math.min(...o), Math.max(...o)] : o.map(lowHigh))
+    : o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, lowHigh(v)])) : o);
   function param(e) {
     if (!e?.name || !Number.isFinite(e.v)) return;
     setPath(P, e.name.split('.').map((k) => (/^\d+$/.test(k) ? Number(k) : k)), e.v);
     edited = true; showPreset();
-    clearTimeout(editTimer); editTimer = setTimeout(() => live?.postMessage({ type: 'edit', preset: P }), 150);
+    // at most one edit every 150 ms, so a hand moving every frame is heard as it moves
+    editTimer ||= setTimeout(() => { editTimer = 0; live?.postMessage({ type: 'edit', preset: lowHigh(P) }); }, 150);
   }
 
   // ── the controls ────────────────────────────────────────────────────────
