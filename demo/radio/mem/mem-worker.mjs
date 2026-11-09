@@ -134,6 +134,24 @@ function createWatch() {
   };
 }
 
+/** n frames of MEM: the feed into the ring first (a file's frames, or a live input's silence after 3 s), then the render. */
+function pull(n) {
+  if (liveIn) {
+    const now = Date.now();
+    if (now - lastData > 3000) { mem.ring.silence(Math.round((now - filled) / 1000 * sr)); filled = now; }
+  } else {
+    const src = new Int16Array(n * 2);
+    if (take(n, src) < n) starved++;
+    mem.ring.write(src);
+  }
+  const pcm = mem.render(n).slice(0, n * 2);
+  meter.feed(pcm);
+  while (mem.t >= nextWatch) { watch.tick(); nextWatch += sr; }
+  const out = { type: 'audio', pcm, t: mem.t / sr };
+  if (mem.t >= ctlAt) { ctlAt = mem.t + sr / 4; out.status = named(mem.status()); out.st = meter.last(3); out.starved = starved; }
+  return out;
+}
+
 // ── messages ────────────────────────────────────────────────────────────────────────────────────────────────────────
 let meter = null, watch = null, nextWatch = 0, ctlAt = 0;
 self.onmessage = async ({ data: m }) => {
@@ -157,21 +175,17 @@ self.onmessage = async ({ data: m }) => {
     } else if (m.type === 'input' && mem && liveIn) {
       mark(mem.ring.w, inputName); mem.ring.write(m.pcm); lastData = filled = Date.now();
     } else if (m.type === 'pull' && mem) {
-      const n = m.frames;
-      if (liveIn) {
-        const now = Date.now();
-        if (now - lastData > 3000) { mem.ring.silence(Math.round((now - filled) / 1000 * sr)); filled = now; }
-      } else {
-        const src = new Int16Array(n * 2);
-        if (take(n, src) < n) starved++;
-        mem.ring.write(src);
-      }
-      const pcm = mem.render(n).slice(0, n * 2);
-      meter.feed(pcm);
-      while (mem.t >= nextWatch) { watch.tick(); nextWatch += sr; }
-      const out = { type: 'audio', pcm, t: mem.t / sr };
-      if (mem.t >= ctlAt) { ctlAt = mem.t + sr / 4; out.status = named(mem.status()); out.st = meter.last(3); out.starved = starved; }
-      post(out, [pcm.buffer]);
+      const out = pull(m.frames);
+      post(out, [out.pcm.buffer]);
+    } else if (m.type === 'port') {
+      // the speakers' AudioWorklet asks here itself, on the audio thread, so a busy or throttled page cannot starve it;
+      // the page still gets the status
+      m.port.onmessage = ({ data: q }) => {
+        if (q.type !== 'pull' || !mem) return;
+        const out = pull(q.frames);
+        if (out.status) post({ type: 'status', status: out.status, st: out.st, starved: out.starved });
+        m.port.postMessage({ type: 'audio', pcm: out.pcm }, [out.pcm.buffer]);
+      };
     } else if (m.type === 'edit' && mem) {
       mem.edit(m.preset);
     } else if (m.type === 'preset' && mem) {

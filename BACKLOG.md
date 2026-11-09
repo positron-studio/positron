@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MEM: 4 or 5 silences of 1 to 2 s; drones annoying, atonal, never stop; drones never solo, super rare, perhaps an octave -2 on some loops**~~ DONE 2026-11-09, (2026-11-09). Said: *"i got 4-5 1-2 sec silences. drones are annyoing and atonal and never stop. they should never solo. keep them super rare. perhaps just octavizer -2 on some loops sometimes"*. Then *"it was iphone"*. MEASURED: the engine gives no silence (two 10 min renders, none under -40 dB for 1 s); the gaps are the lab's playback, paced by main thread timers 1 s ahead. Playback moves to an AudioWorklet that asks the worker itself, 2 s ahead, and counts gaps. Find the silences by measurement first; the low slot goes; a rare loop two octaves down (exactly 0.25, so in tune), never a soloist. Then *"too little soloing"*: solos every 30 to 90 s (were 60 to 240). demo/shell/mem.mjs, mem-presets.json, then v2in.
+
 - ~~**v2in admin: no ACTIVE label on a stream key; the section is "Live streaming key"**~~ DONE 2026-11-09, deployed, (2026-11-09). Said, on a screenshot of the Live streaming section: *"avtive is confusing, rm this status label. section is \"live streaming key"*. v2in web/admin.
 
 - ~~**v2in: deploy**~~ DONE 2026-11-09 (layers test brought up to 49b2062, run 42666680920 test and deploy success, engine mem restarted and steady, the mem mount reads MEM: listening, colours), (2026-11-09). Asked: *"deploy?"*. CI skips the deploy while core/layers-test.mjs fails (video on the community slots, failing since before the MEM port).

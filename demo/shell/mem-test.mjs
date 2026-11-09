@@ -195,19 +195,14 @@ for (const [name, h] of Object.entries(HOSTS)) {
   assert.ok(c.lives.some((x) => x > 200), `colours: some loops stay long (${Math.max(...c.lives).toFixed(0)} s)`);
   // both kinds: loops that come and go, and the share that stays (a majority is chance on a handful of loops)
   assert.ok(c.lives.some((x) => x <= 180), `colours: some loops come and go within 180 s (${c.lives.map((x) => x.toFixed(0))})`);
-  // the low slot drones: slower than 0.7 (its base 0.45 to 0.6 under the varispeed's 0.7 to 1.05), never rested by a mood
-  assert.ok(c.low.rates.length && c.low.rates.every((x) => x < 0.7), `colours: the low slot plays slow (${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)})`);
   // no slowed voices: every loop at 0.9 or faster, or 0.3 and under in a drone (owner: only if super low and stretched)
   const mid = [...c.talk, ...d.talk].filter((x) => x > 0.165 && x < 0.88);
   assert.equal(mid.length, 0, `no loop between 0.16 and 0.88 speed (${mid.slice(0, 5).map((x) => x.toFixed(2))})`);
-  assert.equal(c.low.rested, 0, 'colours: the low slot is never sent to rest');
-  const lowLong = c.low.lens.filter((x) => x >= 5).length / c.low.lens.length;
-  assert.ok(lowLong > 0.7, `colours: the low slot's loops mostly sound 5 s and longer a pass (${Math.round(lowLong * 100)} %)`);
   // an opening: the feed plays dry from the start, so the first minute has no silence over a second (drift, with no opening, does)
   assert.ok(c.worstQuiet < 1, `colours: no silence over 1 s in the first minute (${c.worstQuiet} s)`);
   assert.ok(d.worstQuiet >= 1, `drift, no opening: silent at the start (${d.worstQuiet} s), the control`);
   assert.ok(c.most >= 4 && c.firstLoop != null && c.firstLoop < 20, `colours: loops soon and many (first at ${c.firstLoop} s, at most ${c.most})`);
-  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; the low slot's loops ${Math.round(100 * c.low.lens.filter((x) => x >= 5).length / c.low.lens.length)} % sounding 5 s and longer a pass, loops heard ${c.talk.length + d.talk.length} times, never between 0.16 and 0.88; drones at speed ${Math.min(...c.low.rates).toFixed(2)} to ${Math.max(...c.low.rates).toFixed(2)}`);
+  console.log(`  colours: silence at most ${c.worstQuiet} s in the first minute (drift ${d.worstQuiet} s); every speaker's colour moving (${Math.min(...c.moving)} to ${Math.max(...c.moving)} values in 180 s), drift's still; first loop at ${c.firstLoop} s, at most ${c.most} at once; ${c.lives.filter((x) => x > 200).length} of ${c.lives.length} loop lives over 200 s, longest ${Math.max(...c.lives).toFixed(0)} s; loops heard ${c.talk.length + d.talk.length} times, never between 0.16 and 0.88`);
 }
 // solo passages and the reverb walk, on colours with its timings shortened: a solo leaves one loop heard and the rest
 // at 0, a different player each time, both kinds of edge; the reverb walks, dry moments included
@@ -219,17 +214,29 @@ for (const [name, h] of Object.entries(HOSTS)) {
     const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }
     m.ring.write(b); m.render(SR / 10);
     const o = m.soloState;
-    if (o && soloists.at(-1) !== o) { soloists.push(o); edges.add(o.out < 0.9 * SR ? 'sudden' : 'slow'); edges.add(o.back < 0.9 * SR ? 'sudden' : 'slow'); }
+    if (o && soloists.at(-1) !== o) { assert.ok(o.pl.voices.some((v) => !v.out && Math.abs(v.r1) >= 0.5), 'solo: never a slowed loop alone'); soloists.push(o); edges.add(o.out < 0.9 * SR ? 'sudden' : 'slow'); edges.add(o.back < 0.9 * SR ? 'sudden' : 'slow'); }
     if (o && m.t - o.t0 > o.out && m.t - o.t0 < o.out + o.hold) { heardSolo += m.soloGain(o.pl, m.t) === 1; silentOthers += m.players.filter((p) => p !== o.pl && !(o.drones && m.slotAt(p.k)?.keep)).every((p) => m.soloGain(p, m.t) === 0); if (o.drones) withDrones.add(o); else noDrones.add(o); }
     if (m.rw) { rvMin = Math.min(rvMin, m.rw.at); rvMax = Math.max(rvMax, m.rw.at); }
   }
   assert.ok(soloists.length >= 3, `solo: passages come (${soloists.length} in 240 s)`);
   assert.ok(soloists.every((x, i) => i === 0 || x.pl !== soloists[i - 1].pl), 'solo: never the same player twice running');
   assert.ok(heardSolo > 0 && heardSolo === silentOthers, `solo: one loop heard and every other at 0 while it holds (${heardSolo}, ${silentOthers})`);
-  assert.ok(withDrones.size && noDrones.size, `solo: some with the drones under it, some alone (${withDrones.size}, ${noDrones.size})`);
   assert.ok(edges.has('sudden') && edges.has('slow'), `solo: sudden and slow edges both (${[...edges]})`);
   assert.ok(rvMin < 0.15 && rvMax > 0.6, `reverb walk: dry moments and wet ones (${rvMin.toFixed(2)} to ${rvMax.toFixed(2)})`);
-  console.log(`  solo: ${soloists.length} passages in 240 s, a different player each time, ${withDrones.size} with the drones under it, edges ${[...edges].join(' and ')}; reverb walked ${rvMin.toFixed(2)} to ${rvMax.toFixed(2)} of its level`);
+  console.log(`  solo: ${soloists.length} passages in 240 s, a different player each time, never a slowed loop, edges ${[...edges].join(' and ')}; reverb walked ${rvMin.toFixed(2)} to ${rvMax.toFixed(2)} of its level`);
+}
+// an octave down, forced on every new loop: exactly 0.25 (in tune), never glided away, never a soloist
+{
+  const q = presetOf('colours'), m = await new Mem({ preset: { ...q, name: 'colours-octave', process: { ...q.process, octave: { p: 1 } } }, seed: 31 }).boot(bootSync, vendor);
+  const cr = rng(29), rates = new Set(); let glided = 0;
+  for (let k = 0; k < 900; k++) {   // 90 s
+    const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }
+    m.ring.write(b); m.render(SR / 10);
+    for (const pl of m.players) for (const v of pl.voices) if (!v.out && v.octave) { rates.add(Math.abs(v.r1)); if (v.speedAt !== Infinity) glided++; }
+  }
+  assert.ok(rates.size === 1 && rates.has(0.25), `octave: every octave loop at exactly 0.25 (${[...rates]})`);
+  assert.equal(glided, 0, 'octave: no speed glide planned on an octave loop');
+  console.log(`  octave: loops two octaves down at exactly 0.25, no glides`);
 }
 console.log('mem ok');
 process.exit(0);

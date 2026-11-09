@@ -109,7 +109,7 @@
   }
 
   // ── the live engine and the speakers ────────────────────────────────────
-  let ctx = null, out = null, analyser = null, live = null, playing = false, playAt = 0, inflight = 0, pump = null, rate = 0;
+  let ctx = null, out = null, analyser = null, live = null, playing = false, rate = 0;
   function audio() {
     ctx ??= new AudioContext();
     if (!out) {
@@ -126,13 +126,32 @@
     if (holds(MEM_OUT, SCOPE_IN)) out.connect(analyser);
     if (holds(MEM_OUT, SPK_IN)) out.connect(ctx.destination);
   }
-  function schedule(pcm, r) {
-    const n = pcm.length >> 1, b = ctx.createBuffer(2, n, r), L = b.getChannelData(0), R = b.getChannelData(1);
-    for (let i = 0; i < n; i++) { L[i] = pcm[2 * i] / 32768; R[i] = pcm[2 * i + 1] / 32768; }
-    const s = ctx.createBufferSource(); s.buffer = b; s.connect(out);
-    if (playAt < ctx.currentTime + 0.05) playAt = ctx.currentTime + 0.15;
-    s.start(playAt); playAt += n / r;
-  }
+  // The speakers: an AudioWorklet that keeps 2 s of MEM ahead and asks the worker itself, on the audio thread, so a busy
+  // or throttled page (an iPhone) cannot starve it. It resamples from the host's rate and reports each gap.
+  const PLAY = `class Play extends AudioWorkletProcessor {
+    constructor(o) { super(); const p = o.processorOptions; this.step = p.rate / sampleRate; this.chunk = p.chunk; this.lead = p.lead * sampleRate;
+      this.cap = Math.ceil(sampleRate * (p.lead + 3)); this.L = new Float32Array(this.cap); this.R = new Float32Array(this.cap);
+      this.w = 0; this.r = 0; this.ask = 0; this.pos = 0; this.pl = 0; this.pr = 0; this.started = false; this.gapAt = -1;
+      this.port.onmessage = (e) => { if (e.data.worker) { this.wp = e.data.worker; this.wp.onmessage = (m) => this.push(m.data.pcm); this.more(); } }; }
+    more() { while (this.wp && this.ask < 3 && (this.w - this.r) + this.ask * this.chunk / this.step < this.lead) { this.ask++; this.wp.postMessage({ type: 'pull', frames: this.chunk }); } }
+    push(pcm) {
+      this.ask--; const n = pcm.length >> 1;
+      for (; Math.floor(this.pos) + 1 < n; this.pos += this.step) {
+        const i = Math.floor(this.pos), f = this.pos - i, aL = i < 0 ? this.pl : pcm[2 * i] / 32768, aR = i < 0 ? this.pr : pcm[2 * i + 1] / 32768;
+        const j = this.w % this.cap; this.L[j] = aL + (pcm[2 * i + 2] / 32768 - aL) * f; this.R[j] = aR + (pcm[2 * i + 3] / 32768 - aR) * f; this.w++;
+      }
+      this.pos -= n; this.pl = pcm[2 * n - 2] / 32768; this.pr = pcm[2 * n - 1] / 32768; this.started = true; this.more();
+    }
+    process(ins, outs) {
+      const l = outs[0][0], r = outs[0][1] || l;
+      for (let k = 0; k < l.length; k++) {
+        if (this.r < this.w) { const j = this.r % this.cap; l[k] = this.L[j]; r[k] = this.R[j]; this.r++; if (this.gapAt >= 0) { this.port.postMessage({ gap: currentTime - this.gapAt }); this.gapAt = -1; } }
+        else { l[k] = r[k] = 0; if (this.started && this.gapAt < 0) this.gapAt = currentTime; }
+      }
+      this.more(); return true;
+    } }
+  registerProcessor('mem-play', Play);`;
+  let playNode = null, gaps = 0, playLoaded = false;
   // ── the live input: any audio input, raw, into MEM's ring as it arrives ─
   // Captured at the context's rate, low-passed and resampled to the host's rate here, as v2in's ffmpeg does with -ar.
   const CAPTURE = `class Cap extends AudioWorkletProcessor {
@@ -220,23 +239,27 @@
         rate = m.rate;
         if (liveOn) live.postMessage({ type: 'live', on: true, name: stream?.getAudioTracks()[0]?.label || 'live input' }); else { feed = feeder(live, rate, seed); feed(); }
         d.log(`MEM on ${host}: ${rate} Hz, ring ${m.host.ringS} s, at most ${m.host.players} players, preset ${P.name}, seed ${seed}, ${liveOn ? 'live' : 'recordings'}`);
-        const chunk = 128 * Math.round(rate * 0.2 / 128);
-        pump = setInterval(() => { while (playing && inflight < 2 && playAt - ctx.currentTime < 1.0 + inflight * 0.2) { inflight++; live.postMessage({ type: 'pull', frames: chunk }); } }, 40);
+        const chunk = 128 * Math.round(rate * 0.2 / 128), w = live;
+        (playLoaded ? Promise.resolve() : ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([PLAY], { type: 'text/javascript' }))).then(() => { playLoaded = true; })).then(() => {
+          if (live !== w || !playing) return;
+          playNode = new AudioWorkletNode(ctx, 'mem-play', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { rate, chunk, lead: 2 } });
+          playNode.connect(out);
+          playNode.port.onmessage = ({ data: g }) => { if (g.gap != null) { gaps++; d.log(`a gap in playback, ${g.gap.toFixed(2)} s: the device could not keep up`, 'warn'); } };
+          const ch = new MessageChannel();
+          live.postMessage({ type: 'port', port: ch.port1 }, [ch.port1]);
+          playNode.port.postMessage({ worker: ch.port2 }, [ch.port2]);
+        });
       } else if (m.type === 'need') feed?.();
-      else if (m.type === 'audio') {
-        inflight--;
-        if (!playing) return;
-        schedule(m.pcm, rate);
-        if (m.status) { bay.send(MEM_STATE, { of: 'state', status: m.status }); readout(m.status, m.st); }
-      } else if (m.type === 'log') d.log(m.line);
+      else if (m.type === 'status') { if (playing) { bay.send(MEM_STATE, { of: 'state', status: m.status }); readout(m.status, m.st); } } else if (m.type === 'log') d.log(m.line);
       else if (m.type === 'error') d.log(`MEM: ${m.message}`, 'warn');
     };
     live.postMessage({ type: 'boot', mode: 'live', host, preset: P, seed });
     pb.refresh();
   }
   function stop() {
-    playing = false; clearInterval(pump); pump = null; inflight = 0; playAt = 0;
+    playing = false;
     live?.terminate(); live = null;
+    playNode?.disconnect(); playNode = null;
     if (out) { out.disconnect(); out = null; }
     face(); pb.refresh();
   }
@@ -323,7 +346,7 @@
     'takes.memory': [4, 120, 1], 'takes.revisit': [0, 1], 'takes.past': [0, 1], 'takes.gateDb': [-70, -20, 1],
     'takes.minLcm': [0, 1200, 10], 'takes.tiers': [1, 60], 'takes.mix': [0, 1], 'takes.speech': [0, 1], 'takes.apart': [0, 30],
     'colour.hp': [20, 1500, 1], 'colour.lp': [500, 14000, 10], 'colour.drive': [1, 4], 'colour.walk.glide': [1, 60], 'colour.walk.hold': [0, 60],
-    'takes.stay.p': [0, 1], 'takes.stay.life': [30, 1800], 'takes.fadeIn': [1, 60],
+    'takes.stay.p': [0, 1], 'process.octave.p': [0, 0.5], 'takes.stay.life': [30, 1800], 'takes.fadeIn': [1, 60],
     'solo.every': [10, 600], 'solo.hold': [2, 120], 'solo.fade': [0.5, 20], 'solo.sudden': [0, 1], 'solo.drones': [0, 1], 'solo.music': [0, 1],
     'room.reverb.walk.amount': [0, 2], 'room.reverb.walk.dry': [0, 0.5], 'room.reverb.walk.dryP': [0, 1], 'room.reverb.walk.glide': [1, 60],
     'room.reverb.walk.hold': [1, 120], 'room.reverb.walk.dryHold': [1, 120],
@@ -572,7 +595,7 @@
   window.__demo.bay = bay;
   window.__demo.preset = () => P;
   window.__demo.spectrum = () => { if (!analyser) return null; const f = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(f); const s = [...f].filter(Number.isFinite).sort((a, b) => a - b); return { min: s[0], p50: s[s.length >> 1], p90: s[Math.floor(s.length * 0.9)], max: s.at(-1), rate: ctx.sampleRate }; };
-  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, files: lastStatus?.loops.filter(Boolean).map((l) => [l.slot, l.rate, l.file]) ?? null });
+  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, files: lastStatus?.loops.filter(Boolean).map((l) => [l.slot, l.rate, l.file]) ?? null, gaps });
   window.__demo.renders = () => renders.map(({ pcm, bands, ...x }) => x);
   d.ready();
 </script>
