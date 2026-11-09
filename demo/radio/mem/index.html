@@ -285,7 +285,7 @@
       if (l.speech >= 0.5) g.strokeRect(bx, y + 3, bw, rowH - 8); else g.fillRect(bx, y + 3, bw, rowH - 8);
       g.fillStyle = fg; g.fillRect(bx + bw * (l.pos / l.len), y + 1, 2, rowH - 4);
       g.fillStyle = dim; g.globalAlpha = 1;
-      g.fillText(`${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}${l.file ? `  ${short(l.file)}` : ''}`, bx + bw + 8, y + rowH * 0.7);
+      g.fillText(`${l.slot ? `${l.slot}  ` : ''}${l.len.toFixed(1)} s${l.rate < 0 ? ' reversed' : ''}${Math.abs(l.rate) !== 1 ? ` speed ${Math.abs(l.rate).toFixed(2)}` : ''}${l.frozen ? ' frozen' : ''}${l.speech >= 0.5 ? ' talk' : ''}${l.file ? `  ${short(l.file)}` : ''}`, bx + bw + 8, y + rowH * 0.7);
     });
   }
 
@@ -564,7 +564,7 @@
   window.__demo.bay = bay;
   window.__demo.preset = () => P;
   window.__demo.spectrum = () => { if (!analyser) return null; const f = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(f); const s = [...f].filter(Number.isFinite).sort((a, b) => a - b); return { min: s[0], p50: s[s.length >> 1], p90: s[Math.floor(s.length * 0.9)], max: s.at(-1), rate: ctx.sampleRate }; };
-  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, files: lastStatus?.loops.filter(Boolean).map((l) => l.file) ?? null });
+  window.__demo.live = () => ({ liveOn, playing, input: stream?.getAudioTracks()[0]?.label || null, t: lastStatus?.t ?? null, takes: lastStatus?.takes ?? null, loops: lastStatus?.loops.filter(Boolean).length ?? null, inFrames, inPeak, counts: lastStatus?.counts ?? null, files: lastStatus?.loops.filter(Boolean).map((l) => [l.slot, l.rate, l.file]) ?? null });
   window.__demo.renders = () => renders.map(({ pcm, bands, ...x }) => x);
   d.ready();
 </script>

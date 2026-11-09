@@ -1,6 +1,6 @@
 ## Open
 
-- **MEM: lower, drony loops too; frequency slots?** (2026-11-09). Asked: *"do lower drony stuff too. freq slots?"*. Read as: speakers given a register each (a low slot, a middle, a high), the low ones slower, longer and darker so they drone under the rest. demo/shell/mem.mjs, mem-presets.mjs (colours).
+- ~~**MEM: lower, drony loops too; frequency slots?**~~ (2026-11-09). Asked: *"do lower drony stuff too. freq slots?"*. Read as: speakers given a register each (a low slot, a middle, a high), the low ones slower, longer and darker so they drone under the rest. demo/shell/mem.mjs, mem-presets.mjs (colours). DONE 2026-11-09: preset slots (low 2, mid 4, high 2 on colours); low at 0.45 to 0.6 speed, dark (lp 220 to 650 Hz), long takes only, 3 to 10 min lives, never rested; each loop row names its slot. Slots have no knobs yet.
 
 - ~~**MEM lab: show the source file names**~~ (2026-11-09). Asked: *"want to see source filenames"*. Each loop's take named by the recording (or input) it was cut from: demo/shell/mem.mjs keeps where a take was cut, mem-worker.mjs maps that to the file, the page draws it. DONE 2026-11-09: each loop row ends with its source (a Kiwi file as receiver, band and kHz, m7gmg-hf-7880); a phone gets a 3 by 4 picture so the rows no longer overlap.
 

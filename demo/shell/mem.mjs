@@ -238,7 +238,7 @@ export class Mem {
     this.t = 0; this.takes = []; this.tid = 0; this.vid = 0; this.counts = { takes: 0, gated: 0, past: 0, replaced: 0, freezes: 0, glides: 0, presets: 0 };
     this.players = Array.from({ length: this.n }, (_, i) => this.newPlayer(i, i));
     this.gk = this.gainTarget(); this.sw = null; this.enterAt = Infinity; this.dryUntil = 0;
-    this.calmUntil = 0; this.wakeAt = 0; this.balanceAt = 0; this.colourAt = 0; this.mood = null; this.moodEnd = 0; this.moodPlayers = this.n;
+    this.calmUntil = 0; this.wakeAt = 0; this.balanceAt = 0; this.colourNext = 0; this.mood = null; this.moodEnd = 0; this.moodPlayers = this.n;
     this.newMood(true);
     this.spreadAt = this.r.next();
     { const rank = [...this.players].sort((x, y) => this.spread(x) - this.spread(y)); rank.forEach((pl, j) => { pl.rest = j >= this.moodPlayers; }); }   // a thin mood starts with fewer
@@ -248,9 +248,16 @@ export class Mem {
     this.roomAt = 0; this.dryRead = 0; this.ins = []; this.out = new Int16Array(0);
   }
 
+  /**
+   * The register a place sits in (preset `slots`, low to high): places are dealt to slots in order, `players` each.
+   * A slot narrows the colour ranges, and may set a base speed (`rate`), a take tier, its own `life`, and `keep`
+   * (never sent to rest by a mood), so a low slot can drone under the rest. No `slots`, no change.
+   */
+  slotAt(k) { const S = this.p.slots; if (!S?.length) return null; const deal = S.flatMap((x) => Array(x.players ?? 1).fill(x)); return deal[k % deal.length]; }
+  colourAt(k) { const x = this.slotAt(k); return x?.colour ? { ...this.p.colour, ...x.colour } : this.p.colour; }
   /** A player in slot `i` (its scsynth input and speaker node), at place `k` of the arrangement, coloured by the preset. */
   newPlayer(i, k) {
-    const c = this.p.colour;
+    const c = this.colourAt(k);
     return { i, k, voices: [], replaceAt: Infinity, freezing: false, leaving: false,
       colour: { hp: this.r.range(c.hp), lp: this.r.range(c.lp), drive: this.r.range(c.drive) },
       walk: this.newWalk(),
@@ -262,7 +269,7 @@ export class Mem {
    * Set four times a second; the speaker's own 4 s lag smooths the steps.
    */
   walkColour(pl, t) {
-    const W = this.p.colour.walk, c = this.p.colour, r = this.r;
+    const W = this.p.colour.walk, c = this.colourAt(pl.k), r = this.r;
     let w = pl.cw;
     if (!w || t >= w.t0 + w.T + w.hold) {
       w = pl.cw = { from: { ...pl.colour }, to: { hp: r.range(c.hp), lp: r.range(c.lp), drive: r.range(c.drive) },
@@ -302,7 +309,7 @@ export class Mem {
     const t = this.t, r = this.r, want = this.mood ? Math.min(this.n, this.moodPlayers) : this.n;
     const active = this.players.filter((pl) => !pl.leaving && !pl.rest), keep = active.filter((pl) => !pl.toRest);
     if (keep.length > want) {
-      keep.sort((x, y) => this.spread(y) - this.spread(x)).slice(0, keep.length - want).forEach((pl) => {
+      keep.filter((pl) => !this.slotAt(pl.k)?.keep).sort((x, y) => this.spread(y) - this.spread(x)).slice(0, keep.length - want).forEach((pl) => {
         pl.toRest = true; pl.replaceAt = Math.min(pl.replaceAt, t + r.range([15, 60]) * this.pace * this.sr);
       });
     } else if (keep.length < want) {
@@ -439,13 +446,13 @@ export class Mem {
 
   // ── voices ──
   liveLengths(except) { const o = []; for (const pl of this.players) for (const v of pl.voices) if (v !== except && !v.out) o.push(v.cs); return o; }
-  newVoice(take, cs, inF = 0, { proc = true } = {}) {
+  newVoice(take, cs, inF = 0, { proc = true, base = 1 } = {}) {
     const P = this.p.process, r = this.r;
-    let rate = 1;
-    if (proc && r.chance(P.speed.p * this.proc)) rate = r.range([P.speed.lo, P.speed.hi]);
+    let rate = base;   // a slot's base speed; the varispeed glides are relative to it
+    if (proc && r.chance(P.speed.p * this.proc)) rate = base * r.range([P.speed.lo, P.speed.hi]);
     if (proc && r.chance(P.reverse * this.proc)) rate = -rate;
     const v = { id: ++this.vid, take, cs, len: cs * this.grid, in: inF, t0: this.t, ph0: 0, r0: rate, r1: rate, T: 0, phStart: 0,
-      seed: (this.seed ^ Math.imul(this.vid, 2654435761)) | 0, dis: proc ? r.range(P.disintegrate) * Math.min(1.5, this.proc) : 0, cg: 1, lp: 0, pass: 0,
+      base, seed: (this.seed ^ Math.imul(this.vid, 2654435761)) | 0, dis: proc ? r.range(P.disintegrate) * Math.min(1.5, this.proc) : 0, cg: 1, lp: 0, pass: 0,
       speedAt: proc && P.speed.p > 0 ? this.t + r.range(P.speed.every) * this.pace * this.sr : Infinity, fin: null, out: null };
     take.uses++;
     return v;
@@ -457,7 +464,7 @@ export class Mem {
   replace(pl) {
     const T = this.p.takes, r = this.r;
     if (!this.takes.length) { pl.replaceAt = this.t + this.sr; return; }
-    const tier = this.pickTier(pl), [lo, hi] = this.tiers()[tier], fits = (x) => x.cs >= lo * 100;
+    const slot = this.slotAt(pl.k), tier = slot?.tier && this.tiers()[slot.tier] ? slot.tier : this.pickTier(pl), [lo, hi] = this.tiers()[tier], fits = (x) => x.cs >= lo * 100;
     // fresh takes newest first, talk after the rest; an older take comes back by `revisit`, or when the feed offers only talk
     const talky = (x) => x.speech >= 0.5;
     let fresh = this.takes.filter((x) => !x.played && fits(x)).sort((a, b) => talky(a) - talky(b) || b.id - a.id);
@@ -467,13 +474,15 @@ export class Mem {
       const got = this.takeFromRing(r.range([lo, hi]));
       if (typeof got !== 'string') fresh = [got];
     }
+    // a slot with its own tier (the low drone) waits for a take that long rather than looping a short one
+    if (slot?.tier && !fresh.length && !old.length) { pl.replaceAt = this.t + 5 * this.sr; return; }
     if (!revisit && fresh.length && talky(fresh[0]) && calmOld.length && r.next() > (T.speech ?? 1)) revisit = true;
     const take = fresh.length && !revisit ? fresh[0] : r.pick(revisit && calmOld.length && r.next() > (T.speech ?? 1) ? calmOld : old.length ? old : this.takes);
     take.played = true;
     const cur = pl.voices.find((v) => !v.out);
     const minCs = Math.min(lo * 100, take.cs), maxCs = Math.min(hi * 100, take.cs);
     const { n } = chooseLength(r, minCs, maxCs, this.liveLengths(cur), T.minLcm);
-    const v = this.newVoice(take, n);
+    const v = this.newVoice(take, n, 0, { base: slot?.rate ? r.range(slot.rate) : 1 });
     const x = r.range(T.xfade) * (tier === 'long' ? 1.5 : 1);
     if (cur) this.fadeOut(cur, x);
     if (cur) this.fadeIn(v, x); else this.fadeIn(v, T.fadeIn ? r.range(T.fadeIn) : Math.max(2, x * 0.7), true);   // preset `takes.fadeIn`, seconds
@@ -481,7 +490,7 @@ export class Mem {
     // a long loop lives long enough to be heard round three times, within the preset's longest life
     const talkLife = take.speech >= 0.5 ? 0.5 + 0.5 * (T.speech ?? 1) : 1;   // talk, when it comes, does not stay long
     // a share of the loops stay long (preset `takes.stay`), the rest come and go at `life`
-    const life = T.stay && r.chance(T.stay.p) ? r.range(T.stay.life) : r.range(T.life);
+    const life = slot?.life ? r.range(slot.life) : T.stay && r.chance(T.stay.p) ? r.range(T.stay.life) : r.range(T.life);
     pl.replaceAt = this.t + Math.max(life, Math.min(3 * n / 100, T.life[1])) * this.pace * talkLife * this.sr;
     // a freeze, now and then, partway through the take's life
     const F = this.p.process.freeze;
@@ -505,7 +514,7 @@ export class Mem {
   glide(v) {
     const P = this.p.process.speed, r = this.r, t = this.t;
     const ph = phaseAt(v, t), now = rateAt(v, t), sign = Math.sign(now) || 1;
-    v.ph0 = ph; v.t0 = t; v.r0 = now; v.r1 = sign * r.range([P.lo, P.hi]); v.T = r.range(P.glide) * this.sr;
+    v.ph0 = ph; v.t0 = t; v.r0 = now; v.r1 = sign * r.range([P.lo, P.hi]) * (v.base ?? 1); v.T = r.range(P.glide) * this.sr;
     v.speedAt = t + r.range(P.every) * this.pace * this.sr; this.counts.glides++; this.changed(0.5);
   }
 
@@ -527,7 +536,7 @@ export class Mem {
     }
     if (t >= this.enterAt) this.enter();
     if (t >= this.balanceAt) { if (t >= this.moodEnd) this.newMood(); this.balance(); this.balanceAt = t + this.sr; }
-    if (t >= this.colourAt) { this.colourAt = t + this.sr / 4; if (this.p.colour.walk) for (const pl of this.players) this.walkColour(pl, t); }
+    if (t >= this.colourNext) { this.colourNext = t + this.sr / 4; if (this.p.colour.walk) for (const pl of this.players) this.walkColour(pl, t); }
     for (let j = this.players.length - 1; j >= 0; j--) {   // a leaving player whose loop has faded is let go
       const pl = this.players[j];
       if (pl.leaving && !pl.voices.length) this.drop(pl);
@@ -621,8 +630,8 @@ export class Mem {
     staying.slice(0, n).forEach((pl, k) => { pl.k = k; });
     this.enterAt = staying.length < n ? t : Infinity;
     // colour by the new preset, glided by the speakers' lag
-    const c = next.colour;
     for (const pl of staying.slice(0, n)) {
+      const c = this.colourAt(pl.k);
       pl.colour = { hp: r.range(c.hp), lp: r.range(c.lp), drive: r.range(c.drive) };
       this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
     }
@@ -655,8 +664,8 @@ export class Mem {
     this.w?.send('/n_set', NODE.rev, 'room', rv.room, 'damp', rv.damp, 'level', rv.level);
     this.w?.send('/n_set', NODE.dry, 'dry', next.dry ?? 0);
     if (!same(next.colour, old.colour)) {
-      const c = next.colour;
       for (const pl of this.players) if (!pl.leaving) {
+        const c = this.colourAt(pl.k);
         pl.colour = { hp: this.r.range(c.hp), lp: this.r.range(c.lp), drive: this.r.range(c.drive) };
         this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
       }
@@ -760,7 +769,7 @@ export class Mem {
       const v = pl.voices.find((x) => !x.out) || pl.voices[0];
       if (!v) { loops.push(null); continue; }
       const ph = phaseAt(v, this.t), pos = ((ph % v.len) + v.len) % v.len;
-      loops.push({ player: pl.i + 1, leaving: pl.leaving, take: v.take.id, ringAt: v.take.ringAt ?? null, file: v.take.file ?? null, len: v.cs / 100, pos: +(pos / this.sr).toFixed(2), pass: v.pass, rate: +rateAt(v, this.t).toFixed(3),
+      loops.push({ player: pl.i + 1, leaving: pl.leaving, slot: this.slotAt(pl.k)?.name ?? null, take: v.take.id, ringAt: v.take.ringAt ?? null, file: v.take.file ?? null, len: v.cs / 100, pos: +(pos / this.sr).toFixed(2), pass: v.pass, rate: +rateAt(v, this.t).toFixed(3),
         frozen: pl.freezing, dis: +v.dis.toFixed(2), speech: +(v.take.speech ?? 0).toFixed(2), tier: pl.tier ?? null, resting: !!pl.rest, a: Math.round(pl.at?.a ?? 0), d: +(pl.at?.d ?? 0).toFixed(1), from: v.take.from, wall: v.take.wall });
     }
     const mb = (this.takes.reduce((s, x) => s + x.data.length * 2, 0) + this.ring.d.length * 2) / 1048576;
