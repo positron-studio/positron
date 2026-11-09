@@ -397,7 +397,8 @@ export class Mem {
     if (pick.speech >= 0.5 && !long && r.next() > (T.speech ?? 1)) { this.counts.passed = (this.counts.passed || 0) + 1; return 'talk'; }
     this.recentTakes = [...recent, [pick.c, pick.c + span]].slice(-4);
     const f0 = pick.c * this.grid, data = this.ring.mono(f0, need * this.grid + this.seam + 2);
-    return this.addTake(data, need, { from: 'live', speech: pick.speech, wall: this.now() - (this.ring.w - f0) / this.sr * 1000 });
+    // ringAt: the frame of the feed it was cut at, so a host that knows what it fed can name the source
+    return this.addTake(data, need, { from: 'live', speech: pick.speech, ringAt: f0, wall: this.now() - (this.ring.w - f0) / this.sr * 1000 });
   }
   addTake(data, cs, meta) {
     let ss = 0; for (let i = 0; i < data.length; i++) { const v = data[i] / 32768; ss += v * v; }
@@ -759,7 +760,7 @@ export class Mem {
       const v = pl.voices.find((x) => !x.out) || pl.voices[0];
       if (!v) { loops.push(null); continue; }
       const ph = phaseAt(v, this.t), pos = ((ph % v.len) + v.len) % v.len;
-      loops.push({ player: pl.i + 1, leaving: pl.leaving, take: v.take.id, len: v.cs / 100, pos: +(pos / this.sr).toFixed(2), pass: v.pass, rate: +rateAt(v, this.t).toFixed(3),
+      loops.push({ player: pl.i + 1, leaving: pl.leaving, take: v.take.id, ringAt: v.take.ringAt ?? null, file: v.take.file ?? null, len: v.cs / 100, pos: +(pos / this.sr).toFixed(2), pass: v.pass, rate: +rateAt(v, this.t).toFixed(3),
         frozen: pl.freezing, dis: +v.dis.toFixed(2), speech: +(v.take.speech ?? 0).toFixed(2), tier: pl.tier ?? null, resting: !!pl.rest, a: Math.round(pl.at?.a ?? 0), d: +(pl.at?.d ?? 0).toFixed(1), from: v.take.from, wall: v.take.wall });
     }
     const mb = (this.takes.reduce((s, x) => s + x.data.length * 2, 0) + this.ring.d.length * 2) / 1048576;
