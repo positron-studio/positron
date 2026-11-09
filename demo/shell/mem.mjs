@@ -238,7 +238,7 @@ export class Mem {
     this.t = 0; this.takes = []; this.tid = 0; this.vid = 0; this.counts = { takes: 0, gated: 0, past: 0, replaced: 0, freezes: 0, glides: 0, presets: 0 };
     this.players = Array.from({ length: this.n }, (_, i) => this.newPlayer(i, i));
     this.gk = this.gainTarget(); this.sw = null; this.enterAt = Infinity; this.dryUntil = 0;
-    this.calmUntil = 0; this.wakeAt = 0; this.balanceAt = 0; this.mood = null; this.moodEnd = 0; this.moodPlayers = this.n;
+    this.calmUntil = 0; this.wakeAt = 0; this.balanceAt = 0; this.colourAt = 0; this.mood = null; this.moodEnd = 0; this.moodPlayers = this.n;
     this.newMood(true);
     this.spreadAt = this.r.next();
     { const rank = [...this.players].sort((x, y) => this.spread(x) - this.spread(y)); rank.forEach((pl, j) => { pl.rest = j >= this.moodPlayers; }); }   // a thin mood starts with fewer
@@ -255,6 +255,22 @@ export class Mem {
       colour: { hp: this.r.range(c.hp), lp: this.r.range(c.lp), drive: this.r.range(c.drive) },
       walk: this.newWalk(),
       buf: new Float32Array(QUANTUM), at: null };
+  }
+  /**
+   * A speaker's colour that keeps moving (preset `colour.walk`): it glides to a new point inside the preset's colour
+   * ranges over `glide` seconds, holds for `hold`, and goes again; filters move in octaves, drive in a straight line.
+   * Set four times a second; the speaker's own 4 s lag smooths the steps.
+   */
+  walkColour(pl, t) {
+    const W = this.p.colour.walk, c = this.p.colour, r = this.r;
+    let w = pl.cw;
+    if (!w || t >= w.t0 + w.T + w.hold) {
+      w = pl.cw = { from: { ...pl.colour }, to: { hp: r.range(c.hp), lp: r.range(c.lp), drive: r.range(c.drive) },
+        t0: t, T: Math.max(1, r.range(W.glide)) * this.sr, hold: r.range(W.hold ?? [0, 0]) * this.sr };
+    }
+    const u = Math.min(1, (t - w.t0) / w.T), e = (1 - Math.cos(Math.PI * u)) / 2, oct = (a, b) => a * (b / a) ** e;
+    pl.colour = { hp: oct(w.from.hp, w.to.hp), lp: oct(w.from.lp, w.to.lp), drive: w.from.drive + (w.to.drive - w.from.drive) * e };
+    this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
   }
   /** A speaker's slow walk around its place: two slow sines each in angle and distance, or none (it stands still). */
   newWalk() {
@@ -433,7 +449,8 @@ export class Mem {
     take.uses++;
     return v;
   }
-  fadeIn(v, s) { v.fin = { t: this.t, n: Math.max(1, s * this.sr) }; }
+  /** `enter`: from silence, on a raised cosine, which starts flat, so a loop arriving is not an attack. */
+  fadeIn(v, s, enter = false) { v.fin = { t: this.t, n: Math.max(1, s * this.sr), enter }; }
   fadeOut(v, s) { if (v.out) return; v.out = { t: this.t, n: Math.max(1, s * this.sr) }; }
   /** A new take, or an old one come back, crossfaded into a player at a length no other live loop shares a factor with. */
   replace(pl) {
@@ -458,11 +475,13 @@ export class Mem {
     const v = this.newVoice(take, n);
     const x = r.range(T.xfade) * (tier === 'long' ? 1.5 : 1);
     if (cur) this.fadeOut(cur, x);
-    this.fadeIn(v, cur ? x : Math.max(2, x * 0.7));
+    if (cur) this.fadeIn(v, x); else this.fadeIn(v, T.fadeIn ? r.range(T.fadeIn) : Math.max(2, x * 0.7), true);   // preset `takes.fadeIn`, seconds
     pl.voices.push(v); pl.freezing = false; pl.tier = tier; this.counts.replaced++; this.changed();
     // a long loop lives long enough to be heard round three times, within the preset's longest life
     const talkLife = take.speech >= 0.5 ? 0.5 + 0.5 * (T.speech ?? 1) : 1;   // talk, when it comes, does not stay long
-    pl.replaceAt = this.t + Math.max(r.range(T.life), Math.min(3 * n / 100, T.life[1])) * this.pace * talkLife * this.sr;
+    // a share of the loops stay long (preset `takes.stay`), the rest come and go at `life`
+    const life = T.stay && r.chance(T.stay.p) ? r.range(T.stay.life) : r.range(T.life);
+    pl.replaceAt = this.t + Math.max(life, Math.min(3 * n / 100, T.life[1])) * this.pace * talkLife * this.sr;
     // a freeze, now and then, partway through the take's life
     const F = this.p.process.freeze;
     if (F.p > 0 && r.chance(F.p * this.proc)) pl.freezeAt = this.t + r.range([0.25, 0.6]) * (pl.replaceAt - this.t); else pl.freezeAt = Infinity;
@@ -507,6 +526,7 @@ export class Mem {
     }
     if (t >= this.enterAt) this.enter();
     if (t >= this.balanceAt) { if (t >= this.moodEnd) this.newMood(); this.balance(); this.balanceAt = t + this.sr; }
+    if (t >= this.colourAt) { this.colourAt = t + this.sr / 4; if (this.p.colour.walk) for (const pl of this.players) this.walkColour(pl, t); }
     for (let j = this.players.length - 1; j >= 0; j--) {   // a leaving player whose loop has faded is let go
       const pl = this.players[j];
       if (pl.leaving && !pl.voices.length) this.drop(pl);
@@ -677,7 +697,7 @@ export class Mem {
       for (let i = 0; i < QUANTUM; i++) {
         const tt = t + i;
         let env = 1;
-        if (v.fin) { const x = (tt - v.fin.t) / v.fin.n; env = x >= 1 ? 1 : x <= 0 ? 0 : Math.sin(x * Math.PI / 2); }
+        if (v.fin) { const x = (tt - v.fin.t) / v.fin.n; env = x >= 1 ? 1 : x <= 0 ? 0 : v.fin.enter ? (1 - Math.cos(x * Math.PI)) / 2 : Math.sin(x * Math.PI / 2); }
         if (v.out) { const x = (tt - v.out.t) / v.out.n; env *= x >= 1 ? 0 : x <= 0 ? 1 : Math.cos(x * Math.PI / 2); }
         if (env === 0) continue;
         const p = phaseAt(v, tt), pos = p - Math.floor(p / len) * len;

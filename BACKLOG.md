@@ -1,8 +1,12 @@
 ## Open
 
+- ~~**MEM: a new source enters too suddenly**~~ (2026-11-09). Said, listening: *"new souce entry was too sudden"*. demo/shell/mem.mjs: the fade a loop enters with, and its shape. DONE 2026-11-09.
+
+- ~~**MEM: the colour moving all the time, more sources faster, some coming and going and some staying**~~ (2026-11-09). Asked, after the group hands: *"color group animation was most intersting, keep doing it more and add morr sources faster, they can come and go, some nede to stay longer"*. In MEM itself (demo/shell/mem.mjs, mem-presets.mjs): each player's colour walks on its own; a preset with more players entering faster and short lives, and a share of loops that stay long. DONE 2026-11-09.
+
 - ~~**MEM lab: an invisible hand on each knob group**~~ (2026-11-09). Asked: *"add inivible hand buttn on each slider group to see how it affects"*. /radio/mem/, one hand button per group (general, takes, colour, process, room) that moves that group's knobs so the change can be heard. demo/radio/mem/index.html, the kit's hand. DONE 2026-11-09: a hand button per group starts every knob's own hand (the 70 per knob buttons hidden); edits throttled to one per 150 ms so a moving hand is heard; [lo, hi] pairs sent low first since two hands cross.
 
-- **v2in video: the 720p viewer row reads as horrible pricing** (2026-11-09). Said, quoting the row (1.63 a day, 49.64 a month): *"horrible pricing"*. Answered in chat: one viewer around the clock is 993 GB, inside the free 1,000 GB; the cheap route is HLS segments in R2 served by Workers (no egress charge, QUOTED plan section 4), made by the bridge. The owner said *"yes"* to writing that route into plan-v2in-cf-cost and the page; started, paused for the AM files.
+- **v2in video: the 720p viewer row reads as horrible pricing** (2026-11-09). Said, quoting the row (1.63 a day, 49.64 a month): *"horrible pricing"*. Answered in chat: one viewer around the clock is 993 GB, inside the free 1,000 GB; the cheap route is HLS segments in R2 served by Workers (no egress charge, QUOTED plan section 4), made by the bridge. The owner said *"yes"* to writing that route into plan-v2in-cf-cost and the page; started, paused for the AM files; then *"... still paused, waiting in the backlog. - ?"*: a background agent on it 2026-11-09.
 
 - ~~**/radio/v2in/: the month total in the brand yellow; now is v2in, in v2in green**~~ (2026-11-09). Asked: *"colorize regular month total to brand yellow"*. demo/radio/v2in/index.html, var(--hi) on the Total row's month cell. Then *"now = v2in and use v2in green"*: the column is v2in, in #42b649 (v2in web/v2in.css --accent, the logo's green). DONE 2026-11-09.
 
