@@ -1,7 +1,7 @@
 // Which build is this? workers/view/build.mjs replaces it in the deployed copy only,
 // so a fix that did not work can be told from a fix that was never loaded.
 // why: lessons/kit-shell.md#build-stamp
-export const BUILD = '3ef1b563-130841-4ad4';
+export const BUILD = '57de60a0-133431-c32f';
 // demo/shell/shell.mjs: the page frame and the __demo contract. mount() builds the chrome
 // and publishes on window.__demo everything it shows a human, for a CDP script.
 //   const d = mount({ name:'transport', what:'...', readout:{drift:'ms'} }); d.set('drift', 0.4);
