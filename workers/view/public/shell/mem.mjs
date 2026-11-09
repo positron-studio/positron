@@ -156,14 +156,13 @@ export function findStart(cells, need, search, gateDb) {
 }
 
 /**
- * Slowed talk is a voice slowed down, never a texture, except very low (owner, 2026-11-09: no slowed voices, *only if
- * super low and stretched*). Talk in a slowed slot (a drone) goes to 0.45 of its speed, about 0.2; anywhere else it
- * plays at 0.9 or faster. Anything that is not talk passes as it is.
+ * No speed between 0.3 and 0.9, for any loop, talk or not: slowed AM is a voice slowed down (owner, 2026-11-09: *Darth
+ * Vader voices: no*, *only if super low and stretched*), and talk is not always recognised as talk. A slowed slot (a
+ * drone) stays at 0.3 or under; anything else plays at 0.9 or faster.
  */
-function talkRate(rate, base, take) {
-  if ((take?.speech ?? 0) < 0.5) return rate;
+function talkRate(rate, base) {
   const a = Math.abs(rate), s = Math.sign(rate) || 1;
-  return base < 0.9 ? s * a * 0.45 : s * Math.max(a, 0.9);
+  return base < 0.9 ? s * Math.min(a, 0.3) : s * Math.max(a, 0.9);
 }
 
 // ── a voice: one take looping in one player ─────────────────────────────────────────────────────────────────────────

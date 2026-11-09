@@ -811,9 +811,9 @@ export const PRESETS = {
             ]
           },
           "rate": [
-            0.45,
-            0.6
-          ],
+          0.2,
+          0.3
+        ],
           "tier": "mid",
           "life": [
             180,
