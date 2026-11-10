@@ -11,6 +11,10 @@
   /* The picture is the page: over everything, the whole viewport. */
   html, body { background: #000; }
   .mic { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; }
+  /* the waveform strip along the foot, above the bottom inset, see-through over the spectrogram */
+  .mic-scope { position: fixed; z-index: 10; pointer-events: none; display: block;
+    left: max(48px, env(safe-area-inset-left)); right: max(48px, env(safe-area-inset-right));
+    bottom: max(48px, env(safe-area-inset-bottom)); width: calc(100vw - 96px); height: 15vh; height: 15dvh; }
   /* The title over the picture, top left; taps go through it to the picture. */
   .mic-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
     top: max(48px, env(safe-area-inset-top)); left: max(48px, env(safe-area-inset-left));
@@ -24,26 +28,45 @@
   .mic-t p b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mic-btns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
   .mic-t .pos-lg, .mic-knobs { pointer-events: auto; }
-  /* the level: one bar, the loudest sample of the last frame on a dBFS scale from -100 to 0 */
-  .mic-meter { margin-top: 16px; width: min(320px, calc(100vw - 96px)); height: 4px; background: rgba(255, 255, 255, .15); }
-  .mic-meter i { display: block; height: 100%; width: 0; background: var(--fg); }
+  /* the keys held on the MK-425C, one line that keeps its height */
+  .mic-t .mic-held { margin: 12px 0 0; height: 1.4em; font: 400 13px/1.4 var(--mono); color: var(--dim); }
   .mic-knobs { margin-top: 24px; }
   .mic-knobs[hidden] { display: none; }
+  /* How it works: the picture dims to 12% over 2.5 s and the patch sits straight on it. */
+  /* brightness, not opacity: a see-through canvas shows the shell's header behind it */
+  .mic, .mic-scope { transition: filter 2.5s; }
+  body.mic-how .mic, body.mic-how .mic-scope { filter: brightness(.12); }
+  body.mic-how .mic-t { max-height: calc(100dvh - 32px); }
+  /* the knobs and the held notes give way to the patch, which sits where they would */
+  .mic-held, .mic-knobs { transition: opacity .6s; }
+  body.mic-how .mic-held, body.mic-how .mic-knobs { opacity: 0; pointer-events: none; }
+  /* the patch sits on the bottom edge with the same 48 px margin as the title */
+  .mic-how-box { pointer-events: auto; position: fixed; left: max(48px, env(safe-area-inset-left)); bottom: max(48px, env(safe-area-inset-bottom)); width: calc(100vw - 96px); box-sizing: border-box; }
+  /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
+  .mic-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
+  body.mic-how .mic-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
 </style>
 <script type="module">
   // The Shure SM57 on the Pi's Fast Track Pro input 2, to this page over the relay in the board's audio frames
-  // (rig/palm/mic.mjs), dry or through /ambient/drone/'s chain on wasm scsynth. Nothing opens until Listen or Process.
+  // (rig/palm/mic.mjs), dry or through /ambient/drone/'s chain on wasm scsynth; the MK-425C's notes go to
+  // studio-1 as screen.note, for rig/palm/bridge.mjs and the board's OLED. Nothing opens until Listen or Process.
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBoard, BOARD_RATE } from '/shell/board.mjs';
   import { createLease } from '/shell/openers.mjs';
-  import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { openWire } from '/shell/wire.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { barButton } from '/shell/bar.mjs';
   import { createKnob } from '/shell/knob.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
   import { bootScsynth } from '/shell/scsynth.mjs';
   import { compile } from '/shell/sclang-lite.mjs';
 
-  const ROOM = new URLSearchParams(location.search).get('room') || 'studio-1-mic';
+  const Q = new URLSearchParams(location.search);
+  const ROOM = Q.get('room') || 'studio-1-mic';
+  // the room the Palm's bridge and the board listen in; a harness points it at a room nobody is in
+  const KEYS_ROOM = Q.get('keys') || 'studio-1';
   const AT = ['Shure SM57', 'on a Raspberry Pi'];
   const d = mount({ name: 'Microphone', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
 
@@ -80,12 +103,88 @@
     { name: 'drone', to: 'adrone', param: 'amp', min: 0, max: 1, value: 0.4 },
   ];
 
+  // ── the bay: the mic's chain from the Pi to these speakers, and the MK-425C's notes to the Palm and the OLED ──
+  const bay = createBay();
+  const PI = { place: 'pi-1' }, DESK = { place: 'desk' }, WEB = { place: 'browser' };
+  const node = (id, kind, label, extra) => bay.addNode({ id, kind, label, ...extra });
+  node('pi-1:sm57', 'device', 'Shure SM57', PI);
+  node('pi-1:fasttrack', 'device', 'Fast Track Pro, input 2', PI);
+  node('pi-1:jack', 'engine', 'JACK', PI);
+  node('pi-1:mic', 'engine', 'mic.mjs', PI);
+  node('pi-1:bridge', 'engine', 'bridge.mjs', PI);
+  node('pi-1:palm', 'device', 'Palm: rings, voice', PI);
+  node('pi-1:board', 'engine', 'board', PI);
+  node('pi-1:oled', 'screen', 'OLED rings', PI);
+  node('web:keys', 'device', 'MK-425C, Web MIDI', DESK);
+  node('web:board', 'engine', 'audio frames, playout', WEB);
+  node('web:drone', 'engine', 'drone, wasm scsynth', WEB);
+  node('web:space', 'engine', 'echoes 4.3 s and 6.7 s, room, limiter', WEB);
+  node('web:knobs', 'person', 'knobs', WEB);
+  node('web:picture', 'screen', 'spectrogram, waveform', WEB);
+  node('web:held', 'screen', 'held notes', WEB);
+  node('web:speaker', 'device', 'speakers', WEB);
+  const port = (id, dir, medium, label, extra = {}) => bay.addPort({ id, dir, medium, label, ...extra });
+  port('pi-1:sm57:audio-out', 'out', 'audio', 'XLR');
+  port('pi-1:fasttrack:audio-in', 'in', 'audio', 'input 2');
+  port('pi-1:fasttrack:audio-out', 'out', 'audio', 'USB');
+  port('pi-1:jack:audio-in', 'in', 'audio', 'capture_2');
+  port('pi-1:jack:audio-out', 'out', 'audio', '48 kHz');
+  port('pi-1:mic:audio-in', 'in', 'audio', 'JACK client');
+  port('pi-1:mic:audio-out', 'out', 'audio', `room ${ROOM}`, { transports: ['relay'] });
+  port('web:board:audio-in', 'in', 'audio', 'board frames', { transports: ['relay'] });
+  port('web:board:audio-out', 'out', 'audio', 'mic');
+  port('web:drone:audio-out', 'out', 'audio', 'drone');
+  port('web:drone:value-in', 'in', 'value', 'level', { deliver: (ev) => { if (droneOn) set('adrone', { amp: ev.v }); } });
+  port('web:space:audio-in', 'in', 'audio', 'mic, drone');
+  port('web:space:value-in', 'in', 'value', 'echo, room', { deliver: (ev) => set('aspace', { [ev.name]: ev.v }) });
+  port('web:space:audio-out', 'out', 'audio', 'processed');
+  port('web:knobs:value-out', 'out', 'value', 'echo, room');
+  port('web:knobs:value-out-2', 'out', 'value', 'drone');
+  port('web:picture:audio-in', 'in', 'audio', 'analyser');
+  port('web:speaker:audio-in', 'in', 'audio', 'volume');
+  port('web:keys:midi-out', 'out', 'midi', 'notes', { emits: ['note'] });
+  port('web:held:midi-in', 'in', 'midi', 'notes', { accepts: ['note'], deliver: (ev) => heldIn(ev) });
+  // One screen.note in the room reaches the bridge and the board, so it leaves once, from whichever port hears it first.
+  port('pi-1:bridge:midi-in', 'in', 'midi', 'screen.note', { accepts: ['note'], deliver: (ev) => { toRoom(ev); bay.send('pi-1:bridge:midi-out', ev); } });
+  port('pi-1:bridge:midi-out', 'out', 'midi', 'rings, top note', { emits: ['note'] });
+  port('pi-1:palm:midi-in', 'in', 'midi', 'screen, speaker', { accepts: ['note'] });
+  port('pi-1:board:midi-in', 'in', 'midi', 'screen.note', { accepts: ['note'], deliver: (ev) => { toRoom(ev); bay.send('pi-1:board:midi-out', ev); } });
+  port('pi-1:board:midi-out', 'out', 'midi', 'rings', { emits: ['note'] });
+  port('pi-1:oled:midi-in', 'in', 'midi', '128x64', { accepts: ['note'] });
+  const link = (a, b, via) => { const r = bay.link(a, b, [], { site: 'web', ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); return r.ok ? r.id : null; };
+  link('pi-1:sm57:audio-out', 'pi-1:fasttrack:audio-in');
+  link('pi-1:fasttrack:audio-out', 'pi-1:jack:audio-in');
+  link('pi-1:jack:audio-out', 'pi-1:mic:audio-in');
+  link('pi-1:mic:audio-out', 'web:board:audio-in', 'relay');
+  link('web:keys:midi-out', 'pi-1:bridge:midi-in');
+  link('web:keys:midi-out', 'pi-1:board:midi-in');
+  link('web:keys:midi-out', 'web:held:midi-in');
+  link('pi-1:bridge:midi-out', 'pi-1:palm:midi-in');
+  link('pi-1:board:midi-out', 'pi-1:oled:midi-in');
+  link('web:board:audio-out', 'web:picture:audio-in');
+  link('web:knobs:value-out', 'web:space:value-in');
+  link('web:knobs:value-out-2', 'web:drone:value-in');
+  // What Process and Drone change is which links the bay holds; the sound follows the same switch.
+  const held = new Map();
+  function hold(key, a, b, on) {
+    if (on && !held.has(key)) { const id = link(a, b); if (id) held.set(key, id); }
+    else if (!on && held.has(key)) { bay.unlink(held.get(key)); held.delete(key); }
+  }
+  function patch() {
+    hold('dry', 'web:board:audio-out', 'web:speaker:audio-in', !processing);
+    hold('in', 'web:board:audio-out', 'web:space:audio-in', processing);
+    hold('out', 'web:space:audio-out', 'web:speaker:audio-in', processing);
+    hold('pic', 'web:space:audio-out', 'web:picture:audio-in', processing);
+    hold('drone', 'web:drone:audio-out', 'web:space:audio-in', processing && droneOn);
+    pb?.refresh();
+  }
+
   // ── the sound: one 48 kHz context, made on the first press ──
-  // mic (playout) -> micIn -> an (picture, meter); micIn -> dry -> master; micIn -> scsynth -> wet -> master; master -> fade -> out
-  const VOLUME = 0.3, FADE = 1.5;
-  let ctx = null, micIn = null, an = null, dry = null, wet = null, master = null, fade = null;
+  // mic (playout) -> micIn -> dry -> mix; micIn -> scsynth -> wet -> mix; mix -> an (picture); mix -> master -> how -> fade -> out
+  const VOLUME = 0.3, FADE = 1.5, QUIET = 0.08, RAMP = 2.5;
+  let ctx = null, micIn = null, an = null, dry = null, wet = null, mix = null, master = null, howG = null, fade = null;
   let board = null, lease = null, playout = null, listening = false, stopT = 0;
-  let sc = null, booting = null, processing = false, droneOn = false;
+  let sc = null, booting = null, processing = false, droneOn = false, how = false;
   function ensureCtx() {
     if (ctx) { ctx.resume().catch(() => {}); return ctx; }
     ctx = new AudioContext({ sampleRate: BOARD_RATE, latencyHint: 'interactive' });
@@ -94,10 +193,13 @@
     an = ctx.createAnalyser(); an.fftSize = 2048;
     dry = ctx.createGain(); dry.gain.value = processing ? 0 : 1;
     wet = ctx.createGain(); wet.gain.value = processing ? 1 : 0;
+    mix = ctx.createGain();
     master = ctx.createGain(); master.gain.value = VOLUME;
+    howG = ctx.createGain(); howG.gain.value = how ? QUIET : 1;
     fade = ctx.createGain(); fade.gain.value = 0;
-    micIn.connect(an); micIn.connect(dry).connect(master); wet.connect(master);
-    master.connect(fade).connect(ctx.destination);
+    // the analyser before the volume, so the picture hears the sound at full level while How it works turns it down
+    micIn.connect(dry).connect(mix); wet.connect(mix);
+    mix.connect(an); mix.connect(master).connect(howG).connect(fade).connect(ctx.destination);
     return ctx;
   }
   const ramp = (p, v, s = FADE) => { const t = ctx.currentTime; p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + s); };
@@ -106,6 +208,7 @@
     ensureCtx();
     clearTimeout(stopT); stopT = 0;
     listening = true; face();
+    keysOn();
     if (!board) {
       board = createBoard({ room: ROOM, of: 'microphone', showName: false, audioContext: ctx, toDestination: false,
         log: (line, kind) => d.log(line, kind),
@@ -126,11 +229,57 @@
     listening = false; face();
     lease?.stop(); lease = null;
     board?.send({ type: 'input.stop' });
+    keysOff();
     if (!ctx) return;
     ramp(fade.gain, 0);
     clearTimeout(stopT);
     // the socket goes once the sound has faded, so a stopped page holds nothing open
     stopT = setTimeout(() => { stopT = 0; try { playout?.disconnect(); } catch {} playout = null; board?.close(); board = null; }, FADE * 1000);
+  }
+
+  // ── the keyboard: Web MIDI from Listen on, every input; notes leave on web:keys:midi-out ──
+  // A press-held note sends on and off; past MAX_PER_S note-ons a second the extra ones are dropped, never their offs.
+  const MAX_PER_S = 30;
+  let midi = null, asking = null, wire = null, roomSent = 0, dropped = 0, lastK = 0, k = 0;
+  const onSent = new Set(), heldNotes = new Set(), onTimes = [];
+  function midiIn(data) {
+    const [st, n, v] = data, cmd = st & 0xf0;
+    if (cmd !== 0x90 && cmd !== 0x80) return;
+    const on = cmd === 0x90 && v > 0;
+    if (on) {
+      if (onSent.has(n)) return;
+      const t = performance.now();
+      while (onTimes.length && t - onTimes[0] > 1000) onTimes.shift();
+      if (onTimes.length >= MAX_PER_S) { dropped++; return; }
+      onTimes.push(t); onSent.add(n);
+    } else if (!onSent.delete(n)) return;
+    bay.send('web:keys:midi-out', { cls: 'note', ch: (st & 0x0f) + 1, d1: n, d2: on ? v : 0, k: ++k });
+  }
+  function toRoom(ev) {
+    if (ev.k === lastK) return;
+    lastK = ev.k;
+    if (wire?.send({ type: 'screen.note', n: ev.d1, on: ev.d2 > 0 })?.sent) roomSent++;
+  }
+  function attach() { for (const i of midi?.inputs.values() ?? []) i.onmidimessage = listening ? (e) => midiIn(e.data) : null; }
+  function keysOn() {
+    wire ??= openWire(KEYS_ROOM, { onOpen: () => d.log(`the keyboard reaches ${KEYS_ROOM}`) });
+    if (midi) { attach(); return; }
+    if (!navigator.requestMIDIAccess) { d.log('this browser has no Web MIDI, so the keyboard is not heard', 'warn'); return; }
+    asking ??= navigator.requestMIDIAccess().then((m) => { midi = m; m.onstatechange = attach; attach(); },
+      (e) => d.log(`Web MIDI was refused: ${e.message}`, 'warn'));
+  }
+  function keysOff() {
+    attach();
+    for (const n of [...onSent]) midiIn([0x80, n, 0]);
+    wire?.send({ type: 'screen.note', panic: true });
+    const w = wire; wire = null;
+    setTimeout(() => w?.close(), 200);
+  }
+  const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+  function heldIn(ev) {
+    if (ev.d2 > 0) heldNotes.add(ev.d1); else heldNotes.delete(ev.d1);
+    heldLine.textContent = [...heldNotes].sort((a, b) => a - b).map(nameOf).join(' ');
   }
 
   const set = (prog, kv) => sc?.send('/n_set', NODE_IDS[prog], ...Object.entries(kv).flat());
@@ -142,7 +291,7 @@
       const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', r.bytes);
       if (!done || done[0] !== '/done') d.log(`${name} was not taken: ${done?.[2] || 'no answer'}`, 'bad');
     }
-    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', 0);
+    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', droneOn ? knobs.get('drone').value() : 0);
     sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0, 'amp', MIC_AMP);
     sc.send('/s_new', 'aspace', NODE_IDS.aspace, 1, 0);
     for (const k of KNOBS) if (k.to !== 'adrone') set(k.to, { [k.param]: knobs.get(k.name).value() });
@@ -154,6 +303,7 @@
     processing = on;
     procBtn.setAttribute('aria-pressed', String(on));
     knobBox.hidden = !on;
+    patch();
     if (on && !sc) {
       procBtn.dataset.busy = '';
       try { await (booting ??= bootSc()); } catch (e) { d.log(`SuperCollider did not start: ${e.message}`, 'bad'); booting = null; sc = null; }
@@ -165,40 +315,112 @@
   function setDrone(on) {
     droneOn = on;
     droneBtn.setAttribute('aria-pressed', String(on));
+    patch();
     set('adrone', { amp: on ? knobs.get('drone').value() : 0 });
   }
 
-  // ── the picture: the mic's envelope scrolling in from the right, monochrome, on a dBFS scale from -100 to 0 ──
+  // ── the picture: one column a frame, rows log-spaced 60 Hz to 12 kHz, ink over 60 dB under the recent loudest bin ──
+  // (/huddersfield/'s spectrogram, copied, with no history ring: this page does not scrub)
+  const SG_N = 1024, SG_LO = 60, SG_HI = 12000, SG_RANGE = 60, SG_FALL = 3, SG_CEIL = -20, SG_FLOOR = -90, STEP = 2;
+  // the brightest ink, a share of white
+  const INK = 0.6;
+  const HANN = Float32Array.from({ length: SG_N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / SG_N));
+  function fft(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= n; len <<= 1) {
+      const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let j = 0; j < len / 2; j++) {
+          const p = i + j, q = p + len / 2, vr = re[q] * cr - im[q] * ci, vi = re[q] * ci + im[q] * cr;
+          re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+  }
   const canvas = el('canvas', 'mic');
   canvas.setAttribute('aria-hidden', 'true');
+  // opaque, drawn at CSS pixels and stretched: at most the screen's width a frame, whatever the pixel ratio
   const g = canvas.getContext('2d', { alpha: false });
-  const STEP = 2;
-  let buf = null, frames = 0, nonZero = 0, lastDb = -Infinity;
+  const re = new Float32Array(SG_N), im = new Float32Array(SG_N);
+  let col = null, bins = null, buf = null, top = null, at = 0, frames = 0, inked = 0, scoped = 0, nonZero = 0, lastDb = -Infinity;
   function size() {
-    const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+    const w = Math.max(1, innerWidth), h = Math.max(1, Math.min(innerHeight, 1440));
     if (canvas.width === w && canvas.height === h) return;
-    canvas.width = w; canvas.height = h; g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+    canvas.width = w; canvas.height = h;
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+    col = g.createImageData(STEP, h); bins = null;
   }
-  size(); addEventListener('resize', size);
-  const toFrac = (db) => Math.max(0, Math.min(1, (db + 100) / 100));
+  size();
+  addEventListener('resize', size);
+  function column() {
+    const w = canvas.width, h = canvas.height, sr = ctx.sampleRate, hi = Math.min(SG_HI, sr / 2);
+    bins ??= Int32Array.from({ length: h }, (_, y) => Math.min(SG_N / 2 - 1, Math.max(1, Math.round(SG_LO * (hi / SG_LO) ** (1 - y / h) / sr * SG_N))));
+    const t = performance.now(), dt = Math.min(0.1, at ? (t - at) / 1000 : 1 / 60);
+    at = t;
+    const off = buf.length - SG_N;
+    for (let i = 0; i < SG_N; i++) { re[i] = buf[off + i] * HANN[i]; im[i] = 0; }
+    fft(re, im);
+    const dbs = new Float32Array(h);
+    let peak = -Infinity;
+    for (let y = 0; y < h; y++) { const k = bins[y]; dbs[y] = 20 * Math.log10(Math.hypot(re[k], im[k]) / (SG_N / 4) + 1e-9); if (dbs[y] > peak) peak = dbs[y]; }
+    // the floor keeps silence black: with no sound every bin would be the loudest one
+    top = Math.max(SG_FLOOR, peak, Math.min(SG_CEIL, (top ?? peak) - (SG_RANGE / SG_FALL) * dt));
+    const p = col.data;
+    let lit = 0;
+    for (let y = 0; y < h; y++) {
+      const v = Math.round(255 * INK * Math.max(0, Math.min(1, (dbs[y] - (top - SG_RANGE)) / SG_RANGE)) ** 1.5);
+      if (v > 8) lit++;
+      for (let x = 0; x < STEP; x++) { const o = (y * STEP + x) * 4; p[o] = p[o + 1] = p[o + 2] = v; p[o + 3] = 255; }
+    }
+    g.drawImage(canvas, STEP, 0, w - STEP, h, 0, 0, w - STEP, h);
+    g.putImageData(col, w - STEP, 0);
+    if (lit) inked++;
+  }
+
+  // ── the waveform: a triggered scope along the foot, white, from the same analyser ──
+  const scope = el('canvas', 'mic-scope');
+  scope.setAttribute('aria-hidden', 'true');
+  const sg = scope.getContext('2d');
+  const SCOPE_N = 1024;
+  let scopeGain = 1;
+  function drawScope() {
+    const dpr = Math.min(2, devicePixelRatio || 1), cw = scope.clientWidth, ch = scope.clientHeight;
+    const w = Math.round(cw * dpr), h = Math.round(ch * dpr);
+    if (scope.width !== w || scope.height !== h) { scope.width = w; scope.height = h; }
+    sg.clearRect(0, 0, w, h);
+    // the first rising zero crossing in the first half holds the wave still
+    let s = 0;
+    for (let i = 1; i < buf.length - SCOPE_N; i++) if (buf[i - 1] <= 0 && buf[i] > 0) { s = i; break; }
+    let pk = 0;
+    for (let i = 0; i < SCOPE_N; i++) { const a = Math.abs(buf[s + i]); if (a > pk) pk = a; }
+    // a slow gain that fills the strip, never more than 40x, so a quiet room stays a flat line
+    scopeGain += (Math.min(40, 0.9 / Math.max(pk, 0.0225)) - scopeGain) * 0.05;
+    sg.strokeStyle = '#fff'; sg.lineWidth = 1.5 * dpr; sg.lineJoin = 'round';
+    sg.beginPath();
+    for (let i = 0; i < SCOPE_N; i++) {
+      const x = (i / (SCOPE_N - 1)) * w, y = h / 2 - Math.max(-1, Math.min(1, buf[s + i] * scopeGain)) * (h / 2 - dpr);
+      if (i) sg.lineTo(x, y); else sg.moveTo(x, y);
+    }
+    sg.stroke();
+    scoped++;
+  }
+
+  let audioAt = 0, lastFrames = 0;
   function draw() {
     requestAnimationFrame(draw);
     if (!an) return;
     buf ??= new Float32Array(an.fftSize);
     an.getFloatTimeDomainData(buf);
-    let s = 0, pk = 0;
-    for (const v of buf) { s += v * v; const a = v < 0 ? -v : v; if (a > pk) pk = a; }
+    let pk = 0;
+    for (const v of buf) { const a = v < 0 ? -v : v; if (a > pk) pk = a; }
     if (pk > 0) nonZero++;
-    const rms = Math.sqrt(s / buf.length);
-    const pdb = pk > 0 ? 20 * Math.log10(pk) : -Infinity, rdb = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
-    lastDb = pdb;
-    const w = canvas.width, h = canvas.height, mid = h / 2;
-    g.drawImage(canvas, STEP, 0, w - STEP, h, 0, 0, w - STEP, h);
-    g.fillStyle = '#000'; g.fillRect(w - STEP, 0, STEP, h);
-    const ph = toFrac(pdb) * mid * 0.92, rh = toFrac(rdb) * mid * 0.92;
-    g.fillStyle = 'rgb(70,70,70)'; g.fillRect(w - STEP, mid - ph, STEP, 2 * ph);
-    g.fillStyle = 'rgb(235,235,235)'; g.fillRect(w - STEP, mid - rh, STEP, 2 * rh);
-    meterBar.style.width = `${(toFrac(pdb) * 100).toFixed(1)}%`;
+    lastDb = pk > 0 ? 20 * Math.log10(pk) : -Infinity;
+    column(); drawScope();
+    const f = board?.stats()?.frames ?? 0;
+    if (f !== lastFrames) { lastFrames = f; audioAt = performance.now(); }
     if (frames++ % 15 === 0) drawLine();
   }
   requestAnimationFrame(draw);
@@ -214,31 +436,50 @@
   function drawLine() {
     const st = board?.stats();
     const level = Number.isFinite(lastDb) && an ? `${lastDb.toFixed(0)} dBFS` : '';
-    const tail = !listening ? 'Listen plays the microphone in studio 1.'
+    const tail = !listening ? 'Listen plays the microphone in studio 1, and the keyboard on the Palm.'
       : !st?.frames ? 'Waiting for the Pi.'
       : `${processing ? 'Processed' : 'Dry'}, ${level}`;
     line.replaceChildren(el('b', '', 'Headphones, or the mic will howl.'), tail);
   }
-  const meter = el('div', 'mic-meter'), meterBar = el('i');
-  meter.append(meterBar);
-  const btn = barButton({ icon: 'headphones', label: 'Listen', word: true, size: 'lg', onPress: () => (listening ? stop() : listen()) });
-  const face = () => { setButtonFace(btn, listening ? { icon: 'stop', label: 'Stop' } : { icon: 'headphones', label: 'Listen' }); drawLine(); };
-  const procBtn = barButton({ icon: 'waveform', label: 'Process', word: true, size: 'lg', onPress: () => setProcess(!processing) });
+  const heldLine = el('p', 'mic-held');
+  // every button a word, no icon
+  const word = (b, label) => { b.textContent = label; b.setAttribute('aria-label', label); };
+  const btn = barButton({ label: 'Listen', word: true, size: 'lg', onPress: () => (listening ? stop() : listen()) });
+  const face = () => { word(btn, listening ? 'Stop' : 'Listen'); drawLine(); };
+  const procBtn = barButton({ label: 'Process', word: true, size: 'lg', onPress: () => setProcess(!processing) });
   procBtn.setAttribute('aria-pressed', 'false');
-  const droneBtn = barButton({ icon: 'music', label: 'Drone', word: true, size: 'lg', onPress: () => setDrone(!droneOn) });
+  const droneBtn = barButton({ label: 'Drone', word: true, size: 'lg', onPress: () => setDrone(!droneOn) });
   droneBtn.setAttribute('aria-pressed', 'false');
   const knobs = new Map(KNOBS.map((k) => [k.name, createKnob({
     label: k.name, min: k.min, max: k.max, value: k.value, hand: true,
-    onInput: (v) => { if (k.to === 'adrone') { if (droneOn) set('adrone', { amp: v }); } else set(k.to, { [k.param]: v }); },
+    onInput: (v) => bay.send(k.to === 'adrone' ? 'web:knobs:value-out-2' : 'web:knobs:value-out', { name: k.param, v }),
   })]));
   const knobBox = el('div', 'mic-knobs');
   knobBox.append(createKnobGrid(knobs, { row: true }).el);
   knobBox.hidden = true;
+
+  // How it works: the patch over the dimmed picture, the sound ramped down to QUIET over 2.5 s and back, as the picture dims.
+  // An audio link flows while the Pi's frames arrive; a note link pulses with each note the bay carries.
+  const AUDIO_LIVE = 1000;
+  const pb = createPatchbay(bay, { title: 'how it works', room: KEYS_ROOM,
+    flowing: (l, medium) => medium === 'audio' && listening && performance.now() - audioAt < AUDIO_LIVE });
+  patch();
+  const howBox = el('div', 'mic-how-box');
+  howBox.append(pb.el);
+  function setHow(on) {
+    how = on;
+    document.body.classList.toggle('mic-how', on);
+    howBtn.setAttribute('aria-pressed', String(on));
+    if (on) pb.refresh();
+    if (howG) ramp(howG.gain, on ? QUIET : 1, RAMP);
+  }
+  const howBtn = barButton({ label: 'How it works', word: true, size: 'lg', onPress: () => setHow(!how) });
+  howBtn.setAttribute('aria-pressed', 'false');
   const btns = el('div', 'mic-btns');
-  btns.append(btn, procBtn, droneBtn);
-  titleBox.append(eye, h, atLine, line, btns, meter, knobBox);
+  btns.append(btn, procBtn, droneBtn, howBtn);
+  titleBox.append(eye, h, atLine, line, btns, heldLine, knobBox, howBox);
   face();
-  document.body.append(canvas, titleBox);
+  document.body.append(canvas, scope, titleBox);
 
   // Leaving by the slide arrows: the sound and the page fade to black over LEAVE s, then the arrow module navigates.
   const LEAVE = 1;
@@ -250,15 +491,17 @@
     setTimeout(done, LEAVE * 1000);
   });
   addEventListener('pageshow', (e) => { if (!e.persisted || !leaving) return; veil?.remove(); veil = null; leaving = null; if (fade && (listening || processing)) ramp(fade.gain, 1); });
-  addEventListener('pagehide', () => { if (listening) { lease?.stop(); board?.send({ type: 'input.stop' }); } });
+  addEventListener('pagehide', () => { if (listening) { lease?.stop(); board?.send({ type: 'input.stop' }); keysOff(); } });
 
-  window.__demo.mic = { listen, stop, setProcess, setDrone, knobs, board: () => board, context: () => ctx, sc: () => sc,
-    listening: () => listening, processing: () => processing, frames: () => frames, nonZero: () => nonZero, level: () => lastDb,
-    stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0 };
+  window.__demo.bay = bay;
+  window.__demo.mic = { listen, stop, setProcess, setDrone, setHow, knobs, board: () => board, context: () => ctx, sc: () => sc,
+    listening: () => listening, processing: () => processing, how: () => how, frames: () => frames, inked: () => inked, scoped: () => scoped,
+    nonZero: () => nonZero, level: () => lastDb, stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0,
+    midiIn, midi: () => !!midi, held: () => [...heldNotes], keys: () => ({ roomSent, dropped, wire: wire?.stats() ?? null }) };
 
   async function check() {
-    d.assert('a visit opened no audio context and no socket', ctx === null && board === null);
-    d.assert('Listen, Process and Drone under the line', document.querySelectorAll('.mic-btns button').length === 3);
+    d.assert('a visit opened no audio context, no socket and no Web MIDI', ctx === null && board === null && wire === null && midi === null);
+    d.assert('Listen, Process, Drone and How it works under the line', document.querySelectorAll('.mic-btns button').length === 4);
   }
   if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
   d.ready();
