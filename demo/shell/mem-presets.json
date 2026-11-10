@@ -153,8 +153,8 @@
         },
         "reverse": 0.1,
         "disintegrate": [
-          0.05,
-          0.2
+          0,
+          0
         ],
         "maxPasses": 45,
         "freeze": {
