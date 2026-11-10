@@ -282,3 +282,102 @@ don't want a team. We have a people"*, and ideas pile on ideas, made by their ag
 *"But end of the day, we have now created this mountain of like months and months of
 mountains of software, tens or 100,000 lines of code. And now we are setting it, and for
 what?"*
+
+**Masters make their own tools.** The owner, last pointer: *"masters doing their own
+tools, and blacksmiths making their own axes, handles, or chefs in the kitchen make those
+handles. So this tool making and real personal software and also hardware enabled by your
+personal software is now seems to be something what people are always been longing
+for."* Then: *"Now actually I'm done. You can do a synthesis."*
+
+## 10. Synthesis (2026-11-10)
+
+### References for the toolmaking pointer
+
+Looked up 2026-11-10. Read from search results and the pages named, not from the books.
+
+- **The blacksmith's tongs.** A smith's first real project is a pair of tongs, and making
+  them is what gets one "accepted" as a blacksmith. Smiths make most of their own tools:
+  hammers, chisels, punches, drifts, tongs shaped for each job. Instructors call a moment
+  of silence for the smith who reached into the fire bare-handed to make the first pair.
+  The first tool had to be made without a tool. (Ms Caitlin's School of Blacksmithing.)
+- **The chef's knife roll** (common knowledge, not looked up). A cook brings their own
+  knives, sharpens them, sometimes re-handles them. The kitchen is the restaurant's; the
+  knives are the cook's.
+- **Instrument builders in positron's own lineage.** Kurenniemi built his own instruments
+  (the DIMI series; `research/ojanen-ekis-notes.md`). Sandin built the Image Processor and
+  gave the plans away. Harry Partch built the instruments his music needed (common
+  knowledge).
+- **Bret Victor, "Inventing on Principle" (CUSEC 2012).** *"Creators need an immediate
+  connection to what they create."* The name for what the owner saw in the MIM sphere.
+  Victor showed it with tools he built himself.
+- **Robin Sloan, "An app can be a home-cooked meal" (2020).** Sloan built BoopSnoop for his
+  family only and calls himself the programming equivalent of a home cook: freed from
+  having to be professional and scalable, programming becomes a different activity, as
+  home cooking is nothing like a commercial kitchen.
+- **Maggie Appleton, "Home-Cooked Software and Barefoot Developers" (Local-First Conf,
+  2024).** Language models will bring a golden age of home-cooked software made by
+  "barefoot developers": people with little training who know a community's problem
+  deeply. Named after China's barefoot doctors.
+- **Ink & Switch, "Malleable software" (Litt, Horowitz, van Hardenberg, June 2025).**
+  Restoring user agency. Three patterns: a gentle slope from user to creator, *tools not
+  apps* (*"a kitchen knife rather than an avocado slicer"*), and communal creation.
+- Further, not looked up today: Ivan Illich, *Tools for Conviviality* (1973); Richard
+  Sennett, *The Craftsman* (2008); Ursula Franklin's holistic against prescriptive
+  technologies (1989).
+
+### The through-line
+
+Masters have always made their own tools: the smith's tongs, the cook's knives,
+Kurenniemi's DIMI. Agents have now given that to everybody, and the boom is real:
+custom firmware, hacked synths, everything programmable, hardware as a service of
+personal software. What agents did not bring is the room and the reason. People make
+alone, in flow, and end up with a mountain of code and the question *for what?*
+
+Positron is one of those mountains, and the owner says so. It is a workshop of tools
+made for their own work, and the tools are about connecting: keys to a Circuit in another
+building, people in a room, a radio somebody listens to. The answer the references point
+to is the one Sloan already gave: a home-cooked meal is made for a table. The MIM sphere
+was a room with people in it.
+
+### Points to take into the room
+
+1. **Open on the MIM scene, not on the system.** One room, one programmer, *"I want this to
+   be jungle"*, and the sound appears. Name it with Victor: an immediate connection to what
+   you create. This is what Fachwerk at Latitude lacked: a scene to hang it on.
+2. **Masters make their own tools.** The tongs story in two sentences. It says what
+   positron is (a workshop of my own tools) without the word platform.
+3. **Now everybody can, and I am one of them.** Home-cooked software, barefoot developers,
+   the firmware boom. Say plainly that positron is 3,496 commits since July, about a fifth
+   of them with an agent: I am inside the boom, not selling to it.
+4. **The demo** (the owner's pick) as the evidence: a tool that connects somebody here
+   with something there.
+5. **For what?** Code is no longer the scarce part; the reason and the table are. The
+   tools can be given away, as Sandin did. What is left to offer is the practice (the
+   skills), and the room where people make together: workshops, installations, rooms.
+6. **Name one person, never everybody.** If asked who it is for: somebody like that
+   SuperCollider programmer, and me. Not a market. The Fachwerk answer, *"everything for
+   everybody"*, is the one thing not to say again, and no platform story under pressure.
+7. **Tell the Latitude story yourself, briefly**, as the reason for coming: I failed once
+   to say who a thing was for, I still think it was right, I am here to learn to say it.
+
+### The three questions, again
+
+- **Whose problem?** People who now can build anything, alone, and are left asking for
+  what. I am one of them. The narrower version: musicians and artists who want that
+  immediate connection across rooms, devices and places.
+- **Why worth solving?** Making has become cheap and lonely at once. Tools that connect
+  people and places give the making somewhere to go.
+- **What help?** When code is free, what do I hand over: the tools, the practice, or the
+  table? And who in Estonia could be the table (the role SAT plays for ossia)?
+
+### Questions for the mentors, final
+
+1. When anybody can build the mountain, what turns it into something with a reason, and is
+   that something a person can be paid for?
+2. In a hire or an acquisition, what is bought: code, data, the team, or one person's
+   judgement? (Aivar Laan, FanSifter to Sony)
+3. A method spreads or stays internal. What decides it? (Kalev Rundu, Veriff's PM academy)
+4. How do I say "a workshop, not a product" so that it is remembered, and is the name worth
+   keeping next to Posit's Positron? (Triin Uustalu)
+5. Does visible wiring invite people in or keep them out? (Olha Halytska)
+6. Who in Estonia could be the table: a school, a festival, an archive, a venue?
