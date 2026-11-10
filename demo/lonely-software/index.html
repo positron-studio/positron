@@ -45,7 +45,7 @@
       ]),
     },
     two: {
-      bay: patch([{ id: ME, kind: 'person', label: 'node' }, { id: YOU, kind: 'person', label: 'somebody' }],
+      bay: patch([{ id: ME, kind: 'person', label: 'node' }, { id: YOU, kind: 'person', label: 'node2' }],
         [port(ME, 'audio', 'out'), port(ME, 'value', 'in'), port(YOU, 'audio', 'in'), port(YOU, 'value', 'out')], [
           { id: 'a', from: `${ME}:audio-out`, to: `${YOU}:audio-in` },
           { id: 'b', from: `${YOU}:value-out`, to: `${ME}:value-in` },
