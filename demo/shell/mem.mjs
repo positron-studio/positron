@@ -208,8 +208,10 @@ export function place(a, d, room) {
 // sclang-lite: operators left to right with no precedence, so every expression is bracketed.
 const SPEAKER = `{ var x = In.ar(\\inbus.kr(2), 1);
   var c = LPF.ar(HPF.ar(x, \\hp.kr(200, 4)), \\lp.kr(7000, 4));
+  var g = \\bf.kr(1, 4);
+  var b = (c * g) + (BPF.ar(c, \\bc.kr(1000, 4), \\brq.kr(1.2)) * (1 - g));
   var d = \\drive.kr(1.5, 4);
-  var s = (c * d).tanh / d;
+  var s = (b * d).tanh / d;
   var a = LPF.ar(s, \\air.kr(18000, 1)) * \\gain.kr(1, 1);
   var l = LPF.ar(DelayC.ar(a * \\gl.kr(0.7, 1), 0.002, \\dl.kr(0, 1)), \\fl.kr(20000, 1));
   var r = LPF.ar(DelayC.ar(a * \\gr.kr(0.7, 1), 0.002, \\dr.kr(0, 1)), \\fr.kr(20000, 1));
@@ -300,7 +302,17 @@ export class Mem {
     }
     const u = Math.min(1, (t - w.t0) / w.T), e = (1 - Math.cos(Math.PI * u)) / 2, oct = (a, b) => a * (b / a) ** e;
     pl.colour = { hp: oct(w.from.hp, w.to.hp), lp: oct(w.from.lp, w.to.lp), drive: w.from.drive + (w.to.drive - w.from.drive) * e };
-    this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
+    this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
+  }
+  /**
+   * A speaker's home band (preset `bands` { lo, hi, floor, rq, drift }): the places share lo..hi in octaves, low place
+   * low, each centred in its own share and drifting `drift` octaves either way, a slow sine of its own; outside it the loop is
+   * `floor` dB down, so noisy sources sit beside each other instead of on top. The loop alone has its whole range.
+   */
+  band(pl) {
+    const B = this.p.bands; if (!B) return ['bf', 1];
+    const home = B.lo * (B.hi / B.lo) ** ((pl.k + 0.5) / this.n), bd = (B.drift ?? 0) * Math.sin(2 * Math.PI * this.t / ((80 + 23 * pl.k) * this.sr) + pl.k);
+    return ['bc', Math.min(this.top, home * 2 ** bd), 'bf', this.soloState?.pl === pl ? 1 : 10 ** (B.floor / 20), 'brq', B.rq ?? 1.2];
   }
   /**
    * The reverb that moves (preset `room.reverb.walk`): its level glides to a share of the preset's (`amount`) and holds,
@@ -431,7 +443,7 @@ export class Mem {
   }
   gainTarget() { return (this.p.level ?? 1) / Math.sqrt(this.n) * 2; }
   spk(pl, action = 1, target = 0) {
-    this.w.send('/s_new', 'mspk', NODE.spk + pl.i, action, target, 'inbus', 2 + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
+    this.w.send('/s_new', 'mspk', NODE.spk + pl.i, action, target, 'inbus', 2 + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
   }
 
   /** `bootSync` and `vendor` ({ wasmModule, glue }) from scsynth-sync.mjs, so the engine imports no runtime. */
@@ -750,7 +762,7 @@ export class Mem {
     for (const pl of staying.slice(0, n)) {
       const c = this.colourAt(pl.k);
       pl.colour = { hp: r.range(c.hp), lp: r.range(c.lp), drive: r.range(c.drive) };
-      this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
+      this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
     }
     // the dry feed fades by its lag, so it is fed a little longer when the new preset has none
     if ((old.dry ?? 0) > 0) this.dryUntil = t + 6 * this.sr;
@@ -784,7 +796,7 @@ export class Mem {
       for (const pl of this.players) if (!pl.leaving) {
         const c = this.colourAt(pl.k);
         pl.colour = { hp: this.r.range(c.hp), lp: this.r.range(c.lp), drive: this.r.range(c.drive) };
-        this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive);
+        this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
       }
     }
     return true;
