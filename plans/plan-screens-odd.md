@@ -127,6 +127,7 @@ at 8-bit, more at 1-bit. Measure before designing pieces around it.
 - The colour build (rig/palm/frame, header 'P' 'F' fmt len_hi len_lo) on the Z22, sent flat out from the Pi on /dev/ttyUSB0, 15 s each: **1 bit 50 fps (156 KB/s), 4 bit grey 18 fps (230 KB/s), 8 bit palette 11 fps (275 KB/s), 16 bit RGB565 6 fps (275 to 300 KB/s).** The link carries about 300 KB/s. These are bytes the tty accepted; the owner saw the 16 bit run draw (status d16 f270).
 - **ttyUSB1 went dead after a USB drop** (18:31, 33 s of descriptor errors): pframe's port stayed on the old session and read nothing. ttyUSB0 kept working. The diagnostic build (two status lines, port reopen after 3 s of errors or a tap on the title) is on the Pi as ~/palm/frame.prc, not installed.
 - Tones ('P' 'T', sndCmdFrqOn) play: the owner heard the scale.
+- **Seen on the device (owner's video, 20:49):** `d16 f1450 5.9/s 286KB/s` the colour wheel smooth and correct; `d4 f1148 17.8/s 228KB/s` grey ramps correct; `d8 f1388 11.0/s 274KB/s` frames arrive but the colours are wrong (banded wheel, scrambled ramps): send.mjs maps 8 bit with a palette written from memory, and the Palm's own palette never came back (no ~/palm/palette.hex). The diagnostic build sends it after the first 8 bit frame.
 
 ## plan-camera-feedback: a Pi camera looking at its own screen
 
