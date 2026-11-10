@@ -42,6 +42,15 @@
   .mic-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
   body.mic-how .mic-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
   .mic-vol { pointer-events: auto; margin-top: 20px; max-width: 360px; }
+  /* the Palm's voice on the Pi: four choices and five knobs, the MK-425C's CCs as controls */
+  .mic-voice { pointer-events: auto; margin-top: 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .mic-voice[hidden] { display: none; }
+  .mic-voice-h { margin: 0; font: 600 12px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  /* the four choices in two columns, so the labels and the segments line up */
+  .mic-voice-c { display: grid; grid-template-columns: max-content max-content; gap: 8px 12px; align-items: center; }
+  .mic-voice-c .pos-choice { display: contents; }
+  .mic-voice { transition: opacity .6s; }
+  body.mic-how .mic-voice { opacity: 0; pointer-events: none; }
 </style>
 <script type="module">
   // The Shure SM57 on the Pi's Fast Track Pro input 2, to this page over the relay in the board's audio frames
@@ -58,6 +67,7 @@
   import { createKnob } from '/shell/knob.mjs';
   import { createFader } from '/shell/fader.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { createChoice } from '/shell/choice.mjs';
   import { bootScsynth } from '/shell/scsynth.mjs';
   import { compile } from '/shell/sclang-lite.mjs';
 
@@ -171,9 +181,9 @@
   function patch() {
     hold('dry', 'web:board:audio-out', 'web:speaker:audio-in', !processing);
     hold('in', 'web:board:audio-out', 'web:space:audio-in', processing);
-    hold('out', 'web:space:audio-out', 'web:speaker:audio-in', processing);
-    hold('pic', 'web:space:audio-out', 'web:picture:audio-in', processing);
-    hold('drone', 'web:drone:audio-out', 'web:space:audio-in', processing && droneOn);
+    hold('out', 'web:space:audio-out', 'web:speaker:audio-in', processing || droneOn);
+    hold('pic', 'web:space:audio-out', 'web:picture:audio-in', processing || droneOn);
+    hold('drone', 'web:drone:audio-out', 'web:space:audio-in', droneOn);
     pb?.refresh();
   }
 
@@ -206,6 +216,7 @@
     ensureCtx();
     clearTimeout(stopT); stopT = 0;
     listening = true; face();
+    voiceBox.hidden = false;
     keysOn();
     if (!board) {
       board = createBoard({ room: ROOM, of: 'microphone', showName: false, audioContext: ctx, toDestination: false,
@@ -225,6 +236,7 @@
   }
   function stop() {
     listening = false; face();
+    voiceBox.hidden = true;
     lease?.stop(); lease = null;
     board?.send({ type: 'input.stop' });
     keysOff();
@@ -249,7 +261,7 @@
   function unlatch() { for (const n of [...latched]) { latched.delete(n); if (!phys.has(n) && onSent.has(n)) emit(1, n, 0); } }
   function midiIn(data) {
     const [st, n, v] = data, cmd = st & 0xf0;
-    if (cmd === 0xb0) return ccIn(n, v);
+    if (cmd === 0xb0) { voiceShow(n, v); return ccIn(n, v); }
     if (cmd === 0xe0) return bendIn(((v << 7) | n) - 8192);
     if (cmd !== 0x90 && cmd !== 0x80) return;
     const on = cmd === 0x90 && v > 0, ch = (st & 0x0f) + 1;
@@ -328,33 +340,37 @@
       if (!done || done[0] !== '/done') d.log(`${name} was not taken: ${done?.[2] || 'no answer'}`, 'bad');
     }
     sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', droneOn ? knobs.get('drone').value() : 0, 'root', root);
-    sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0, 'amp', MIC_AMP);
+    sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0, 'amp', processing ? MIC_AMP : 0);
     sc.send('/s_new', 'aspace', NODE_IDS.aspace, 1, 0);
     for (const k of KNOBS) if (k.to !== 'adrone') set(k.to, { [k.param]: knobs.get(k.name).value() });
     // the engine's own out, which bootScsynth wires to the speakers, goes through wet and the volume instead
     sc.out.disconnect(); sc.out.connect(wet);
   }
-  async function setProcess(on) {
+  // Process or Drone boots scsynth; the wet path is on for either, the mic goes through it only with Process.
+  async function engine(b) {
     ensureCtx();
+    knobBox.hidden = !(processing || droneOn);
+    patch();
+    if ((processing || droneOn) && !sc) {
+      b.dataset.busy = '';
+      try { await (booting ??= bootSc()); } catch (e) { d.log(`SuperCollider did not start: ${e.message}`, 'bad'); booting = null; sc = null; }
+      delete b.dataset.busy;
+    }
+    set('adrone', { amp: droneOn ? knobs.get('drone').value() : 0 });
+    set('aradio', { amp: processing ? MIC_AMP : 0 });
+    if (!latching()) unlatch();
+    ramp(dry.gain, processing ? 0 : 1, 0.5); ramp(wet.gain, processing || droneOn ? 1 : 0, 0.5);
+    if (!listening) ramp(fade.gain, processing || droneOn ? 1 : 0);
+  }
+  function setProcess(on) {
     processing = on;
     procBtn.setAttribute('aria-pressed', String(on));
-    knobBox.hidden = !on;
-    patch();
-    if (on && !sc) {
-      procBtn.dataset.busy = '';
-      try { await (booting ??= bootSc()); } catch (e) { d.log(`SuperCollider did not start: ${e.message}`, 'bad'); booting = null; sc = null; }
-      delete procBtn.dataset.busy;
-    }
-    if (!latching()) unlatch();
-    ramp(dry.gain, processing ? 0 : 1, 0.5); ramp(wet.gain, processing ? 1 : 0, 0.5);
-    if (!listening) ramp(fade.gain, processing ? 1 : 0);
+    return engine(procBtn);
   }
   function setDrone(on) {
     droneOn = on;
     droneBtn.setAttribute('aria-pressed', String(on));
-    patch();
-    set('adrone', { amp: on ? knobs.get('drone').value() : 0 });
-    if (!latching()) unlatch();
+    return engine(droneBtn);
   }
 
   // ── the picture: one column a frame, rows log-spaced 60 Hz to 12 kHz, ink over 60 dB under the recent loudest bin ──
@@ -474,6 +490,38 @@
   knobBox.append(createKnobGrid(knobs, { row: true }).el);
   knobBox.hidden = true;
 
+  // The Palm's voice: each control sends palm.cc like the MK-425C's knob of the same number (rig/palm/bridge.mjs onCC).
+  // A choice sends the middle of its zone (the bridge reads v >> 5); the knobs show the bridge's own units.
+  const zone = (i) => i * 32 + 16;
+  const VOICE_CHOICES = [
+    { cc: 74, label: 'mode', names: ['mono', 'arp', 'echo', 'chip'], at: 1 },
+    { cc: 93, label: 'pattern', names: ['up', 'down', 'updown', 'random'], at: 2 },
+    { cc: 5, label: 'doubling', names: ['off', 'octave', 'fifth', 'both'], at: 0 },
+    { cc: 84, label: 'tuning', names: ['equal', 'just', 'q24', 'drift'], at: 0 },
+  ];
+  const VOICE_KNOBS = [
+    { cc: 71, label: 'speed', value: 100, format: (v) => `${Math.round(400 - v / 127 * 370)} ms` },
+    { cc: 91, label: 'glide', value: 40, format: (v) => `${Math.round((v / 127) ** 2 * 400)} ms` },
+    { cc: 73, label: 'echo', value: 75, format: (v) => `${Math.round(v / 127 * 85)} %` },
+    { cc: 72, label: 'time', value: 42, format: (v) => `${Math.round(60 + v / 127 * 540)} ms` },
+    { cc: 1, label: 'vibrato', value: 0, format: (v) => `${Math.round(v / 127 * 80)} ct` },
+  ];
+  const voiceChoices = new Map(VOICE_CHOICES.map((c) => [c.cc, createChoice({ label: c.label, at: c.at,
+    options: c.names.map((n, i) => [n, i]), onPick: (i) => ccIn(c.cc, zone(i)) })]));
+  const voiceKnobs = new Map(VOICE_KNOBS.map((k) => [k.cc, createKnob({ label: k.label, min: 0, max: 127, step: 1, value: k.value,
+    format: k.format, onInput: (v) => ccIn(k.cc, Math.round(v)) })]));
+  // a knob or wheel on the MK-425C moves the matching control without sending again
+  function voiceShow(cc, v) {
+    voiceChoices.get(cc)?.set(Math.min(3, v >> 5), true);
+    voiceKnobs.get(cc)?.receive(v);
+  }
+  const voiceBox = el('div', 'mic-voice');
+  const choiceBox = el('div', 'mic-voice-c');
+  choiceBox.append(...[...voiceChoices.values()].map((c) => c.el));
+  voiceBox.append(el('div', 'mic-voice-h', 'Palm voice'), choiceBox,
+    createKnobGrid(new Map(VOICE_KNOBS.map((k) => [k.label, voiceKnobs.get(k.cc)])), { row: true }).el);
+  voiceBox.hidden = true;
+
   // How it works: the patch over the dimmed picture, the sound ramped down to QUIET over 2.5 s and back, as the picture dims.
   // An audio link flows while the Pi's frames arrive; a note link pulses with each note the bay carries.
   const AUDIO_LIVE = 1000;
@@ -493,7 +541,7 @@
   howBtn.setAttribute('aria-pressed', 'false');
   const btns = el('div', 'mic-btns');
   btns.append(btn, procBtn, droneBtn, howBtn);
-  titleBox.append(eye, h, atLine, line, btns, volBox, heldLine, knobBox, howBox);
+  titleBox.append(eye, h, atLine, line, btns, volBox, heldLine, knobBox, voiceBox, howBox);
   face();
   document.body.append(canvas, titleBox);
 
@@ -513,7 +561,7 @@
   window.__demo.mic = { listen, stop, setProcess, setDrone, setHow, knobs, board: () => board, context: () => ctx, sc: () => sc,
     listening: () => listening, processing: () => processing, how: () => how, frames: () => frames, inked: () => inked,
     nonZero: () => nonZero, level: () => lastDb, stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0,
-    midiIn, midi: () => !!midi, held: () => [...heldNotes], latched: () => [...latched], root: () => root,
+    midiIn, midi: () => !!midi, voiceChoices, voiceKnobs, held: () => [...heldNotes], latched: () => [...latched], root: () => root,
     keys: () => ({ roomSent, dropped, ccSent, wire: wire?.stats() ?? null }) };
 
   async function check() {
