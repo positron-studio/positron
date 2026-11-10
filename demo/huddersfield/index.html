@@ -40,6 +40,8 @@
   body.raid .hud-t, body.raid .hud-t h1, body.raid .hud-t .hud-at, body.raid .hud-t p, body.raid .hud-t p b,
   body.raid .hud-t .pos-hero-eye, body.raid .hud-t .pos-hero-eye b { color: rgba(0, 0, 0, .45);
     text-shadow: 0 0 6px #fff, 0 0 2px #fff; }
+  /* during a raid only the hours show: no title, no buttons, no arrows */
+  body.raid .hud-t, body.raid .sl-nav { opacity: 0; visibility: hidden; transition: opacity 1s, visibility 0s 1s; }
 </style>
 <script type="module">
   // /radio1965/ playing the v2in mem channel, its picture a full page monochrome spectrogram scrolling in from the right
@@ -219,7 +221,7 @@
       const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
       const ch = (j?.channels || []).find((c) => c.id === STATION);
       if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
-      if (playing && !FORCE_RAID) kyiv.set(j?.raid ?? ch?.raid);
+      if (playing && !FORCE_RAID) setRaid(j?.raid ?? ch?.raid);
     } catch { /* next time */ }
     if (playing) pollT = setTimeout(readNow, 15_000);
   }
@@ -365,6 +367,14 @@
   // ?raid=1 shows the raid view with no network, for the harness and a preview
   const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
   const kyiv = createKyivRaid({ onChange: () => drawLine() });
+  // Esc hides this raid until the all clear; r shows a simulated one or takes it away
+  let raidOff = false;
+  const setRaid = (r) => { if (!r?.on) raidOff = false; if (!raidOff) kyiv.set(r); };
+  addEventListener('keydown', (e) => {
+    if (e.target.closest?.('input, textarea')) return;
+    if (e.key === 'Escape' && kyiv.raid().on) { raidOff = true; kyiv.set(null); }
+    if (e.key === 'r' || e.key === 'R') { raidOff = false; kyiv.set(kyiv.raid().on ? null : { on: true, since: new Date(Date.now() - 36e5).toISOString() }); }
+  });
   const titleBox = el('div', 'hud-t');
   const eye = el('div', 'pos-hero-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
@@ -436,6 +446,7 @@
     scrub.t = t; rec.port.postMessage({ to: t * ctx.sampleRate });
   }
   canvas.addEventListener('pointerdown', (e) => {
+    if (kyiv.raid().on) return;   // no scrub during a raid
     if (!rec || !cols || scrub) return;
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);

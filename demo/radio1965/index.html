@@ -40,6 +40,8 @@
   body.raid .r65-t, body.raid .r65-t h1, body.raid .r65-t .r65-at, body.raid .r65-t p, body.raid .r65-t p b,
   body.raid .r65-t .pos-hero-eye, body.raid .r65-t .pos-hero-eye b { color: rgba(0, 0, 0, .45);
     text-shadow: 0 0 6px #fff, 0 0 2px #fff; }
+  /* during a raid only the hours show: no title, no buttons, no arrows */
+  body.raid .r65-t, body.raid .sl-nav { opacity: 0; visibility: hidden; transition: opacity 1s, visibility 0s 1s; }
 </style>
 <script type="module">
   // The scan landscape (/shader/landscape/'s picture), moved by the sound of the v2in radio1965 channel after Play,
@@ -154,7 +156,7 @@
       const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
       const ch = (j?.channels || []).find((c) => c.id === STATION);
       if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
-      if (playing && !FORCE_RAID) kyiv.set(j?.raid ?? ch?.raid);
+      if (playing && !FORCE_RAID) setRaid(j?.raid ?? ch?.raid);
     } catch { /* next time */ }
     if (playing) pollT = setTimeout(readNow, 15_000);
   }
@@ -306,6 +308,14 @@
   // ?raid=1 shows the raid view with no network, for the harness and a preview
   const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
   const kyiv = createKyivRaid({ onChange: () => drawLine() });
+  // Esc hides this raid until the all clear; r shows a simulated one or takes it away
+  let raidOff = false;
+  const setRaid = (r) => { if (!r?.on) raidOff = false; if (!raidOff) kyiv.set(r); };
+  addEventListener('keydown', (e) => {
+    if (e.target.closest?.('input, textarea')) return;
+    if (e.key === 'Escape' && kyiv.raid().on) { raidOff = true; kyiv.set(null); }
+    if (e.key === 'r' || e.key === 'R') { raidOff = false; kyiv.set(kyiv.raid().on ? null : { on: true, since: new Date(Date.now() - 36e5).toISOString() }); }
+  });
   const titleBox = el('div', 'r65-t');
   const eye = el('div', 'pos-hero-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
