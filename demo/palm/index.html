@@ -551,8 +551,10 @@
   const micFader = gainFader('c2', micNow, (v) => { micNow = v; toGain(micG, v); });
   const lineFader = gainFader('c1', lineNow, (v) => { lineNow = v; toGain(lineG, v); });
   const volFader = gainFader('out', volNow, (v) => { volNow = v; toGain(master, v); });
+  // the Palm's own voice, CC 7 to the bridge: it scales the tones under the Palm's maximum, so the top is full
+  const palmFader = createFader({ label: 'palm', min: 0, max: 127, value: 127, onInput: (v) => ccIn(7, Math.round(v)) });
   const volBox = el('div', 'mic-vol');
-  volBox.append(lineFader.el, micFader.el, volFader.el);
+  volBox.append(lineFader.el, micFader.el, volFader.el, palmFader.el);
   const knobBox = el('div', 'mic-knobs');
   knobBox.append(createKnobGrid(knobs, { row: true }).el);
   knobBox.hidden = true;

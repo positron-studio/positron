@@ -72,6 +72,7 @@ if (!(PEN_CH >= 1 && PEN_CH <= 16)) die('--pen-ch 1 to 16');
 const MODES = ['mono', 'arp', 'echo', 'chip'], PATTERNS = ['up', 'down', 'updown', 'random'];
 const DOUBLES = ['off', 'octave', 'fifth', 'both'], TUNINGS = ['equal', 'just', 'q24', 'drift'];
 const vs = {
+  vol: 1,   // 0 to 1, CC 7, scales every tone under AMP (the Palm cannot go louder than sndMaxAmp)
   mode: opt('--voice-mode', 'arp'), pattern: opt('--pattern', 'updown'), rate: Number(opt('--rate', 110)),
   glide: Number(opt('--glide', 40)), vib: Number(opt('--vib', 0)), echo: Number(opt('--echo', 0.5)),
   echoMs: Number(opt('--echo-ms', 240)), double: opt('--double', 'off'), tuning: opt('--tuning', 'equal'), bend: 0,
@@ -300,6 +301,7 @@ function sendVoice(buf) {
   pump();
 }
 function tone(f, a, t) {
+  a *= vs.vol;
   f = Math.max(30, Math.min(12000, Math.round(f))); a = Math.max(0, Math.min(AMP, Math.round(a)));
   if (a < 3) return hush();
   if (!silent && Math.abs(f - lastTx.f) < 1 && a === lastTx.a && t - lastTx.t < REFRESH_MS) return;
@@ -418,12 +420,13 @@ if (VOICE) setInterval(tick, TICK);
 if (VOICE) setInterval(() => { if (vs.mode === 'plain' && sounding) enqueue(PING, { front: true }); }, 1000);
 
 // The MK-425C's knobs, as /ambient/drone/ measured them, and the mod wheel; four zones on a knob choose among four.
-const CC_MAP = { 1: 'vib', 74: 'mode', 71: 'rate', 91: 'glide', 93: 'pattern', 73: 'echo', 72: 'echoMs', 5: 'double', 84: 'tuning' };
+const CC_MAP = { 7: 'vol', 1: 'vib', 74: 'mode', 71: 'rate', 91: 'glide', 93: 'pattern', 73: 'echo', 72: 'echoMs', 5: 'double', 84: 'tuning' };
 function onCC(cc, v) {
   const key = CC_MAP[cc];
   if (!key || !(v >= 0 && v <= 127)) return;
   const zone = Math.min(3, v >> 5), was = vs[key];
-  if (key === 'vib') vs.vib = Math.round(v / 127 * 80);
+  if (key === 'vol') vs.vol = v / 127;
+  else if (key === 'vib') vs.vib = Math.round(v / 127 * 80);
   else if (key === 'mode') vs.mode = MODES[zone];
   else if (key === 'rate') vs.rate = Math.round(400 - v / 127 * 370);
   else if (key === 'glide') vs.glide = Math.round((v / 127) ** 2 * 400);
