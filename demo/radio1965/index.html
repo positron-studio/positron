@@ -30,7 +30,7 @@
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
-  import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, createFeatures } from '/shell/radio-gran.mjs';
+  import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, LANES, createFeatures } from '/shell/radio-gran.mjs';
   import { createEnvFollower } from '/shell/pappus-mod.mjs';
   import { barButton, setButtonFace } from '/shell/bar.mjs';
   import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
@@ -138,7 +138,63 @@
     face();
   }
 
-  // ── the data texture: the drift, and while playing the followers in row 3 ──
+  // ── onsets: spectral flux over an adaptive threshold, each one a deposit of grains in row 0 ──
+  // An isolated onset is a burst spread round its tone; three or more evenly spaced ones are steps,
+  // one narrow mark each, walking across the field. Capped at MAX_ONSETS a second.
+  const FLUX_N = 45, REFRACT = 0.09, MAX_ONSETS = 10, sizeLane = LANES.size;
+  const fluxHist = new Float32Array(FLUX_N);
+  let fluxI = 0, fluxFill = 0, lastOnset = -1, onsets = 0, deposits = 0, bursts = 0, steps = 0, pulse = 0;
+  const onsetTimes = [], pending = [];
+  let stepX = 0, stepG = 0;
+  function detect(flux, t) {
+    let m = 0, v = 0;
+    for (let i = 0; i < fluxFill; i++) m += fluxHist[i];
+    m /= Math.max(1, fluxFill);
+    for (let i = 0; i < fluxFill; i++) v += (fluxHist[i] - m) ** 2;
+    const thr = m + 1.6 * Math.sqrt(v / Math.max(1, fluxFill)) + 1e-5;
+    fluxHist[fluxI] = flux; fluxI = (fluxI + 1) % FLUX_N; fluxFill = Math.min(FLUX_N, fluxFill + 1);
+    if (fluxFill < 15 || flux <= thr || t - lastOnset < REFRACT) return 0;
+    while (onsetTimes.length && t - onsetTimes[0] > 1) onsetTimes.shift();
+    if (onsetTimes.length >= MAX_ONSETS) return 0;
+    lastOnset = t; onsetTimes.push(t); onsets++;
+    return Math.min(1, (flux - thr) / thr);
+  }
+  let recent = [];
+  function deposit(strength, tone, t) {
+    recent.push(t); if (recent.length > 4) recent.shift();
+    const iv = recent.slice(1).map((x, i) => x - recent[i]);
+    const even = iv.length >= 2 && iv.every((x) => x < 0.7 && Math.abs(x - iv[0]) < 0.2 * iv[0]);
+    const xc = Math.round(4 + tone * (DATA_W - 9));
+    if (even) {
+      // a step: one column, the next one along, a little higher each time
+      if (iv.length === 2) { stepX = xc; stepG = 0.08; }
+      stepX = (stepX + 3) % DATA_W; stepG = Math.min(0.7, stepG + 0.06);
+      pending.push({ x: stepX, w: 0, g: stepG, n: 2 + Math.round(strength * 3), f: 3 });
+      steps++;
+    } else {
+      // a burst: many grains round the tone's column, longer the harder the attack
+      pending.push({ x: xc, w: 3 + Math.round(strength * 4), g: 0.1 + 0.5 * strength, n: 6 + Math.round(strength * 18), f: 5 });
+      bursts++;
+    }
+  }
+  function drain() {
+    let got = 0;
+    for (let j = pending.length - 1; j >= 0; j--) {
+      const p = pending[j], per = Math.ceil(p.n / p.f);
+      for (let k = 0; k < per && p.n > 0; k++, p.n--) {
+        const x = Math.max(0, Math.min(DATA_W - 1, p.x + Math.round((Math.random() * 2 - 1) * p.w)));
+        const i = at(x, 0);
+        data[i] = Math.min(255, data[i] + 1);
+        data[i + 1] = u8(sizeLane.unmap(Math.max(0, p.g + (Math.random() - 0.5) * 0.08)));
+        got++;
+      }
+      if (--p.f <= 0 || p.n <= 0) pending.splice(j, 1);
+    }
+    deposits += got;
+    return got;
+  }
+
+  // ── the data texture: the drift, and while playing the followers in row 3 and onsets in row 0 ──
   const data = new Uint8Array(DATA_W * DATA_H * 4);
   let last = 0, drift = 0, frames = 0;
   function tick(t) {
@@ -162,6 +218,14 @@
       target.swellY = clamp('swellY', 0.05 * v('low'));
       target.bucket = clamp('bucket', 0.35 * v('flux'));
       target.heave = clamp('heave', 0.2 + 0.6 * v('tone'));
+      const s = detect(f.flux ?? 0, t / 1000);
+      if (s > 0) deposit(s, f.tone ?? 0, t / 1000);
+      const got = drain();
+      data[at(6, 3)] = 255;
+      data[at(7, 3)] = Math.min(255, got);
+      data[at(16, 3)] = u8(Math.exp(-dt / OPEN.fade));
+      pulse = (pulse + got * 0.045) % 1;
+      data[at(19, 3)] = u8(0.5 - 0.5 * Math.cos(pulse * Math.PI * 2));
     } else for (const n of Object.keys(RANGE)) target[n] = OPEN[n];
     // faster while it hears, slow back to rest
     const k = 1 - Math.exp(-dt / (live ? 1.5 : 6));
@@ -195,7 +259,7 @@
   face();
   document.body.append(canvas, titleBox);
 
-  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, context: () => ctx, heard: () => heard, play, stop };
+  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, context: () => ctx, heard: () => heard, onsets: () => ({ onsets, bursts, steps, deposits }), play, stop };
 
   async function check() {
     d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
