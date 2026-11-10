@@ -11,7 +11,7 @@
   /* The picture is the page: over everything, the whole viewport, nothing to press. */
   html, body { background: #000; }
   .hud { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; touch-action: none; cursor: ew-resize; }
-  /* the scrub position while dragging */
+  /* the fixed playhead while dragging: the picture moves under it */
   .hud-head { position: fixed; top: 0; bottom: 0; width: 1px; z-index: 10; pointer-events: none; background: rgba(255, 255, 255, .75); display: none; }
   .hud-head.on { display: block; }
   /* The title over the picture, top left; taps go through it to the picture. */
@@ -129,16 +129,30 @@
   const g = canvas.getContext('2d', { alpha: false });
   const re = new Float32Array(SG_N), im = new Float32Array(SG_N);
   let col = null, bins = null, buf = null, top = null, at = 0, frames = 0, inked = 0;
-  // each screen column's context time, newest at head, so a point on the screen is a time in the kept buffer
-  let colT = new Float64Array(1), head = 0, cols = 0;
+  // The history: a ring of columns on an offscreen canvas, each with its context time, newest at head, long enough
+  // for the kept buffer at 60 fps and capped at 12 M pixels. The screen is drawn from it, `view` px back from newest.
+  const BUF_S = 90;
+  const hist = document.createElement('canvas'), hg = hist.getContext('2d', { alpha: false });
+  let colT = new Float64Array(1), head = 0, cols = 0, view = 0;
   function size() {
     const w = Math.max(1, innerWidth), h = Math.max(1, Math.min(innerHeight, 1440));
     if (canvas.width === w && canvas.height === h) return;
     canvas.width = w; canvas.height = h;
     g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
     col = g.createImageData(STEP, h); bins = null;
-    colT = new Float64Array(Math.ceil(w / STEP) + 1); head = 0; cols = 0;
+    const n = Math.max(Math.ceil(w / STEP) + 1, Math.floor(Math.min(BUF_S * 60 * STEP, 12e6 / h) / STEP));
+    hist.width = n * STEP; hist.height = h; hg.fillStyle = '#000'; hg.fillRect(0, 0, hist.width, h);
+    colT = new Float64Array(n); head = 0; cols = 0; view = 0;
   }
+  // the screen from the ring, its right edge `view` px older than the newest column
+  function paint() {
+    const w = canvas.width, h = canvas.height, W = hist.width;
+    const e = ((((head + 1) * STEP - Math.round(view)) % W) + W) % W, a = e - w;
+    if (a >= 0) g.drawImage(hist, a, 0, w, h, 0, 0, w, h);
+    else { g.drawImage(hist, W + a, 0, -a, h, 0, 0, -a, h); if (e > 0) g.drawImage(hist, 0, 0, e, h, -a, 0, e, h); }
+  }
+  // how far back the picture may go: the oldest kept column under a playhead at x
+  const viewMax = (x = 0) => Math.max(0, Math.min(cols, colT.length) * STEP - (canvas.width - x));
   size();
   addEventListener('resize', size);
   function column() {
@@ -164,18 +178,28 @@
       if (v > 8) lit++;
       for (let x = 0; x < STEP; x++) { const o = (y * STEP + x) * 4; p[o] = p[o + 1] = p[o + 2] = v; p[o + 3] = 255; }
     }
-    g.drawImage(canvas, -STEP, 0);
-    g.putImageData(col, w - STEP, 0);
     head = (head + 1) % colT.length; colT[head] = ctx.currentTime - SG_N / 2 / sr; cols = Math.min(cols + 1, colT.length);
+    hg.putImageData(col, head * STEP, 0);
+    // a held picture stays where it is while new columns arrive
+    if (scrub) view += STEP;
     frames++; if (lit) inked++;
   }
   function timeAt(x) {
     if (!cols) return null;
-    const k = Math.max(0, Math.min(cols - 1, Math.floor((canvas.width - 1 - x) / STEP)));
+    const k = Math.max(0, Math.min(cols - 1, Math.floor((canvas.width - 1 - x + view) / STEP)));
     return colT[(head - k + colT.length) % colT.length];
   }
   let raf = 0;
-  function frame() { raf = 0; if (!playing) return; if (!scrub) column(); raf = requestAnimationFrame(frame); }
+  function frame() { raf = 0; if (!playing) return; column(); slideStep(); paint(); raf = requestAnimationFrame(frame); }
+  // on release the picture slides back to now over SLIDE s
+  const SLIDE = 0.4;
+  let slide = null;
+  function slideStep() {
+    if (!slide || scrub) return;
+    const p = Math.min(1, (performance.now() - slide.at) / (SLIDE * 1000));
+    view = slide.from * (1 - p) ** 3;
+    if (p >= 1) { view = 0; slide = null; }
+  }
 
   // ── the channel: title from /api/now every 15 s, only while playing ──
   let state = null, pollT = 0;
@@ -198,7 +222,6 @@
   let rec = null, duck = null, fx = null, held = 0, dubMax = 0, rateV = 0, maxRate = 0, scrubs = 0, errors = 0;
   // The tap: records the stream into a ring of BUF_S seconds, stereo, indexed by context frame, and while scrubbing
   // plays the ring back from a read head that chases the dragged time, so its speed is the drag's speed (varispeed).
-  const BUF_S = 90;
   const REC = `class Rec extends AudioWorkletProcessor {
     constructor(o) { super(); const n = o.processorOptions.frames; this.n = n; this.L = new Float32Array(n); this.R = new Float32Array(n);
       this.on = false; this.r = 0; this.to = 0; this.v = 0; this.amp = 0; this.k = 0; this.held = 0;
@@ -372,8 +395,9 @@
   face();
   document.body.append(canvas, headLine, titleBox);
 
-  // ── scrubbing: a drag holds the picture still, the pointer's x is a time in the ring, its speed the playback rate ──
-  let scrub = null, scrubRaf = 0;
+  // ── scrubbing: a drag pulls the picture under a playhead fixed where the pointer went down, like tape under a head;
+  // the time under the playhead is a time in the ring and its speed the playback rate ──
+  let scrub = null, scrubRaf = 0, viewMoved = 0;
   const glide = (p, v, tc = 0.03) => p.setTargetAtTime(v, ctx.currentTime, tc);
   function scrubFrame() {
     scrubRaf = 0;
@@ -387,24 +411,28 @@
     glide(fx.nGain.gain, 0.02 + 0.3 * s); glide(fx.cGain.gain, 0.6 * s);
     // up is wet: the send, the echo's feedback (to 0.7) and its time (0.3 to 0.6 s, slewed, so it bends like tape)
     glide(fx.send.gain, scrub.dub); glide(fx.fb.gain, 0.35 + 0.35 * scrub.dub, 0.1); glide(fx.echo.delayTime, 0.3 + 0.3 * scrub.dub, 0.4);
+    if (!playing) paint();
     scrubRaf = requestAnimationFrame(scrubFrame);
   }
+  // pixel for pixel: dragging right pulls older sound under the playhead, left brings it back toward now
   function scrubTo(x, y) {
     if (y != null) scrub.dub = Math.max(0, Math.min(1, (scrub.y0 - y) / (0.4 * canvas.height)));
-    const t = timeAt(x);
+    if (x != null) { view = Math.max(0, Math.min(viewMax(scrub.x0), view + x - scrub.x)); scrub.x = x; viewMoved = Math.max(viewMoved, view); }
+    const t = timeAt(scrub.x0);
     if (t == null) return;
     scrub.t = t; rec.port.postMessage({ to: t * ctx.sampleRate });
-    headLine.style.left = `${x}px`;
   }
   canvas.addEventListener('pointerdown', (e) => {
     if (!rec || !cols || scrub) return;
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
     fx ??= makeFx();
+    slide = null;
     const t = timeAt(e.clientX);
-    scrub = { id: e.pointerId, t, lastT: t, at: performance.now(), rate: 0, y0: e.clientY, dub: 0 };
+    scrub = { id: e.pointerId, t, lastT: t, at: performance.now(), rate: 0, x0: e.clientX, x: e.clientX, y0: e.clientY, dub: 0 };
     rec.port.postMessage({ to: t * ctx.sampleRate, on: true });
     scrubTo(e.clientX, e.clientY);
+    headLine.style.left = `${e.clientX}px`;
     glide(duck.gain, 0, 0.03); glide(fx.bus.gain, 1, 0.02);
     headLine.classList.add('on'); scrubs++;
     scrubRaf ||= requestAnimationFrame(scrubFrame);
@@ -416,12 +444,15 @@
     rec.port.postMessage({ on: false });
     glide(duck.gain, 1, 0.08); glide(fx.bus.gain, 0, 0.08); glide(fx.nGain.gain, 0); glide(fx.cGain.gain, 0);
     headLine.classList.remove('on');
+    slide = view > 0 ? { at: performance.now(), from: view } : null;
+    if (!playing) { const s = () => { slideStep(); paint(); if (slide) requestAnimationFrame(s); }; s(); }
   }
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
 
   window.__demo.huddersfield = { frames: () => frames, inked: () => inked, state: () => state, playing: () => playing, how: () => how, setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, play, stop,
-    held: () => held, rate: () => rateV, maxRate: () => maxRate, scrubs: () => scrubs, scrubbing: () => !!scrub, errors: () => errors, dub: () => dubMax, timeAt };
+    held: () => held, rate: () => rateV, maxRate: () => maxRate, scrubs: () => scrubs, scrubbing: () => !!scrub, errors: () => errors, dub: () => dubMax, timeAt,
+    view: () => view, viewMax, viewMoved: () => viewMoved };
 
   async function check() {
     d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
