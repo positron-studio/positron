@@ -30,6 +30,7 @@ export function make() {
     start(ctx) {
       an = ctx.createAnalyser(); an.fftSize = 2048;
       buf = new Float32Array(an.fftSize);
+      wave.listen(an);
       pull = ctx.createGain(); pull.gain.value = 0;
       an.connect(pull); pull.connect(ctx.destination);
       raf = requestAnimationFrame(frame);

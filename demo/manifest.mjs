@@ -295,6 +295,12 @@ export const DEMOS = [
   // demo/patch/vendor/ holds the vendored engine other pages use; the row went, the files stay.
   // why: lessons/manifest.md#patch
 
+  // /techtrack/: the TechTrack Lab II page, a Pi connect button and a debug log, copied as it is, no card.
+  { name: 'techtrack', title: 'TechTrack', group: 'kit', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/techtrack/index.html', page: '/techtrack/',
+    one: 'Reach the Pi through the relay and log every step.',
+    tags: ['shell'] },
+
   // /lonely-software/: the owner's essay with three patch pictures, copied as it is, a card under about.
   { name: 'lonely-software', title: 'Lonely Software', group: 'kit', act: 0, created: '2026-11-10', built: false,
     src: 'demo/lonely-software/index.html', page: '/lonely-software/',

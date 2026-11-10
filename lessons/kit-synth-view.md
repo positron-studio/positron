@@ -868,3 +868,17 @@ file SAYS, which is the one thing the comments are.
 ⚠️ ONE CONSTANT MEANING THE GAP AT THE BOTTOM, NOT TWO. `shell.css` has
     paid for this twice, as `--sld-col` and as `--ctl-gap`. Both the refusal's
     lines and the drawn case's name line are laid against `PAD` and `foot`.
+
+<a id="spectrogram"></a>
+
+## synth-view.mjs, createWaveShape, wave or spectrum
+
+Asked 2026-11-10 on /remote/circuit/: *"replace waves with a component what shows either wave or
+spectrometer (see latest radio work), toggleable on click, little label on right"*. The spectrum is
+the radio's spectre from v2in `web/wave.mjs` (the /live page's level card), ported as it is: a
+1024-point Hann FFT of the analyser's time-domain samples, one column scrolled in from the right per
+`set()`, rows log-spaced 60 Hz to 12 kHz, ink is the trace's colour with alpha over the 60 dB under
+the loudest bin of the last few seconds (up at once, down over 3 s, never above -20 dBFS). It arms
+only on a free-running scope that has an analyser (`listen()`), so a static shape picture and a
+triggered scope never grow a toggle. The view is kept per page in localStorage under
+`pos-scope-view:<path>`; the default is the wave.

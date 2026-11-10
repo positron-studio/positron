@@ -605,6 +605,66 @@ export function traceOf(t = {}, fallback = '--dim') {
   return { ...t, shape, cycles, duty, pts, colour: t.colour || fallback };
 }
 
+/* ── the spectrogram ───────────────────────────────────────────────────── */
+
+// The radio's spectre (v2in web/wave.mjs): a 1024-point FFT of the analyser's time-domain samples,
+// one column a frame, rows log-spaced 60 Hz to 12 kHz, ink alpha over 60 dB under the recent loudest bin.
+// why: lessons/kit-synth-view.md#spectrogram
+const SG_N = 1024, SG_LO = 60, SG_HI = 12000, SG_RANGE = 60, SG_FALL = 3, SG_CEIL = -20;
+const SG_HANN = Float32Array.from({ length: SG_N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / SG_N));
+
+/** In-place radix-2 FFT, exported for the node test. */
+export function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const p = i + j, q = p + len / 2, vr = re[q] * cr - im[q] * ci, vi = re[q] * ci + im[q] * cr;
+        re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+/** One spectrogram column into `s` ({ canvas, re, im, buf, top, at }), scrolled in from the right. */
+function spectroColumn(s, analyser, w, h, rgb) {
+  const cv = s.canvas;
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; s.col = null; }
+  if (!w || !h) return;
+  const g = cv.getContext('2d');
+  const step = Math.max(1, Math.round(Math.min(2, window.devicePixelRatio || 1)));
+  s.col ??= g.createImageData(step, h);
+  if (!s.buf || s.buf.length !== analyser.fftSize) s.buf = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(s.buf);
+  const now = performance.now(), dt = Math.min(0.1, s.at ? (now - s.at) / 1000 : 1 / 60);
+  s.at = now;
+  s.re ??= new Float32Array(SG_N); s.im ??= new Float32Array(SG_N);
+  const off = Math.max(0, s.buf.length - SG_N);
+  for (let i = 0; i < SG_N; i++) { s.re[i] = (s.buf[off + i] || 0) * SG_HANN[i]; s.im[i] = 0; }
+  fft(s.re, s.im);
+  const sr = analyser.context.sampleRate, hi = Math.min(SG_HI, sr / 2), dbs = new Float32Array(h);
+  let top = -Infinity;
+  for (let y = 0; y < h; y++) {
+    const f = SG_LO * (hi / SG_LO) ** (1 - y / h), k = Math.min(SG_N / 2 - 1, Math.max(1, Math.round(f / sr * SG_N)));
+    dbs[y] = 20 * Math.log10(Math.hypot(s.re[k], s.im[k]) / (SG_N / 4) + 1e-9);
+    if (dbs[y] > top) top = dbs[y];
+  }
+  s.top = Math.max(top, Math.min(SG_CEIL, (s.top ?? top) - (SG_RANGE / SG_FALL) * dt));
+  const p = s.col.data;
+  for (let y = 0; y < h; y++) {
+    const a = Math.round(255 * Math.max(0, Math.min(1, (dbs[y] - (s.top - SG_RANGE)) / SG_RANGE)) ** 1.5);
+    for (let x = 0; x < step; x++) { const o = (y * step + x) * 4; p[o] = rgb[0]; p[o + 1] = rgb[1]; p[o + 2] = rgb[2]; p[o + 3] = a; }
+  }
+  g.globalCompositeOperation = 'copy'; g.drawImage(cv, -step, 0); g.globalCompositeOperation = 'source-over';
+  g.putImageData(s.col, w - step, 0);
+}
+
+const VIEW_KEY = () => `pos-scope-view:${location.pathname}`;
+
 /**
  * createWaveShape takes { name, shape, duty, reason, points, colour, over }; `over` is ONE second
  * trace in its own colour (see the lesson).
@@ -669,11 +729,44 @@ export function createWaveShape({ host, label = '', height = 96, name = '', grou
 
   const PAD = 8;
 
+  /**
+   * Wave or spectrum, toggled by a press once a free-running scope has an analyser (`listen()`).
+   * The choice is kept per page; the default is the wave.
+   */
+  let view = 'wave';
+  try { if (!TRIG && localStorage.getItem(VIEW_KEY()) === 'spectrum') view = 'spectrum'; } catch {}
+  const sg = { canvas: document.createElement('canvas') };
+  let sgRgb = null;
+  const toggles = () => !TRIG && !!source;
+  const spectrumOn = () => toggles() && view === 'spectrum';
+  function arm() {
+    if (!toggles() || f.wrap.dataset.views) return;
+    f.wrap.dataset.views = '1';
+    f.wrap.setAttribute('role', 'button');
+    f.wrap.tabIndex = 0;
+    f.wrap.style.cursor = 'pointer';
+    f.wrap.addEventListener('click', flip);
+    f.wrap.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+    relabel();
+  }
+  function flip() {
+    view = view === 'wave' ? 'spectrum' : 'wave';
+    try { localStorage.setItem(VIEW_KEY(), view); } catch {}
+    relabel();
+    f.paint();
+  }
+
   f.setDraw(() => {
     const { W, H, ctx, C } = f;
     const foot = H - 4;
     const yTop = PAD, yBot = H - PAD - 10;
     const mid = (yTop + yBot) / 2;
+
+    if (toggles()) f.say(view, W - PAD, foot, { align: 'right', px: 10, colour: C.faint, room: W / 3 });
+    if (spectrumOn()) {
+      if (sg.canvas.width) ctx.drawImage(sg.canvas, PAD, yTop, W - PAD * 2, yBot - yTop);
+      return;
+    }
 
     // The zero line is drawn only under a wave: a rule through a refusal's text reads as a failed load.
     // why: lessons/kit-synth-view.md#zero-line
@@ -752,7 +845,7 @@ export function createWaveShape({ host, label = '', height = 96, name = '', grou
       f.say(label, PAD, foot, { room: W / 2 });
       f.say(nameA, W - PAD, foot, { align: 'right', room: W / 2 });
     } else {
-      f.say(nameA, PAD, foot, { room: W - PAD * 2 });
+      f.say(nameA, PAD, foot, { room: W - PAD * 2 - (toggles() ? W / 3 : 0) });
     }
   });
 
@@ -766,10 +859,12 @@ export function createWaveShape({ host, label = '', height = 96, name = '', grou
     const two = b?.pts
       ? `, over ${v.over?.name || b.shape} in a second colour`
       : '';
-    f.canvas.setAttribute('aria-label', one + two);
+    f.canvas.setAttribute('aria-label', spectrumOn() ? `${v.name || 'sound'} drawn as a spectrogram` : one + two);
+    if (toggles()) f.wrap.setAttribute('aria-label', `scope showing the ${view}, press for the ${view === 'wave' ? 'spectrum' : 'wave'}`);
   }
 
   f.resize();
+  arm();
   relabel();
   f.paint();
 
@@ -791,6 +886,15 @@ export function createWaveShape({ host, label = '', height = 96, name = '', grou
       pts = a.pts;
       relabel();
       f.resize();
+      if (spectrumOn() && f.W && f.H) {
+        if (!sgRgb) {
+          f.ctx.fillStyle = f.tok(v.colour, v.colour);
+          const m = /^#([0-9a-f]{6})$/i.exec(f.ctx.fillStyle), n = m ? parseInt(m[1], 16) : 0xffd400;
+          sgRgb = [n >> 16, (n >> 8) & 255, n & 255];
+        }
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        spectroColumn(sg, source, Math.round((f.W - PAD * 2) * dpr), Math.round((f.H - PAD * 2 - 10) * dpr), sgRgb);
+      }
       f.paint();
       return { ...v };
     },
@@ -824,9 +928,12 @@ export function createWaveShape({ host, label = '', height = 96, name = '', grou
       }, Math.max(0, due));
       return true;
     },
-    /** Triggered mode: the analyser to capture from, for a caller whose audio
-     *  graph exists only after a press (nothing opens on a visit). */
-    listen(analyser) { source = analyser; },
+    /** The analyser to capture from, for a caller whose audio graph exists only after a press
+     *  (nothing opens on a visit). In free mode it also arms the wave/spectrum toggle. */
+    listen(analyser) { source = analyser; arm(); },
+    /** Free mode with an analyser: 'wave' or 'spectrum', and a press's flip. */
+    view: () => (toggles() ? view : 'wave'),
+    flip: () => { if (toggles()) flip(); return toggles() ? view : 'wave'; },
     /** Triggered mode: back to a flat line, the faint traces gone. */
     flat() { gen++; past.length = 0; this.set({ points: Array.from(new Float32Array(512)) }); },
     /** How many hits asked for a trace, how many were drawn, how many did not fit. */

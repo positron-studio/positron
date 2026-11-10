@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>TechTrack</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createBoard } from '/shell/board.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+
+  // The TechTrack demo page, step one: reach the Pi through the relay and log every step.
+  // Only read-only asks: nothing here starts audio, the camera or HDMI on the Pi.
+  const q = new URLSearchParams(location.search);
+  const ROOM = q.get('room') || 'studio-1';
+  const d = mount({ name: 'TechTrack', what: '',
+    readout: { 'Pi': '', 'round trip': 'ms' }, index: '/', indexLabel: 'positron' });
+
+  let board = null;
+  // After a press, every log line also goes to pub's device log, read at https://pub.positron.studio/logs?format=text
+  let ship = false;
+  const log0 = d.log.bind(d);
+  d.log = (line, kind) => {
+    log0(line, kind);
+    if (ship) fetch('https://pub.positron.studio/log', { method: 'POST', body: `techtrack: ${line}`, keepalive: true }).catch(() => {});
+  };
+  const t0 = () => performance.now();
+  async function asked(type, want, ms = 4000) {
+    const at = t0();
+    d.log(`ask ${type}`);
+    const r = await board.ask({ type }, want, ms);
+    const took = Math.round(t0() - at);
+    if (!r) { d.log(`${type}: no answer in ${ms / 1000} s`, 'warn'); return null; }
+    d.log(`${type} in ${took} ms: ${JSON.stringify(r).slice(0, 3000)}`, r.ok === false ? 'warn' : 'ok');
+    return r;
+  }
+
+  async function check() {
+    const p = await board.ping(3000).catch((e) => ({ error: e.message }));
+    d.log(`ping: ${JSON.stringify(p)}`, p && !p.error ? 'ok' : 'warn');
+    if (p && typeof p.rttMs === 'number') d.set('round trip', Math.round(p.rttMs));
+   
+    const any = [await asked('panel.status', 'panel.status'), await asked('audio.status', 'audio.started'), await asked('hdmi.status', 'hdmi.state'), await asked('ports.get', 'ports.list')];
+    d.set('Pi', any.some(Boolean) ? 'answers' : 'silent');
+  }
+
+  function connect() {
+    if (board) return;
+    ship = true;
+    d.log(`page ${location.href}, ${navigator.userAgent}`);
+    d.log(`reaching room ${ROOM} through the relay`);
+    d.set('Pi', 'reaching');
+    board = createBoard({
+      room: ROOM, of: 'Raspberry Pi', showName: false,
+      log: (line, kind) => d.log(line, kind),
+      onOpen: () => { d.log('socket open, room joined', 'ok'); check(); },
+      onMessage: (m) => d.log(`from the room: ${m.type}${m.from ? ` (${m.from})` : ''}`),
+    });
+    buttons.setIcon?.('go', 'stop', 'disconnect');
+    go.label('Disconnect');
+  }
+  function disconnect() {
+    board?.close(); board = null;
+    d.log(`left ${ROOM}`); d.set('Pi', ''); d.set('round trip', '');
+    go.label('Connect to Pi');
+  }
+
+  const btn = el('button', 'pos-btn', 'Connect to Pi');
+  btn.type = 'button';
+  btn.addEventListener('click', () => (board ? disconnect() : connect()));
+  const again = el('button', 'pos-btn', 'Ask again');
+  again.type = 'button';
+  again.addEventListener('click', () => (board ? check() : d.log('not connected', 'warn')));
+  const go = { label: (t) => { btn.textContent = t; } };
+  const buttons = {};
+  const row = el('div', 'tt-row');
+  row.append(btn, again);
+  d.stack.add(row);
+  d.ready();
+</script>
+<style>
+  .tt-row { display: flex; gap: 10px; flex-wrap: wrap; }
+</style>
+</html>
