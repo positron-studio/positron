@@ -1,0 +1,10 @@
+#include "hello.h"
+
+FORM ID MainForm AT (0 0 160 160)
+NOFRAME
+BEGIN
+  TITLE "positron"
+END
+
+APPLICATIONICONNAME ID 1000 "positron"
+VERSION ID 1 "0.1"
