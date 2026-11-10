@@ -119,11 +119,27 @@ Reasoning to bring, not to conclude:
   still paid. That points at the person and the practice as what is paid for
   (commissions, workshops, setup help, residencies), with the skills as the open part
   that makes the person findable.
-- Precedent, named in the synthesis: Dan Sandin's "Distribution Religion". The Image
-  Processor's plans were given away so other artists could build their own. Positron's
-  version of the plans is a skill an agent can follow.
-- Nearest relatives as tools: ossia score, Max with RNBO. Positron differs in going over
-  the network and down to small devices, not in being a better patcher.
+- Precedent, named in the synthesis (entry 8): Dan Sandin's Image Processor (Chicago,
+  early 1970s), a modular analog video synthesizer. Under what he called "Distribution
+  Religion" he did not sell it: he gave away the construction documents so artists could
+  build their own copy, and the instrument spread through builders. *"Distribute an
+  instrument together with the knowledge needed to reproduce it."* The synthesis calls
+  it *"unusually close to skills as a preferred distribution method"*, and adds that the
+  comparison is about cultural practice, not licences. It is the answer to "code is
+  free, so what is valuable": Sandin's value travelled as the know-how plus his own
+  name and work, not as a product. Source: https://www.vasulka.org/archive/eigenwelt/pdf/132-135.pdf
+- Nearest relatives as tools (synthesis entries 27 and 29), the ones a technical mentor
+  may name: **Max with RNBO** (Cycling '74): patch connected objects, then export the
+  patch to other targets (a plugin, the web as WebAssembly, C++, a Raspberry Pi).
+  **ossia score**: an open source intermedia sequencer of timelines, devices and
+  protocols, with documented distributed execution across machines; the synthesis
+  calls it *"the strongest overall architectural relative"*. Both already do patching,
+  portability, small devices and networks, so none of those is positron's difference.
+  What the synthesis offers instead, as *"comparison axes, not proven unique features"*:
+  it starts in a browser tab, its archive work keeps evidence apart from reconstruction,
+  and it travels as skills an agent follows rather than as an application. Said honestly:
+  *"portability and patching are established territory; Positron needs to demonstrate
+  its particular distributed and archival workflows."*
 - None of the money routes is tested. The synthesis lists commissions, workshops, setup
   and integration, maintained tools and services, and says none is validated.
   *"Moral support and word of mouth are legitimate goals."*
