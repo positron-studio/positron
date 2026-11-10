@@ -16,20 +16,26 @@
   .r65-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
     top: max(24px, env(safe-area-inset-top)); left: max(24px, env(safe-area-inset-left)); }
   .r65-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); letter-spacing: 0; }
-  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); 
+  /* four lines high whatever it says, so the button under it never moves */
+  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 5.6em; overflow: hidden;
     max-width: min(24em, calc(100vw - 48px)); font-variant-numeric: tabular-nums; }
+  .r65-t p b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .r65-btns { display: flex; gap: 10px; margin-top: 18px; }
+  .r65-t .pos-lg { pointer-events: auto; }
 </style>
 <script type="module">
-  // The scan landscape (/shader/landscape/'s picture), moved by our radio1965 cast's /state. The broadcast ended in
-  // Oct 2026, so the page plays nothing and only shows the closing line. plans/plan-radio1965-landscape.md
+  // The scan landscape (/shader/landscape/'s picture), moved by the sound of the v2in radio1965 channel after Play,
+  // analysed as /radio/edgecast/ does. Nothing is fetched or opened until Play. plans/plan-radio1965-landscape.md
   // why: lessons/page-radio1965.md#header
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
-  import { LAYOUT_VERSION } from '/shell/radio-gran.mjs';
+  import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, createFeatures } from '/shell/radio-gran.mjs';
+  import { createEnvFollower } from '/shell/pappus-mod.mjs';
+  import { barButton, setButtonFace } from '/shell/bar.mjs';
   import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
 
-  const CAST = new URLSearchParams(location.search).get('cast') || 'https://cast.positron.studio';
+  const V2IN = new URLSearchParams(location.search).get('v2in') || 'https://v2in.stream';
   const STATION = 'radio1965';
   const S = 'web';
   const d = mount({ name: 'Radio 1965', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
@@ -39,25 +45,30 @@
   // The six knobs of /shader/landscape/, each driven by one thing the stream says (plan section 4).
   const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
   const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
-  const HEAVE = { speech: 0.2, field: 0.5, music: 0.8 };
-  const WAVES = { speech: 1, field: 2, music: 3 };
   // The look's other numbers at rest, where they sat with no sound.
   const REST = { travel: 0, valley: 0.3, halo: 0, ampB: 0.05, sway: 0, glow: 0.62 };
 
-  // ── the bay: our state into the picture ─────────────────
+  // ── the bay: the channel's sound into the speakers and the picture, its title into the line ──
   const bay = createBay();
   const node = (id, kind, label, extra = {}) => bay.addNode({ id, kind, label, ...extra });
-  node('cf-cast:state', 'store', 'state', { place: 'cloudflare', net: 'cloudflare' });
+  node('v2in:radio1965', 'endpoint', 'radio1965', { place: 'v2in', net: 'v2in' });
+  node('v2in:now', 'store', 'now', { place: 'v2in', net: 'v2in' });
   node(`${S}:landscape`, 'engine', 'landscape');
+  node(`${S}:speaker`, 'device', 'speakers');
   node(`${S}:screen`, 'screen', 'screen');
   const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, transports, ...extra });
-  // The state is a small JSON document read every 10 s, so its link is a file read over https.
-  port('cf-cast:state:file-out', 'out', 'file', '/state', ['https']);
-  port(`${S}:landscape:file-in`, 'in', 'file', 'scene, listeners', ['https'], { deliver: (ev) => stateIn(ev) });
+  port('v2in:radio1965:audio-out', 'out', 'audio', 'stream', ['https']);
+  port('v2in:now:file-out', 'out', 'file', '/api/now', ['https']);
+  port(`${S}:landscape:audio-in`, 'in', 'audio', 'level', ['https', 'webaudio']);
+  port(`${S}:landscape:file-in`, 'in', 'file', 'title, listeners', ['https'], { deliver: (ev) => nowIn(ev) });
+  port(`${S}:speaker:audio-in`, 'in', 'audio', 'speakers', ['https', 'webaudio']);
   port(`${S}:landscape:video-out`, 'out', 'video', 'picture', ['page']);
   port(`${S}:screen:video-in`, 'in', 'video', 'picture', ['page']);
   const hold = (a, b, via) => { const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
-  hold('cf-cast:state:file-out', `${S}:landscape:file-in`);
+  // An MP3 over https is not a transport the table picks for audio, so the link names it.
+  hold('v2in:radio1965:audio-out', `${S}:speaker:audio-in`, 'https');
+  hold('v2in:radio1965:audio-out', `${S}:landscape:audio-in`, 'https');
+  hold('v2in:now:file-out', `${S}:landscape:file-in`);
   hold(`${S}:landscape:video-out`, `${S}:screen:video-in`);
 
   // ── the picture ─────────────────────────────────────────────────────────
@@ -83,35 +94,51 @@
     addEventListener('resize', () => { const tall = innerHeight > innerWidth; if (tall !== wasTall) { wasTall = tall; makeField(); } });
   } else d.log('this browser has no WebGL2, so there is no picture', 'bad');
 
-  // ── the state: scene numbers and listeners, glided over the scene's own blend ──
+  // ── the channel: title and listeners from /api/now every 15 s, only while playing ──
   const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
   const now = { ...target };
-  const scene = { waves: OPEN.waves }, sceneNow = { ...scene };
-  let glideS = 8, state = null, stateAt = 0;
-  function stateIn(ev) {
-    if (ev?.of !== 'state') return;
-    state = ev.s; stateAt = performance.now();
-    const n = (state.listeners?.now ?? 0) + (state.ears ?? 0);
-    // a full landscape with nobody listening, denser with each listener
-    target.rows = clamp('rows', 40 + 8 * n);
-    // a dry scene still a landscape: height 2.5 at dry, 8 at the wettest (0.5 squeezed the lines into a band)
-    if (Number.isFinite(state.wet)) target.ampM = clamp('ampM', 2.5 + 5.5 * (state.wet / 0.95));
-    target.swellY = clamp('swellY', 0.05 * Math.min(1, (state.droneLevel ?? 0) / 0.5));
-    if (Number.isFinite(state.density)) target.bucket = clamp('bucket', 0.35 * state.density);
-    if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
-    if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
-    if (WAVES[state.kind]) scene.waves = WAVES[state.kind];
+  let state = null, pollT = 0;
+  function nowIn(ev) {
+    if (ev?.of !== 'now') return;
+    state = ev.s; drawLine();
   }
-  async function readState() {
+  async function readNow() {
+    if (!playing) return;
     try {
-      const s = await fetch(`${CAST}/state/${STATION}`, { cache: 'no-store' }).then((r) => r.json());
-      if (s && s.station) bay.send('cf-cast:state:file-out', { of: 'state', s });
+      const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
+      const ch = (j?.channels || []).find((c) => c.id === STATION);
+      if (ch && playing) bay.send('v2in:now:file-out', { of: 'now', s: ch });
     } catch { /* next time */ }
+    if (playing) pollT = setTimeout(readNow, 15_000);
   }
-  readState();
-  setInterval(readState, 10_000);
 
-  // ── the data texture: only the drift ─
+  // ── listening: one <audio> through an analyser, made on the first press ──
+  let ctx = null, audio = null, an = null, playing = false, feats = null, follow = null, heard = 0;
+  async function play() {
+    ctx ??= new AudioContext();
+    if (!audio) {
+      audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
+      an = ctx.createAnalyser(); an.fftSize = 2048;
+      ctx.createMediaElementSource(audio).connect(an);
+      an.connect(ctx.destination);
+      audio.addEventListener('playing', () => { delete btn.dataset.busy; });
+      // the stream ends when the channel restarts: while we are playing it comes back by itself
+      audio.addEventListener('error', () => { if (playing) setTimeout(() => { if (playing) { audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`; audio.play().catch(() => {}); } }, 2000); });
+    }
+    btn.dataset.busy = '';
+    ctx.resume().catch(() => {});
+    audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`;
+    try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
+    playing = true; face(); readNow();
+  }
+  function stop() {
+    playing = false; clearTimeout(pollT); state = null;
+    delete btn.dataset.busy;
+    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
+    face();
+  }
+
+  // ── the data texture: the drift, and while playing the followers in row 3 ──
   const data = new Uint8Array(DATA_W * DATA_H * 4);
   let last = 0, drift = 0, frames = 0;
   function tick(t) {
@@ -119,12 +146,27 @@
     const dt = last ? Math.min(0.25, (t - last) / 1000) : 1 / 60;
     last = t;
     drift = (drift + dt * 0.06) % 1;
-    // every knob eases toward its target over the scene's blend, so nothing jumps
-    const k = 1 - Math.exp(-dt / glideS);
-    for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
-    for (const n of Object.keys(scene)) { sceneNow[n] += (scene[n] - sceneNow[n]) * k; field.set(n, sceneNow[n]); }
-    for (const [n, v] of Object.entries(REST)) field.set(n, v);
     data.fill(0);
+    // Safari may hand a cross-origin stream's analyser silence: the sound plays on and the picture drifts at rest
+    const live = playing && an;
+    if (live) {
+      feats ||= createFeatures(an, ctx.sampleRate);
+      follow ||= Object.fromEntries(FOLLOWER_NAMES.map((k) => [k, createEnvFollower(MOD_FOLLOWERS[k])]));
+      const f = feats.read();
+      if ((f.rms ?? 0) > 0) heard++;
+      FOLLOWER_NAMES.forEach((n, i) => { follow[n].push(f[n] ?? 0, dt); data[at(i, 3)] = u8(follow[n].value()); });
+      const v = (n) => follow[n].value();
+      // a full landscape with nobody listening, denser with each listener; the rest from the sound itself
+      target.rows = clamp('rows', 40 + 8 * (state?.listeners ?? 0));
+      target.ampM = clamp('ampM', 2.5 + 5.5 * v('rms'));
+      target.swellY = clamp('swellY', 0.05 * v('low'));
+      target.bucket = clamp('bucket', 0.35 * v('flux'));
+      target.heave = clamp('heave', 0.2 + 0.6 * v('tone'));
+    } else for (const n of Object.keys(RANGE)) target[n] = OPEN[n];
+    // faster while it hears, slow back to rest
+    const k = 1 - Math.exp(-dt / (live ? 1.5 : 6));
+    for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
+    for (const [n, v] of Object.entries(REST)) field.set(n, v);
     data[at(21, 3)] = u8(drift);
     data[at(63, 3)] = LAYOUT_VERSION;
     field.step(data); frames++;
@@ -135,18 +177,32 @@
   const titleBox = el('div', 'r65-t');
   const h = el('h1');
   h.append('Radio1965', el('br'), '@ Üle Heli', el('br'), 'festival');
-  const line = el('p', '', 'Sound archives were processed, mixed and visualized in Oct 2026. See you in next installations.');
-  titleBox.append(h, line);
+  const ABOUT = 'Sound archives were processed, mixed and visualized in Oct 2026. See you in next installations.';
+  const line = el('p');
+  // At rest the closing line; while playing, the channel's title in bold and how many are listening.
+  function drawLine() {
+    if (!playing) { line.replaceChildren(ABOUT); return; }
+    if (!state?.title) { line.replaceChildren(el('b', '', 'radio1965 on v2in'), 'Tuning in.'); return; }
+    const n = state.listeners ?? 0;
+    line.replaceChildren(el('b', '', state.title), `${state.by ? `${state.by}. ` : ''}${n === 1 ? '1 listener' : `${n} listeners`}.`);
+  }
+  // One button under the line: Play, and Stop while playing.
+  const btn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => (playing ? stop() : play()) });
+  const face = () => { setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' }); drawLine(); };
+  const btns = el('div', 'r65-btns');
+  btns.append(btn);
+  titleBox.append(h, line, btns);
+  face();
   document.body.append(canvas, titleBox);
 
-  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }) };
+  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, context: () => ctx, heard: () => heard, play, stop };
 
   async function check() {
-    d.assert('nothing to press on the page', !document.querySelector('.r65-t button'));
+    d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
+    d.assert('one Play button under the line', document.querySelectorAll('.r65-btns button').length === 1);
     d.assert('the picture compiled', !!field);
     await new Promise((r) => setTimeout(r, 1500));
     d.assert('the picture draws', frames > 20, `${frames} frames`);
-    d.assert('the station\'s state arrived over its link', !!state, state ? `${state.title || 'no title'}, ${state.kind || 'no kind'}` : 'none yet');
   }
   if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
   d.ready();

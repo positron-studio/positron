@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**/radio1965/ plays v2in.stream's radio1965 channel, its landscape driven by that sound**~~ DONE 2026-11-10 (2026-11-10). Asked: *"look into ../v2in radio1965 sound then and v2in.stream, use that"*, *"forget edgecast, make radio1965 work"*. Stream https://v2in.stream/stream/radio1965 (on air, CORS *), state at /api/now.
+
+- **Palm frames in other colour spaces, and the speed ceiling** (2026-11-10). Asked: *"Try diff color spaces too"*, after 1 bit frames streamed at 10 fps (the sender's rate; f279 to f359 in 8 s on the owner's video). Grey and colour depths, each measured flat out.
+
 - ~~**Build the Palm app, in the background**~~ DONE 2026-11-10: hello and pframe run on the Z22, frames stream from the Pi (plan-screens-odd section 11) (2026-11-10). Asked: *"build app"*, *"in bg"*. Step 3 to 5 of plan-palm-z22: a Palm OS app that draws frames received over USB and sends the stylus back; first a hello app installed with pilot-xfer -i on the next HotSync.
 
 - ~~**Slides from the Lonely Software essay: key sentences, the patches, a placeholder for the feedback demo**~~ DONE 2026-11-10, /slides/lonely/, 13 slides, local (2026-11-10). Asked: *"In bg do slides based on the essay with key senteces, patches and placeholder for feedback demo"*. For TechTrack Lab II, 2026-11-11 15:30.
