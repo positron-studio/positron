@@ -24,11 +24,10 @@
   .hud-btns { display: flex; gap: 12px; margin-top: 24px; }
   .hud-t .pos-lg { pointer-events: auto; }
   /* brightness, not opacity: a see-through canvas shows the shell's header behind it */
-  .hud { transition: filter .5s; }
-  body.hud-how .hud { filter: brightness(.3); }
+  .hud { transition: filter 2.5s; }
+  body.hud-how .hud { filter: brightness(.12); }
   body.hud-how .hud-t { max-height: calc(100dvh - 32px); overflow-y: auto; }
-  .hud-how-box { pointer-events: auto; margin-top: 32px; width: min(900px, calc(100vw - 64px)); box-sizing: border-box;
-    padding: 24px; border-radius: 12px; background: rgba(11, 14, 20, .82); }
+  .hud-how-box { pointer-events: auto; margin-top: 32px; width: calc(100vw - 64px); box-sizing: border-box; }
   .hud-how-box[hidden] { display: none; }
 </style>
 <script type="module">
@@ -47,28 +46,55 @@
   const AT = ['@ Huddersfield Contemporary', 'Music Festival'];
   const d = mount({ name: 'Soundscape', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
 
-  // ── the bay: the channel's sound into the speakers and the spectrogram, its title into the line ──
+  // ── the bay: v2in's chain as its code has it (v2in server/config/channels.json, liquidsoap/radio.liq, engines/mem) ──
   const bay = createBay();
+  const V = { place: 'v2in', net: 'v2in' };
   const node = (id, kind, label, extra = {}) => bay.addNode({ id, kind, label, ...extra });
-  node('v2in:mem', 'endpoint', 'Huddersfield MEM', { place: 'v2in', net: 'v2in' });
-  node('v2in:now', 'store', 'now', { place: 'v2in', net: 'v2in' });
-  node(`${S}:spectrogram`, 'engine', 'spectrogram');
+  node('v2in:live', 'engine', 'channel live: shows, playlist', V);
+  node('v2in:recordings', 'store', 'live recordings', V);
+  node('v2in:gate', 'engine', 'gate, Kyiv air raids', V);
+  node('v2in:mem', 'engine', 'MEM, wasm scsynth', V);
+  node('v2in:liquidsoap', 'engine', 'Liquidsoap, channel mem', V);
+  node('v2in:icecast', 'endpoint', 'Icecast, Caddy https', V);
+  node(`${S}:audio`, 'engine', 'audio element, analyser');
+  node(`${S}:spectrogram`, 'screen', 'spectrogram');
   node(`${S}:speaker`, 'device', 'speakers');
-  node(`${S}:screen`, 'screen', 'screen');
-  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, transports, ...extra });
-  port('v2in:mem:audio-out', 'out', 'audio', 'stream', ['https']);
-  port('v2in:now:file-out', 'out', 'file', '/api/now', ['https']);
-  port(`${S}:spectrogram:audio-in`, 'in', 'audio', 'spectrum', ['https', 'webaudio']);
-  port(`${S}:spectrogram:file-in`, 'in', 'file', 'title', ['https'], { deliver: (ev) => nowIn(ev) });
-  port(`${S}:speaker:audio-in`, 'in', 'audio', 'speakers', ['https', 'webaudio']);
-  port(`${S}:spectrogram:video-out`, 'out', 'video', 'picture', ['page']);
-  port(`${S}:screen:video-in`, 'in', 'video', 'picture', ['page']);
-  const hold = (a, b, via) => { const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
-  // An MP3 over https is not a transport the table picks for audio, so the link names it.
-  hold('v2in:mem:audio-out', `${S}:speaker:audio-in`, 'https');
-  hold('v2in:mem:audio-out', `${S}:spectrogram:audio-in`, 'https');
-  hold('v2in:now:file-out', `${S}:spectrogram:file-in`);
-  hold(`${S}:spectrogram:video-out`, `${S}:screen:video-in`);
+  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, ...(transports ? { transports } : {}), ...extra });
+  port('v2in:live:file-out', 'out', 'file', 'each session');
+  port('v2in:live:audio-out', 'out', 'audio', 'from sum, MP3 320');
+  port('v2in:recordings:file-in', 'in', 'file', 'live-*.mp3');
+  port('v2in:recordings:file-out', 'out', 'file', 'earlier takes');
+  port('v2in:gate:state-out', 'out', 'state', 'raid, switches, keys');
+  port('v2in:gate:state-out-2', 'out', 'state', '/api/now', ['https']);
+  port('v2in:mem:audio-in', 'in', 'audio', 'last 5 minutes');
+  port('v2in:mem:file-in', 'in', 'file', 'recordings');
+  port('v2in:mem:state-in', 'in', 'state', 'switch mem');
+  port('v2in:mem:audio-out', 'out', 'audio', 'loops in a room');
+  port('v2in:liquidsoap:audio-in', 'in', 'audio', 'engine, from');
+  port('v2in:liquidsoap:state-in', 'in', 'state', 'raid silence');
+  port('v2in:liquidsoap:audio-out', 'out', 'audio', 'MP3 128');
+  port('v2in:icecast:audio-in', 'in', 'audio', 'mount mem');
+  port('v2in:icecast:audio-out', 'out', 'audio', '/stream/mem', ['https']);
+  port(`${S}:audio:audio-in`, 'in', 'audio', 'stream', ['https']);
+  port(`${S}:audio:audio-out`, 'out', 'audio', 'sound');
+  port(`${S}:spectrogram:audio-in`, 'in', 'audio', 'spectrum');
+  port(`${S}:spectrogram:state-in`, 'in', 'state', 'title line', ['https'], { deliver: (ev) => nowIn(ev) });
+  port(`${S}:speaker:audio-in`, 'in', 'audio', 'volume');
+  // each link's place along the chain, for the idle wave in How it works
+  const STAGE = new Map();
+  const hold = (a, b, stage, via) => { STAGE.set(`${a} -> ${b}`, stage); const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  hold('v2in:live:file-out', 'v2in:recordings:file-in', 1);
+  hold('v2in:live:audio-out', 'v2in:mem:audio-in', 1);
+  hold('v2in:gate:state-out', 'v2in:mem:state-in', 1);
+  hold('v2in:recordings:file-out', 'v2in:mem:file-in', 2);
+  hold('v2in:mem:audio-out', 'v2in:liquidsoap:audio-in', 2);
+  hold('v2in:live:audio-out', 'v2in:liquidsoap:audio-in', 2);
+  hold('v2in:gate:state-out', 'v2in:liquidsoap:state-in', 2);
+  hold('v2in:liquidsoap:audio-out', 'v2in:icecast:audio-in', 3);
+  hold('v2in:icecast:audio-out', `${S}:audio:audio-in`, 4, 'https');
+  hold('v2in:gate:state-out-2', `${S}:spectrogram:state-in`, 4, 'https');
+  hold(`${S}:audio:audio-out`, `${S}:spectrogram:audio-in`, 5);
+  hold(`${S}:audio:audio-out`, `${S}:speaker:audio-in`, 5);
 
   // ── the picture: one column a frame, rows log-spaced 60 Hz to 12 kHz, ink over 60 dB under the recent loudest bin ──
   const SG_N = 1024, SG_LO = 60, SG_HI = 12000, SG_RANGE = 60, SG_FALL = 3, SG_CEIL = -20, SG_FLOOR = -90, STEP = 2;
@@ -144,7 +170,7 @@
     try {
       const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
       const ch = (j?.channels || []).find((c) => c.id === STATION);
-      if (ch && playing) bay.send('v2in:now:file-out', { of: 'now', s: ch });
+      if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
     } catch { /* next time */ }
     if (playing) pollT = setTimeout(readNow, 15_000);
   }
@@ -195,9 +221,13 @@
   const btn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => (playing ? stop() : play()) });
   const face = () => { setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' }); drawLine(); };
   const btns = el('div', 'hud-btns');
-  // How it works: the patch over the dimmed spectrogram, the sound ramped down to QUIET over 0.5 s and back.
-  const QUIET = 0.08, RAMP = 0.5;
-  const pb = createPatchbay(bay, { title: 'how it works', flowing: () => playing });
+  // How it works: the patch over the dimmed spectrogram, the sound ramped down to QUIET over 2.5 s and back, as the picture dims.
+  const QUIET = 0.08, RAMP = 2.5;
+  const pb = createPatchbay(bay, { title: 'how it works', flowing: (l) => playing || STAGE.get(`${l.from} -> ${l.to}`) === wave });
+  // At rest a slow wave walks the chain one stage at a time, so the patch reads as alive; while playing every link flows.
+  const STAGES = Math.max(...STAGE.values()) + 2;
+  let wave = -1, waveT = 0;
+  const walk = () => { wave = (wave + 1) % STAGES; waveT = setTimeout(walk, 900); };
   const howBox = el('div', 'hud-how-box');
   howBox.hidden = true;
   howBox.append(pb.el);
@@ -206,7 +236,8 @@
     document.body.classList.toggle('hud-how', on);
     howBox.hidden = !on;
     howBtn.setAttribute('aria-pressed', String(on)); setButtonFace(howBtn, { icon: on ? 'close' : 'info', label: 'How it works' });
-    if (on) pb.refresh();
+    clearTimeout(waveT); wave = -1;
+    if (on) { pb.refresh(); walk(); }
     if (vol) { const t = ctx.currentTime; vol.gain.cancelScheduledValues(t); vol.gain.setValueAtTime(vol.gain.value, t); vol.gain.linearRampToValueAtTime(on ? QUIET : 1, t + RAMP); }
   }
   const howBtn = barButton({ icon: 'info', label: 'How it works', word: true, size: 'lg', onPress: () => setHow(!how) });
