@@ -246,3 +246,28 @@ Outside:
 - https://app.dealroom.co/companies/fansifter
 - https://www.linkedin.com/in/triin-uustalu-189b298/
 - https://anchor.fm/gritpodcast/episodes/VERIFF----Triin-Uustalu--inimlik-turundus--oluliste-asjade-mtmine-ja-julgus-B2B-s-eristuda-ekos02
+
+## 9. The owner's pointers, kept for the discussion (2026-11-10)
+
+Told, to be kept around and not yet turned into anything (*"for now just keep them
+around for discussion"*; more are coming).
+
+**Fachwerk at Latitude.** The owner built Fachwerk, an educational system: a Markdown and
+Vue.js mix in which anybody could write interactive learning materials, interactive books
+in the spirit of the early pioneers, with Alan Kay and Bret Victor in view. The pitch at
+the Latitude conference opened on Richard Feynman: to understand something you take it
+apart and look inside. Nobody understood what it was. Asked who it is for and what it
+contains, the answer was *"it's everything for everybody"*, and the audience shrugged.
+In the Q&A the owner scrambled to turn it into a platform story with layers, convinced
+nobody, and got zero connections afterwards. The owner's own reading: *"wrong place, wrong
+time, with the wrong thing, I guess, or wrong message. But I think still the thing was
+right. It's just I didn't had way of communicating it."*
+
+**The MIM project.** Earlier still, the owner was part of MIM project, a technical
+interactive art group, working with German sound artists. A black box, a large spherical
+speaker system, one person programming SuperCollider through a sound card with 16 or more
+outputs wired to the sphere. He threw his hands about and said, roughly, *I want this to be
+jungle, elephant squeaks, a whirlpool going around us*, and coded, and the sound emerged.
+The owner: *"it really infected me how powerful people if you are really directed
+connection with imagination and the tools, there is no lag in between, you are creating
+things out of thin air. So it was a really profound moment for me."*
