@@ -31,6 +31,7 @@
   .ls strong { color: var(--fg); font-weight: 600; }
   .ls-fig { display: flex; flex-direction: column; gap: 12px; margin: 36px 0; }
   /* The kit sizes a picture to its box, so a one node picture gets a narrow box, centred; zoom makes the patch larger. */
+  .ls h2 + .ls-fig { margin-top: 4px; }
   .ls-fig .lv { zoom: 1.35; }
   .ls-fig.one .lv { width: 170px; margin: 0 auto; }
   .ls-fig.loop .lv { width: 200px; }
@@ -76,12 +77,13 @@
 <p>At meetups, people demonstrate astonishing things they've created almost entirely alone.</p>
 <p>The question is no longer <em>how did you make it?</em></p>
 <p>It's <em>does it have to be for anyone but me?</em></p>
+
+<h2>The loopback</h2>
 <figure data-pic="node"></figure>
 <p>Imagine a node in a network. It has inputs and outputs, countless possibilities, but no connections.</p>
 <p>It can send signals, but there's nobody on the other end.</p>
 <p>Maybe we're becoming these lonely nodes, building increasingly elaborate worlds of our own, looking for something to connect to.</p>
 
-<h2>The loopback</h2>
 <p>There's something we can do with a lonely node.</p>
 <p>Connect its output back to its own input.</p>
 <figure data-pic="loopback"></figure>
