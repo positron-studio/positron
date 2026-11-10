@@ -27,13 +27,13 @@
   /* The title and the line under it in the front page hero's type (.pos-hero-h, .pos-hero-l in shell.css). */
   .pos-name { font: 600 clamp(32px, 7vw, 56px)/1.08 var(--mono); letter-spacing: -.04em; text-wrap: balance; }
   .ls .ls-sub { font: 400 clamp(19px, 2.3vw, 23px)/1.45 var(--sans); letter-spacing: -.01em; color: var(--dim); text-wrap: balance; margin-bottom: 20px; }
-  .ls h2 { margin: 30px 0 0; font-size: 26px; font-weight: 600; }
+  .ls h2 { margin: 56px 0 14px; font-size: 26px; font-weight: 600; }
   .ls strong { color: var(--fg); font-weight: 600; }
   .ls-fig { display: flex; flex-direction: column; gap: 12px; margin: 36px 0; }
   /* The kit sizes a picture to its box, so a one node picture gets a narrow box, centred; zoom makes the patch larger. */
-  .ls h2 + .ls-fig { margin-top: 4px; }
+  .ls h2 + .ls-fig { margin-top: 10px; margin-bottom: 24px; }
   .ls-fig .lv { zoom: 1.35; }
-  .ls-fig.one .lv { width: 170px; margin: 0 auto; }
+  .ls-fig.one .lv { width: 170px; }
   .ls-fig.loop .lv { width: 200px; }
 </style>
 <script type="module">
@@ -139,10 +139,21 @@
     const rename = () => { for (const t of pb.el.querySelectorAll('.lv-title')) { const want = names.get(t.textContent); if (want) t.textContent = want; } };
     new MutationObserver(rename).observe(pb.el, { childList: true, subtree: true });
     fig.append(pb.el);
-    drawn.push(pb);
+    drawn.push({ pb, bay });
   }
   d.stack.add(body);
-  for (const pb of drawn) pb.refresh();
+  for (const { pb } of drawn) pb.refresh();
+  // Every link carries a steady pulse, the second of a pair half a beat later: a reply. Nothing moves
+  // for a reader who asked for reduced motion.
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const BEAT = 1400;
+    for (const { pb, bay } of drawn) {
+      bay.links().forEach((l, k) => setTimeout(() => {
+        pb.pulse(l.from, l.to);
+        setInterval(() => pb.pulse(l.from, l.to), BEAT);
+      }, k * BEAT / 2));
+    }
+  }
   d.ready();
 </script>
 </html>
