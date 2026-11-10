@@ -1,47 +1,83 @@
-/* frame: 160x160 1 bit frames in over the USB serial link, stylus out.
- * In:  'P' 'F' len_hi len_lo, then len bytes; len 3200 is one 160x160 frame,
- *      rows of 20 bytes, most significant bit leftmost, 1 = ink.
- * Out: "p x y d\n" per pen event, d is 1 while the pen is down.
- * UNTESTED on the device. */
+/* frame: 160x160 frames in over the USB serial link at 1, 2, 4, 8 or 16 bit,
+ * stylus out.
+ * In:  'P' 'F' fmt len_hi len_lo, then len bytes. fmt is the bit depth:
+ *      1 (3200 B), 2 grey (6400), 4 grey (12800), 8 system palette (25600),
+ *      16 RGB565 big endian (51200). Rows top to bottom, leftmost pixel in the
+ *      most significant bits; below 8 bit, 0 is white. A packet whose len is
+ *      not the frame size for its fmt is read and dropped.
+ * In:  'P' 'T' freq_hi freq_lo dur_hi dur_lo amp: a tone of freq Hz for dur ms
+ *      at amp (0 to sndMaxAmp, clamped), played without waiting; a new tone
+ *      cuts the one playing.
+ * Out: "p x y d\n" per pen event (d is 1 while down); once, after the first
+ *      frame, "pal " and 256 rrggbb hex entries of the system palette, or
+ *      "pal err 0x..".
+ * Status line: d<fmt> f<frames> <fps measured here> <KB/s>, t<tones> once one played. */
 #include <PalmOS.h>
 #include "frame.h"
 
 #define W 160
 #define H 160
-#define FRAME_BYTES (W / 8 * H)
+#define SKIP_CAP 512
 
 static UInt16 port;
 static Boolean portOpen;
-static Err openErr;
-static UInt8 rxbuf[4096];
+static UInt8 rxbuf[16384];
 static BitmapType *bmp;
 static UInt8 *bits;
-static UInt16 state, need, got;
-static UInt8 hdr[4];
-static UInt32 frames;
+static UInt8 depth;
+static UInt32 frameBytes;
+static UInt16 state;
+static UInt32 need, got;
+static UInt8 hdr[7];
+static UInt8 hdrLen;            /* 5 for a frame, 7 for a tone, set by the second byte */
+static UInt16 tones;
+static UInt32 frames, bytesIn;
+static Boolean palSent;
+static RGBColorType pal[256];
+static Err palErr;
+static UInt32 lastTick, lastFrames, lastBytes;
+static UInt16 fps10, kbps;
+static char err[24];
+static UInt16 drops;
 
-static void status(const char *s) {
+static void status(void) {
   RectangleType r;
+  char s[48];
+  StrPrintF(s, "d%u f%lu %u.%u/s %uKB/s", (UInt16)depth, frames, fps10 / 10, fps10 % 10, kbps);
+  if (tones) StrPrintF(s + StrLen(s), " t%u", tones);
+  if (drops) StrPrintF(s + StrLen(s), " x%u", drops);
+  if (err[0]) StrPrintF(s + StrLen(s), " %s", err);
   RctSetRectangle(&r, 0, 148, W, 12);
   WinEraseRectangle(&r, 0);
   WinDrawChars(s, StrLen(s), 2, 148);
 }
 
+/* Once a second: frames per second and KB per second over the last interval. */
+static void tick(void) {
+  UInt32 now = TimGetTicks(), dt = now - lastTick, tps = SysTicksPerSecond();
+  if (dt < tps) return;
+  fps10 = (UInt16)((frames - lastFrames) * 10 * tps / dt);
+  kbps = (UInt16)((bytesIn - lastBytes) * tps / dt / 1024);
+  lastTick = now; lastFrames = frames; lastBytes = bytesIn;
+  status();
+}
+
 static void openLink(void) {
   SrmOpenConfigType cfg;
-  char msg[40];
+  Err e;
   MemSet(&cfg, sizeof(cfg), 0);
   cfg.baud = 115200;
-  openErr = SrmExtOpen(serPortCradleUSBPort, &cfg, sizeof(cfg), &port);
-  if (openErr) openErr = SrmOpen(serPortCradlePort, 115200, &port);
-  if (openErr) {
-    StrPrintF(msg, "open failed 0x%x", openErr);
-    status(msg);
+  e = SrmExtOpen(serPortCradleUSBPort, &cfg, sizeof(cfg), &port);
+  if (e) e = SrmOpen(serPortCradlePort, 115200, &port);
+  if (e) {
+    StrPrintF(err, "open 0x%x", e);
+    status();
     return;
   }
   portOpen = true;
   SrmSetReceiveBuffer(port, rxbuf, sizeof(rxbuf));
-  status("link open, waiting for PF");
+  StrCopy(err, "waiting");
+  status();
 }
 
 static void closeLink(void) {
@@ -51,55 +87,141 @@ static void closeLink(void) {
   portOpen = false;
 }
 
-static void sendPen(Int16 x, Int16 y, int down) {
-  char line[24];
-  Err err;
+static void send(const char *s, UInt16 n) {
+  Err e;
   if (!portOpen) return;
-  StrPrintF(line, "p %d %d %d\n", x, y, down);
-  SrmSend(port, line, StrLen(line), &err);
-  if (err) SrmClearErr(port);
+  SrmSend(port, s, n, &e);
+  if (e) SrmClearErr(port);
 }
 
-/* Header 'P' 'F' len; a frame of any other length is read and dropped. */
-static void pump(void) {
+static void sendPen(Int16 x, Int16 y, int down) {
+  char line[24];
+  StrPrintF(line, "p %d %d %d\n", x, y, down);
+  send(line, StrLen(line));
+}
+
+static void sendPalette(void) {
+  static char line[4 + 256 * 6 + 1];
+  static const char hex[] = "0123456789abcdef";
+  UInt16 i, n = 4;
+  palSent = true;
+  if (palErr) {
+    StrPrintF(line, "pal err 0x%x\n", palErr);
+    send(line, StrLen(line));
+    return;
+  }
+  StrCopy(line, "pal ");
+  for (i = 0; i < 256; i++) {
+    line[n++] = hex[pal[i].r >> 4]; line[n++] = hex[pal[i].r & 15];
+    line[n++] = hex[pal[i].g >> 4]; line[n++] = hex[pal[i].g & 15];
+    line[n++] = hex[pal[i].b >> 4]; line[n++] = hex[pal[i].b & 15];
+  }
+  line[n++] = '\n';
+  send(line, n);
+}
+
+static void tone(UInt16 freq, UInt16 ms, UInt8 amp) {
+  SndCommandType c;
+  MemSet(&c, sizeof(c), 0);
+  c.cmd = sndCmdFreqDurationAmp;
+  c.param1 = freq;
+  c.param2 = ms;
+  c.param3 = amp > sndMaxAmp ? sndMaxAmp : amp;
+  SndDoCmd(NULL, &c, true);
+  tones++;
+  status();
+}
+
+/* A bitmap of the asked depth, made when the format changes. */
+static Boolean useDepth(UInt8 d) {
+  Err e;
+  Coord w, h;
+  UInt16 rowBytes;
+  if (d != 1 && d != 2 && d != 4 && d != 8 && d != 16) return false;
+  if (bmp && depth == d) return true;
+  if (bmp) { BmpDelete(bmp); bmp = NULL; bits = NULL; }
+  depth = d;
+  frameBytes = 0;
+  bmp = BmpCreate(W, H, d, NULL, &e);
+  if (!bmp) { StrPrintF(err, "bmp%u 0x%x", (UInt16)d, e); return false; }
+  BmpGetDimensions(bmp, &w, &h, &rowBytes);
+  if (rowBytes != (UInt16)W * d / 8) {
+    StrPrintF(err, "row %u", rowBytes);
+    BmpDelete(bmp); bmp = NULL;
+    return false;
+  }
+  bits = (UInt8 *)BmpGetBits(bmp);
+  frameBytes = (UInt32)rowBytes * H;
+  err[0] = 0;
+  return true;
+}
+
+/* Returns true if anything arrived. Hands back to the event loop after each
+ * drawn frame and after SKIP_CAP reads, so a link that never goes quiet
+ * cannot starve the events (a Home press must still work). */
+static Boolean pump(void) {
   UInt32 avail, n;
-  Err err;
+  Err e;
   UInt8 b;
-  if (!portOpen) return;
-  for (;;) {
+  UInt16 rounds = 0;
+  Boolean any = false;
+  if (!portOpen) return false;
+  while (rounds++ < SKIP_CAP) {
     if (SrmReceiveCheck(port, &avail) || avail == 0) {
       SrmClearErr(port);
-      return;
+      return any;
     }
-    if (state < 4) {
-      SrmReceive(port, &b, 1, 0, &err);
-      if (err) { SrmClearErr(port); state = 0; return; }
-      if ((state == 0 && b != 'P') || (state == 1 && b != 'F')) { state = 0; continue; }
+    any = true;
+    if (state < 2 || state < hdrLen) {
+      SrmReceive(port, &b, 1, 0, &e);
+      if (e) { SrmClearErr(port); state = 0; return any; }
+      if (state == 0 && b != 'P') continue;
+      if (state == 1) {
+        if (b == 'F') hdrLen = 5;
+        else if (b == 'T') hdrLen = 7;
+        else { state = 0; continue; }
+      }
       hdr[state++] = b;
-      if (state == 4) { need = ((UInt16)hdr[2] << 8) | hdr[3]; got = 0; }
+      if (hdrLen == 7 && state == 7) {
+        tone(((UInt16)hdr[2] << 8) | hdr[3], ((UInt16)hdr[4] << 8) | hdr[5], hdr[6]);
+        state = 0;
+        continue;
+      }
+      if (hdrLen == 5 && state == 5) {
+        need = ((UInt32)hdr[3] << 8) | hdr[4];
+        got = 0;
+        if (!useDepth(hdr[2]) || need != frameBytes) {
+          drops++;
+          status();
+        }
+      }
       continue;
     }
     n = need - got;
     if (n > avail) n = avail;
-    if (need == FRAME_BYTES) {
-      n = SrmReceive(port, bits + got, n, 0, &err);
+    if (bits && need == frameBytes) {
+      n = SrmReceive(port, bits + got, n, 0, &e);
     } else {
       UInt8 junk[64];
       if (n > sizeof(junk)) n = sizeof(junk);
-      n = SrmReceive(port, junk, n, 0, &err);
+      n = SrmReceive(port, junk, n, 0, &e);
     }
-    if (err) { SrmClearErr(port); state = 0; return; }
+    if (e) { SrmClearErr(port); state = 0; return any; }
     got += n;
+    bytesIn += n;
     if (got >= need) {
       state = 0;
-      if (need == FRAME_BYTES) {
-        char msg[48];
-        WinDrawBitmap(bmp, 0, 0); frames++;
-        StrPrintF(msg, "f%lu %x %x %x %x", frames, bits[0], bits[1], bits[20], bits[3199]);
-        status(msg);
+      if (bits && need == frameBytes) {
+        WinDrawBitmap(bmp, 0, 0);
+        if (!frames) err[0] = 0;
+        frames++;
+        status();
+        if (!palSent) sendPalette();
+        return any;
       }
     }
   }
+  return any;
 }
 
 static Boolean mainHandler(EventType *e) {
@@ -136,32 +258,36 @@ static Boolean appHandler(EventType *e) {
 
 UInt32 PilotMain(UInt16 cmd, MemPtr pbp, UInt16 flags) {
   EventType e;
-  Err err;
-  UInt32 rom;
+  Err er;
+  UInt32 rom, d16 = 16;
+  Boolean busy = false;
 
   if (cmd != sysAppLaunchCmdNormalLaunch) return 0;
   FtrGet(sysFtrCreator, sysFtrNumROMVersion, &rom);
   if (rom < sysMakeROMVersion(4, 0, 0, sysROMStageRelease, 0))
     return sysErrRomIncompatible;
 
-  bmp = BmpCreate(W, H, 1, NULL, &err);
-  if (!bmp) return err;
-  bits = (UInt8 *)BmpGetBits(bmp);
-  MemSet(bits, FRAME_BYTES, 0);
+  palErr = WinPalette(winPaletteGet, 0, 256, pal);
+  WinScreenMode(winScreenModeSet, NULL, NULL, &d16, NULL);
+  if (!useDepth(1)) return memErrNotEnoughSpace;
+  MemSet(bits, frameBytes, 0);
+  lastTick = TimGetTicks();
 
   FrmGotoForm(MainForm);
   do {
-    EvtGetEvent(&e, 1);
-    pump();
+    EvtGetEvent(&e, busy ? 0 : 1);
+    busy = pump();
+    tick();
     if (e.eType == nilEvent) { EvtResetAutoOffTimer(); continue; }
     if (SysHandleEvent(&e)) continue;
-    if (MenuHandleEvent(NULL, &e, &err)) continue;
+    if (MenuHandleEvent(NULL, &e, &er)) continue;
     if (appHandler(&e)) continue;
     FrmDispatchEvent(&e);
   } while (e.eType != appStopEvent);
 
   closeLink();
   FrmCloseAllForms();
-  BmpDelete(bmp);
+  if (bmp) BmpDelete(bmp);
+  WinScreenMode(winScreenModeSetToDefaults, NULL, NULL, NULL, NULL);
   return 0;
 }
