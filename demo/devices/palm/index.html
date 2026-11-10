@@ -15,7 +15,7 @@
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { loadPanelUi } from '/shell/panel-screen.mjs';
   import { OLED_LIT, OLED_DARK } from '/shell/oled-view.mjs';
-  import { pixel } from '../split/split-oled.mjs';
+  import { pixel, blit } from '../split/split-oled.mjs';
   import { SCREENS, createScreens } from '../control/screens.mjs';
   import { createPalm, PALM_CSS, PALM_W, PALM_H } from '/shell/palm-view.mjs';
   useMediumColours();
@@ -23,7 +23,7 @@
     + '.pm-media { display: flex; justify-content: center; align-items: center; padding: 24px 16px; height: calc(160px * var(--pm-k, 2) + 48px); background: #07090d; overflow-x: auto; } .pm-frame { padding: 8px; border: 1px solid var(--line); border-radius: 2px; line-height: 0; background: #000; } .pm-say { font-size: 12px; color: var(--dim); } .pm-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; }' }));
 
   // The Pi's OLED screens (/devices/control/) shown 1:1 on a simulated Palm Z22, or the stylus drawing.
-  // full: one 128x64 screen centred; split: two stacked and centred.
+  // full: one 128x64 screen centred; split: three half screens (128x32) in three lines.
   const d = mount({ name: 'Palm', what: '', readout: { 'screen': '', 'pen': '' }, index: '/', indexLabel: 'positron' });
 
   const N = SCREENS.length;
@@ -49,8 +49,8 @@
   // Frames are composed here at 160x160 (OLED bits as cyan on near black, the strip as text), then
   // handed to palm.show so the Z22's 12 bit quantise applies.
   const comp = Object.assign(document.createElement('canvas'), { width: PALM_W, height: PALM_H }).getContext('2d', { willReadFrequently: true });
-  function oled(img, f, ox, oy) {
-    for (let y = 0; y < 64; y++) for (let x = 0; x < 128; x++) {
+  function oled(img, f, ox, oy, rows = 64) {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < 128; x++) {
       const c = pixel(f, x, y) ? OLED_LIT : OLED_DARK, i = ((oy + y) * PALM_W + ox + x) * 4;
       img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255;
     }
@@ -59,7 +59,8 @@
     comp.fillStyle = '#000'; comp.fillRect(0, 0, PALM_W, PALM_H);
     const img = comp.getImageData(0, 0, PALM_W, PALM_H);
     if (mode === 'full') oled(img, screens.frame(SCREENS[at].key, t), 16, 48);
-    else { oled(img, screens.frame(SCREENS[at].key, t), 16, 16); oled(img, screens.frame(SCREENS[(at + 1) % N].key, t), 16, 80); }
+    // split: three half screens (128x32) in three lines, 16 px between them
+    else for (let k = 0; k < 3; k++) { const f = new Uint8Array(1024); blit(f, screens.half(SCREENS[(at + k) % N].key, t), 0, 0); oled(img, f, 16, 16 + k * 48, 32); }
     palm.show(img.data);
     frames++;
   }
@@ -81,7 +82,7 @@
     await loading;
   }
   function label() {
-    d.set('screen', mode === 'draw' ? '' : mode === 'full' ? `${SCREENS[at].key}, ${at + 1} of ${N}` : `${SCREENS[at].key} over ${SCREENS[(at + 1) % N].key}`);
+    d.set('screen', mode === 'draw' ? '' : mode === 'full' ? `${SCREENS[at].key}, ${at + 1} of ${N}` : [0, 1, 2].map((k) => SCREENS[(at + k) % N].key).join(', '));
   }
   function move(dir) { at = (at + dir + N) % N; label(); if (screens && mode !== 'draw') compose(performance.now()); }
   async function setMode(m) {
@@ -104,7 +105,7 @@
   const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS }, { flowing: () => (mode === 'draw' ? last !== null : true) });
 
   const pick = createChoice({ label: 'mode', options: [['full', 'full'], ['split', 'split'], ['draw', 'draw']], at: 0,
-    title: (v) => ({ full: 'one OLED screen, 128x64 at 1:1', split: 'two OLED screens stacked, stylus keys under them', draw: 'the stylus draws' })[v],
+    title: (v) => ({ full: 'one OLED screen, 128x64 at 1:1', split: 'three OLED screens, half size, in three lines', draw: 'the stylus draws' })[v],
     onPick: (v) => setMode(v) });
   const keys = createButtonGroup({ buttons: [
     { id: 'up', icon: 'chevron-up', label: 'up, the previous screen', onPress: () => move(-1) },
