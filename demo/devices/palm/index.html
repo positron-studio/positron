@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Palm</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createPalm, PALM_CSS, PALM_W, PALM_H } from '/shell/palm-view.mjs';
+  useMediumColours();
+  document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS + '.pm-box { display: flex; justify-content: center; }' }));
+
+  // The Palm Z22 simulated in the tab: the stylus draws, and what it draws is shown on its own
+  // 12 bit screen. The real one waits on a HotSync from the Pi (plans/plan-screens-odd.md).
+  const d = mount({ name: 'Palm', what: '', readout: { 'pen': '', 'strokes': '' }, index: '/', indexLabel: 'positron' });
+
+  let last = null, strokes = 0, hue = 0;
+  const box = el('div', 'pm-box');
+  const palm = createPalm(box, {
+    onPen: ({ x, y, down }) => {
+      d.set('pen', `${x}, ${y}${down ? '' : ' up'}`);
+      if (!down) { last = null; strokes++; d.set('strokes', strokes); hue = (hue + 47) % 360; return; }
+      palm.paint((c) => {
+        c.strokeStyle = `hsl(${hue} 80% 45%)`; c.lineWidth = 3; c.lineCap = 'round';
+        c.beginPath(); c.moveTo((last || { x }).x, (last || { y }).y); c.lineTo(x, y); c.stroke();
+      });
+      last = { x, y };
+      pb.pulse('pi-1:stylus:value-out', 'web:ink:value-in');
+    },
+  });
+  palm.paint((c) => { c.fillStyle = '#000'; c.font = '10px monospace'; c.fillText('draw here', 52, 84); });
+
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const NODES = [{ id: 'pi-1:stylus', kind: 'device', label: 'Palm stylus' }, { id: 'web:ink', kind: 'engine', label: 'ink' },
+    { id: 'pi-1:palm', kind: 'screen', label: 'Palm screen 160x160' }];
+  const PORTS = [port('pi-1:stylus', 'value', 'out'), port('web:ink', 'value', 'in'), port('web:ink', 'video', 'out'), port('pi-1:palm', 'video', 'in')];
+  const LINKS = [{ id: 'a', from: 'pi-1:stylus:value-out', to: 'web:ink:value-in' }, { id: 'b', from: 'web:ink:video-out', to: 'pi-1:palm:video-in' }];
+  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: () => LINKS }, { flowing: () => last !== null });
+
+  const clear = el('button', 'pos-btn', 'Clear');
+  clear.type = 'button';
+  clear.addEventListener('click', () => { palm.paint((c) => { c.fillStyle = '#fff'; c.fillRect(0, 0, PALM_W, PALM_H); }); strokes = 0; d.set('strokes', 0); });
+  d.stack.add(box, clear, pb.el);
+  pb.refresh();
+  d.ready();
+</script>
+</html>
