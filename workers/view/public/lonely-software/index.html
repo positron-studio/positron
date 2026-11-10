@@ -29,6 +29,7 @@
   .ls .ls-sub { font: 400 clamp(19px, 2.3vw, 23px)/1.45 var(--sans); letter-spacing: -.01em; color: var(--dim); text-wrap: balance; margin-bottom: 40px; }
   .ls h2 { margin: 56px 0 14px; font-size: 26px; font-weight: 600; }
   .ls strong { color: var(--fg); font-weight: 600; }
+  .ls .ls-pause { margin-top: 20px; }
   .ls-fig { display: flex; flex-direction: column; gap: 12px; margin: 36px 0; }
   /* The kit sizes a picture to its box, so a one node picture gets a narrow box, centred; zoom makes the patch larger. */
   .ls h2 + .ls-fig { margin-top: 10px; margin-bottom: 24px; }
@@ -85,7 +86,7 @@
 <p>It can send signals, but there's nobody on the other end.</p>
 <p>Maybe we're becoming these lonely nodes, building increasingly elaborate systems of our own, without reaching into other people's worlds.</p>
 
-<p>There's something we can do with a lonely node.</p>
+<p class="ls-pause">But there's something we can do with a lonely node.</p>
 <p>Connect its output back to its own input.</p>
 <figure data-pic="loopback"></figure>
 <p>In engineering, this is called a <strong>loopback</strong>. Normally, it's a way of testing a system. Send something out, receive it back, see whether the connection works.</p>
