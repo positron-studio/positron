@@ -5,6 +5,7 @@
 //
 //   node ~/palm/mic.mjs                        # room studio-1-mic, port circuit:capture_2
 //   node ~/palm/mic.mjs --room studio-1-mic --port circuit:capture_2 --relay wss://ws.positron.studio
+//   --line --port system:capture_1 --room studio-1-line --client posline   # the Circuit on input 1
 //   --secs 25                                  # stop by itself after 25 s
 //
 // One JACK client (ffmpeg's `posmic`) and one connection, capture_2 to it, made here and undone on
@@ -20,8 +21,8 @@ const PORT = opt('--port', 'circuit:capture_2');
 const SECS = Number(opt('--secs', 0));
 const RATE = 48000, FRAME = 960, FRAME_MS = 20;   // the board's: BOARD_RATE, BOARD_FRAME_MS, mono
 const LEASE_MS = 60_000, BEAT_MS = 5000;
-const CLIENT = 'posmic', IN = `${CLIENT}:input_1`;
-if (/capture_1$/.test(PORT) || /playback/.test(PORT)) { console.error(`refusing ${PORT}: this reads the microphone only`); process.exit(2); }
+const CLIENT = opt('--client', 'posmic'), IN = `${CLIENT}:input_1`;
+if ((/capture_1$/.test(PORT) && !args.includes('--line')) || /playback/.test(PORT)) { console.error(`refusing ${PORT}: this reads the microphone only`); process.exit(2); }
 
 const id = (n = 16) => randomBytes(n).toString('base64url').slice(0, n);
 const FROM = `mic-${id(6)}`;

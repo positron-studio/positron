@@ -73,6 +73,8 @@
 
   const Q = new URLSearchParams(location.search);
   const ROOM = Q.get('room') || 'studio-1-mic';
+  // the Circuit on Fast Track input 1, sent by a second mic.mjs (--line)
+  const LINE_ROOM = Q.get('line') || 'studio-1-line';
   // the room the Palm's bridge and the board listen in; a harness points it at a room nobody is in
   const KEYS_ROOM = Q.get('keys') || 'studio-1';
   const AT = ['Shure SM57', 'on a Raspberry Pi'];
@@ -130,9 +132,11 @@
   const PI = { place: 'pi-1' }, DESK = { place: 'desk' }, WEB = { place: 'browser' };
   const node = (id, kind, label, extra) => bay.addNode({ id, kind, label, ...extra });
   node('pi-1:sm57', 'device', 'Shure SM57', PI);
-  node('pi-1:fasttrack', 'device', 'Fast Track Pro, input 2', PI);
+  node('pi-1:circuit', 'device', 'Circuit', PI);
+  node('pi-1:fasttrack', 'device', 'Fast Track Pro, inputs 1 and 2', PI);
   node('pi-1:jack', 'engine', 'JACK', PI);
   node('pi-1:mic', 'engine', 'mic.mjs', PI);
+  node('pi-1:line', 'engine', 'mic.mjs --line', PI);
   node('pi-1:bridge', 'engine', 'bridge.mjs', PI);
   node('pi-1:palm', 'device', 'Palm: rings, voice', PI);
   node('pi-1:board', 'engine', 'board', PI);
@@ -147,14 +151,22 @@
   node('web:speaker', 'device', 'speakers', WEB);
   const port = (id, dir, medium, label, extra = {}) => bay.addPort({ id, dir, medium, label, ...extra });
   port('pi-1:sm57:audio-out', 'out', 'audio', 'XLR');
+  port('pi-1:circuit:audio-out', 'out', 'audio', 'line out');
   port('pi-1:fasttrack:audio-in', 'in', 'audio', 'input 2');
+  port('pi-1:fasttrack:audio-in-2', 'in', 'audio', 'input 1');
+  port('pi-1:fasttrack:audio-out-2', 'out', 'audio', 'USB');
+  port('pi-1:jack:audio-in-2', 'in', 'audio', 'capture_1');
+  port('pi-1:jack:audio-out-2', 'out', 'audio', '48 kHz');
+  port('pi-1:line:audio-in', 'in', 'audio', 'JACK client');
+  port('pi-1:line:audio-out', 'out', 'audio', `room ${LINE_ROOM}`, { transports: ['relay'] });
   port('pi-1:fasttrack:audio-out', 'out', 'audio', 'USB');
   port('pi-1:jack:audio-in', 'in', 'audio', 'capture_2');
   port('pi-1:jack:audio-out', 'out', 'audio', '48 kHz');
   port('pi-1:mic:audio-in', 'in', 'audio', 'JACK client');
   port('pi-1:mic:audio-out', 'out', 'audio', `room ${ROOM}`, { transports: ['relay'] });
   port('web:board:audio-in', 'in', 'audio', 'board frames', { transports: ['relay'] });
-  port('web:board:audio-out', 'out', 'audio', 'mic');
+  port('web:board:audio-in-2', 'in', 'audio', 'Circuit frames', { transports: ['relay'] });
+  port('web:board:audio-out', 'out', 'audio', 'mic, Circuit');
   port('web:drone:audio-out', 'out', 'audio', 'drone');
   port('web:drone:value-in', 'in', 'value', 'pitch, tone, motion, level', { deliver: (ev) => { if (ev.name !== 'amp' || droneOn) set('adrone', { [ev.name]: ev.v }); } });
   port('web:space:audio-in', 'in', 'audio', 'mic, drone');
@@ -178,6 +190,10 @@
   link('pi-1:fasttrack:audio-out', 'pi-1:jack:audio-in');
   link('pi-1:jack:audio-out', 'pi-1:mic:audio-in');
   link('pi-1:mic:audio-out', 'web:board:audio-in', 'relay');
+  link('pi-1:circuit:audio-out', 'pi-1:fasttrack:audio-in-2');
+  link('pi-1:fasttrack:audio-out-2', 'pi-1:jack:audio-in-2');
+  link('pi-1:jack:audio-out-2', 'pi-1:line:audio-in');
+  link('pi-1:line:audio-out', 'web:board:audio-in-2', 'relay');
   link('web:keys:midi-out', 'pi-1:bridge:midi-in');
   link('web:keys:midi-out', 'pi-1:board:midi-in');
   link('web:keys:midi-out', 'web:held:midi-in');
@@ -205,6 +221,7 @@
   // mic (playout) -> micIn -> dry -> mix; micIn -> scsynth -> wet -> mix; mix -> an (picture); mix -> master -> how -> fade -> out
   const VOLUME = 0.3, FADE = 1.5, QUIET = 0.08, RAMP = 2.5;
   let ctx = null, micIn = null, an = null, dry = null, wet = null, mix = null, master = null, howG = null, fade = null;
+  let lineBoard = null, lineLease = null, linePlayout = null;
   let board = null, lease = null, playout = null, listening = false, stopT = 0;
   let sc = null, booting = null, processing = false, droneOn = false, how = false;
   function ensureCtx() {
@@ -242,23 +259,39 @@
       });
       if (board.state() === 1) want();
     } else if (!lease) want();
+    if (!lineBoard) {
+      lineBoard = createBoard({ room: LINE_ROOM, of: 'the Circuit', showName: false, audioContext: ctx, toDestination: false,
+        log: (line, kind) => d.log(line, kind),
+        onOpen: () => { if (listening) wantLine(); } });
+      lineBoard.startAudio().then(() => {
+        const p = lineBoard?.playout();
+        if (p && p !== linePlayout) { linePlayout = p; p.connect(micIn); }
+      });
+      if (lineBoard.state() === 1) wantLine();
+    } else if (!lineLease) wantLine();
     ramp(fade.gain, 1);
   }
   function want() {
     lease?.stop();
     lease = createLease({ ask: (m, r, ms) => board.ask(m, r, ms), what: 'the microphone', log: (line, kind) => d.log(line, kind) });
   }
+  function wantLine() {
+    lineLease?.stop();
+    lineLease = createLease({ ask: (m, r, ms) => lineBoard.ask(m, r, ms), what: 'the Circuit', log: (line, kind) => d.log(line, kind) });
+  }
   function stop() {
     listening = false; face();
     voiceBox.hidden = true;
     lease?.stop(); lease = null;
     board?.send({ type: 'input.stop' });
+    lineLease?.stop(); lineLease = null;
+    lineBoard?.send({ type: 'input.stop' });
     keysOff();
     if (!ctx) return;
     ramp(fade.gain, 0);
     clearTimeout(stopT);
     // the socket goes once the sound has faded, so a stopped page holds nothing open
-    stopT = setTimeout(() => { stopT = 0; try { playout?.disconnect(); } catch {} playout = null; board?.close(); board = null; }, FADE * 1000);
+    stopT = setTimeout(() => { stopT = 0; try { playout?.disconnect(); } catch {} playout = null; board?.close(); board = null; try { linePlayout?.disconnect(); } catch {} linePlayout = null; lineBoard?.close(); lineBoard = null; }, FADE * 1000);
   }
 
   // ── the keyboard: Web MIDI from Listen on, every input; notes leave on web:keys:midi-out ──
@@ -483,7 +516,7 @@
   function drawLine() {
     const st = board?.stats();
     const level = Number.isFinite(lastDb) && an ? `${lastDb.toFixed(0)} dBFS` : '';
-    const tail = !listening ? 'Listen plays the microphone in studio 1, and the keyboard on the Palm.'
+    const tail = !listening ? 'Listen plays the microphone and the Circuit in studio 1, and the keyboard on the Palm.'
       : !st?.frames ? 'Waiting for the Pi.'
       : `${processing ? 'Processed' : 'Dry'}, ${level}`;
     line.replaceChildren(el('b', '', 'Headphones, or the mic will howl.'), tail);
@@ -583,7 +616,7 @@
     setTimeout(done, LEAVE * 1000);
   });
   addEventListener('pageshow', (e) => { if (!e.persisted || !leaving) return; veil?.remove(); veil = null; leaving = null; if (fade && (listening || processing)) ramp(fade.gain, 1); });
-  addEventListener('pagehide', () => { if (listening) { lease?.stop(); board?.send({ type: 'input.stop' }); keysOff(); } });
+  addEventListener('pagehide', () => { if (listening) { lease?.stop(); board?.send({ type: 'input.stop' }); lineLease?.stop(); lineBoard?.send({ type: 'input.stop' }); keysOff(); } });
 
   window.__demo.bay = bay;
   window.__demo.mic = { listen, stop, setProcess, setDrone, setHow, knobs, droneKnobs, board: () => board, context: () => ctx, sc: () => sc,
