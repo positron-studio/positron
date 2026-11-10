@@ -13,7 +13,7 @@
   .hud { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; }
   /* The title over the picture, top left; taps go through it to the picture. */
   .hud-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
-    top: max(32px, env(safe-area-inset-top)); left: max(32px, env(safe-area-inset-left)); }
+    top: max(48px, env(safe-area-inset-top)); left: max(48px, env(safe-area-inset-left)); }
   .hud-t .pos-hero-eye { margin: 0 0 12px; }
   .hud-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); letter-spacing: 0; }
   .hud-t .hud-at { margin: 0.3em 0 0; height: auto; color: var(--fg); font: 600 clamp(34px, 4.4vw, 56px)/1.25 var(--mono); }
@@ -27,7 +27,8 @@
   .hud { transition: filter 2.5s; }
   body.hud-how .hud { filter: brightness(.12); }
   body.hud-how .hud-t { max-height: calc(100dvh - 32px); overflow-y: auto; }
-  .hud-how-box { pointer-events: auto; margin-top: 32px; width: calc(100vw - 64px); box-sizing: border-box; }
+  /* the patch sits on the bottom edge with the same 48 px margin as the title */
+  .hud-how-box { pointer-events: auto; position: fixed; left: max(48px, env(safe-area-inset-left)); bottom: max(48px, env(safe-area-inset-bottom)); width: calc(100vw - 96px); box-sizing: border-box; }
   /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
   .hud-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
   body.hud-how .hud-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
@@ -258,7 +259,7 @@
   d.ready();
 </script>
 <style>
-  .sl-nav { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 16px); right: 16px; z-index: 50; }
+  .sl-nav { position: fixed; top: max(48px, env(safe-area-inset-top)); right: max(48px, env(safe-area-inset-right)); z-index: 50; }
   .sl-nav button { color: var(--fg); }
   .sl-nav svg { width: 18px; height: 18px; flex: none; }
   .sl-nav button.pos-lg { width: var(--ctl-lg); padding: 0; justify-content: center; }
