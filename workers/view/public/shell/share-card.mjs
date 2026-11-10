@@ -165,6 +165,10 @@ export const PAGE_CARDS = {
     scrimMax: 0.55,
     // no positron.studio at the foot: the line already says it ("rm footer positron.studio from social and ig")
     noMark: true },
+  // the essay's title and its subtitle, broken as the page breaks it
+  'lonely-software/index.html': { kind: 'lonely-software', lines: ['Lonely', 'Software'],
+    line: 'When everyone can create anything, what makes someone else care?',
+    lineLines: ['When everyone can create anything,', 'what makes someone else care?'] },
 };
 export const pageCard = (text, bg) => heroCard(W, H, 72, text.kind, [3], bg, text);
 /** The same page card as an Instagram portrait, 1080 by 1350, posted by hand. */
