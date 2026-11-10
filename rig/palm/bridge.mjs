@@ -243,7 +243,8 @@ function voice() {
   let top = null;
   for (const s of held.values()) if (!top || s.n > top.n) top = s;
   if (top && sounding && top.n === sounding.n && top.on === sounding.on) return;
-  if (top) { enqueue(notePkt(top.n, Math.max(1, Math.min(127, top.vel))), { front: true }); sounding = top; }
+  // the Palm voice plays at full velocity: key velocities came out too soft on its small speaker
+  if (top) { enqueue(notePkt(top.n, 127), { front: true }); sounding = top; }
   else if (sounding) { enqueue(QUIET, { front: true }); sounding = null; }
 }
 if (VOICE) setInterval(() => { if (sounding) enqueue(PING, { front: true }); }, 1000);
