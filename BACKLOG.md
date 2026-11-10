@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**/huddersfield/: a dimmer spectrogram, Contemporary on its own line, the spectrogram scrubbable over a kept buffer with varispeed and radio tuning sound**~~ DONE 2026-11-10, plus dub on vertical drag and play/stop fades on both radios (2026-11-10). Asked: *"dim more the spectogram. contemporaty to ne line. make spectometer scrubbale, keep buffer. use varispeed/radiotunin fx. in bg"*, then *"click and draggin up and down adding reverby/echo/dub on huddersf. stop and fause fade in and out the volume on both radios"*.
+
 - ~~**Soundscape pages: the How it works patch shows how v2in really works inside, no panel background, a deeper and slower dim, an animated bay**~~ DONE 2026-11-10 (2026-11-10). Asked: *"look up at v2in how it actually works inside v2in and add that to patchbay. rm extra bg from patchbay. dim even more and more slowly"*, *"make it animated"*, *"(bay)"*. /radio1965/ and /huddersfield/.
 
 - ~~**A copy of the Soundscape page for Huddersfield, a full page monochrome spectrogram moving in from the right**~~ DONE 2026-11-10, /huddersfield/ (2026-11-10). Asked: *"add copy of it, playing Huddersfield Contemporary Music Festival. Soundscape again. show the monocrome specrtum full page h moving in from right"*. v2in channel id mem ("Huddersfield MEM"), stream https://v2in.stream/stream/mem.
