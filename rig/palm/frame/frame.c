@@ -99,9 +99,11 @@ static char err[24];
 
 /* Every number goes through %lu or %lx as a UInt32, so the 16 or 32 bit int
  * question never reaches StrPrintF. */
+static Boolean showStatus = false;
 static void status(void) {
   RectangleType r;
   char s[96];
+  if (!showStatus) return;   /* no debug lines unless a tap on the top strip asks for them */
   StrPrintF(s, "d%lu f%lu %lu.%lu/s %luKB/s", (UInt32)depth, frames, fps10 / 10, fps10 % 10, kbps);
   if (err[0]) StrPrintF(s + StrLen(s), " %s", err);
   if (soundShown) {
@@ -642,7 +644,6 @@ static Boolean mainHandler(EventType *e) {
   case frmOpenEvent:
     FrmDrawForm(FrmGetActiveForm());
     WinEraseWindow();
-    WinDrawChars("pframe", 6, 2, 2);
     openLink();
     return true;
   case keyDownEvent: {
@@ -656,7 +657,7 @@ static Boolean mainHandler(EventType *e) {
     return false;
   }
   case penDownEvent:
-    if (e->screenY < 14) { reopen(); return true; }
+    if (e->screenY < 14) { showStatus = !showStatus; if (!showStatus) { RectangleType r; RctSetRectangle(&r, 0, 122, 160, 38); WinEraseRectangle(&r, 0); } reopen(); return true; }
     sendPen(e->screenX, e->screenY, 1);
     return true;
   case penMoveEvent:

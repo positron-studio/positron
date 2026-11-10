@@ -31,7 +31,9 @@ import fs from 'node:fs';
 import tty from 'node:tty';
 import { execFileSync, spawn } from 'node:child_process';
 
-const W = 160, H = 160, DH = 122;
+// No text on the Palm by default (the owner: "rm text / debug lines from palm"); --text brings it back.
+const TEXT = process.argv.includes('--text');
+const W = 160, H = 160, DH = TEXT ? 122 : 160;
 const args = process.argv.slice(2);
 const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port'];
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
@@ -309,6 +311,7 @@ const FONT_CHARS = ' #-.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 const FONT_HEX = '0000000000147f147f1408080808080000606000000014000020100804023e5149453e00427f400072494949462141494d331814127f1027454545393c4a49493141211109073649494936464949291e7c1211127c7f494949363e414141227f4141413e7f494949417f090909013e414151737f0808087f00417f41002040413f017f081422417f404040407f021c027f7f0408107f3e4141413e7f090909063e4151215e7f09192946264949493203017f01033f4040403f1f2040201f3f4038403f631408146303047804036159494d4320545478407f284444383844444428384444287f385454541800087e090218a4a49c787f0804047800447d40002040403d007f1028440000417f40007c047804787c080404783844444438fc1824241818242418fc7c08040408485454542404043f44243c4040207c1c2040201c3c4030403c44281028444c9090907c4464544c44';
 const FONT = Buffer.from(FONT_HEX, 'hex');
 function text(x, y, s, scale = 1, v = 15) {
+  if (!TEXT) return;
   for (const c of String(s)) {
     const k = FONT_CHARS.indexOf(c);
     if (k >= 0) for (let col = 0; col < 5; col++) {
