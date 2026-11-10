@@ -301,14 +301,19 @@
   // The drone's root latches to the key an octave down, as /ambient/drone/ does; its SynthDef glides 3 s.
   let root = 36;
   function droneRoot(n) { root = Math.max(24, Math.min(60, n - 12)); set('adrone', { root }); }
+  const CIRCUIT_ROOM = new URLSearchParams(location.search).get('circuit') || 'studio-1-circuit';
+  let circuit = null;
   function toRoom(ev) {
     if (ev.k === lastK) return;
     lastK = ev.k;
     if (wire?.send({ type: 'screen.note', n: ev.d1, on: ev.d2 > 0 })?.sent) roomSent++;
+    // the same note plays the Circuit on the Pi, synth 1, as /remote/circuit/ sends it
+    circuit?.send({ type: 'midi.send', bytes: ev.d2 > 0 ? [0x90, ev.d1, Math.max(1, ev.d2)] : [0x80, ev.d1, 0] });
   }
   function attach() { for (const i of midi?.inputs.values() ?? []) i.onmidimessage = listening ? (e) => midiIn(e.data) : null; }
   function keysOn() {
     wire ??= openWire(KEYS_ROOM, { onOpen: () => d.log(`the keyboard reaches ${KEYS_ROOM}`) });
+    circuit ??= openWire(CIRCUIT_ROOM, { onOpen: () => d.log(`the keyboard plays the Circuit in ${CIRCUIT_ROOM}`) });
     if (midi) { attach(); return; }
     if (!navigator.requestMIDIAccess) { d.log('this browser has no Web MIDI, so the keyboard is not heard', 'warn'); return; }
     asking ??= navigator.requestMIDIAccess().then((m) => { midi = m; m.onstatechange = attach; attach(); },
@@ -318,8 +323,8 @@
     attach();
     releaseAll();
     wire?.send({ type: 'screen.note', panic: true });
-    const w = wire; wire = null;
-    setTimeout(() => w?.close(), 200);
+    const w = wire, c = circuit; wire = null; circuit = null;
+    setTimeout(() => { w?.close(); c?.close(); }, 200);
   }
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
