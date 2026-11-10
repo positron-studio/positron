@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Lonely Software</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  .ls { display: flex; flex-direction: column; gap: 14px; max-width: 62ch; font-family: var(--sans); font-size: 16px; line-height: 1.6; color: var(--fg); }
+  .ls p { margin: 0; }
+  .ls .ls-sub { color: var(--dim); font-size: 18px; }
+  .ls h2 { margin: 26px 0 0; font-size: 20px; font-weight: 600; }
+  .ls strong { color: var(--fg); font-weight: 600; }
+  .ls-fig { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+  .ls-cap { color: var(--dim); font-size: 13.5px; }
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  useMediumColours();
+
+  // The essay is the owner's, word for word. The three pictures are plain patch data drawn by the kit:
+  // nothing here sends, joins or plays.
+  const d = mount({ name: 'Lonely Software', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
+
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const patch = (nodes, ports, links) => ({ nodes: () => nodes, ports: () => ports, links: () => links });
+  const ME = 'web:me', YOU = 'web:somebody';
+  const mine = (...media) => media.flatMap((m) => [port(ME, m, 'in'), port(ME, m, 'out')]);
+
+  const PICTURES = {
+    node: {
+      bay: patch([{ id: ME, kind: 'person', label: 'me' }], mine('audio', 'video', 'midi', 'value'), []),
+      cap: 'One node, inputs and outputs for sound, picture, notes and values, and no links.',
+    },
+    loopback: {
+      bay: patch([{ id: ME, kind: 'person', label: 'me' }], mine('audio', 'video'), [
+        { id: 'a', from: `${ME}:audio-out`, to: `${ME}:audio-in` },
+        { id: 'v', from: `${ME}:video-out`, to: `${ME}:video-in` },
+      ]),
+      cap: 'A loopback: the sound fed back into its own input, the camera pointed at its own monitor.',
+    },
+    two: {
+      bay: patch([{ id: ME, kind: 'person', label: 'me' }, { id: YOU, kind: 'person', label: 'somebody' }],
+        [port(ME, 'audio', 'out'), port(ME, 'value', 'in'), port(YOU, 'audio', 'in'), port(YOU, 'value', 'out')], [
+          { id: 'a', from: `${ME}:audio-out`, to: `${YOU}:audio-in` },
+          { id: 'b', from: `${YOU}:value-out`, to: `${ME}:value-in` },
+        ]),
+      cap: 'Two ends: what I make reaches somebody, and what they change comes back.',
+    },
+  };
+
+  const TEXT = `
+<p class="ls-sub"><em>When everyone can create anything, what makes someone else care?</em></p>
+<p>For decades, making software required specialized knowledge, teams, money and time. Now one person can create entire systems of systems of software.</p>
+<p>We're returning, in a way, to an older tradition of craftsmanship. Blacksmiths made their own tools. Photographers built their own pinhole cameras. Musicians invented instruments to create new worlds of sound.</p>
+<p>Today, people are rewriting the software on their smart TVs, repairing devices their manufacturers have abandoned. Musicians are once again creating their own instruments.</p>
+<p>Almost anyone can become a toolmaker.</p>
+<p>We're now generating thousands of thousands of lines of code. Software that makes software. Systems built on systems. Ideas built on ideas.</p>
+<p>At meetups, people demonstrate astonishing things they've created almost entirely alone.</p>
+<p>The question is no longer <em>how did you make it?</em></p>
+<p>It's <em>what is it for?</em></p>
+<p>Imagine a node in a network. It has inputs and outputs, countless possibilities, but no connections.</p>
+<p>It can send signals, but there's nobody on the other end.</p>
+<figure data-pic="node"></figure>
+<p>Maybe we're becoming these lonely nodes, building increasingly elaborate worlds of our own, looking for something to connect to.</p>
+
+<h2>The loopback</h2>
+<p>There's something we can do with a lonely node.</p>
+<p>Connect its output back to its own input.</p>
+<figure data-pic="loopback"></figure>
+<p>In engineering, this is called a <strong>loopback</strong>. Normally, it's a way of testing a system. Send something out, receive it back, see whether the connection works.</p>
+<p>In art, the same gesture can produce something entirely different.</p>
+<p>Point a camera at its own monitor. The image appears inside the image, inside the image. Patterns emerge, multiply and transform.</p>
+<p>Feed a sound back into its own input and you get resonance, distortion, oscillation. Add delay and the sound returns carrying a memory of itself.</p>
+<p>Feedback is at the heart of electronic music, video art and generative systems.</p>
+<p><strong>A loop doesn't necessarily repeat the same thing. It can produce something that wasn't there before.</strong></p>
+<p>We can make something simply to see what happens next.</p>
+<p>One experiment becomes another. An instrument suggests another instrument. A piece of software suggests another piece of software.</p>
+<p>And sometimes the next experiment is more interesting than the one we started with.</p>
+<p>The exploration itself can be the work.</p>
+
+<h2>My own loop</h2>
+<p>Years ago, working on an art project at ZKM, the Center for Art and Media in Karlsruhe, Germany, we had a spherical loudspeaker system and a talented programmer creating sounds in real time using SuperCollider.</p>
+<p>I could imagine a jungle, an elephant, a whirlpool of sound moving around us, and we could begin creating it almost immediately.</p>
+<p>The distance between imagination and reality seemed to disappear.</p>
+<p>But it was his interpretation, his coding skills, that made it possible. We were improvising together.</p>
+<p>Today, AI-assisted programming gives me something of that immediacy. I can experiment with ideas that would previously have required a programmer, a team or weeks of work.</p>
+<p>positron.studio grew out of this practice. It's my own workshop of experiments, instruments, connections and discoveries.</p>
+<p>An idea becomes software. The software suggests another idea. Another tool. Another experiment. Another possibility.</p>
+<p>There doesn't have to be a destination. The output can become the next input.</p>
+
+<h2>The other end</h2>
+<p>But who is listening?</p>
+<p>AI agents have made it possible to generate almost endless outputs. Software, applications, instruments, entire systems.</p>
+<p>More tools. More software. More systems of systems.</p>
+<p>But a listener, a collaborator, somebody who cares, isn't something we can generate so easily.</p>
+<p>What does this mean for the software industry?</p>
+<p>If everybody can make their own tools, what are we actually selling?</p>
+<p>The code? The knowledge? The method? The person behind it? Or the experience of making something together?</p>
+<p>And what happens to the things we've traditionally built together?</p>
+<p>Open source has always been as much about people sharing and maintaining software as about the code itself.</p>
+<p>We already have more open-source code than ever. More repositories, more projects, more versions of the same things. But are we building more things together?</p>
+<p>Artists have been dealing with questions of value and collaboration for a long time.</p>
+<p>Commissions, workshops, performances, residencies, publicly supported experiments. Ways of sustaining creative work without turning every invention into a scalable product.</p>
+<p>Perhaps we're all becoming artists now.</p>
+<p>I don't know.</p>
+<p>positron.studio is still my own workshop. I'm not here to sell it, and I'm not proposing it as a solution.</p>
+<p>I keep making things because I can.</p>
+<p>And increasingly, I can make them before I've even decided whether I should.</p>
+<p>But sometimes somebody discovers one of these experiments. They try it, change it, take it somewhere I hadn't imagined.</p>
+<figure data-pic="two"></figure>
+<p>And suddenly it's not just my experiment anymore.</p>
+<p>I think that's what I'm looking for. Not necessarily a product, or a business, or even somebody on the other end. Just the possibility that something I made becomes the beginning of something else.</p>
+`;
+
+  const body = el('div', 'ls');
+  body.innerHTML = TEXT;
+  const drawn = [];
+  for (const fig of body.querySelectorAll('figure[data-pic]')) {
+    const { bay, cap } = PICTURES[fig.dataset.pic];
+    const pb = createPatchbay(bay, { title: '' });
+    fig.className = 'ls-fig';
+    fig.append(pb.el, Object.assign(document.createElement('figcaption'), { className: 'ls-cap', textContent: cap }));
+    drawn.push(pb);
+  }
+  d.stack.add(body);
+  for (const pb of drawn) pb.refresh();
+  d.ready();
+</script>
+</html>
