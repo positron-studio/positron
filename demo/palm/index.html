@@ -83,12 +83,17 @@
   const ECHO_RATIO = 6.7 / 4.3;
   const glide = (x, t) => `Lag.kr(Lag.kr(Lag.kr(${x}, ${t}), ${t}), ${t})`;
   const PROGRAMS = {
+    // the defaults are /ambient/drone/'s numbers: the fifth at 1.4983 and the octave at 2.003 are 1.5 and 2 less and plus detune
     adrone: { bus: DRY, src: `{ var amp = Lag.kr(\\amp.kr(0), 2);
-  var f = ${glide('\\root.kr(36).midicps', 3)};
-  var cut = Lag.kr(\\cut.kr(600), 1) * (1 + (LFNoise2.kr(0.03) * 0.5));
-  var w = (LFNoise2.kr(0.05) * 0.3) + 0.5;
-  var s = (VarSaw.ar(f, 0, w) + (VarSaw.ar(f * 1.4983, 0, 1 - w) * 0.7) + (VarSaw.ar(f * 2.003, 0, w * 0.6) * 0.5)) * 0.5;
-  Pan2.ar(RLPF.ar(s, cut, 0.5) * amp, LFNoise2.kr(0.04) * 0.4) }` },
+  var g = \\glide.kr(3);
+  var f = ${glide('(\\root.kr(36) + (\\octave.kr(0) * 12)).midicps', 'g')};
+  var rate = Lag.kr(\\rate.kr(1), 1);
+  var depth = Lag.kr(\\depth.kr(1), 1);
+  var dt = Lag.kr(\\detune.kr(0.003), 1);
+  var cut = Lag.kr(\\cut.kr(600), 1) * (1 + (LFNoise2.kr(0.03 * rate) * 0.5 * depth));
+  var w = (LFNoise2.kr(0.05 * rate) * 0.3 * depth) + 0.5;
+  var s = (VarSaw.ar(f, 0, w) + (VarSaw.ar(f * (1.5 - (dt * 0.5667)), 0, 1 - w) * 0.7) + (VarSaw.ar(f * (2 + dt), 0, w * 0.6) * 0.5)) * 0.5;
+  Pan2.ar(RLPF.ar(s, cut, 0.5) * amp, LFNoise2.kr(0.04 * rate) * 0.4 * depth) }` },
     aradio: { bus: DRY, src: `{ var amp = Lag.kr(\\amp.kr(0.3), 1);
   var x = Mix(In.ar(2, 2)) * 0.5;
   var b = BPF.ar(x, Lag.kr(\\band.kr(1200), 1), 0.8) * 2;
@@ -108,7 +113,16 @@
   const KNOBS = [
     { name: 'echo', to: 'aspace', param: 'echo', min: 0, max: 1, value: 0.4 },
     { name: 'room', to: 'aspace', param: 'room', min: 0, max: 1, value: 0.4 },
-    { name: 'drone', to: 'adrone', param: 'amp', min: 0, max: 1, value: 0.13 },
+  ];
+  // the drone's own controls, each a named control in adrone; every default is the value it had hardcoded
+  const DRONE_KNOBS = [
+    { name: 'octave', param: 'octave', min: -2, max: 2, step: 1, value: 0, format: (v) => (v > 0 ? `+${v}` : String(v)) },
+    { name: 'bright', param: 'cut', min: 150, max: 4000, step: 10, value: 600, format: (v) => `${Math.round(v)} Hz` },
+    { name: 'detune', param: 'detune', min: 0, max: 0.05, value: 0.003 },
+    { name: 'rate', param: 'rate', min: 0.1, max: 8, value: 1, format: (v) => `${v.toFixed(1)}x` },
+    { name: 'depth', param: 'depth', min: 0, max: 2, value: 1 },
+    { name: 'glide', param: 'glide', min: 0, max: 10, value: 3, format: (v) => `${v.toFixed(1)} s` },
+    { name: 'level', param: 'amp', min: 0, max: 1, value: 0.13 },
   ];
 
   // ── the bay: the mic's chain from the Pi to these speakers, and the MK-425C's notes to the Palm and the OLED ──
@@ -142,7 +156,7 @@
   port('web:board:audio-in', 'in', 'audio', 'board frames', { transports: ['relay'] });
   port('web:board:audio-out', 'out', 'audio', 'mic');
   port('web:drone:audio-out', 'out', 'audio', 'drone');
-  port('web:drone:value-in', 'in', 'value', 'level', { deliver: (ev) => { if (droneOn) set('adrone', { amp: ev.v }); } });
+  port('web:drone:value-in', 'in', 'value', 'pitch, tone, motion, level', { deliver: (ev) => { if (ev.name !== 'amp' || droneOn) set('adrone', { [ev.name]: ev.v }); } });
   port('web:space:audio-in', 'in', 'audio', 'mic, drone');
   port('web:space:value-in', 'in', 'value', 'echo, room', { deliver: (ev) => set('aspace', { [ev.name]: ev.v }) });
   port('web:space:audio-out', 'out', 'audio', 'processed');
@@ -344,10 +358,11 @@
       const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', r.bytes);
       if (!done || done[0] !== '/done') d.log(`${name} was not taken: ${done?.[2] || 'no answer'}`, 'bad');
     }
-    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', droneOn ? knobs.get('drone').value() : 0, 'root', root);
+    const dk = DRONE_KNOBS.filter((k) => k.param !== 'amp').flatMap((k) => [k.param, droneKnobs.get(k.name).value()]);
+    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', droneOn ? droneKnobs.get('level').value() : 0, 'root', root, ...dk);
     sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0, 'amp', processing ? MIC_AMP : 0);
     sc.send('/s_new', 'aspace', NODE_IDS.aspace, 1, 0);
-    for (const k of KNOBS) if (k.to !== 'adrone') set(k.to, { [k.param]: knobs.get(k.name).value() });
+    for (const k of KNOBS) set(k.to, { [k.param]: knobs.get(k.name).value() });
     // the engine's own out, which bootScsynth wires to the speakers, goes through wet and the volume instead
     sc.out.disconnect(); sc.out.connect(wet);
   }
@@ -355,13 +370,14 @@
   async function engine(b) {
     ensureCtx();
     knobBox.hidden = !(processing || droneOn);
+    droneBox.hidden = !droneOn;
     patch();
     if ((processing || droneOn) && !sc) {
       b.dataset.busy = '';
       try { await (booting ??= bootSc()); } catch (e) { d.log(`SuperCollider did not start: ${e.message}`, 'bad'); booting = null; sc = null; }
       delete b.dataset.busy;
     }
-    set('adrone', { amp: droneOn ? knobs.get('drone').value() : 0 });
+    set('adrone', { amp: droneOn ? droneKnobs.get('level').value() : 0 });
     set('aradio', { amp: processing ? MIC_AMP : 0 });
     if (!latching()) unlatch();
     ramp(dry.gain, processing ? 0 : 1, 0.5); ramp(wet.gain, processing || droneOn ? 1 : 0, 0.5);
@@ -483,8 +499,15 @@
   droneBtn.setAttribute('aria-pressed', 'false');
   const knobs = new Map(KNOBS.map((k) => [k.name, createKnob({
     label: k.name, min: k.min, max: k.max, value: k.value, hand: true,
-    onInput: (v) => bay.send(k.to === 'adrone' ? 'web:knobs:value-out-2' : 'web:knobs:value-out', { name: k.param, v }),
+    onInput: (v) => bay.send('web:knobs:value-out', { name: k.param, v }),
   })]));
+  const droneKnobs = new Map(DRONE_KNOBS.map((k) => [k.name, createKnob({
+    label: k.name, min: k.min, max: k.max, step: k.step, value: k.value, format: k.format ?? null, hand: true,
+    onInput: (v) => bay.send('web:knobs:value-out-2', { name: k.param, v }),
+  })]));
+  const droneBox = el('div', 'mic-voice');
+  droneBox.append(el('div', 'mic-voice-h', 'Drone'), createKnobGrid(droneKnobs, { row: true }).el);
+  droneBox.hidden = true;
   // volume: 0 to 1.5 times the sound, from the slider; it starts at 0.75 (the old fixed level was 0.3)
   let volNow = 0.75;
   const volFader = createFader({ label: 'volume', min: 0, max: 127, value: Math.round(volNow / 1.5 * 127),
@@ -546,7 +569,7 @@
   howBtn.setAttribute('aria-pressed', 'false');
   const btns = el('div', 'mic-btns');
   btns.append(btn, procBtn, droneBtn, howBtn);
-  titleBox.append(eye, h, atLine, line, btns, volBox, heldLine, knobBox, voiceBox, howBox);
+  titleBox.append(eye, h, atLine, line, btns, volBox, heldLine, knobBox, droneBox, voiceBox, howBox);
   face();
   document.body.append(canvas, titleBox);
 
@@ -563,7 +586,7 @@
   addEventListener('pagehide', () => { if (listening) { lease?.stop(); board?.send({ type: 'input.stop' }); keysOff(); } });
 
   window.__demo.bay = bay;
-  window.__demo.mic = { listen, stop, setProcess, setDrone, setHow, knobs, board: () => board, context: () => ctx, sc: () => sc,
+  window.__demo.mic = { listen, stop, setProcess, setDrone, setHow, knobs, droneKnobs, board: () => board, context: () => ctx, sc: () => sc,
     listening: () => listening, processing: () => processing, how: () => how, frames: () => frames, inked: () => inked,
     nonZero: () => nonZero, level: () => lastDb, stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0,
     midiIn, midi: () => !!midi, voiceChoices, voiceKnobs, held: () => [...heldNotes], latched: () => [...latched], root: () => root,
