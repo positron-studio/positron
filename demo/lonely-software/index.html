@@ -10,7 +10,9 @@
 <style>
   .ls { display: flex; flex-direction: column; gap: 16px; max-width: 62ch; font-family: var(--sans); font-size: 19px; line-height: 1.6; color: var(--fg); }
   .ls p { margin: 0; }
-  .ls .ls-sub { color: var(--dim); font-size: 23px; line-height: 1.4; }
+  /* The title and the line under it in the front page hero's type (.pos-hero-h, .pos-hero-l in shell.css). */
+  .pos-name { font: 600 clamp(32px, 7vw, 56px)/1.08 var(--mono); letter-spacing: -.04em; text-wrap: balance; }
+  .ls .ls-sub { font: 400 clamp(19px, 2.3vw, 23px)/1.45 var(--sans); letter-spacing: -.01em; color: var(--dim); text-wrap: balance; }
   .ls h2 { margin: 30px 0 0; font-size: 26px; font-weight: 600; }
   .ls strong { color: var(--fg); font-weight: 600; }
   .ls-fig { display: flex; flex-direction: column; gap: 12px; margin: 36px 0; }
@@ -35,15 +37,15 @@
 
   const PICTURES = {
     node: {
-      bay: patch([{ id: ME, kind: 'person', label: 'me' }], mine('value'), []),
+      bay: patch([{ id: ME, kind: 'person', label: 'node' }], mine('value'), []),
     },
     loopback: {
-      bay: patch([{ id: ME, kind: 'person', label: 'me' }], mine('value'), [
+      bay: patch([{ id: ME, kind: 'person', label: 'node' }], mine('value'), [
         { id: 'v', from: `${ME}:value-out`, to: `${ME}:value-in` },
       ]),
     },
     two: {
-      bay: patch([{ id: ME, kind: 'person', label: 'me' }, { id: YOU, kind: 'person', label: 'somebody' }],
+      bay: patch([{ id: ME, kind: 'person', label: 'node' }, { id: YOU, kind: 'person', label: 'somebody' }],
         [port(ME, 'audio', 'out'), port(ME, 'value', 'in'), port(YOU, 'audio', 'in'), port(YOU, 'value', 'out')], [
           { id: 'a', from: `${ME}:audio-out`, to: `${YOU}:audio-in` },
           { id: 'b', from: `${YOU}:value-out`, to: `${ME}:value-in` },
