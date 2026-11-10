@@ -336,7 +336,11 @@ alone, in flow, and end up with a mountain of code and the question *for what?*
 Positron is one of those mountains, and the owner says so. It is a workshop of tools
 made for their own work, and the tools are about connecting: keys to a Circuit in another
 building, people in a room, a radio somebody listens to. The answer the references point
-to is the one Sloan already gave: a home-cooked meal is made for a table. The MIM sphere
+to is the shape of Sloan's: he made his app *"for, and with, my family"*, and *"no one
+else will ever use it"*. The reason came before the code. ("A home-cooked meal is made for
+a table" is this plan's condensation, not Sloan's words. His quotable lines: *"I am the
+programming equivalent of a home cook"* and *"People don't only learn to cook so they can
+become chefs. Some do! But many more people learn to cook so they can eat better"*.) The MIM sphere
 was a room with people in it.
 
 ### Points to take into the room
