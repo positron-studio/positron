@@ -1,6 +1,6 @@
 ## Open
 
-- **Build the Palm app, in the background** (2026-11-10). Asked: *"build app"*, *"in bg"*. Step 3 to 5 of plan-palm-z22: a Palm OS app that draws frames received over USB and sends the stylus back; first a hello app installed with pilot-xfer -i on the next HotSync.
+- ~~**Build the Palm app, in the background**~~ DONE 2026-11-10: hello and pframe run on the Z22, frames stream from the Pi (plan-screens-odd section 11) (2026-11-10). Asked: *"build app"*, *"in bg"*. Step 3 to 5 of plan-palm-z22: a Palm OS app that draws frames received over USB and sends the stylus back; first a hello app installed with pilot-xfer -i on the next HotSync.
 
 - ~~**Slides from the Lonely Software essay: key sentences, the patches, a placeholder for the feedback demo**~~ DONE 2026-11-10, /slides/lonely/, 13 slides, local (2026-11-10). Asked: *"In bg do slides based on the essay with key senteces, patches and placeholder for feedback demo"*. For TechTrack Lab II, 2026-11-11 15:30.
 

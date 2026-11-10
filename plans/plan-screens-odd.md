@@ -115,6 +115,12 @@ at 8-bit, more at 1-bit. Measure before designing pieces around it.
 - **Next: step 3, a Palm OS app.** It needs a 68k Palm OS compiler (prc-tools and the SDK). Debian has `gcc-m68k-linux-gnu` for the Pi, but that targets Linux, not Palm OS; whether it can build a .prc with the Palm SDK headers and a custom link is UNTESTED. The known route is prc-tools-remix with the Palm OS SDK, on x86 Linux (Docker on the M2 would emulate). Hours, not minutes.
 - **Meanwhile** the browser Palm (/devices/palm/, demo/shell/palm-view.mjs) shows the OLED screens full and split at 12 bit colour.
 
+### 11. Measured 2026-11-10 evening: the Palm shows frames from the Pi
+
+- **Steps 3 to 5 work.** prc-tools-remix in Docker on the M2 (rig/palm/, build.sh) built two apps, installed with `pilot-xfer -p usb: -i` on a HotSync tap: `positron` (hello.prc, 1.4 KB) draws six RGB bars and bold text, correct on the Z22; `pframe` (frame.prc) opens the link with `SrmExtOpen(serPortCradleUSBPort)` and draws 160x160 1 bit frames from `rig/palm/send.mjs` on the Pi (`sudo modprobe visor`, then the visor tty). The owner saw "ball moving on checkerboard": frames stream and draw.
+- **The first build froze the Palm** after one frame and needed a soft reset (the hole on the back); the second build (a status line with a frame counter after each draw) runs. The cause of the freeze was not isolated.
+- **Not yet measured:** frames per second (pframe prints a counter on its bottom line), the stylus lines coming back, colour frames.
+
 ## plan-camera-feedback: a Pi camera looking at its own screen
 
 Status (2026-10-30): a plan, nothing built. Builds on `fx.c`, `plan-screens.md`
