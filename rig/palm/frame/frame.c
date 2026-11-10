@@ -15,8 +15,19 @@
  * In:  'P' 'S' n: plays record n of the System MIDI Sounds database with
  *      SndPlaySmf, the blocking hook pumping the link (a Q or a hard key
  *      stops it). n = 255 lists the records instead: "smf <i> <name>\n" each.
- * In:  'P' 'A' len_hi len_lo, then len bytes of 8 bit unsigned PCM at PCM_RATE
- *      into a ring; the stream starts when the ring is half full.
+ * In:  'P' 'A' len_hi len_lo, then len bytes of 8 bit unsigned PCM into a ring;
+ *      the stream starts when the ring is half full. With no stream yet the
+ *      default one is made: sndUInt8, 11025 Hz, mono, 512 frames, SndStreamCreate.
+ *      The callback converts to the stream's type (8 bit to 16 bit, mono to both
+ *      channels), so the link always carries 8 bit unsigned mono.
+ * In:  'P' 'C' type rate_hi rate_lo frames_hi frames_lo variant: delete the
+ *      stream and create it again with these. type is a SndSampleType (0x11
+ *      sndUInt8, 0x01 sndInt8, 0x12 sndInt16Little, 0x02 sndInt16Big). variant
+ *      bits: 1 stereo, 2 SndStreamCreateExtended (sndFormatPCM, MyPlayer's byte
+ *      count callback), 4 volume after start (else right after create, as
+ *      MyPlayer), 8 start for 0.2 s of silence and stop, to see the callback run.
+ *      Answers "pcm create t<type> r<rate> f<frames> v<variant> err 0x.. vol 0x..
+ *      [start 0x.. pulls n under n]".
  * In:  'P' '?': answers one "st ..." line with every counter.
  * Out: "stop\n" when a hard button stopped the sound.
  * Watchdog: no packet for 2 s while a sound is meant to be playing: quiet.
@@ -38,6 +49,7 @@
 #define ROUNDS 4096
 #define AMP_CAP sndMaxAmp   // full volume: 40 was faint next to the system HotSync tones
 #define PCM_RATE 11025
+#define VOL_FULL 1024L          /* MyPlayer's default and the top of its slider scale */
 #define RING 8192              /* a power of two: 0.74 s at 11025 Hz */
 #define RING_START (RING / 2)
 #define vchrNavChangeP1 0x0503 /* palmOneChars.h vchrNavChange */
@@ -48,6 +60,9 @@ typedef struct {
   UInt8 *buf;
   volatile UInt32 w, r;
   volatile UInt32 under, pulls;
+  SndSampleType type;      /* what the stream wants; the ring is always 8 bit unsigned mono */
+  UInt8 chans, bpf;        /* channels, bytes a frame */
+  UInt8 variant;
 } Ring;
 
 static UInt16 port;
@@ -59,7 +74,7 @@ static UInt8 depth;
 static UInt32 frameBytes;
 static UInt16 state, hdrLen;
 static UInt32 need, got;
-static UInt8 hdr[7];
+static UInt8 hdr[8];
 static UInt16 tones, notes, smfPlays, wdFires, keyStops;
 static UInt32 sndVer;
 static Err sndVerErr, streamErr, smfErr;
@@ -67,7 +82,7 @@ static Boolean soundShown, inSmf, smfStop;
 static UInt32 lastPkt, soundUntil;
 static Ring *ring;
 static SndStreamRef stream;
-static Boolean streamMade, streamOn;
+static Boolean streamMade, streamOn, hasExt, hasStream;
 static UInt32 overflow;
 static UInt8 payKind;           /* 0 junk, 1 frame, 2 pcm */
 static UInt32 frames, bytesIn, hdrBytes, alive;
@@ -91,6 +106,7 @@ static void status(void) {
   if (err[0]) StrPrintF(s + StrLen(s), " %s", err);
   if (soundShown) {
     if (sndVerErr) StrPrintF(s, "v!%lx", (UInt32)(UInt16)sndVerErr); else StrPrintF(s, "v%lu", sndVer);
+    StrPrintF(s + StrLen(s), "%s%s", hasStream ? "S" : "", hasExt ? "X" : "");
     StrPrintF(s + StrLen(s), " t%lu n%lu m%lu", (UInt32)tones, (UInt32)notes, (UInt32)smfPlays);
     if (ring) StrPrintF(s + StrLen(s), " a%lu u%lu o%lu", ring->w - ring->r, ring->under, overflow);
     StrPrintF(s + StrLen(s), " w%lu k%lu", (UInt32)wdFires, (UInt32)keyStops);
@@ -267,32 +283,122 @@ static void hardStop(void) {
   status();
 }
 
-/* Pull: the Sound Manager asks for frames and gets what the ring has, silence
- * (0x80) for the rest. No globals here, see Ring. */
-static Err pcmPull(void *user, SndStreamRef ch, void *buffer, UInt32 frames) {
-  Ring *g = (Ring *)user;
-  UInt8 *out = (UInt8 *)buffer;
+/* Frames from the ring into the stream's buffer in the stream's type, silence
+ * for what the ring does not have. Runs on the sound thread: no globals. */
+static void fill(Ring *g, UInt8 *out, UInt32 frames) {
   UInt32 r = g->r, have = g->w - r, i;
-  (void)ch;
-  for (i = 0; i < frames && i < have; i++) out[i] = g->buf[(r + i) & (RING - 1)];
-  g->r = r + i;
-  if (i < frames) { g->under += frames - i; for (; i < frames; i++) out[i] = 0x80; }
+  UInt8 c, k;
+  for (i = 0; i < frames; i++) {
+    UInt8 u = 0x80;
+    if (i < have) u = g->buf[(r + i) & (RING - 1)];
+    for (c = 0; c < g->chans; c++) {
+      switch (g->type) {
+      case sndUInt8: *out++ = u; break;
+      case sndInt8: *out++ = u ^ 0x80; break;
+      case sndInt16Little: *out++ = 0; *out++ = u ^ 0x80; break;
+      case sndInt16Big: *out++ = u ^ 0x80; *out++ = 0; break;
+      default: for (k = 0; k < g->bpf / g->chans; k++) *out++ = 0; break;
+      }
+    }
+  }
+  if (have > frames) have = frames;
+  g->r = r + have;
+  if (have < frames) g->under += frames - have;
   g->pulls++;
+}
+
+/* SndStreamCreate's callback: a frame count. */
+static Err pcmPull(void *user, SndStreamRef ch, void *buffer, UInt32 frames) {
+  (void)ch;
+  fill((Ring *)user, (UInt8 *)buffer, frames);
   return errNone;
 }
 
-static void streamMake(void) {
-  if (streamMade || streamErr) return;
-  if (!ring) {
-    ring = (Ring *)MemPtrNew(sizeof(Ring));
-    if (ring) { MemSet(ring, sizeof(Ring), 0); ring->buf = (UInt8 *)MemPtrNew(RING); }
-    if (!ring || !ring->buf) { streamErr = memErrNotEnoughSpace; return; }
-  }
-  if (sndVerErr) { streamErr = sndVerErr; return; }
-  streamErr = SndStreamCreate(&stream, sndOutput, PCM_RATE, sndUInt8, sndMono, pcmPull, ring, 512, false);
-  if (streamErr) return;
-  SndStreamSetVolume(stream, 1024L * AMP_CAP / sndMaxAmp);
+/* SndStreamCreateExtended's, MyPlayer's form (PlayForm.c SndStreamCallback):
+ * *sizeP is bytes, and is left as given because the buffer is always full. */
+static Err pcmPullVar(void *user, SndStreamRef ch, void *buffer, UInt32 *sizeP) {
+  Ring *g = (Ring *)user;
+  (void)ch;
+  if (!g) return -1;
+  fill(g, (UInt8 *)buffer, *sizeP / g->bpf);
+  return errNone;
+}
+
+static UInt8 typeBytes(SndSampleType t) {
+  return (t == sndInt16Little || t == sndInt16Big) ? 2 : (t == sndInt32Little || t == sndInt32Big || t == sndFloatLittle || t == sndFloatBig) ? 4 : 1;
+}
+
+static Boolean ringMake(void) {
+  if (ring) return true;
+  ring = (Ring *)MemPtrNew(sizeof(Ring));
+  if (ring) { MemSet(ring, sizeof(Ring), 0); ring->buf = (UInt8 *)MemPtrNew(RING); }
+  if (!ring || !ring->buf) { streamErr = memErrNotEnoughSpace; return false; }
+  return true;
+}
+
+static void streamDrop(void) {
+  if (streamOn) { SndStreamStop(stream); streamOn = false; }
+  if (streamMade) { SndStreamDelete(stream); streamMade = false; }
+}
+
+/* (Re)create the stream. The FtrGet check is reported, never obeyed: on the
+ * Z22 it answers ftrErrNoSuchFeature (0x0C02) and MyPlayer's own
+ * PalmSGHasSampledSound has an exception for a device like that. */
+static Err streamCreate(SndSampleType type, UInt32 rate, UInt32 frames, UInt8 variant, Err *volErr) {
+  Err e;
+  *volErr = 0;
+  streamDrop();
+  if (!ringMake()) return streamErr;
+  ring->w = ring->r = 0; ring->under = 0; ring->pulls = 0;
+  ring->type = type;
+  ring->chans = (variant & 1) ? 2 : 1;
+  ring->bpf = typeBytes(type) * ring->chans;
+  ring->variant = variant;
+  if (variant & 2)
+    e = SndStreamCreateExtended(&stream, sndOutput, sndFormatPCM, rate, type, (variant & 1) ? sndStereo : sndMono,
+                                pcmPullVar, ring, frames, false);
+  else
+    e = SndStreamCreate(&stream, sndOutput, rate, type, (variant & 1) ? sndStereo : sndMono, pcmPull, ring, frames, false);
+  streamErr = e;
+  if (e) return e;
   streamMade = true;
+  if (!(variant & 4)) *volErr = SndStreamSetVolume(stream, VOL_FULL);
+  return errNone;
+}
+
+static Err streamStart(void) {
+  Err e = SndStreamStart(stream);
+  streamOn = !e;
+  if (!e && (ring->variant & 4)) SndStreamSetVolume(stream, VOL_FULL);
+  return e;
+}
+
+static void streamMake(void) {
+  Err v;
+  if (streamMade || streamErr) return;
+  streamCreate(sndUInt8, PCM_RATE, 512, 0, &v);
+}
+
+/* 'P' 'C': one variant, created, answered, and with bit 8 run for 0.2 s. */
+static void pcmProbe(void) {
+  SndSampleType type = hdr[2];
+  UInt32 rate = ((UInt32)hdr[3] << 8) | hdr[4], frames = ((UInt32)hdr[5] << 8) | hdr[6];
+  UInt8 variant = hdr[7];
+  Err e, ve, se = 0;
+  char line[112];
+  soundShown = true;
+  e = streamCreate(type, rate, frames, variant, &ve);
+  StrPrintF(line, "pcm create t%lx r%lu f%lu v%lu err 0x%lx vol 0x%lx", (UInt32)(UInt16)type, rate, frames, (UInt32)variant,
+            (UInt32)(UInt16)e, (UInt32)(UInt16)ve);
+  if (!e && (variant & 8)) {
+    se = streamStart();
+    if (!se) { SysTaskDelay(SysTicksPerSecond() / 5); SndStreamStop(stream); streamOn = false; }
+    StrPrintF(line + StrLen(line), " start 0x%lx pulls %lu under %lu", (UInt32)(UInt16)se, ring->pulls, ring->under);
+    ring->w = ring->r; ring->under = 0; ring->pulls = 0;
+  }
+  StrCat(line, "\n");
+  send(line, StrLen(line));
+  status();
 }
 
 static void pump(void);
@@ -374,11 +480,13 @@ static void smfPlay(UInt8 n) {
 }
 
 static void ping(void) {
-  char line[128];
+  char line[192];
   StrPrintF(line, "st v%lu t%lu n%lu m%lu M%lx f%lu b%lu x%lu w%lu k%lu", sndVerErr ? 0 : sndVer, (UInt32)tones, (UInt32)notes,
             (UInt32)smfPlays, (UInt32)(UInt16)smfErr, frames, bytesIn, (UInt32)drops, (UInt32)wdFires, (UInt32)keyStops);
   if (ring) StrPrintF(line + StrLen(line), " a%lu u%lu o%lu p%lu", ring->w - ring->r, ring->under, overflow, ring->pulls);
-  StrPrintF(line + StrLen(line), " A%lx on%lu\n", (UInt32)(UInt16)streamErr, (UInt32)streamOn);
+  StrPrintF(line + StrLen(line), " A%lx on%lu S%lu X%lu", (UInt32)(UInt16)streamErr, (UInt32)streamOn, (UInt32)hasStream, (UInt32)hasExt);
+  if (ring && streamMade) StrPrintF(line + StrLen(line), " t%lx c%lu v%lu", (UInt32)(UInt16)ring->type, (UInt32)ring->chans, (UInt32)ring->variant);
+  StrCat(line, "\n");
   send(line, StrLen(line));
 }
 
@@ -391,6 +499,7 @@ static void packet(void) {
   case 'Q': silence(); soundShown = true; status(); break;
   case 'S': smfPlay(hdr[2]); break;
   case '?': ping(); break;
+  case 'C': pcmProbe(); break;
   case 'A':
     need = ((UInt32)hdr[2] << 8) | hdr[3]; got = 0;
     streamMake();
@@ -468,6 +577,7 @@ static void pump(void) {
         else if (b == 'Q' || b == '?') hdrLen = 2;
         else if (b == 'S') hdrLen = 3;
         else if (b == 'A') hdrLen = 4;
+        else if (b == 'C') hdrLen = 8;
         else { state = 0; continue; }
       }
       if (state == 2 && hdr[1] == 'F' && b == 0x0c) hdrLen = 4;   // the first build's header: len_hi of 3200
@@ -502,8 +612,7 @@ static void pump(void) {
       lastPkt = TimGetTicks();
       soundUntil = 0xFFFFFFFFUL;
       if (!streamOn && streamMade && ring->w - ring->r >= RING_START) {
-        streamErr = SndStreamStart(stream);
-        streamOn = !streamErr;
+        streamErr = streamStart();
       }
     } else {
       UInt8 junk[64];
@@ -583,6 +692,8 @@ UInt32 PilotMain(UInt16 cmd, MemPtr pbp, UInt16 flags) {
 
   palErr = WinPalette(winPaletteGet, 0, 256, pal);
   sndVerErr = FtrGet(sysFileCSoundMgr, sndFtrIDVersion, &sndVer);
+  hasStream = SysGetTrapAddress(sysTrapSndStreamCreate) != SysGetTrapAddress(sysTrapSysUnimplemented);
+  hasExt = SysGetTrapAddress(sysTrapSndStreamCreateExtended) != SysGetTrapAddress(sysTrapSysUnimplemented);
   if (!useDepth(1)) return memErrNotEnoughSpace;
   MemSet(bits, ONE_BIT, 0);
   lastTick = TimGetTicks();
@@ -602,7 +713,7 @@ UInt32 PilotMain(UInt16 cmd, MemPtr pbp, UInt16 flags) {
   } while (e.eType != appStopEvent);
 
   silence();
-  if (streamMade) SndStreamDelete(stream);
+  streamDrop();
   if (ring) { if (ring->buf) MemPtrFree(ring->buf); MemPtrFree(ring); }
   closeLink();
   FrmCloseAllForms();
