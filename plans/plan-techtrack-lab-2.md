@@ -271,3 +271,14 @@ jungle, elephant squeaks, a whirlpool going around us*, and coded, and the sound
 The owner: *"it really infected me how powerful people if you are really directed
 connection with imagination and the tools, there is no lag in between, you are creating
 things out of thin air. So it was a really profound moment for me."*
+
+**The agentic boom, and "for what?".** The owner sees a boom of people, mostly
+middle-aged men but others too, making with vibe coding and agents things they could not
+make before: custom firmware, hacked synthesizers and TV sets, home automation turned into
+a programming platform. *"Anything can be programmed. Software is literally now really eats
+the world, and hardware is just a service of it."* Alongside it, loneliness: people in
+non-stop flow who *"don't even know why they are doing it"*. At meetups and pitches *"we
+don't want a team. We have a people"*, and ideas pile on ideas, made by their agents.
+*"But end of the day, we have now created this mountain of like months and months of
+mountains of software, tens or 100,000 lines of code. And now we are setting it, and for
+what?"*
