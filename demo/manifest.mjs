@@ -336,6 +336,11 @@ export const DEMOS = [
   { name: 'social/scroll', title: 'scroll', group: 'kit', act: 0, created: '2026-10-15', built: true, unlisted: true,
     one: 'a concept page’s patch scrolling up a story frame at a size a phone can read, recorded to a file',
     tags: ['shell', 'MediaRecorder'] },
+  // /huddersfield/: /radio1965/ playing v2in's mem channel over a full page spectrogram.
+  { name: 'huddersfield', title: 'Soundscape', group: 'radio', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/huddersfield/index.html', page: '/huddersfield/',
+    one: 'the v2in mem channel as a full page spectrogram',
+    tags: ['WebAudio'] },
   // why: lessons/page-radio1965.md#header
   { name: 'radio1965', title: 'Radio1965', group: 'radio', act: 0, created: '2026-10-23', built: true,
     one: 'the scan landscape, full screen, after the radio1965 broadcast',

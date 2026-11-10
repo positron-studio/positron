@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**A copy of the Soundscape page for Huddersfield, a full page monochrome spectrogram moving in from the right**~~ DONE 2026-11-10, /huddersfield/ (2026-11-10). Asked: *"add copy of it, playing Huddersfield Contemporary Music Festival. Soundscape again. show the monocrome specrtum full page h moving in from right"*. v2in channel id mem ("Huddersfield MEM"), stream https://v2in.stream/stream/mem.
+
 - ~~**radio1965: no listener count, more padding, a new title (overline POSITRON.STUDIO, Soundscape, @ ...), a How it works button**~~ DONE 2026-11-10, @ Üle Heli / festival (2026-11-10). Asked: *"rm 1 lsitener. add bit more padding. Rename to overline: POSITRON.STUDIO / Soundscape / @ ... Add how it works buttion. when on, draw patchbady and dim the waves and fade sound minimal volume"*. What follows the @ is unknown: placeholder kept as the owner typed it.
 
 - ~~**radio1965: the granulator's steps and bursts back in the landscape, from onsets in the v2in sound**~~ DONE 2026-11-10 (2026-11-10). Asked: *"radio: missing those granulator steps and burts in visualization. can yoi get them from sound or we need to run browser granulator"*, then *"yes"* to onset detection now; the real events from v2in's engine later.
