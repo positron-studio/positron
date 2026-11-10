@@ -1095,6 +1095,13 @@ async function handle(msg, replyVia = null) {
     }
     // The dot piano on the same screen (/devices/dots/): a note on or off, sent and not asked, as keys are.
     case 'screen.note': { if (panel && !screenTaken()) { if (msg.panic) panel.panic(); else panel.note(Number(msg.n), !!msg.on); } return; }
+    // A finished 1024 byte page major frame from outside the board (rig/palm/bridge.mjs), drawn as the camera's are.
+    case 'screen.raw': {
+      if (!panel || screenTaken() || typeof msg.b64 !== 'string') return;
+      const b = Buffer.from(msg.b64, 'base64');
+      if (b.length === 1024) panel.frame(new Uint8Array(b));
+      return;
+    }
     // A small patch for the screen (/devices/patches/), asked so the page can say it landed.
     case 'screen.patch.event': {
       if (!panel) return reply('screen.patched', { ok: false, why: 'no screen answered at 0x3c on this board' });
