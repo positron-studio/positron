@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // The Pi's synths with the Palm as their picture: notes heard in the board's relay rooms are drawn
-// on the Palm (pframe) as rings, keys or a roll; --voice plays the top note on the Palm, and --pen
+// on the Palm (pframe) as rings, keys, a roll, or split (the default: the Circuit's live waveform over
+// the rings); --voice plays the top note on the Palm, and --pen
 // turns the stylus into two Circuit macro CCs sent the way /remote/circuit/ sends them.
 //
 //   sudo modprobe visor                                   # pframe's tty
-//   node bridge.mjs /dev/ttyUSB0 --view rings --voice --pen
+//   node bridge.mjs /dev/ttyUSB0 --voice --pen            # split: waveform on top, rings below
 //   node bridge.mjs /dev/ttyUSB0 --demo                   # an arpeggio made here, no relay: the Palm alone
 //   node bridge.mjs --dry --snap /tmp/palm.pgm --secs 10  # no Palm: log notes, write the picture as PGM
-//   --view rings|keys|roll  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
+//   --view split|rings|keys|roll  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
 //   --room studio-1   --relay wss://...   --pen-cc 80,81   --pen-ch 1   --dry   --demo   --secs N   --light (black on white; the default is white on black)   --no-oled
 //
 // Where the notes come from (read only, nothing is asked of the board):
@@ -21,18 +22,23 @@
 // holds); 'P' 'Q' quiet; 'P' '?' ping, sent once a second while the voice holds a note, because
 // pframe's watchdog quiets a note after 2 s with no packet and frames do not count as packets.
 // One writer: every packet goes through one queue, whole, so a note never lands inside a frame.
+// The waveform (split) is read only from JACK: ffmpeg is one more client with one connection from
+// --wave-port to it, as listen.mjs reads capture_2; no board lease, none of the board's connections touched.
+// The OLED stays on the board's own rings (screen.note): panel.raw() is fed only by the board's own
+// screen camera, and no relay message lets an outside client push a raw frame.
 // The Palm draws its status lines over rows 124 to 159, so the picture uses rows 0 to 121.
 import fs from 'node:fs';
 import tty from 'node:tty';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 const W = 160, H = 160, DH = 122;
 const args = process.argv.slice(2);
-const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs'];
+const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port'];
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const flag = (name) => args.includes(name);
 const dev = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || '/dev/ttyUSB0';
-const VIEW = opt('--view', 'rings');
+const VIEW = opt('--view', 'split');
+const WAVE_PORT = opt('--wave-port', 'circuit:capture_1');
 const FMT = Number(opt('--fmt', 4));
 const FPS = Number(opt('--fps', FMT === 1 ? 30 : FMT === 2 ? 20 : 15));
 const ROOM = opt('--room', 'studio-1');
@@ -45,12 +51,14 @@ const SNAP = opt('--snap', null), SECS = Number(opt('--secs', 0));
 const LIGHT = flag('--light');
 // The board's OLED mirrors the rings unless --no-oled.
 const OLED = !flag('--no-oled');
-if (!['rings', 'keys', 'roll'].includes(VIEW)) die('--view rings, keys or roll');
+if (!['split', 'rings', 'keys', 'roll'].includes(VIEW)) die('--view split, rings, keys or roll');
 if (![1, 2, 4].includes(FMT)) die('--fmt 1, 2 or 4 (the picture is grey)');
 if (!(FPS > 0 && FPS <= 50)) die('--fps 1 to 50');
 if (![PEN_X, PEN_Y].every((c) => Number.isInteger(c) && c >= 0 && c <= 119)) die('--pen-cc two controller numbers, e.g. 80,81');
 if (!(PEN_CH >= 1 && PEN_CH <= 16)) die('--pen-ch 1 to 16');
 function die(s) { console.error(s); process.exit(2); }
+let stopping = false;
+const t0 = Date.now();
 const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
 
 // ── the notes ──────────────────────────────────────────────────────────────
@@ -317,14 +325,13 @@ const fold = (n, lo, hi) => { while (n < lo) n += 12; while (n > hi) n -= 12; re
 // Rings, after demo/shell/rings.mjs: one ring a pitch, low inside; the picture turns clockwise under
 // a pen at the top, so a held note draws an arc and a released one keeps turning and fades.
 const R_LO = 48, R_HI = 72, R_IN = 8, R_STEP = 2, TURN = 0.7 / 1000, FULL = 2 * Math.PI * 0.984;
-function drawRings(t) {
-  const cx = 80, cy = 62;
-  rect(cx, 1, 1, 4, 15);
+function drawRings(t, { cx = 80, cy = 62, rIn = R_IN, rStep = R_STEP, top = 1 } = {}) {
+  rect(cx, top, 1, 4, 15);
   for (const s of [...gone, ...held.values()]) {
     const lv = level(s, t);
     if (lv <= 0) continue;
     const end = s.off || t, span = Math.min(FULL, (end - s.on) * TURN), a0 = (t - end) * TURN;
-    const r = R_IN + (fold(s.n, R_LO, R_HI) - R_LO) * R_STEP;
+    const r = rIn + (fold(s.n, R_LO, R_HI) - R_LO) * rStep;
     const v = Math.max(3, Math.round(lv * 15));
     const step = 0.5 / r, steps = Math.floor(span / step) + 1;
     for (let i = 0; i <= steps; i++) {
@@ -378,6 +385,73 @@ function drawRoll(t) {
   }
   drawHits(t);
 }
+// ── the waveform: the Circuit's sound from JACK, 48 kHz mono s16 ──────────
+const RATE = 48000, WBUF = 8192, wave = new Float32Array(WBUF);
+let wPos = 0, wGot = 0, wProc = null, wConnected = false, wPeak = 0;
+function waveStart() {
+  if (VIEW !== 'split' || stopping) return;
+  const client = `palmwave${process.pid % 1000}`;
+  let carry = null;
+  wConnected = false;
+  const p = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'jack', '-channels', '1', '-i', client,
+    '-f', 's16le', '-ac', '1', '-ar', String(RATE), '-'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  wProc = p;
+  p.on('error', (e) => { log(`wave: ffmpeg ${e.message}`); });
+  // JACK's client library prints three harmless lines about memory locking on this Pi; the rest is logged.
+  p.stderr.on('data', (d) => { for (const l of d.toString().split('\n')) if (l.trim() && !/BDB|DB environment|lock down/.test(l)) log(`wave: ${l.trim().slice(0, 160)}`); });
+  p.stdout.on('data', (chunk) => {
+    if (carry) { chunk = Buffer.concat([carry, chunk]); carry = null; }
+    const n = chunk.length >> 1;
+    if (chunk.length & 1) carry = chunk.subarray(chunk.length - 1);
+    for (let i = 0; i < n; i++) { wave[wPos] = chunk.readInt16LE(i * 2) / 32768; wPos = (wPos + 1) % WBUF; }
+    wGot += n; dirty = true;
+  });
+  p.on('exit', (code) => {
+    if (wProc === p) wProc = null;
+    if (!stopping) { log(`wave: ffmpeg ended (${code}), again in 3 s`); setTimeout(waveStart, 3000); }
+  });
+  const t0 = Date.now();
+  const tryConnect = () => {
+    if (wProc !== p) return;
+    try { execFileSync('jack_connect', [WAVE_PORT, `${client}:input_1`], { stdio: 'ignore', timeout: 2000 }); wConnected = true; log(`wave: reading ${WAVE_PORT} through JACK as ${client}`); }
+    catch { if (Date.now() - t0 < 5000) setTimeout(tryConnect, 100); else { log(`wave: could not connect ${WAVE_PORT} to ${client}:input_1`); p.kill(); } }
+  };
+  setTimeout(tryConnect, 100);
+}
+// A triggered scope like the kit's: the window starts at a rising zero crossing, so a steady tone stands still.
+const W_SPAN = 640, W_STEP = W_SPAN / W;   // 13.3 ms across the Palm, 4 samples a pixel
+function drawWave(y0, h) {
+  const mid = y0 + (h >> 1), half = (h >> 1) - 2;
+  rect(0, mid, W, 1, 3);
+  if (!wGot) { text(2, y0 + 2, wConnected ? 'no sound yet' : 'no wave', 1, 6); return; }
+  const at = (k) => wave[((wPos - k) % WBUF + WBUF) % WBUF];   // k samples ago, 1 is the newest
+  let peak = 0;
+  for (let k = 1; k <= 4096; k++) peak = Math.max(peak, Math.abs(at(k)));
+  wPeak = peak;
+  // The newest crossing that still leaves a whole window after it.
+  let start = W_SPAN + 2;
+  const hyst = Math.max(0.002, peak * 0.05);
+  for (let k = W_SPAN + 2; k < W_SPAN + 2400; k++) if (at(k) < 0 && at(k - 1) >= 0 && at(k + 4) < -hyst) { start = k; break; }
+  const gain = Math.min(8, 0.9 / Math.max(peak, 1e-4));
+  let py = null;
+  for (let x = 0; x < W; x++) {
+    const v = at(Math.max(1, Math.round(start - 1 - x * W_STEP)));
+    const y = Math.round(mid - Math.max(-1, Math.min(1, v * gain)) * half);
+    if (py === null) put(x, y, 15);
+    else { const a = Math.min(py, y), b = Math.max(py, y); rect(x, a, 1, b - a + 1, 15); }
+    py = y;
+  }
+  const db = peak > 0 ? (20 * Math.log10(peak)).toFixed(0) : '-';
+  text(W - 2 - textW(`${db} dB`), y0 + 2, `${db} dB`, 1, 6);
+}
+// Split: the waveform over the top half, the rings in the bottom half, the note small in its corner.
+function drawSplit(t) {
+  drawWave(0, 60);
+  rect(0, 60, W, 1, 4);
+  drawRings(t, { cx: 80, cy: 91, rIn: 4, rStep: 1, top: 62 });
+  drawHits(t);
+}
+
 // Drum hits (channel 10) flash along the bottom.
 function drawHits(t) {
   for (const h of hits) {
@@ -390,15 +464,19 @@ function drawHits(t) {
 
 function render(t) {
   ink.fill(0);
-  if (VIEW === 'rings') drawRings(t); else if (VIEW === 'keys') drawKeys(t); else drawRoll(t);
-  // The note, large, top left; its velocity and channel under it.
-  if (lastNote) {
+  if (VIEW === 'split') drawSplit(t);
+  else if (VIEW === 'rings') drawRings(t); else if (VIEW === 'keys') drawKeys(t); else drawRoll(t);
+  // The note, large, top left; its velocity and channel under it. Split: small, bottom left.
+  if (VIEW === 'split') {
+    const fresh = lastNote && (t - lastAt < 1500 || held.size);
+    text(2, DH - 9, lastNote ? nameOf(lastNote.n) : (DEMO ? 'demo' : 'waiting'), 1, fresh ? 15 : 6);
+  } else if (lastNote) {
     const label = nameOf(lastNote.n), fresh = t - lastAt < 1500 || [...held.values()].length;
     text(2, 2, label, 2, fresh ? 15 : 6);
     text(2, 20, `v${lastNote.vel} ch${lastNote.ch}`, 1, fresh ? 12 : 5);
   } else text(2, 2, DEMO ? 'demo' : 'waiting', 1, 8);
   const tag = DEMO ? 'demo' : `${sockets[CROOM]?.open && sockets[ROOM]?.open ? 'relay' : 'no relay'}`;
-  text(W - 2 - textW(tag), 2, tag, 1, 7);
+  text(W - 2 - textW(tag), VIEW === 'split' ? 64 : 2, tag, 1, 7);
   if (pen) {
     rect(pen.x - 4, pen.y, 9, 1, 15); rect(pen.x, pen.y - 4, 1, 9, 15);
     if (PEN) { const s = `cc${PEN_X} ${penSent[PEN_X] ?? '-'} cc${PEN_Y} ${penSent[PEN_Y] ?? '-'}`; text(W - 2 - textW(s), DH - 9, s, 1, 10); }
@@ -435,6 +513,7 @@ setInterval(() => {
   render(t);
   enqueue(pack(FMT), { frame: true });
 }, 1000 / FPS);
+if (!DRY || process.platform === 'linux') waveStart();
 if (SNAP) setInterval(() => { render(Date.now()); snap(SNAP); }, 1000);
 
 let win = { t: Date.now(), f: 0, b: 0 };
@@ -443,15 +522,16 @@ setInterval(() => {
   const fps = (sent.frames - win.f) / dt, kbs = (sent.bytes - win.b) / dt / 1024;
   win = { t: Date.now(), f: sent.frames, b: sent.bytes };
   const top = sounding ? nameOf(sounding.n) : '-';
-  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${top}` : ''}${PEN ? `, pen ccs ${penCount}` : ''}`);
+  const w = VIEW === 'split' ? `, wave ${wConnected ? WAVE_PORT : 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
+  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${top}` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${w}`);
 }, 5000);
 
 log(`bridge: ${DRY ? 'dry, no tty' : dev}, view ${VIEW}, fmt ${FMT} at ${FPS} fps${VOICE ? ', voice' : ''}${PEN ? `, pen to cc ${PEN_X},${PEN_Y} ch ${PEN_CH}` : ''}, ${DEMO ? 'demo notes' : `rooms ${ROOM} and ${CROOM}`}`);
 
-let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
+  wProc?.kill();
   if (fd === null) { if (OLED && oledHeld.size) sendTo(ROOM, { type: 'screen.note', panic: true }); return setTimeout(() => process.exit(0), 200); }
   if (OLED && oledHeld.size) sendTo(ROOM, { type: 'screen.note', panic: true });
   queue.length = 0;
