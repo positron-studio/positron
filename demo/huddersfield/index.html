@@ -16,7 +16,7 @@
     top: max(32px, env(safe-area-inset-top)); left: max(32px, env(safe-area-inset-left)); }
   .hud-t .pos-hero-eye { margin: 0 0 12px; }
   .hud-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); letter-spacing: 0; }
-  .hud-t .hud-at { margin: 0.15em 0 0; height: auto; color: var(--fg); font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); }
+  .hud-t .hud-at { margin: 0.3em 0 0; height: auto; color: var(--fg); font: 600 clamp(34px, 4.4vw, 56px)/1.25 var(--mono); }
   /* the line keeps its height whatever it says, so the buttons under it never move */
   .hud-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 5.6em; overflow: hidden;
     max-width: min(24em, calc(100vw - 64px)); font-variant-numeric: tabular-nums; }
@@ -28,7 +28,9 @@
   body.hud-how .hud { filter: brightness(.12); }
   body.hud-how .hud-t { max-height: calc(100dvh - 32px); overflow-y: auto; }
   .hud-how-box { pointer-events: auto; margin-top: 32px; width: calc(100vw - 64px); box-sizing: border-box; }
-  .hud-how-box[hidden] { display: none; }
+  /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
+  .hud-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
+  body.hud-how .hud-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
 </style>
 <script type="module">
   // /radio1965/ playing the v2in mem channel, its picture a full page monochrome spectrogram scrolling in from the right
@@ -210,7 +212,7 @@
   const h = el('h1', '', 'Soundscape');
   const atLine = el('p', 'hud-at');
   AT.forEach((t, i) => atLine.append(...(i ? [el('br')] : []), t));
-  const ABOUT = 'Sound archives were processed, mixed and visualized in Oct 2026. See you in next installations.';
+  const ABOUT = 'Sound archives were processed, mixed and visualized in Oct 2026.';
   const line = el('p');
   // At rest the closing line; while playing, the channel's title in bold and who made it.
   function drawLine() {
@@ -229,12 +231,10 @@
   let wave = -1, waveT = 0;
   const walk = () => { wave = (wave + 1) % STAGES; waveT = setTimeout(walk, 900); };
   const howBox = el('div', 'hud-how-box');
-  howBox.hidden = true;
   howBox.append(pb.el);
   function setHow(on) {
     how = on;
     document.body.classList.toggle('hud-how', on);
-    howBox.hidden = !on;
     howBtn.setAttribute('aria-pressed', String(on)); setButtonFace(howBtn, { icon: on ? 'close' : 'info', label: 'How it works' });
     clearTimeout(waveT); wave = -1;
     if (on) { pb.refresh(); walk(); }
