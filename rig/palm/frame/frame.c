@@ -8,7 +8,20 @@
  * In:  'P' 'F' 0x0c 0x80, then 3200 bytes: the first build's 1 bit header
  *      (cam.mjs --old), told apart because 12 is not a format.
  * In:  'P' 'T' freq_hi freq_lo dur_hi dur_lo amp: a tone of freq Hz for dur ms
- *      at amp (0 to sndMaxAmp, clamped), played without waiting.
+ *      at amp (capped at AMP_CAP), sndCmdFrqOn, returns at once.
+ * In:  'P' 'N' key vel dur_hi dur_lo: sndCmdNoteOn, MIDI key, velocity scaled
+ *      by AMP_CAP / sndMaxAmp, dur 0 holds until Q or the watchdog; vel 0 is off.
+ * In:  'P' 'Q': quiet, stops a tone, a MIDI file and the PCM stream.
+ * In:  'P' 'S' n: plays record n of the System MIDI Sounds database with
+ *      SndPlaySmf, the blocking hook pumping the link (a Q or a hard key
+ *      stops it). n = 255 lists the records instead: "smf <i> <name>\n" each.
+ * In:  'P' 'A' len_hi len_lo, then len bytes of 8 bit unsigned PCM at PCM_RATE
+ *      into a ring; the stream starts when the ring is half full.
+ * In:  'P' '?': answers one "st ..." line with every counter.
+ * Out: "stop\n" when a hard button stopped the sound.
+ * Watchdog: no packet for 2 s while a sound is meant to be playing: quiet.
+ * Line 0 (y 124, once any sound packet came): v<sound mgr version or err>
+ *      t<tones> n<notes> m<smf plays> a<ring fill> u<underrun frames> o<overflow bytes> w<watchdog fires> k<key stops>.
  * Out: "p x y d\n" per pen event (d is 1 while down); once, after the first
  *      8 bit frame, "pal " and 256 rrggbb hex entries, or "pal err 0x..".
  * Line 1: d<fmt> f<frames> <fps> <KB/s> t<tones> <err>.
@@ -23,6 +36,19 @@
 #define H 160
 #define ONE_BIT (W / 8 * H)
 #define ROUNDS 4096
+#define AMP_CAP 40
+#define PCM_RATE 11025
+#define RING 8192              /* a power of two: 0.74 s at 11025 Hz */
+#define RING_START (RING / 2)
+#define vchrNavChangeP1 0x0503 /* palmOneChars.h vchrNavChange */
+
+/* The stream callback runs on the sound thread through PACE, so it finds
+ * everything through this struct and touches no global. */
+typedef struct {
+  UInt8 *buf;
+  volatile UInt32 w, r;
+  volatile UInt32 under, pulls;
+} Ring;
 
 static UInt16 port;
 static Boolean portOpen;
@@ -34,7 +60,16 @@ static UInt32 frameBytes;
 static UInt16 state, hdrLen;
 static UInt32 need, got;
 static UInt8 hdr[7];
-static UInt16 tones;
+static UInt16 tones, notes, smfPlays, wdFires, keyStops;
+static UInt32 sndVer;
+static Err sndVerErr, streamErr, smfErr;
+static Boolean soundShown, inSmf, smfStop;
+static UInt32 lastPkt, soundUntil;
+static Ring *ring;
+static SndStreamRef stream;
+static Boolean streamMade, streamOn;
+static UInt32 overflow;
+static UInt8 payKind;           /* 0 junk, 1 frame, 2 pcm */
 static UInt32 frames, bytesIn, hdrBytes, alive;
 static UInt16 drops;
 static Err lastErr, bufErr;
@@ -53,8 +88,18 @@ static void status(void) {
   RectangleType r;
   char s[96];
   StrPrintF(s, "d%lu f%lu %lu.%lu/s %luKB/s", (UInt32)depth, frames, fps10 / 10, fps10 % 10, kbps);
-  if (tones) StrPrintF(s + StrLen(s), " t%lu", (UInt32)tones);
   if (err[0]) StrPrintF(s + StrLen(s), " %s", err);
+  if (soundShown) {
+    if (sndVerErr) StrPrintF(s, "v!%lx", (UInt32)(UInt16)sndVerErr); else StrPrintF(s, "v%lu", sndVer);
+    StrPrintF(s + StrLen(s), " t%lu n%lu m%lu", (UInt32)tones, (UInt32)notes, (UInt32)smfPlays);
+    if (ring) StrPrintF(s + StrLen(s), " a%lu u%lu o%lu", ring->w - ring->r, ring->under, overflow);
+    StrPrintF(s + StrLen(s), " w%lu k%lu", (UInt32)wdFires, (UInt32)keyStops);
+    if (streamErr) StrPrintF(s + StrLen(s), " A%lx", (UInt32)(UInt16)streamErr);
+    if (smfErr) StrPrintF(s + StrLen(s), " M%lx", (UInt32)(UInt16)smfErr);
+    RctSetRectangle(&r, 0, 124, W, 12);
+    WinEraseRectangle(&r, 0);
+    WinDrawChars(s, StrLen(s), 2, 124);
+  }
   RctSetRectangle(&r, 0, 136, W, 24);
   WinEraseRectangle(&r, 0);
   WinDrawChars(s, StrLen(s), 2, 136);
@@ -66,6 +111,19 @@ static void status(void) {
 }
 
 static void reopen(void);
+
+static void silence(void);
+
+/* No packet for 2 s while a sound is meant to play: quiet. */
+static void watchdog(void) {
+  UInt32 now = TimGetTicks();
+  if (!soundUntil || inSmf) return;
+  if (soundUntil != 0xFFFFFFFFUL && (Int32)(now - soundUntil) >= 0) { soundUntil = 0; return; }
+  if (now - lastPkt < 2 * SysTicksPerSecond()) return;
+  silence();
+  wdFires++;
+  status();
+}
 
 /* Once a second: rates over the last interval, avail as the port has it now. */
 static void tick(void) {
@@ -150,16 +208,196 @@ static void sendPalette(void) {
   send(line, n);
 }
 
-static void tone(UInt16 freq, UInt16 ms, UInt8 amp) {
+static void sndCmd(UInt8 cmd, Int32 p1, UInt16 p2, UInt16 p3) {
   SndCommandType c;
   MemSet(&c, sizeof(c), 0);
-  c.cmd = sndCmdFrqOn;           // returns at once; FreqDurationAmp blocks the whole tone (SoundMgr.h)
-  c.param1 = freq;
-  c.param2 = ms;
-  c.param3 = amp > sndMaxAmp ? sndMaxAmp : amp;
+  c.cmd = cmd;
+  c.param1 = p1;
+  c.param2 = p2;
+  c.param3 = p3;
   SndDoCmd(NULL, &c, true);
+}
+
+/* Ticks from now for ms, for the watchdog. */
+static UInt32 until(UInt16 ms) {
+  return TimGetTicks() + (UInt32)ms * SysTicksPerSecond() / 1000 + 1;
+}
+
+/* FrqOn and NoteOn return at once; FreqDurationAmp blocks the whole tone (SoundMgr.h). */
+static void tone(UInt16 freq, UInt16 ms, UInt8 amp) {
+  if (amp > AMP_CAP) amp = AMP_CAP;
+  sndCmd(sndCmdFrqOn, freq, ms, amp);
+  soundUntil = amp ? until(ms) : 0;
   tones++;
+  soundShown = true;
   status();
+}
+
+static void note(UInt8 key, UInt8 vel, UInt16 ms) {
+  if (key > 127) key = 127;
+  if (vel > 127) vel = 127;
+  if (vel == 0) { sndCmd(sndCmdQuiet, 0, 0, 0); soundUntil = 0; }
+  else {
+    if (ms == 0) ms = 65535;
+    sndCmd(sndCmdNoteOn, key, ms, (UInt16)vel * AMP_CAP / sndMaxAmp);
+    soundUntil = until(ms);
+  }
+  notes++;
+  soundShown = true;
+  status();
+}
+
+static void streamStop(void) {
+  if (streamOn) { SndStreamStop(stream); streamOn = false; }
+  if (ring) ring->w = ring->r;
+}
+
+static void silence(void) {
+  sndCmd(sndCmdQuiet, 0, 0, 0);
+  streamStop();
+  if (inSmf) smfStop = true;
+  soundUntil = 0;
+}
+
+static void hardStop(void) {
+  silence();
+  keyStops++;
+  soundShown = true;
+  send("stop\n", 5);
+  status();
+}
+
+/* Pull: the Sound Manager asks for frames and gets what the ring has, silence
+ * (0x80) for the rest. No globals here, see Ring. */
+static Err pcmPull(void *user, SndStreamRef ch, void *buffer, UInt32 frames) {
+  Ring *g = (Ring *)user;
+  UInt8 *out = (UInt8 *)buffer;
+  UInt32 r = g->r, have = g->w - r, i;
+  (void)ch;
+  for (i = 0; i < frames && i < have; i++) out[i] = g->buf[(r + i) & (RING - 1)];
+  g->r = r + i;
+  if (i < frames) { g->under += frames - i; for (; i < frames; i++) out[i] = 0x80; }
+  g->pulls++;
+  return errNone;
+}
+
+static void streamMake(void) {
+  if (streamMade || streamErr) return;
+  if (!ring) {
+    ring = (Ring *)MemPtrNew(sizeof(Ring));
+    if (ring) { MemSet(ring, sizeof(Ring), 0); ring->buf = (UInt8 *)MemPtrNew(RING); }
+    if (!ring || !ring->buf) { streamErr = memErrNotEnoughSpace; return; }
+  }
+  if (sndVerErr) { streamErr = sndVerErr; return; }
+  streamErr = SndStreamCreate(&stream, sndOutput, PCM_RATE, sndUInt8, sndMono, pcmPull, ring, 512, false);
+  if (streamErr) return;
+  SndStreamSetVolume(stream, 1024L * AMP_CAP / sndMaxAmp);
+  streamMade = true;
+}
+
+static void pump(void);
+static void tick(void);
+
+/* Called while SndPlaySmf plays: keep the link read (a Q sets smfStop) and
+ * stop on a hard key. False aborts the play. */
+static Boolean smfHook(void *chanP, UInt32 user, Int32 ticksAvail) {
+  (void)chanP; (void)user; (void)ticksAvail;
+  pump();
+  tick();
+  if (KeyCurrentState() & (keyBitHard1 | keyBitHard2 | keyBitHard3 | keyBitHard4 | keyBitPageUp | keyBitPageDown)) {
+    keyStops++;
+    send("stop\n", 5);
+    smfStop = true;
+  }
+  return !smfStop;
+}
+
+static void smfList(void) {
+  UInt16 n = 0, i;
+  MemHandle h = NULL;
+  char line[48];
+  if (!SndCreateMidiList(0, true, &n, &h) || !h) { send("smf none\n", 9); return; }
+  {
+    SndMidiListItemType *it = (SndMidiListItemType *)MemHandleLock(h);
+    for (i = 0; i < n; i++) {
+      StrPrintF(line, "smf %lu %s\n", (UInt32)i, it[i].name);
+      send(line, StrLen(line));
+    }
+    MemHandleUnlock(h);
+  }
+  MemHandleFree(h);
+}
+
+/* Record n of SndCreateMidiList, played synchronously with the hook above. */
+static void smfPlay(UInt8 n) {
+  UInt16 count = 0;
+  MemHandle lh = NULL, rh;
+  SndMidiListItemType item;
+  DmOpenRef db;
+  UInt16 idx;
+  UInt8 *p;
+  SndSmfOptionsType o;
+  SndSmfCallbacksType cb;
+  soundShown = true;
+  if (inSmf) return;
+  if (n == 255) { smfList(); return; }
+  if (!SndCreateMidiList(0, true, &count, &lh) || !lh || n >= count) {
+    smfErr = 0x51; if (lh) MemHandleFree(lh); status(); return;
+  }
+  item = ((SndMidiListItemType *)MemHandleLock(lh))[n];
+  MemHandleUnlock(lh);
+  MemHandleFree(lh);
+  db = DmOpenDatabase(item.cardNo, item.dbID, dmModeReadOnly);
+  if (!db) { smfErr = DmGetLastErr(); status(); return; }
+  smfErr = DmFindRecordByID(db, item.uniqueRecID, &idx);
+  rh = smfErr ? NULL : DmQueryRecord(db, idx);
+  if (rh) {
+    p = (UInt8 *)MemHandleLock(rh);
+    MemSet(&o, sizeof(o), 0);
+    MemSet(&cb, sizeof(cb), 0);
+    o.dwEndMilliSec = 60000;     /* at most a minute */
+    o.amplitude = AMP_CAP;
+    o.interruptible = true;      /* a tap or a button also stops it */
+    cb.blocking.funcP = (MemPtr)smfHook;
+    sndCmd(sndCmdQuiet, 0, 0, 0);
+    streamStop();
+    inSmf = true; smfStop = false;
+    smfPlays++;
+    status();
+    smfErr = SndPlaySmf(NULL, sndSmfCmdPlay, p + ((SndMidiRecHdrType *)p)->bDataOffset, &o, NULL, &cb, false);
+    inSmf = false;
+    MemHandleUnlock(rh);
+  } else if (!smfErr) smfErr = DmGetLastErr();
+  DmCloseDatabase(db);
+  lastPkt = TimGetTicks();
+  status();
+}
+
+static void ping(void) {
+  char line[128];
+  StrPrintF(line, "st v%lu t%lu n%lu m%lu M%lx f%lu b%lu x%lu w%lu k%lu", sndVerErr ? 0 : sndVer, (UInt32)tones, (UInt32)notes,
+            (UInt32)smfPlays, (UInt32)(UInt16)smfErr, frames, bytesIn, (UInt32)drops, (UInt32)wdFires, (UInt32)keyStops);
+  if (ring) StrPrintF(line + StrLen(line), " a%lu u%lu o%lu p%lu", ring->w - ring->r, ring->under, overflow, ring->pulls);
+  StrPrintF(line + StrLen(line), " A%lx on%lu\n", (UInt32)(UInt16)streamErr, (UInt32)streamOn);
+  send(line, StrLen(line));
+}
+
+/* A no payload packet, or the head of a payload one. */
+static void packet(void) {
+  lastPkt = TimGetTicks();
+  switch (hdr[1]) {
+  case 'T': tone(((UInt16)hdr[2] << 8) | hdr[3], ((UInt16)hdr[4] << 8) | hdr[5], hdr[6]); break;
+  case 'N': note(hdr[2], hdr[3], ((UInt16)hdr[4] << 8) | hdr[5]); break;
+  case 'Q': silence(); soundShown = true; status(); break;
+  case 'S': smfPlay(hdr[2]); break;
+  case '?': ping(); break;
+  case 'A':
+    need = ((UInt32)hdr[2] << 8) | hdr[3]; got = 0;
+    streamMake();
+    payKind = ring ? 2 : 0;
+    soundShown = true;
+    break;
+  }
 }
 
 /* A bitmap of the asked depth, made when the format changes. On failure there
@@ -226,38 +464,59 @@ static void pump(void) {
       if (state == 1) {
         if (b == 'F') hdrLen = 5;
         else if (b == 'T') hdrLen = 7;
+        else if (b == 'N') hdrLen = 6;
+        else if (b == 'Q' || b == '?') hdrLen = 2;
+        else if (b == 'S') hdrLen = 3;
+        else if (b == 'A') hdrLen = 4;
         else { state = 0; continue; }
       }
       if (state == 2 && hdr[1] == 'F' && b == 0x0c) hdrLen = 4;   // the first build's header: len_hi of 3200
       hdr[state++] = b;
       hdrBytes++;
       if (state < 2 || state < hdrLen) continue;
-      if (hdrLen == 7) {
-        tone(((UInt16)hdr[2] << 8) | hdr[3], ((UInt16)hdr[4] << 8) | hdr[5], hdr[6]);
-        state = 0; hdrLen = 0;
-      } else if (hdrLen == 4) {
-        frameHeader(1, ((UInt32)hdr[2] << 8) | hdr[3]);
+      need = 0;
+      if (hdr[1] == 'F') {
+        if (hdrLen == 4) frameHeader(1, ((UInt32)hdr[2] << 8) | hdr[3]);
+        else frameHeader(hdr[2], ((UInt32)hdr[3] << 8) | hdr[4]);
+        payKind = (bits && need == frameBytes) ? 1 : 0;
       } else {
-        frameHeader(hdr[2], ((UInt32)hdr[3] << 8) | hdr[4]);
+        UInt8 kind = hdr[1];
+        state = 0; hdrLen = 0;   /* a hook inside smfPlay pumps too */
+        packet();
+        if (kind == 'A' && need) { state = 4; hdrLen = 4; hdr[1] = 'A'; }
+        if (kind == 'S') return;
       }
       if (state && need == 0) { state = 0; hdrLen = 0; }
       continue;
     }
     n = need - got;
     if (n > avail) n = avail;
-    if (bits && need == frameBytes) {
+    if (payKind == 1) {
       n = SrmReceive(port, bits + got, n, 0, &e);
+    } else if (payKind == 2 && ring->w - ring->r < RING) {
+      UInt32 w = ring->w, room = RING - (w - ring->r), run = RING - (w & (RING - 1));
+      if (n > room) n = room;
+      if (n > run) n = run;
+      n = SrmReceive(port, ring->buf + (w & (RING - 1)), n, 0, &e);
+      ring->w = w + n;
+      lastPkt = TimGetTicks();
+      soundUntil = 0xFFFFFFFFUL;
+      if (!streamOn && streamMade && ring->w - ring->r >= RING_START) {
+        streamErr = SndStreamStart(stream);
+        streamOn = !streamErr;
+      }
     } else {
       UInt8 junk[64];
       if (n > sizeof(junk)) n = sizeof(junk);
       n = SrmReceive(port, junk, n, 0, &e);
+      if (payKind == 2) overflow += n;
     }
     got += n;
     bytesIn += n;
     if (e) { lastErr = e; SrmClearErr(port); state = 0; hdrLen = 0; return; }
     if (got >= need) {
       state = 0; hdrLen = 0;
-      if (bits && need == frameBytes) {
+      if (payKind == 1) {
         WinDrawBitmap(bmp, 0, 0);
         if (!frames) err[0] = 0;
         frames++;
@@ -277,6 +536,16 @@ static Boolean mainHandler(EventType *e) {
     WinDrawChars("pframe", 6, 2, 2);
     openLink();
     return true;
+  case keyDownEvent: {
+    WChar c = e->data.keyDown.chr;
+    if (!(e->data.keyDown.modifiers & commandKeyMask)) return false;
+    if ((c >= vchrHard1 && c <= vchrHard4) || c == vchrPageUp || c == vchrPageDown ||
+        (c >= vchrRockerUp && c <= vchrRockerCenter) || c == vchrNavChangeP1) {
+      hardStop();
+      return true;
+    }
+    return false;
+  }
   case penDownEvent:
     if (e->screenY < 14) { reopen(); return true; }
     sendPen(e->screenX, e->screenY, 1);
@@ -313,6 +582,7 @@ UInt32 PilotMain(UInt16 cmd, MemPtr pbp, UInt16 flags) {
     return sysErrRomIncompatible;
 
   palErr = WinPalette(winPaletteGet, 0, 256, pal);
+  sndVerErr = FtrGet(sysFileCSoundMgr, sndFtrIDVersion, &sndVer);
   if (!useDepth(1)) return memErrNotEnoughSpace;
   MemSet(bits, ONE_BIT, 0);
   lastTick = TimGetTicks();
@@ -322,13 +592,18 @@ UInt32 PilotMain(UInt16 cmd, MemPtr pbp, UInt16 flags) {
     EvtGetEvent(&e, 1);
     pump();
     tick();
+    watchdog();
     if (e.eType == nilEvent) { EvtResetAutoOffTimer(); continue; }
+    if (e.eType == keyDownEvent && mainHandler(&e)) continue;   /* hard keys stop sound, before the system launches an app */
     if (SysHandleEvent(&e)) continue;
     if (MenuHandleEvent(NULL, &e, &er)) continue;
     if (appHandler(&e)) continue;
     FrmDispatchEvent(&e);
   } while (e.eType != appStopEvent);
 
+  silence();
+  if (streamMade) SndStreamDelete(stream);
+  if (ring) { if (ring->buf) MemPtrFree(ring->buf); MemPtrFree(ring); }
   closeLink();
   FrmCloseAllForms();
   if (bmp) BmpDelete(bmp);

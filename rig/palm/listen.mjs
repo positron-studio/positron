@@ -8,7 +8,12 @@
 //   node listen.mjs 10 --via arecord           # jackd not running: the card itself, keep channel 2
 //   node listen.mjs 12 --sends sends.jsonl     # latency: start this first, then tones.mjs --log sends.jsonl
 //   node listen.mjs 10 --wav palm.wav          # also keep the recording (mono, 16 bit, 48 kHz)
-//   --port system:capture_2   the JACK port (jackd names the card's ports system:capture_N)
+//   --band 440                onsets and their level from a Goertzel filter at this frequency, not
+//                             the broadband RMS: a quiet beep under room rumble still counts
+//   --port P                  the JACK port; default circuit:capture_2 when the board's alsa_in
+//                             client "circuit" holds the card (jackd itself then runs on the dummy
+//                             driver, so system:capture_2 is silence), else system:capture_2.
+//                             Reading it adds a connection and changes none of the board's.
 //   --device hw:CARD=Pro,DEV=0   the ALSA device for arecord
 //
 // Under jackd it adds one JACK client (ffmpeg's) and one connection from
@@ -21,17 +26,19 @@ import { spawn, execFileSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
-const VALUED = ['--via', '--sends', '--wav', '--port', '--device', '--floor'];
+const VALUED = ['--via', '--sends', '--wav', '--port', '--device', '--floor', '--band'];
 const pos = args.filter((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1]));
 const secs = Number(pos[0] ?? 10);
 const RATE = 48000;
-const port = opt('--port', 'system:capture_2');
+const jackPorts = (() => { try { return execFileSync('jack_lsp', [], { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).toString(); } catch { return ''; } })();
+const port = opt('--port', /^circuit:capture_2$/m.test(jackPorts) ? 'circuit:capture_2' : 'system:capture_2');
+const band = opt('--band', null) === null ? null : Number(opt('--band'));
 const device = opt('--device', 'hw:CARD=Pro,DEV=0');
 const sendsFile = opt('--sends', null);
 const wavFile = opt('--wav', null);
 const floorDb = Number(opt('--floor', -50));   // an onset is a 10 ms window this many dBFS or louder
 
-const jackUp = () => { try { execFileSync('jack_lsp', [], { stdio: 'ignore', timeout: 3000 }); return true; } catch { return false; } };
+const jackUp = () => jackPorts.length > 0;
 const via = opt('--via', jackUp() ? 'jack' : 'arecord');
 const CLIENT = 'palmlisten';
 
@@ -100,8 +107,9 @@ function report(x) {
   const W = RATE / 100, onsets = [];
   let quiet = 3;
   for (let i = 0; i + W <= x.length; i += W) {
-    let s = 0; for (let k = 0; k < W; k++) s += x[i + k] ** 2;
-    const lv = db(Math.sqrt(s / W));
+    let lv;
+    if (band) lv = db(goertzel(x.subarray(i, i + W), band));
+    else { let s = 0; for (let k = 0; k < W; k++) s += x[i + k] ** 2; lv = db(Math.sqrt(s / W)); }
     if (lv >= floorDb) {
       if (quiet >= 3) {
         const seg = x.subarray(i, Math.min(x.length, i + 4096));
@@ -110,7 +118,7 @@ function report(x) {
       quiet = 0;
     } else quiet++;
   }
-  console.log(`${onsets.length} onsets over ${floorDb} dBFS`);
+  console.log(`${onsets.length} onsets over ${floorDb} dBFS${band ? ` at ${band} Hz` : ''}`);
   for (const n of onsets) console.log(`  ${n.ms.toFixed(0).padStart(6)} ms  ${fmtDb(n.db).padStart(6)} dBFS  ${Number.isFinite(n.hz) ? n.hz.toFixed(0) + ' Hz' : ''}`);
   const gaps = onsets.slice(1).map((n, i) => n.ms - onsets[i].ms);
   if (gaps.length > 1) console.log(`inter-onset ms: mean ${mean(gaps).toFixed(1)}, sd ${sd(gaps).toFixed(1)}, min ${Math.min(...gaps).toFixed(0)}, max ${Math.max(...gaps).toFixed(0)}`);
@@ -132,6 +140,14 @@ function latency(onsets) {
   if (!lat.length) { console.log('latency: no send matched an onset'); return; }
   console.log(`latency send to sound, ${lat.length} of ${sends.length} matched: median ${median(lat).toFixed(0)} ms, ` +
     `min ${Math.min(...lat).toFixed(0)}, max ${Math.max(...lat).toFixed(0)}, sd ${sd(lat).toFixed(1)} (clock offset of the capture about 10 to 30 ms, INFERRED)`);
+}
+
+// RMS of the component at f in s (a sine of amplitude A reads A / sqrt 2, like RMS).
+function goertzel(s, f) {
+  const k = 2 * Math.cos(2 * Math.PI * f / RATE);
+  let a = 0, c = 0;
+  for (let i = 0; i < s.length; i++) { const t = s[i] + k * a - c; c = a; a = t; }
+  return Math.sqrt(Math.max(0, a * a + c * c - k * a * c)) / s.length * Math.SQRT2;
 }
 
 function loudestWindow(x, n) {
