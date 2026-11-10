@@ -122,6 +122,12 @@ at 8-bit, more at 1-bit. Measure before designing pieces around it.
 - **Not yet measured:** frames per second (pframe prints a counter on its bottom line), the stylus lines coming back, colour frames.
 - **The Pi camera on the Palm, 2026-11-10 evening.** `rig/palm/cam.mjs` on the Pi (the C925e by ffmpeg, cropped square, 160x160 grey, the OLED's ordered 4x4 dither) into the installed one bit pframe: the owner's photo shows the room, recognisable, counter f172. The Pi measured 15 fps written, the camera's own rate; after two runs the Palm stopped reading once (cause unknown, a relaunch or soft reset).
 
+### 12. Measured 2026-11-10 night: five formats, the link's ceiling
+
+- The colour build (rig/palm/frame, header 'P' 'F' fmt len_hi len_lo) on the Z22, sent flat out from the Pi on /dev/ttyUSB0, 15 s each: **1 bit 50 fps (156 KB/s), 4 bit grey 18 fps (230 KB/s), 8 bit palette 11 fps (275 KB/s), 16 bit RGB565 6 fps (275 to 300 KB/s).** The link carries about 300 KB/s. These are bytes the tty accepted; the owner saw the 16 bit run draw (status d16 f270).
+- **ttyUSB1 went dead after a USB drop** (18:31, 33 s of descriptor errors): pframe's port stayed on the old session and read nothing. ttyUSB0 kept working. The diagnostic build (two status lines, port reopen after 3 s of errors or a tap on the title) is on the Pi as ~/palm/frame.prc, not installed.
+- Tones ('P' 'T', sndCmdFrqOn) play: the owner heard the scale.
+
 ## plan-camera-feedback: a Pi camera looking at its own screen
 
 Status (2026-10-30): a plan, nothing built. Builds on `fx.c`, `plan-screens.md`
