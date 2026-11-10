@@ -11,10 +11,6 @@
   /* The picture is the page: over everything, the whole viewport. */
   html, body { background: #000; }
   .mic { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; }
-  /* the waveform strip along the foot, above the bottom inset, see-through over the spectrogram */
-  .mic-scope { position: fixed; z-index: 10; pointer-events: none; display: block;
-    left: max(48px, env(safe-area-inset-left)); right: max(48px, env(safe-area-inset-right));
-    bottom: max(48px, env(safe-area-inset-bottom)); width: calc(100vw - 96px); height: 15vh; height: 15dvh; }
   /* The title over the picture, top left; taps go through it to the picture. */
   .mic-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
     top: max(48px, env(safe-area-inset-top)); left: max(48px, env(safe-area-inset-left));
@@ -34,8 +30,8 @@
   .mic-knobs[hidden] { display: none; }
   /* How it works: the picture dims to 12% over 2.5 s and the patch sits straight on it. */
   /* brightness, not opacity: a see-through canvas shows the shell's header behind it */
-  .mic, .mic-scope { transition: filter 2.5s; }
-  body.mic-how .mic, body.mic-how .mic-scope { filter: brightness(.12); }
+  .mic { transition: filter 2.5s; }
+  body.mic-how .mic { filter: brightness(.12); }
   body.mic-how .mic-t { max-height: calc(100dvh - 32px); }
   /* the knobs and the held notes give way to the patch, which sits where they would */
   .mic-held, .mic-knobs { transition: opacity .6s; }
@@ -49,7 +45,7 @@
 <script type="module">
   // The Shure SM57 on the Pi's Fast Track Pro input 2, to this page over the relay in the board's audio frames
   // (rig/palm/mic.mjs), dry or through /ambient/drone/'s chain on wasm scsynth; the MK-425C's notes go to
-  // studio-1 as screen.note, for rig/palm/bridge.mjs and the board's OLED. Nothing opens until Listen or Process.
+  // studio-1 as screen.note (and the knobs as palm.cc), for rig/palm/bridge.mjs and the board's OLED. Nothing opens until Listen or Process.
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBoard, BOARD_RATE } from '/shell/board.mjs';
@@ -100,7 +96,7 @@
   const KNOBS = [
     { name: 'echo', to: 'aspace', param: 'echo', min: 0, max: 1, value: 0.4 },
     { name: 'room', to: 'aspace', param: 'room', min: 0, max: 1, value: 0.4 },
-    { name: 'drone', to: 'adrone', param: 'amp', min: 0, max: 1, value: 0.4 },
+    { name: 'drone', to: 'adrone', param: 'amp', min: 0, max: 1, value: 0.13 },
   ];
 
   // ── the bay: the mic's chain from the Pi to these speakers, and the MK-425C's notes to the Palm and the OLED ──
@@ -120,7 +116,7 @@
   node('web:drone', 'engine', 'drone, wasm scsynth', WEB);
   node('web:space', 'engine', 'echoes 4.3 s and 6.7 s, room, limiter', WEB);
   node('web:knobs', 'person', 'knobs', WEB);
-  node('web:picture', 'screen', 'spectrogram, waveform', WEB);
+  node('web:picture', 'screen', 'spectrogram', WEB);
   node('web:held', 'screen', 'held notes', WEB);
   node('web:speaker', 'device', 'speakers', WEB);
   const port = (id, dir, medium, label, extra = {}) => bay.addPort({ id, dir, medium, label, ...extra });
@@ -239,22 +235,58 @@
 
   // ── the keyboard: Web MIDI from Listen on, every input; notes leave on web:keys:midi-out ──
   // A press-held note sends on and off; past MAX_PER_S note-ons a second the extra ones are dropped, never their offs.
+  // While Process or Drone is on, a released key LATCHES: it keeps sounding until the next note-on releases it.
   const MAX_PER_S = 30;
-  let midi = null, asking = null, wire = null, roomSent = 0, dropped = 0, lastK = 0, k = 0;
-  const onSent = new Set(), heldNotes = new Set(), onTimes = [];
+  let midi = null, asking = null, wire = null, roomSent = 0, dropped = 0, lastK = 0, k = 0, ccSent = 0;
+  const onSent = new Set(), heldNotes = new Set(), onTimes = [], phys = new Set(), latched = new Set();
+  const latching = () => processing || droneOn;
+  const emit = (ch, n, v) => {
+    if (v) onSent.add(n); else onSent.delete(n);
+    bay.send('web:keys:midi-out', { cls: 'note', ch, d1: n, d2: v, k: ++k });
+  };
+  function unlatch() { for (const n of [...latched]) { latched.delete(n); if (!phys.has(n) && onSent.has(n)) emit(1, n, 0); } }
   function midiIn(data) {
     const [st, n, v] = data, cmd = st & 0xf0;
+    if (cmd === 0xb0) return ccIn(n, v);
+    if (cmd === 0xe0) return bendIn(((v << 7) | n) - 8192);
     if (cmd !== 0x90 && cmd !== 0x80) return;
-    const on = cmd === 0x90 && v > 0;
+    const on = cmd === 0x90 && v > 0, ch = (st & 0x0f) + 1;
     if (on) {
-      if (onSent.has(n)) return;
+      if (phys.has(n)) return;
       const t = performance.now();
       while (onTimes.length && t - onTimes[0] > 1000) onTimes.shift();
       if (onTimes.length >= MAX_PER_S) { dropped++; return; }
-      onTimes.push(t); onSent.add(n);
-    } else if (!onSent.delete(n)) return;
-    bay.send('web:keys:midi-out', { cls: 'note', ch: (st & 0x0f) + 1, d1: n, d2: on ? v : 0, k: ++k });
+      onTimes.push(t); phys.add(n);
+      unlatch();
+      if (onSent.has(n)) emit(ch, n, 0);
+      emit(ch, n, v);
+      if (droneOn) droneRoot(n);
+    } else {
+      if (!phys.delete(n)) return;
+      if (latching()) { latched.add(n); heldIn(); return; }
+      if (onSent.has(n)) emit(ch, n, 0);
+    }
   }
+  function releaseAll() { latched.clear(); phys.clear(); for (const n of [...onSent]) emit(1, n, 0); }
+  // Knobs, the mod wheel and the bend reach the Palm's bridge as palm.cc and palm.bend (the board ignores both),
+  // at most one a CC_MS per controller, the last value wins.
+  const CC_MS = 40, ccWant = new Map(), ccTimer = new Map();
+  function ccIn(cc, v) {
+    ccWant.set(cc, v);
+    if (ccTimer.has(cc)) return;
+    const flush = () => {
+      const w = ccWant.get(cc);
+      ccWant.delete(cc);
+      if (w === undefined) { ccTimer.delete(cc); return; }
+      if (cc === 'bend' ? wire?.send({ type: 'palm.bend', v: w })?.sent : wire?.send({ type: 'palm.cc', cc, v: w })?.sent) ccSent++;
+      ccTimer.set(cc, setTimeout(flush, CC_MS));
+    };
+    flush();
+  }
+  const bendIn = (v) => ccIn('bend', v);
+  // The drone's root latches to the key an octave down, as /ambient/drone/ does; its SynthDef glides 3 s.
+  let root = 36;
+  function droneRoot(n) { root = Math.max(24, Math.min(60, n - 12)); set('adrone', { root }); }
   function toRoom(ev) {
     if (ev.k === lastK) return;
     lastK = ev.k;
@@ -270,7 +302,7 @@
   }
   function keysOff() {
     attach();
-    for (const n of [...onSent]) midiIn([0x80, n, 0]);
+    releaseAll();
     wire?.send({ type: 'screen.note', panic: true });
     const w = wire; wire = null;
     setTimeout(() => w?.close(), 200);
@@ -278,8 +310,10 @@
   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
   function heldIn(ev) {
-    if (ev.d2 > 0) heldNotes.add(ev.d1); else heldNotes.delete(ev.d1);
-    heldLine.textContent = [...heldNotes].sort((a, b) => a - b).map(nameOf).join(' ');
+    if (ev) { if (ev.d2 > 0) heldNotes.add(ev.d1); else heldNotes.delete(ev.d1); }
+    const names = (set) => [...set].sort((a, b) => a - b).map(nameOf).join(' ');
+    const down = [...heldNotes].filter((n) => !latched.has(n) || phys.has(n)), up = [...heldNotes].filter((n) => latched.has(n) && !phys.has(n));
+    heldLine.textContent = [names(down), up.length ? `latched ${names(up)}` : ''].filter(Boolean).join(', ');
   }
 
   const set = (prog, kv) => sc?.send('/n_set', NODE_IDS[prog], ...Object.entries(kv).flat());
@@ -291,7 +325,7 @@
       const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', r.bytes);
       if (!done || done[0] !== '/done') d.log(`${name} was not taken: ${done?.[2] || 'no answer'}`, 'bad');
     }
-    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', droneOn ? knobs.get('drone').value() : 0);
+    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', droneOn ? knobs.get('drone').value() : 0, 'root', root);
     sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0, 'amp', MIC_AMP);
     sc.send('/s_new', 'aspace', NODE_IDS.aspace, 1, 0);
     for (const k of KNOBS) if (k.to !== 'adrone') set(k.to, { [k.param]: knobs.get(k.name).value() });
@@ -309,6 +343,7 @@
       try { await (booting ??= bootSc()); } catch (e) { d.log(`SuperCollider did not start: ${e.message}`, 'bad'); booting = null; sc = null; }
       delete procBtn.dataset.busy;
     }
+    if (!latching()) unlatch();
     ramp(dry.gain, processing ? 0 : 1, 0.5); ramp(wet.gain, processing ? 1 : 0, 0.5);
     if (!listening) ramp(fade.gain, processing ? 1 : 0);
   }
@@ -317,6 +352,7 @@
     droneBtn.setAttribute('aria-pressed', String(on));
     patch();
     set('adrone', { amp: on ? knobs.get('drone').value() : 0 });
+    if (!latching()) unlatch();
   }
 
   // ── the picture: one column a frame, rows log-spaced 60 Hz to 12 kHz, ink over 60 dB under the recent loudest bin ──
@@ -345,7 +381,7 @@
   // opaque, drawn at CSS pixels and stretched: at most the screen's width a frame, whatever the pixel ratio
   const g = canvas.getContext('2d', { alpha: false });
   const re = new Float32Array(SG_N), im = new Float32Array(SG_N);
-  let col = null, bins = null, buf = null, top = null, at = 0, frames = 0, inked = 0, scoped = 0, nonZero = 0, lastDb = -Infinity;
+  let col = null, bins = null, buf = null, top = null, at = 0, frames = 0, inked = 0, nonZero = 0, lastDb = -Infinity;
   function size() {
     const w = Math.max(1, innerWidth), h = Math.max(1, Math.min(innerHeight, 1440));
     if (canvas.width === w && canvas.height === h) return;
@@ -380,34 +416,6 @@
     if (lit) inked++;
   }
 
-  // ── the waveform: a triggered scope along the foot, white, from the same analyser ──
-  const scope = el('canvas', 'mic-scope');
-  scope.setAttribute('aria-hidden', 'true');
-  const sg = scope.getContext('2d');
-  const SCOPE_N = 1024;
-  let scopeGain = 1;
-  function drawScope() {
-    const dpr = Math.min(2, devicePixelRatio || 1), cw = scope.clientWidth, ch = scope.clientHeight;
-    const w = Math.round(cw * dpr), h = Math.round(ch * dpr);
-    if (scope.width !== w || scope.height !== h) { scope.width = w; scope.height = h; }
-    sg.clearRect(0, 0, w, h);
-    // the first rising zero crossing in the first half holds the wave still
-    let s = 0;
-    for (let i = 1; i < buf.length - SCOPE_N; i++) if (buf[i - 1] <= 0 && buf[i] > 0) { s = i; break; }
-    let pk = 0;
-    for (let i = 0; i < SCOPE_N; i++) { const a = Math.abs(buf[s + i]); if (a > pk) pk = a; }
-    // a slow gain that fills the strip, never more than 40x, so a quiet room stays a flat line
-    scopeGain += (Math.min(40, 0.9 / Math.max(pk, 0.0225)) - scopeGain) * 0.05;
-    sg.strokeStyle = '#fff'; sg.lineWidth = 1.5 * dpr; sg.lineJoin = 'round';
-    sg.beginPath();
-    for (let i = 0; i < SCOPE_N; i++) {
-      const x = (i / (SCOPE_N - 1)) * w, y = h / 2 - Math.max(-1, Math.min(1, buf[s + i] * scopeGain)) * (h / 2 - dpr);
-      if (i) sg.lineTo(x, y); else sg.moveTo(x, y);
-    }
-    sg.stroke();
-    scoped++;
-  }
-
   let audioAt = 0, lastFrames = 0;
   function draw() {
     requestAnimationFrame(draw);
@@ -418,7 +426,7 @@
     for (const v of buf) { const a = v < 0 ? -v : v; if (a > pk) pk = a; }
     if (pk > 0) nonZero++;
     lastDb = pk > 0 ? 20 * Math.log10(pk) : -Infinity;
-    column(); drawScope();
+    column();
     const f = board?.stats()?.frames ?? 0;
     if (f !== lastFrames) { lastFrames = f; audioAt = performance.now(); }
     if (frames++ % 15 === 0) drawLine();
@@ -479,7 +487,7 @@
   btns.append(btn, procBtn, droneBtn, howBtn);
   titleBox.append(eye, h, atLine, line, btns, heldLine, knobBox, howBox);
   face();
-  document.body.append(canvas, scope, titleBox);
+  document.body.append(canvas, titleBox);
 
   // Leaving by the slide arrows: the sound and the page fade to black over LEAVE s, then the arrow module navigates.
   const LEAVE = 1;
@@ -495,9 +503,10 @@
 
   window.__demo.bay = bay;
   window.__demo.mic = { listen, stop, setProcess, setDrone, setHow, knobs, board: () => board, context: () => ctx, sc: () => sc,
-    listening: () => listening, processing: () => processing, how: () => how, frames: () => frames, inked: () => inked, scoped: () => scoped,
+    listening: () => listening, processing: () => processing, how: () => how, frames: () => frames, inked: () => inked,
     nonZero: () => nonZero, level: () => lastDb, stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0,
-    midiIn, midi: () => !!midi, held: () => [...heldNotes], keys: () => ({ roomSent, dropped, wire: wire?.stats() ?? null }) };
+    midiIn, midi: () => !!midi, held: () => [...heldNotes], latched: () => [...latched], root: () => root,
+    keys: () => ({ roomSent, dropped, ccSent, wire: wire?.stats() ?? null }) };
 
   async function check() {
     d.assert('a visit opened no audio context, no socket and no Web MIDI', ctx === null && board === null && wire === null && midi === null);

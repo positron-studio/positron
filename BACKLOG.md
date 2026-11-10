@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**The mic slide becomes /palm/, run locally, and the Palm's sound does much more**~~ DONE 2026-11-10: arp, echo, chip and mono voices, knobs, a spectrogram on the Palm and the OLED (board screen.raw), the drone on key, keys latch (2026-11-10). Asked: *"do way more with that palm sound. run local server and run mic demo there. rename it palm"*. The Palm plays square tones (sndCmdFrqOn, any Hz) and notes (sndCmdNoteOn); no PCM.
+
+- **Play the Pi's synths with the Palm as their picture, and perhaps the Palm as a MIDI voice and controller** (2026-11-10). Asked: *"i want to move on to play actual synths on pi with palm viz. perhaps even palm midi. we can not simulate pcm with palm, is it piezo?"*. PCM is not implemented for 68k apps on the Z22 (0x080A); the Palm plays notes (sndCmdNoteOn) and MIDI records.
+
 - ~~**/huddersfield/: a dimmer spectrogram, Contemporary on its own line, the spectrogram scrubbable over a kept buffer with varispeed and radio tuning sound**~~ DONE 2026-11-10, plus dub on vertical drag and play/stop fades on both radios (2026-11-10). Asked: *"dim more the spectogram. contemporaty to ne line. make spectometer scrubbale, keep buffer. use varispeed/radiotunin fx. in bg"*, then *"click and draggin up and down adding reverby/echo/dub on huddersf. stop and fause fade in and out the volume on both radios"*.
 
 - ~~**Soundscape pages: the How it works patch shows how v2in really works inside, no panel background, a deeper and slower dim, an animated bay**~~ DONE 2026-11-10 (2026-11-10). Asked: *"look up at v2in how it actually works inside v2in and add that to patchbay. rm extra bg from patchbay. dim even more and more slowly"*, *"make it animated"*, *"(bay)"*. /radio1965/ and /huddersfield/.

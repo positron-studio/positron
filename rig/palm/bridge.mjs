@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 // The Pi's synths with the Palm as their picture: notes heard in the board's relay rooms are drawn
-// on the Palm (pframe) as rings, keys, a roll, or split (the default: the Circuit's live waveform over
-// the rings); --voice plays the top note on the Palm, and --pen
+// on the Palm (pframe) as rings, keys, a roll, or split (the default: a spectrogram of --wave-port over
+// the rings); --voice plays the held notes on the Palm (arp, mono, echo or chip), and --pen
 // turns the stylus into two Circuit macro CCs sent the way /remote/circuit/ sends them.
 //
 //   sudo modprobe visor                                   # pframe's tty
-//   node bridge.mjs /dev/ttyUSB0 --voice --pen            # split: waveform on top, rings below
+//   node bridge.mjs /dev/ttyUSB0 --voice --pen            # split: spectrogram on top, rings below
 //   node bridge.mjs /dev/ttyUSB0 --demo                   # an arpeggio made here, no relay: the Palm alone
 //   node bridge.mjs --dry --snap /tmp/palm.pgm --secs 10  # no Palm: log notes, write the picture as PGM
 //   --view split|rings|keys|roll  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
 //   --room studio-1   --relay wss://...   --pen-cc 80,81   --pen-ch 1   --dry   --demo   --secs N   --light (black on white; the default is white on black)   --no-oled
+//   the voice (with --voice): --voice-mode arp|mono|echo|chip|plain (default arp)   --pattern up|down|updown|random
+//   --rate 110 (ms an arp step)   --glide 40 (ms)   --vib 0 (cents, 5.5 Hz)   --echo 0.5 (feedback 0 to 0.85)   --echo-ms 240
+//   --double off|octave|fifth|both   --tuning equal|just|q24|drift   --drums-below 36 (lower keys are noise bursts)
+//   The knobs move the same settings live: palm.cc {cc, v} and palm.bend {v} in <room>, sent by /palm/ (see onCC).
 //
 // Where the notes come from (read only, nothing is asked of the board):
 //   room <room>-circuit  `midi.send` {bytes} from /remote/circuit/ on its default relay path, and
@@ -18,11 +22,12 @@
 // Not heard: /remote/circuit/?path=direct (WebRTC straight to the Pi), the MK-425C on the Pi and
 // the board's own sequencer, which all write the Circuit inside the board and never reach a room.
 //
-// Packets (frame.c): 'P' 'F' fmt len_hi len_lo + frame; 'P' 'N' key vel dur_hi dur_lo (dur 0
-// holds); 'P' 'Q' quiet; 'P' '?' ping, sent once a second while the voice holds a note, because
-// pframe's watchdog quiets a note after 2 s with no packet and frames do not count as packets.
+// Packets (frame.c): 'P' 'F' fmt len_hi len_lo + frame; 'P' 'T' hz_hi hz_lo dur_hi dur_lo amp (sndCmdFrqOn,
+// any whole Hz, a new tone cuts the old); 'P' 'N' key vel dur_hi dur_lo (only --voice-mode plain);
+// 'P' 'Q' quiet; 'P' '?' ping. The voice sends a tone every TICK ms while the pitch moves and every
+// REFRESH_MS while it stands, each lasting TONE_MS, so a bridge that dies goes quiet by itself.
 // One writer: every packet goes through one queue, whole, so a note never lands inside a frame.
-// The waveform (split) is read only from JACK: ffmpeg is one more client with one connection from
+// The spectrogram (split) is read only from JACK: ffmpeg is one more client with one connection from
 // --wave-port to it, as listen.mjs reads capture_2; no board lease, none of the board's connections touched.
 // The OLED stays on the board's own rings (screen.note): panel.raw() is fed only by the board's own
 // screen camera, and no relay message lets an outside client push a raw frame.
@@ -35,7 +40,8 @@ import { execFileSync, spawn } from 'node:child_process';
 const TEXT = process.argv.includes('--text');
 const W = 160, H = 160, DH = TEXT ? 122 : 160;
 const args = process.argv.slice(2);
-const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port'];
+const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port',
+  '--voice-mode', '--pattern', '--rate', '--glide', '--vib', '--echo', '--echo-ms', '--double', '--tuning', '--drums-below'];
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const flag = (name) => args.includes(name);
 const dev = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || '/dev/ttyUSB0';
@@ -51,13 +57,28 @@ const VOICE = flag('--voice'), PEN = flag('--pen'), DRY = flag('--dry'), DEMO = 
 const SNAP = opt('--snap', null), SECS = Number(opt('--secs', 0));
 // White on black by default (the owner: "circle notes on palm. white on black"); --light draws black on white.
 const LIGHT = flag('--light');
-// The board's OLED mirrors the rings unless --no-oled.
-const OLED = !flag('--no-oled');
+// The board's OLED shows the split at 128x64 as screen.raw frames unless --no-oled; --oled-notes sends
+// screen.note instead, so the board draws its own rings.
+const OLED = !flag('--no-oled'), OLED_RAW = OLED && !flag('--oled-notes');
 if (!['split', 'rings', 'keys', 'roll'].includes(VIEW)) die('--view split, rings, keys or roll');
 if (![1, 2, 4].includes(FMT)) die('--fmt 1, 2 or 4 (the picture is grey)');
 if (!(FPS > 0 && FPS <= 50)) die('--fps 1 to 50');
 if (![PEN_X, PEN_Y].every((c) => Number.isInteger(c) && c >= 0 && c <= 119)) die('--pen-cc two controller numbers, e.g. 80,81');
 if (!(PEN_CH >= 1 && PEN_CH <= 16)) die('--pen-ch 1 to 16');
+// The voice's settings; the knobs change them live (onCC).
+const MODES = ['mono', 'arp', 'echo', 'chip'], PATTERNS = ['up', 'down', 'updown', 'random'];
+const DOUBLES = ['off', 'octave', 'fifth', 'both'], TUNINGS = ['equal', 'just', 'q24', 'drift'];
+const vs = {
+  mode: opt('--voice-mode', 'arp'), pattern: opt('--pattern', 'updown'), rate: Number(opt('--rate', 110)),
+  glide: Number(opt('--glide', 40)), vib: Number(opt('--vib', 0)), echo: Number(opt('--echo', 0.5)),
+  echoMs: Number(opt('--echo-ms', 240)), double: opt('--double', 'off'), tuning: opt('--tuning', 'equal'), bend: 0,
+};
+const DRUMS_BELOW = Number(opt('--drums-below', 36));
+if (![...MODES, 'plain'].includes(vs.mode)) die('--voice-mode arp, mono, echo, chip or plain');
+if (!PATTERNS.includes(vs.pattern)) die('--pattern up, down, updown or random');
+if (!DOUBLES.includes(vs.double)) die('--double off, octave, fifth or both');
+if (!TUNINGS.includes(vs.tuning)) die('--tuning equal, just, q24 or drift');
+if (!(vs.rate >= 20 && vs.rate <= 2000 && vs.glide >= 0 && vs.vib >= 0 && vs.vib <= 200 && vs.echo >= 0 && vs.echo <= 0.85 && vs.echoMs >= 40)) die('--rate 20 to 2000, --glide 0 up, --vib 0 to 200, --echo 0 to 0.85, --echo-ms 40 up');
 function die(s) { console.error(s); process.exit(2); }
 let stopping = false;
 const t0 = Date.now();
@@ -66,7 +87,8 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
 // ── the notes ──────────────────────────────────────────────────────────────
 // key -> { n, vel, ch, on, src }; released notes keep fading in `gone`.
 const held = new Map(), gone = [], hits = [];
-const STUCK_MS = 30_000, FADE_MS = 3000;
+// /palm/ latches a released key while it processes, so its notes may hold for minutes; a lost off elsewhere goes at 30 s.
+const STUCK_MS = 30_000, SCREEN_STUCK_MS = 600_000, FADE_MS = 3000;
 let lastNote = null, lastAt = 0, heard = 0, dirty = true;
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
@@ -76,12 +98,14 @@ function noteOn(src, ch, n, vel) {
   if (!vel) return noteOff(src, ch, n);
   const t = Date.now();
   heard++; dirty = true; lastAt = t;
-  if (ch === 10) { hits.push({ n, vel, t }); if (hits.length > 32) hits.shift(); return; }
+  if (ch === 10 || n < DRUMS_BELOW) { hits.push({ n, vel, t }); if (hits.length > 32) hits.shift(); hit(n, t); return; }
   const k = `${src}:${ch}:${n}`;
   if (held.has(k)) noteOff(src, ch, n);
   const s = { n, vel, ch, on: t, src };
   held.set(k, s);
   lastNote = { n, vel, ch, src };
+  muted = false;
+  if (vs.mode === 'echo') { echoes.push({ n, t }); if (echoes.length > 16) echoes.shift(); }
   voice();
   mirror(s, true);
 }
@@ -101,7 +125,7 @@ function noteOff(src, ch, n) {
 // note is folded into that by octaves; notes that came in as screen.note are on the OLED already.
 const O_LO = 48, O_HI = 67, oledHeld = new Map();
 function mirror(s, on) {
-  if (!OLED || s.src.startsWith('screen:')) return;
+  if (!OLED || OLED_RAW || s.src.startsWith('screen:')) return;
   const n = fold(s.n, O_LO, O_HI), c = oledHeld.get(n) || 0;
   if (on) { oledHeld.set(n, c + 1); if (!c) sendTo(ROOM, { type: 'screen.note', n, on: true }); }
   else if (c) { if (c === 1) { oledHeld.delete(n); sendTo(ROOM, { type: 'screen.note', n, on: false }); } else oledHeld.set(n, c - 1); }
@@ -109,7 +133,7 @@ function mirror(s, on) {
 function panic(src) {
   for (const s of [...held.values()]) if (!src || s.src === src) noteOff(s.src, s.ch, s.n);
 }
-setInterval(() => { const t = Date.now(); for (const s of [...held.values()]) if (t - s.on > STUCK_MS) noteOff(s.src, s.ch, s.n); }, 1000);
+setInterval(() => { const t = Date.now(); for (const s of [...held.values()]) if (t - s.on > (s.src.startsWith('screen:') ? SCREEN_STUCK_MS : STUCK_MS)) noteOff(s.src, s.ch, s.n); }, 1000);
 
 // MIDI bytes as a page sends them: whole messages, channel voice only.
 function fromBytes(src, bytes) {
@@ -168,6 +192,8 @@ if (!DEMO) {
     if (m.type === 'note.on') noteOn(`${node}:${m.from}`, (m.channel ?? 0) + 1, Number(m.note), m.vel ?? 100);
     else if (m.type === 'note.off') noteOff(`${node}:${m.from}`, (m.channel ?? 0) + 1, Number(m.note));
     else if (m.type === 'note.panic') panic();
+    else if (m.type === 'palm.cc') onCC(Number(m.cc), Number(m.v));
+    else if (m.type === 'palm.bend') { vs.bend = Math.max(-1, Math.min(1, Number(m.v) / 8192 || 0)) * 200; }
     else if (m.type === 'screen.note') { if (m.panic) panic(); else if (m.on) noteOn(`screen:${m.from}`, 1, Number(m.n), 100); else noteOff(`screen:${m.from}`, 1, Number(m.n)); }
   });
 }
@@ -205,7 +231,7 @@ const out = isTty ? new tty.WriteStream(fd) : null;
 out?._handle?.setBlocking?.(false);
 out?.on('error', (e) => log(`tty: ${e.message}`));
 const queue = [];
-let writing = false, frameQueued = false, sent = { frames: 0, notes: 0, bytes: 0 };
+let writing = false, frameQueued = false, sent = { frames: 0, notes: 0, bytes: 0, tones: 0 };
 function enqueue(buf, { front = false, frame = false } = {}) {
   if (DRY) { if (!frame) log(`packet ${[...buf].map((b) => b.toString(16).padStart(2, '0')).join(' ')}`); return; }
   if (frame) frameQueued = true;
@@ -221,6 +247,7 @@ function pump() {
     writing = false;
     sent.bytes += item.buf.length;
     if (item.frame) { frameQueued = false; sent.frames++; } else sent.notes++;
+    if (item.buf[1] === 0x54) sent.tones++;
     pump();
   });
 }
@@ -236,20 +263,175 @@ function writeAll(buf, done) {
   });
 }
 
-// ── the voice: the top held note, mono, quiet on silence ─────────────────
-let sounding = null;
+// ── the voice: the Pi sequences 'P' 'T' tones, one square voice, pitch moved by resending ──
+// arp: the held notes in turn, every rate ms, gliding; mono: the top note; echo: every note-on repeats
+// every echoMs, falling by echo each time; chip: the held notes and the top one's octave every 30 ms.
+// Released notes ring on as an echo tail (arp keeps stepping, mono repeats) until the level is under 3.
+// --voice-mode plain is the old way: 'P' 'N' for the top note, nothing else.
+const TICK = 15, AMP = 64, TONE_MS = 250, REFRESH_MS = 120, VIB_HZ = 5.5, CHIP_MS = 30, BLIP = 0.6;
+const JUST = [1, 16 / 15, 9 / 8, 6 / 5, 5 / 4, 4 / 3, 45 / 32, 3 / 2, 8 / 5, 5 / 3, 9 / 5, 15 / 8];
+const DOUBLE_IV = { off: [], octave: [12], fifth: [7], both: [7, 12] };
+let sounding = null, silent = true, muted = false, soundingNote = null, lastSt = 0;
+let cur = null, lastTx = { f: 0, a: 0, t: 0 }, seqStart = 0, prevHeld = [], tail = null, drum = null, voiceItem = null;
+let drift = 0, driftTo = 0, driftAt = 0, lastTick = Date.now();
+const echoes = [];
 const notePkt = (n, vel) => Buffer.from([0x50, 0x4e, n, vel, 0, 0]);
 const QUIET = Buffer.from([0x50, 0x51]), PING = Buffer.from([0x50, 0x3f]);
+const tonePkt = (f, a) => Buffer.from([0x50, 0x54, f >> 8, f & 0xff, TONE_MS >> 8, TONE_MS & 0xff, a]);
+
+// cents above A0's 27.5 Hz, so glide and vibrato are additions; q24 makes each key a quarter tone from C4
+function centsOf(n) {
+  if (vs.tuning === 'just') { const c = Math.floor(n / 12) * 12; return (c - 21) * 100 + 1200 * Math.log2(JUST[n % 12]); }
+  if (vs.tuning === 'q24') return (60 - 21) * 100 + (n - 60) * 50;
+  return (n - 21) * 100;
+}
+const hzOf = (cents) => 27.5 * 2 ** (cents / 1200);
+const heldPitches = () => [...new Set([...held.values()].map((s) => s.n))].sort((a, b) => a - b);
+
+function sendVoice(buf) {
+  if (DRY) { if (buf[1] === 0x54) sent.tones++; else log(`packet ${[...buf].map((b) => b.toString(16).padStart(2, '0')).join(' ')}`); return; }
+  // one voice packet waits in the queue at most: a newer pitch replaces it rather than queueing behind it
+  if (voiceItem && queue.includes(voiceItem)) { voiceItem.buf = buf; return; }
+  voiceItem = { buf, frame: false };
+  queue.unshift(voiceItem);
+  pump();
+}
+function tone(f, a, t) {
+  f = Math.max(30, Math.min(12000, Math.round(f))); a = Math.max(0, Math.min(AMP, Math.round(a)));
+  if (a < 3) return hush();
+  if (!silent && Math.abs(f - lastTx.f) < 1 && a === lastTx.a && t - lastTx.t < REFRESH_MS) return;
+  sendVoice(tonePkt(f, a));
+  silent = false; lastTx = { f, a, t };
+}
+function hush() {
+  if (silent) return;
+  sendVoice(QUIET);
+  silent = true; soundingNote = null; cur = null; dirty = true;
+}
+
+// A drum: rapid random tones for a short burst; a kick falls, a snare is mid noise, a hat is high noise.
+function hit(n, t) {
+  if (!VOICE || vs.mode === 'plain' || muted) return;
+  const kind = n === 35 || n === 36 || (n < DRUMS_BELOW && n % 12 === 0) ? 'kick' : [42, 44, 46].includes(n) || (n < DRUMS_BELOW && n % 12 >= 6) ? 'hat' : 'snare';
+  drum = { kind, t, until: t + (kind === 'kick' ? 90 : kind === 'hat' ? 45 : 80) };
+}
+function drumHz(d, t) {
+  const p = (t - d.t) / (d.until - d.t);
+  if (d.kind === 'kick') return 160 * (1 - p) + 45;
+  if (d.kind === 'hat') return 5000 + Math.random() * 4000;
+  return 300 + Math.random() * 2700;
+}
+
+// voice() runs on every note change: plain mode plays here, the others only note where a phrase starts and ends.
 function voice() {
   if (!VOICE) return;
-  let top = null;
-  for (const s of held.values()) if (!top || s.n > top.n) top = s;
-  if (top && sounding && top.n === sounding.n && top.on === sounding.on) return;
-  // the Palm voice plays at full velocity: key velocities came out too soft on its small speaker
-  if (top) { enqueue(notePkt(top.n, 127), { front: true }); sounding = top; }
-  else if (sounding) { enqueue(QUIET, { front: true }); sounding = null; }
+  const now = heldPitches(), t = Date.now();
+  if (vs.mode === 'plain') {
+    let top = null;
+    for (const s of held.values()) if (!top || s.n > top.n) top = s;
+    if (top && sounding && top.n === sounding.n && top.on === sounding.on) return;
+    if (top && !muted) { enqueue(notePkt(top.n, 127), { front: true }); sounding = top; silent = false; soundingNote = top.n; }
+    else if (sounding) { enqueue(QUIET, { front: true }); sounding = null; silent = true; soundingNote = null; }
+    return;
+  }
+  if (now.length && !prevHeld.length) { seqStart = t; tail = null; }
+  if (!now.length && prevHeld.length && vs.echo > 0) tail = { notes: prevHeld, at: t, step: seqStart };
+  prevHeld = now;
 }
-if (VOICE) setInterval(() => { if (sounding) enqueue(PING, { front: true }); }, 1000);
+
+// The arp's order over the notes it has; random picks per step, the same pick for the whole step.
+function arpNote(list, step) {
+  const L = list.length;
+  if (L === 1) return list[0];
+  if (vs.pattern === 'up') return list[step % L];
+  if (vs.pattern === 'down') return list[L - 1 - (step % L)];
+  if (vs.pattern === 'random') return list[(Math.imul(step + 1, 2654435761) >>> 0) % L];
+  const cyc = 2 * L - 2, i = step % cyc;
+  return list[i < L ? i : cyc - i];
+}
+
+function tick() {
+  if (!VOICE || vs.mode === 'plain' || stopping) return;
+  const t = Date.now(), dt = Math.min(100, t - lastTick);
+  lastTick = t;
+  if (muted) { echoes.length = 0; tail = null; return hush(); }
+  if (drum) {
+    if (t < drum.until) { soundingNote = null; return tone(drumHz(drum, t), AMP, t); }
+    drum = null; cur = null;
+  }
+  let n = null, amp = AMP, jump = false;
+  const now = heldPitches();
+  if (vs.mode === 'echo') {
+    // the newest repeat that is sounding now: repeat k starts k echo times after its note, at echo^k
+    const fb = Math.max(0.3, vs.echo), len = Math.min(BLIP * vs.echoMs, 160);
+    let best = null;
+    for (let i = echoes.length - 1; i >= 0; i--) {
+      const e = echoes[i], k = Math.floor((t - e.t) / vs.echoMs), a = AMP * fb ** k;
+      if (a < 3) { echoes.splice(i, 1); continue; }
+      const start = e.t + k * vs.echoMs;
+      if (t - start < len && (!best || start > best.start)) best = { n: e.n, a, start };
+    }
+    if (best) { n = best.n; amp = best.a; }
+  } else {
+    let list = now, from = seqStart;
+    if (!list.length && tail) {
+      const k = Math.floor((t - tail.at) / vs.echoMs);
+      amp = AMP * vs.echo ** (k + 1);
+      if (amp < 3) tail = null;
+      else {
+        list = tail.notes; from = tail.step;
+        // mono repeats as blips; arp and chip keep stepping, quieter each echo time
+        if ((vs.mode === 'mono' || list.length === 1) && t - (tail.at + k * vs.echoMs) > BLIP * vs.echoMs) list = [];
+      }
+    }
+    if (list.length) {
+      if (vs.mode === 'mono') n = list[list.length - 1];
+      else if (vs.mode === 'chip') {
+        const seq = list.length === 1 ? [list[0], list[0] + 12] : [...list, list[list.length - 1] + 12];
+        n = seq[Math.floor((t - from) / CHIP_MS) % seq.length]; jump = true;
+      } else n = arpNote(list, Math.floor((t - from) / vs.rate));
+    }
+  }
+  if (n === null) return hush();
+  let target = centsOf(n);
+  if (jump || vs.glide <= 0 || cur === null) cur = target;
+  else cur += (target - cur) * (1 - Math.exp(-dt / vs.glide));
+  // octave or fifth doubling: the voice alternates with the doubled pitch every tick
+  const ivs = DOUBLE_IV[vs.double], sub = Math.floor(t / TICK) % (ivs.length + 1);
+  const shown = sub ? n + ivs[sub - 1] : n;
+  let c = cur + (sub ? ivs[sub - 1] * 100 : 0) + vs.bend;
+  if (vs.vib > 0) c += vs.vib * Math.sin(2 * Math.PI * VIB_HZ * t / 1000);
+  if (vs.tuning === 'drift') {
+    if (t - driftAt > 1500) { driftTo = (Math.random() * 2 - 1) * 25; driftAt = t; }
+    drift += (driftTo - drift) * (1 - Math.exp(-dt / 800));
+    c += drift;
+  }
+  if (soundingNote !== shown) dirty = true;
+  soundingNote = shown;
+  tone(hzOf(c), amp, t);
+}
+if (VOICE) setInterval(tick, TICK);
+// plain holds a note with dur 0, and pframe's watchdog quiets it after 2 s without a packet
+if (VOICE) setInterval(() => { if (vs.mode === 'plain' && sounding) enqueue(PING, { front: true }); }, 1000);
+
+// The MK-425C's knobs, as /ambient/drone/ measured them, and the mod wheel; four zones on a knob choose among four.
+const CC_MAP = { 1: 'vib', 74: 'mode', 71: 'rate', 91: 'glide', 93: 'pattern', 73: 'echo', 72: 'echoMs', 5: 'double', 84: 'tuning' };
+function onCC(cc, v) {
+  const key = CC_MAP[cc];
+  if (!key || !(v >= 0 && v <= 127)) return;
+  const zone = Math.min(3, v >> 5), was = vs[key];
+  if (key === 'vib') vs.vib = Math.round(v / 127 * 80);
+  else if (key === 'mode') vs.mode = MODES[zone];
+  else if (key === 'rate') vs.rate = Math.round(400 - v / 127 * 370);
+  else if (key === 'glide') vs.glide = Math.round((v / 127) ** 2 * 400);
+  else if (key === 'pattern') vs.pattern = PATTERNS[zone];
+  else if (key === 'echo') vs.echo = Math.round(v / 127 * 85) / 100;
+  else if (key === 'echoMs') vs.echoMs = Math.round(60 + v / 127 * 540);
+  else if (key === 'double') vs.double = DOUBLES[zone];
+  else if (key === 'tuning') vs.tuning = TUNINGS[zone];
+  if (vs[key] !== was && typeof was === 'string') log(`voice ${key} ${vs[key]} (cc ${cc})`);
+  if (key === 'mode' && vs.mode !== was) { echoes.length = 0; tail = null; prevHeld = []; voice(); }
+}
 
 // ── the pen: x and y to two CCs on the Circuit, through its room like /remote/circuit/ ───
 let pen = null, penSent = {}, penWant = {}, penTimer = null, penCount = 0;
@@ -288,8 +470,8 @@ if (isTty) {
       pending = pending.slice(i + 1);
       const m = /^p (-?\d+) (-?\d+) ([01])$/.exec(line);
       if (m) onPen(Number(m[1]), Number(m[2]), m[3] === '1');
-      else if (line === 'stop') { log('a hard button on the Palm stopped the sound'); sounding = null; }
-      else if (line.startsWith('st ')) { if (!saidSt) log(`the Palm answers the ping: ${line}`); saidSt = true; }
+      else if (line === 'stop') { log('a hard button on the Palm stopped the sound, quiet until the next note'); muted = true; silent = true; sounding = null; }
+      else if (line.startsWith('st ')) { if (!saidSt || stopping) log(`the Palm answers the ping: ${line}`); saidSt = true; lastSt = Date.now(); }
       else if (line && !line.startsWith('pal')) log(`palm: ${line}`);
     }
   });
@@ -345,6 +527,12 @@ function drawRings(t, { cx = 80, cy = 62, rIn = R_IN, rStep = R_STEP, top = 1 } 
       if (!s.off) put(Math.round(x + Math.sin(a)), Math.round(y - Math.cos(a)), v);   // held: two pixels thick
     }
   }
+  // the note the Palm sounds this moment (the arp's step, a doubling, an echo): a spoke to its ring and a dot on it
+  if (soundingNote !== null) {
+    const r = rIn + (fold(soundingNote, R_LO, R_HI) - R_LO) * rStep;
+    rect(cx, Math.round(cy - r), 1, Math.round(r), 6);
+    rect(cx - 2, Math.round(cy - r) - 2, 5, 5, 15);
+  }
   drawHits(t);
 }
 // Keys: C3 to C6, held keys filled by velocity, released ones fading.
@@ -389,7 +577,7 @@ function drawRoll(t) {
   }
   drawHits(t);
 }
-// ── the waveform: the Circuit's sound from JACK, 48 kHz mono s16 ──────────
+// ── the sound for the spectrogram: --wave-port from JACK, 48 kHz mono s16 ──────────
 const RATE = 48000, WBUF = 8192, wave = new Float32Array(WBUF);
 let wPos = 0, wGot = 0, wProc = null, wConnected = false, wPeak = 0;
 function waveStart() {
@@ -415,42 +603,72 @@ function waveStart() {
     if (!stopping) { log(`wave: ffmpeg ended (${code}), again in 3 s`); setTimeout(waveStart, 3000); }
   });
   const t0 = Date.now();
+  // jackd names the Fast Track system: or circuit: depending on how it was started, so the other prefix is tried too
+  const ports = [...new Set([WAVE_PORT, WAVE_PORT.replace(/^system:/, 'circuit:'), WAVE_PORT.replace(/^circuit:/, 'system:')])];
   const tryConnect = () => {
     if (wProc !== p) return;
-    try { execFileSync('jack_connect', [WAVE_PORT, `${client}:input_1`], { stdio: 'ignore', timeout: 2000 }); wConnected = true; log(`wave: reading ${WAVE_PORT} through JACK as ${client}`); }
-    catch { if (Date.now() - t0 < 5000) setTimeout(tryConnect, 100); else { log(`wave: could not connect ${WAVE_PORT} to ${client}:input_1`); p.kill(); } }
+    for (const port of ports) {
+      try { execFileSync('jack_connect', [port, `${client}:input_1`], { stdio: 'ignore', timeout: 2000 }); wConnected = port; log(`wave: reading ${port} through JACK as ${client}`); return; }
+      catch { /* not this name, or the client is not up yet */ }
+    }
+    if (Date.now() - t0 < 5000) setTimeout(tryConnect, 100); else { log(`wave: could not connect ${ports.join(' or ')} to ${client}:input_1`); p.kill(); }
   };
   setTimeout(tryConnect, 100);
 }
-// A triggered scope like the kit's: the window starts at a rising zero crossing, so a steady tone stands still.
-const W_SPAN = 640, W_STEP = W_SPAN / W;   // 13.3 ms across the Palm, 4 samples a pixel
-function drawWave(y0, h) {
-  const mid = y0 + (h >> 1), half = (h >> 1) - 2;
-  rect(0, mid, W, 1, 3);
-  if (!wGot) { text(2, y0 + 2, wConnected ? 'no sound yet' : 'no wave', 1, 6); return; }
-  const at = (k) => wave[((wPos - k) % WBUF + WBUF) % WBUF];   // k samples ago, 1 is the newest
-  let peak = 0;
-  for (let k = 1; k <= 4096; k++) peak = Math.max(peak, Math.abs(at(k)));
-  wPeak = peak;
-  // The newest crossing that still leaves a whole window after it.
-  let start = W_SPAN + 2;
-  const hyst = Math.max(0.002, peak * 0.05);
-  for (let k = W_SPAN + 2; k < W_SPAN + 2400; k++) if (at(k) < 0 && at(k - 1) >= 0 && at(k + 4) < -hyst) { start = k; break; }
-  const gain = Math.min(8, 0.9 / Math.max(peak, 1e-4));
-  let py = null;
-  for (let x = 0; x < W; x++) {
-    const v = at(Math.max(1, Math.round(start - 1 - x * W_STEP)));
-    const y = Math.round(mid - Math.max(-1, Math.min(1, v * gain)) * half);
-    if (py === null) put(x, y, 15);
-    else { const a = Math.min(py, y), b = Math.max(py, y); rect(x, a, 1, b - a + 1, 15); }
-    py = y;
+// The spectrogram (/palm/'s, on the Pi): one column every SPEC_COL_MS, newest on the right, rows log 60 Hz to
+// 12 kHz, ink over SPEC_RANGE dB under the loudest recent bin, which falls back SPEC_FALL dB a second.
+const SPEC_N = 1024, SPEC_LO = 60, SPEC_HI = 12000, SPEC_RANGE = 60, SPEC_FALL = 20, SPEC_FLOOR = -90, SPEC_CEIL = -20, SPEC_COL_MS = 1000 / 15;
+const SPEC_H = 59, spec = new Uint8Array(W * SPEC_H);
+const HANN = Float32Array.from({ length: SPEC_N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / SPEC_N));
+const sRe = new Float32Array(SPEC_N), sIm = new Float32Array(SPEC_N);
+const sBins = Int32Array.from({ length: SPEC_H }, (_, y) => Math.max(1, Math.min(SPEC_N / 2 - 1, Math.round(SPEC_LO * (SPEC_HI / SPEC_LO) ** (1 - y / (SPEC_H - 1)) / RATE * SPEC_N))));
+let specTop = null, specAt = 0;
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const p = i + j, q = p + len / 2, vr = re[q] * cr - im[q] * ci, vi = re[q] * ci + im[q] * cr;
+        re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi;
+        const tt = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = tt;
+      }
+    }
   }
-  const db = peak > 0 ? (20 * Math.log10(peak)).toFixed(0) : '-';
-  text(W - 2 - textW(`${db} dB`), y0 + 2, `${db} dB`, 1, 6);
 }
-// Split: the waveform over the top half, the rings in the bottom half, the note small in its corner.
+function specColumn(dt) {
+  let pk = 0;
+  for (let i = 0; i < SPEC_N; i++) { const v = wave[((wPos - SPEC_N + i) % WBUF + WBUF) % WBUF]; if (Math.abs(v) > pk) pk = Math.abs(v); sRe[i] = v * HANN[i]; sIm[i] = 0; }
+  wPeak = pk;
+  fft(sRe, sIm);
+  const db = new Float32Array(SPEC_H);
+  let peak = -Infinity;
+  for (let y = 0; y < SPEC_H; y++) { const k = sBins[y]; db[y] = 20 * Math.log10(Math.hypot(sRe[k], sIm[k]) / (SPEC_N / 4) + 1e-9); if (db[y] > peak) peak = db[y]; }
+  // the floor keeps silence black: with no sound every bin would be the loudest one
+  specTop = Math.max(SPEC_FLOOR, peak, Math.min(SPEC_CEIL, (specTop ?? peak) - SPEC_FALL * dt));
+  // one shift of the whole buffer: each row's first pixel lands in the row above's last column, which is written next
+  spec.copyWithin(0, 1);
+  for (let y = 0; y < SPEC_H; y++) {
+    const v = Math.max(0, Math.min(1, (db[y] - (specTop - SPEC_RANGE)) / SPEC_RANGE)) ** 1.5;
+    spec[y * W + W - 1] = Math.round(v * 15);
+  }
+}
+function drawSpec(t) {
+  // columns are made by time, so a skipped frame scrolls as far as a sent one
+  if (wGot >= SPEC_N) {
+    if (!specAt) specAt = t;
+    let n = Math.min(W, Math.floor((t - specAt) / SPEC_COL_MS));
+    if (n > 0) specAt += n * SPEC_COL_MS;
+    // several columns from one window when frames were skipped: the picture keeps time, the detail does not
+    while (n-- > 0) specColumn(SPEC_COL_MS / 1000);
+  }
+  for (let y = 0; y < SPEC_H; y++) for (let x = 0; x < W; x++) { const v = spec[y * W + x]; if (v) put(x, y, v); }
+}
+// Split: the spectrogram over the top half, the rings in the bottom half.
 function drawSplit(t) {
-  drawWave(0, 60);
+  drawSpec(t);
   rect(0, 60, W, 1, 4);
   drawRings(t, { cx: 80, cy: 91, rIn: 4, rStep: 1, top: 62 });
   drawHits(t);
@@ -508,7 +726,7 @@ function snap(file) {
 
 // Frames at FPS while anything moves, once a second when still.
 let lastFrame = 0;
-const moving = (t) => held.size || gone.some((s) => t - s.off < FADE_MS) || hits.some((h) => t - h.t < 400) || dirty;
+const moving = (t) => held.size || !silent || gone.some((s) => t - s.off < FADE_MS) || hits.some((h) => t - h.t < 400) || dirty;
 setInterval(() => {
   const t = Date.now();
   if (!moving(t) && t - lastFrame < 1000) return;
@@ -518,19 +736,44 @@ setInterval(() => {
   enqueue(pack(FMT), { frame: true });
 }, 1000 / FPS);
 if (!DRY || process.platform === 'linux') waveStart();
+
+// The OLED: the same split at 128x64, the spectrogram's newest 128 columns over 32 rows and the rings under it,
+// dithered to one bit and packed page major (8 pages of 128 bytes, bit 0 on top) as the SSD1306 takes it.
+const OW = 128, OH = 64, OLED_FPS = 10;
+let oledSent = 0;
+function oledFrame(t) {
+  ink.fill(0);
+  if (VIEW === 'split') drawSpec(t);
+  const img = new Uint8Array(OW * OH);
+  for (let y = 0; y < 32; y++) { const sy = Math.round(y * (SPEC_H - 1) / 31); for (let x = 0; x < OW; x++) img[y * OW + x] = ink[sy * W + x + (W - OW)]; }
+  ink.fill(0);
+  drawRings(t, { cx: 64, cy: 48, rIn: 2, rStep: 0.55, top: 33 });
+  for (let y = 32; y < OH; y++) for (let x = 0; x < OW; x++) img[y * OW + x] = ink[y * W + x];
+  const out = Buffer.alloc(OW * OH / 8);
+  for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) {
+    const k = img[y * OW + x];
+    if (k && k * 16 / 15 > BAYER[(y & 3) * 4 + (x & 3)] + 0.5) out[(y >> 3) * OW + x] |= 1 << (y & 7);
+  }
+  return out;
+}
+if (OLED_RAW) setInterval(() => {
+  if (stopping) return;
+  const t = Date.now(), b = oledFrame(t);
+  if (sendTo(ROOM, { type: 'screen.raw', b64: b.toString('base64') })) oledSent++;
+}, 1000 / OLED_FPS);
 if (SNAP) setInterval(() => { render(Date.now()); snap(SNAP); }, 1000);
 
 let win = { t: Date.now(), f: 0, b: 0 };
 setInterval(() => {
   const dt = (Date.now() - win.t) / 1000;
-  const fps = (sent.frames - win.f) / dt, kbs = (sent.bytes - win.b) / dt / 1024;
-  win = { t: Date.now(), f: sent.frames, b: sent.bytes };
-  const top = sounding ? nameOf(sounding.n) : '-';
-  const w = VIEW === 'split' ? `, wave ${wConnected ? WAVE_PORT : 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
-  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${top}` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${w}`);
+  const fps = (sent.frames - win.f) / dt, kbs = (sent.bytes - win.b) / dt / 1024, tps = (sent.tones - (win.tones ?? 0)) / dt;
+  win = { t: Date.now(), f: sent.frames, b: sent.bytes, tones: sent.tones };
+  const top = soundingNote !== null ? nameOf(soundingNote) : '-';
+  const w = VIEW === 'split' ? `, wave ${wConnected || 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
+  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${w}`);
 }, 5000);
 
-log(`bridge: ${DRY ? 'dry, no tty' : dev}, view ${VIEW}, fmt ${FMT} at ${FPS} fps${VOICE ? ', voice' : ''}${PEN ? `, pen to cc ${PEN_X},${PEN_Y} ch ${PEN_CH}` : ''}, ${DEMO ? 'demo notes' : `rooms ${ROOM} and ${CROOM}`}`);
+log(`bridge: ${DRY ? 'dry, no tty' : dev}, view ${VIEW}, fmt ${FMT} at ${FPS} fps${VOICE ? `, voice ${JSON.stringify(vs)}` : ''}${PEN ? `, pen to cc ${PEN_X},${PEN_Y} ch ${PEN_CH}` : ''}, ${DEMO ? 'demo notes' : `rooms ${ROOM} and ${CROOM}`}`);
 
 function stop() {
   if (stopping) return;
@@ -540,9 +783,12 @@ function stop() {
   if (OLED && oledHeld.size) sendTo(ROOM, { type: 'screen.note', panic: true });
   queue.length = 0;
   enqueue(QUIET);
-  const wait = () => (writing || queue.length ? setTimeout(wait, 10) : process.exit(0));
+  // a last ping: the answer says pframe is still alive after the voice
+  const asked = Date.now();
+  enqueue(PING);
+  const wait = () => (lastSt >= asked || (!isTty && !writing && !queue.length) ? process.exit(0) : setTimeout(wait, 10));
   wait();
-  setTimeout(() => process.exit(0), 1000);
+  setTimeout(() => { log('no answer to the last ping in 1.5 s'); process.exit(0); }, 1500);
 }
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
