@@ -337,8 +337,8 @@ export const DEMOS = [
     one: 'a concept page’s patch scrolling up a story frame at a size a phone can read, recorded to a file',
     tags: ['shell', 'MediaRecorder'] },
   // /mic/: the SM57 on the Pi (rig/palm/mic.mjs) over the relay, dry or through /ambient/drone/'s chain. The first slide.
-  { name: 'mic', title: 'Microphone', group: 'radio', act: 0, created: '2026-11-10', built: false, unlisted: true,
-    src: 'demo/mic/index.html', page: '/mic/',
+  { name: 'palm', title: 'Palm', group: 'radio', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/palm/index.html', page: '/palm/',
     one: 'the microphone in studio 1, dry or through echoes and a room',
     tags: ['WebAudio', 'relay'] },
   // /huddersfield/: /radio1965/ playing v2in's mem channel over a full page spectrogram.

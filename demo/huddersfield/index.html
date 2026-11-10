@@ -562,7 +562,7 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   // the page fades out first (soundscapeLeave in the module above); presses during the fade are ignored
   let going = false;
-  const PREV = '/radio1965/', NEXT = '/mic/';
+  const PREV = '/radio1965/', NEXT = '/palm/';
   const go = async (to) => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = to; };
   addEventListener('pageshow', (e) => { if (e.persisted) going = false; });
   const nav = createButtonGroup({ buttons: [

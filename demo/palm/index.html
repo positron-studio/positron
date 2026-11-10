@@ -5,7 +5,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>Microphone</title>
+<title>Palm</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   /* The picture is the page: over everything, the whole viewport. */
@@ -68,7 +68,7 @@
   // the room the Palm's bridge and the board listen in; a harness points it at a room nobody is in
   const KEYS_ROOM = Q.get('keys') || 'studio-1';
   const AT = ['Shure SM57', 'on a Raspberry Pi'];
-  const d = mount({ name: 'Microphone', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
+  const d = mount({ name: 'Palm', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
 
   // ── the processing: /ambient/drone/'s programs, copied (that page keeps them inline), the radio layer reading the mic ──
   const DRY = 10;
@@ -429,7 +429,7 @@
   const titleBox = el('div', 'mic-t');
   const eye = el('div', 'pos-hero-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
-  const h = el('h1', '', 'Microphone');
+  const h = el('h1', '', 'Palm');
   const atLine = el('p', 'mic-at');
   AT.forEach((t, i) => atLine.append(...(i ? [el('br')] : []), t));
   const line = el('p');
