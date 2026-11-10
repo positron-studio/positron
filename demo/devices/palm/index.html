@@ -12,6 +12,7 @@
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createChoice } from '/shell/choice.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
   import { loadPanelUi } from '/shell/panel-screen.mjs';
   import { OLED_LIT, OLED_DARK } from '/shell/oled-view.mjs';
   import { pixel } from '../split/split-oled.mjs';
@@ -19,26 +20,20 @@
   import { createPalm, PALM_CSS, PALM_W, PALM_H } from '/shell/palm-view.mjs';
   useMediumColours();
   document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
-    + '.pm-box { display: flex; justify-content: center; } .pm-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; }' }));
+    + '.pm-media { display: flex; justify-content: center; align-items: center; padding: 24px 16px; height: calc(160px * var(--pm-k, 2) + 48px); background: #07090d; overflow-x: auto; } .pm-frame { padding: 8px; border: 1px solid var(--line); border-radius: 2px; line-height: 0; background: #000; } .pm-say { font-size: 12px; color: var(--dim); } .pm-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; }' }));
 
   // The Pi's OLED screens (/devices/control/) shown 1:1 on a simulated Palm Z22, or the stylus drawing.
-  // full: one 128x64 screen centred; split: two stacked, a strip of four stylus keys under them.
+  // full: one 128x64 screen centred; split: two stacked and centred.
   const d = mount({ name: 'Palm', what: '', readout: { 'screen': '', 'pen': '' }, index: '/', indexLabel: 'positron' });
 
   const N = SCREENS.length;
   let mode = 'full', at = 0, last = null, hue = 0, frames = 0, screens = null, loading = null;
-  // the touch strip under the split screens: four keys of 40 px, 32 px tall
-  const STRIP_Y = 128, KEYS = [['up', () => move(-1)], ['down', () => move(1)], ['full', () => setMode('full')], ['draw', () => setMode('draw')]];
 
-  const box = el('div', 'pm-box');
-  let wasDown = false;
+  const box = el('div', 'pm-frame');
   const palm = createPalm(box, {
     onPen: ({ x, y, down }) => {
       d.set('pen', `${x}, ${y}${down ? '' : ' up'}`);
-      const tap = down && !wasDown;
-      wasDown = down;
       if (mode !== 'draw') {
-        if (tap && mode === 'split' && y >= STRIP_Y) { KEYS[Math.min(3, Math.floor(x / 40))][1](); pb.pulse('pi-1:stylus:value-out', 'pi-1:screens:value-in'); }
         return;
       }
       if (!down) { last = null; hue = (hue + 47) % 360; return; }
@@ -62,16 +57,9 @@
   }
   function compose(t) {
     comp.fillStyle = '#000'; comp.fillRect(0, 0, PALM_W, PALM_H);
-    if (mode === 'split') {
-      comp.font = '9px monospace'; comp.textAlign = 'center'; comp.textBaseline = 'middle';
-      KEYS.forEach(([name], k) => {
-        comp.strokeStyle = '#3a4250'; comp.strokeRect(k * 40 + 2.5, STRIP_Y + 4.5, 35, 23);
-        comp.fillStyle = '#8b93a1'; comp.fillText(name, k * 40 + 20, STRIP_Y + 16);
-      });
-    }
     const img = comp.getImageData(0, 0, PALM_W, PALM_H);
     if (mode === 'full') oled(img, screens.frame(SCREENS[at].key, t), 16, 48);
-    else { oled(img, screens.frame(SCREENS[at].key, t), 16, 0); oled(img, screens.frame(SCREENS[(at + 1) % N].key, t), 16, 64); }
+    else { oled(img, screens.frame(SCREENS[at].key, t), 16, 16); oled(img, screens.frame(SCREENS[(at + 1) % N].key, t), 16, 80); }
     palm.show(img.data);
     frames++;
   }
@@ -127,7 +115,25 @@
   clear.addEventListener('click', () => palm.paint((c) => { c.fillStyle = '#fff'; c.fillRect(0, 0, PALM_W, PALM_H); }));
   const row = el('div', 'pm-row');
   row.append(pick.el, keys.el, clear);
-  d.stack.add(box, row, pb.el);
+  const media = el('div', 'pm-media');
+  media.append(box);
+  const ZOOMS = [1, 2, 3];
+  let zi = 1;
+  const scale = el('span', 'pm-say', '');
+  const zoomBtns = createButtonGroup({ buttons: [
+    { id: 'out', icon: 'zoom-out', label: 'zoom out', onPress: () => setZoom(zi - 1) },
+    { id: 'in', icon: 'zoom-in', label: 'zoom in', onPress: () => setZoom(zi + 1) },
+  ] });
+  function setZoom(i) {
+    zi = Math.max(0, Math.min(ZOOMS.length - 1, i));
+    media.style.setProperty('--pm-k', String(ZOOMS[zi]));
+    scale.textContent = `160×160 at ${ZOOMS[zi]}x`;
+    zoomBtns.enable('out', zi > 0, 'smallest');
+    zoomBtns.enable('in', zi < ZOOMS.length - 1, 'largest');
+  }
+  setZoom(zi);
+  const panel = createVideoPanel({ media, left: scale, right: zoomBtns.el, aspect: 'auto' });
+  d.stack.add(panel.el, row, pb.el);
 
   window.__demo.probe = () => ({ mode, at, frames, screen: SCREENS[at].key });
   window.__demo.mode = setMode;

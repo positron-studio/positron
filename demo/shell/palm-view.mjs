@@ -2,8 +2,6 @@
 // Frames are quantised to the Z22's 12 bit colour (4 bits a channel) so the browser shows what the
 // device would. The stylus answers { x, y, down } in panel pixels, the shape plan-screens-odd gives it.
 
-import { el } from './shell.mjs';
-
 export const PALM_W = 160, PALM_H = 160;
 
 const q4 = (v) => ((v >> 4) * 17);          // 8 bit channel to the nearest of 16 levels
@@ -15,33 +13,17 @@ export function to12bit(rgba) {
 }
 
 /**
- * A Palm body with its screen in `host`. `onPen({ x, y, down })` fires for every stylus move while
+ * The Palm's 160x160 screen as a canvas in `host`. `onPen({ x, y, down })` fires for every stylus move while
  * pressed and once on lift. Answers the canvas, its 2d context, `show(rgba)` for a whole frame and
  * `paint(fn)` to draw with the 2d context then quantise.
  */
 export function createPalm(host, { onPen = () => {} } = {}) {
-  const body = el('div', 'palm-body');
-  const screen = el('div', 'palm-screen');
   const cv = document.createElement('canvas');
   cv.width = PALM_W; cv.height = PALM_H;
   cv.className = 'palm-cv';
-  screen.append(cv);
-  const silk = el('div', 'palm-silk');
-  for (const t of ['home', 'menu', 'find']) silk.append(el('span', 'palm-key', t));
-  body.append(screen, silk);
-  host.append(body);
+  host.append(cv);
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, PALM_W, PALM_H);
-
-  // Whole scales only, so every panel pixel is the same size (the OLED view's rule).
-  const fit = () => {
-    const w = host.clientWidth;
-    if (!(w > 0)) return;
-    const k = Math.max(1, Math.min(4, Math.floor((w - 40) / PALM_W)));
-    cv.style.width = `${k * PALM_W}px`; cv.style.height = `${k * PALM_H}px`;
-  };
-  new ResizeObserver(fit).observe(host);
-  fit();
 
   const at = (e) => {
     const r = cv.getBoundingClientRect();
@@ -66,13 +48,11 @@ export function createPalm(host, { onPen = () => {} } = {}) {
     to12bit(img.data);
     ctx.putImageData(img, 0, 0);
   }
-  return { el: body, canvas: cv, ctx, show, paint };
+  return { el: cv, canvas: cv, ctx, show, paint };
 }
 
+// The screen alone at a whole scale set by --pm-k on an ancestor, as the OLED is on /devices/split/.
 export const PALM_CSS = `
-  .palm-body { display: inline-flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 18px 14px;
-    background: #2a2d33; border: 1px solid #3a3f47; border-radius: 22px 22px 34px 34px; }
-  .palm-screen { padding: 6px; background: #14161a; border-radius: 6px; line-height: 0; }
-  .palm-cv { image-rendering: pixelated; touch-action: none; cursor: crosshair; display: block; }
-  .palm-silk { display: flex; gap: 18px; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: #8b93a1; }
+  .palm-cv { display: block; flex: none; width: calc(160px * var(--pm-k, 2)); height: calc(160px * var(--pm-k, 2));
+    image-rendering: pixelated; touch-action: none; cursor: crosshair; }
 `;
