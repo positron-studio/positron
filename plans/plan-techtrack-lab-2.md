@@ -300,13 +300,24 @@ Looked up 2026-11-10. Read from search results and the pages named, not from the
   hammers, chisels, punches, drifts, tongs shaped for each job. Instructors call a moment
   of silence for the smith who reached into the fire bare-handed to make the first pair.
   The first tool had to be made without a tool. (Ms Caitlin's School of Blacksmithing.)
-- **The chef's knife roll** (common knowledge, not looked up). A cook brings their own
-  knives, sharpens them, sometimes re-handles them. The kitchen is the restaurant's; the
-  knives are the cook's.
-- **Instrument builders in positron's own lineage.** Kurenniemi built his own instruments
-  (the DIMI series; `research/ojanen-ekis-notes.md`). Sandin built the Image Processor and
-  gave the plans away. Harry Partch built the instruments his music needed (common
-  knowledge).
+- **The chef's knife roll.** In independent and fine dining kitchens the cook brings their
+  own knives; corporate kitchens tend to provide them. House knives are worse because they
+  do not get the care a cook gives their own. One cook calls it *"a very personal expression
+  of not only your dedication to what you are doing, but also to your own personal
+  preferences"*. The kitchen is the restaurant's; the knives are the cook's. (Tasting Table,
+  Fli Products.)
+- **Erkki Kurenniemi.** Between 1962 and 1974 he designed and built ten electronic
+  instruments and studio devices at the University of Helsinki's musicology department,
+  including the DIMI series: DIMI-A (1970) played with two electric pens, DIMI-O (1971)
+  turning live video into music. **In 1970 he founded a company, Digelius, with money from
+  the Finnish innovation fund SITRA, to manufacture the DIMI instruments.** An artist
+  toolmaker next door, 56 years ago, asking the mentors' question. (Wikipedia, Sound On
+  Sound; also `research/ojanen-ekis-notes.md`.)
+- **Dan Sandin** built the Image Processor and gave the plans away (section 4).
+- **Harry Partch** wrote music in a 43 tone scale and invented and built the instruments to
+  play it: the Chromelodeon (1945, a reed organ retuned to 43 tones), the Cloud-Chamber
+  Bowls cut from Pyrex carboys the Berkeley Radiation Laboratory threw out. He called
+  himself *"a philosophic music-man seduced into carpentry"*. (Wikipedia, harrypartch.com.)
 - **Bret Victor, "Inventing on Principle" (CUSEC 2012).** *"Creators need an immediate
   connection to what they create."* The name for what the owner saw in the MIM sphere.
   Victor showed it with tools he built himself.
@@ -321,9 +332,18 @@ Looked up 2026-11-10. Read from search results and the pages named, not from the
 - **Ink & Switch, "Malleable software" (Litt, Horowitz, van Hardenberg, June 2025).**
   Restoring user agency. Three patterns: a gentle slope from user to creator, *tools not
   apps* (*"a kitchen knife rather than an avocado slicer"*), and communal creation.
-- Further, not looked up today: Ivan Illich, *Tools for Conviviality* (1973); Richard
-  Sennett, *The Craftsman* (2008); Ursula Franklin's holistic against prescriptive
-  technologies (1989).
+- **Ivan Illich, *Tools for Conviviality* (1973).** *"Tools foster conviviality to the extent
+  to which they can be easily used, by anybody, as often or as seldom as desired, for the
+  accomplishment of a purpose chosen by the user."* And: *"Convivial tools are those which
+  give each person who uses them the greatest opportunity to enrich the environment with
+  the fruits of his or her vision."* His examples: hand tools, bicycles, telephones.
+- **Richard Sennett, *The Craftsman* (2008)** opens: *"Craftsmanship names an enduring,
+  basic human impulse, the desire to do a job well for its own sake."* He counts the
+  programmer among craftsmen.
+- **Ursula Franklin, *The Real World of Technology* (Massey Lectures, 1989).** Holistic
+  technologies, where the maker controls the whole process (the artisan), against
+  prescriptive ones, where work is split into fragments under a plan (the factory). She
+  warned that prescriptive technology breeds *"a culture of compliance"*.
 
 ### The through-line
 
