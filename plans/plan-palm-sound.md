@@ -310,3 +310,11 @@ mic and set its gain, and judge what the loop sounds like.
 - The capture's clock offset, so latencies are upper bounds until it is
   calibrated.
 - Which mic is on input 2, and whether it needs phantom power.
+
+## Measured 2026-11-10 night (owner listening, pframe 7 KB build on the Z22, port /dev/ttyUSB0)
+
+- **Ping:** `palm: st v0 ...`: the port is live. `v0`: FtrGet(sysFileCSoundMgr) reported no stream API version.
+- **Beeps and notes work:** sndCmdFrqOn and sndCmdNoteOn played (t11, n17); the owner heard them faint, quieter than the system HotSync tones, at AMP_CAP 40. AMP_CAP is now sndMaxAmp (64), built, on the Pi, not yet installed.
+- **MIDI records work:** `smf list` returned 1 Alert, 2 Bird, 3 Concerto, 4 Phone, 5 Sci-fi, 6 Wake up; `smf 3` played Concerto through SndPlaySmf, heard by the owner (m1).
+- **PCM fails:** a 6 s 1 kHz sine at 11,025 Hz, 8 bit: `A00000C02` (SndStreamCreate error 0x0C02), `o57958` (the ring overflowed, nothing played), `u0`. With v0, the 68k path to the stream API is not working as written. Next: other stream parameters, SndStreamCreateExtended, or an ARM native callback. Not before the talk.
+- **The mic:** the SM57 on input 2 is `circuit:capture_2` (jackd runs `-d dummy`; the board's alsa_in holds the card), not `system:capture_2` as section 4 said. Floor -91 dBFS RMS; beeps at amp 32 were not detected, so the gain was low or the mic far.

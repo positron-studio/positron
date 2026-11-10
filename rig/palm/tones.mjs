@@ -16,7 +16,7 @@
 //   node tones.mjs /dev/ttyUSB0 smf 0               # plays record 0 (a Q or a hard button stops it)
 //   node tones.mjs out.bin t1                       # packets to a file, no device
 //   --log sends.jsonl   one line per packet: {"t": epoch ms, "hz", "ms", "amp", "test"}
-//   --max N             the amplitude cap, 0 to 64 (sndMaxAmp), default 32
+//   --max N             the amplitude cap, 0 to 64 (sndMaxAmp), default 64
 //   --hz F              T1's frequency
 //
 // Packet (frame.c): 'P' 'T' freq_hi freq_lo dur_hi dur_lo amp. Only one process
@@ -31,7 +31,7 @@ const VALUED = ['--log', '--max', '--hz', '--step', '--vel'];
 const pos = args.filter((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1]));
 const dev = pos[0] || '/dev/ttyUSB0';
 const test = pos[1] || 't1';
-const MAX = Math.max(0, Math.min(64, Number(opt('--max', 32))));
+const MAX = Math.max(0, Math.min(64, Number(opt('--max', 64))));
 const step = Number(opt('--step', 125));
 const logFile = opt('--log', null);
 const t1hz = Number(opt('--hz', 440));

@@ -36,7 +36,7 @@
 #define H 160
 #define ONE_BIT (W / 8 * H)
 #define ROUNDS 4096
-#define AMP_CAP 40
+#define AMP_CAP sndMaxAmp   // full volume: 40 was faint next to the system HotSync tones
 #define PCM_RATE 11025
 #define RING 8192              /* a power of two: 0.74 s at 11025 Hz */
 #define RING_START (RING / 2)
