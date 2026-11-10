@@ -136,8 +136,11 @@ Reasoning to bring, not to conclude:
   calls it *"the strongest overall architectural relative"*. Both already do patching,
   portability, small devices and networks, so none of those is positron's difference.
   What the synthesis offers instead, as *"comparison axes, not proven unique features"*:
-  it starts in a browser tab, its archive work keeps evidence apart from reconstruction,
-  and it travels as skills an agent follows rather than as an application. Said honestly:
+  it starts in a browser tab, and it travels as skills an agent follows rather than as
+  an application. (The synthesis also names archives that keep evidence apart from
+  reconstruction; research/ossia-2026-11-10.md found no code for it in radio1965, history
+  or reel, so do not claim it.) The full comparison, ossia's money and what to say if a
+  mentor asks "isn't this ossia?" are in research/ossia-2026-11-10.md. Said honestly:
   *"portability and patching are established territory; Positron needs to demonstrate
   its particular distributed and archival workflows."*
 - None of the money routes is tested. The synthesis lists commissions, workshops, setup
