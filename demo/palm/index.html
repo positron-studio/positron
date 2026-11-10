@@ -41,7 +41,7 @@
   /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
   .mic-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
   body.mic-how .mic-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
-  .mic-vol { pointer-events: auto; margin-top: 20px; max-width: 360px; }
+  .mic-vol { pointer-events: auto; margin-top: 20px; max-width: 360px; display: flex; gap: 16px; }
   /* the Palm's voice on the Pi: four choices and five knobs, the MK-425C's CCs as controls */
   .mic-voice { pointer-events: auto; margin-top: 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
   .mic-voice[hidden] { display: none; }
@@ -221,6 +221,7 @@
   // mic (playout) -> micIn -> dry -> mix; micIn -> scsynth -> wet -> mix; mix -> an (picture); mix -> master -> how -> fade -> out
   const VOLUME = 0.3, FADE = 1.5, QUIET = 0.08, RAMP = 2.5;
   let ctx = null, micIn = null, an = null, dry = null, wet = null, mix = null, master = null, howG = null, fade = null;
+  let micG = null, lineG = null;
   let lineBoard = null, lineLease = null, linePlayout = null;
   let board = null, lease = null, playout = null, listening = false, stopT = 0;
   let sc = null, booting = null, processing = false, droneOn = false, how = false;
@@ -229,6 +230,8 @@
     ctx = new AudioContext({ sampleRate: BOARD_RATE, latencyHint: 'interactive' });
     ctx.resume().catch(() => {});
     micIn = ctx.createGain();
+    micG = ctx.createGain(); micG.gain.value = micNow; micG.connect(micIn);
+    lineG = ctx.createGain(); lineG.gain.value = lineNow; lineG.connect(micIn);
     an = ctx.createAnalyser(); an.fftSize = 2048;
     dry = ctx.createGain(); dry.gain.value = processing ? 0 : 1;
     wet = ctx.createGain(); wet.gain.value = processing ? 1 : 0;
@@ -255,7 +258,7 @@
         onOpen: () => { if (listening) want(); } });
       board.startAudio().then(() => {
         const p = board?.playout();
-        if (p && p !== playout) { playout = p; p.connect(micIn); }
+        if (p && p !== playout) { playout = p; p.connect(micG); }
       });
       if (board.state() === 1) want();
     } else if (!lease) want();
@@ -265,7 +268,7 @@
         onOpen: () => { if (listening) wantLine(); } });
       lineBoard.startAudio().then(() => {
         const p = lineBoard?.playout();
-        if (p && p !== linePlayout) { linePlayout = p; p.connect(micIn); }
+        if (p && p !== linePlayout) { linePlayout = p; p.connect(lineG); }
       });
       if (lineBoard.state() === 1) wantLine();
     } else if (!lineLease) wantLine();
@@ -541,12 +544,15 @@
   const droneBox = el('div', 'mic-voice');
   droneBox.append(el('div', 'mic-voice-h', 'Drone'), createKnobGrid(droneKnobs, { row: true }).el);
   droneBox.hidden = true;
-  // volume: 0 to 1.5 times the sound, from the slider; it starts at 0.75 (the old fixed level was 0.3)
-  let volNow = 0.75;
-  const volFader = createFader({ label: 'volume', min: 0, max: 127, value: Math.round(volNow / 1.5 * 127),
-    onInput: (v) => { volNow = v / 127 * 1.5; if (master && ctx) master.gain.setTargetAtTime(volNow, ctx.currentTime, 0.05); } });
+  // three faders, 0 to 1.5 times: c1 the Circuit (input 1) and c2 the SM57 (input 2) before the chain, the output after it
+  const gainFader = (label, value, onSet) => createFader({ label, min: 0, max: 127, value: Math.round(value / 1.5 * 127), onInput: (v) => onSet(v / 127 * 1.5) });
+  const toGain = (g, v) => { if (g && ctx) g.gain.setTargetAtTime(v, ctx.currentTime, 0.05); };
+  let micNow = 1, lineNow = 1, volNow = 0.75;
+  const micFader = gainFader('c2', micNow, (v) => { micNow = v; toGain(micG, v); });
+  const lineFader = gainFader('c1', lineNow, (v) => { lineNow = v; toGain(lineG, v); });
+  const volFader = gainFader('out', volNow, (v) => { volNow = v; toGain(master, v); });
   const volBox = el('div', 'mic-vol');
-  volBox.append(volFader.el);
+  volBox.append(lineFader.el, micFader.el, volFader.el);
   const knobBox = el('div', 'mic-knobs');
   knobBox.append(createKnobGrid(knobs, { row: true }).el);
   knobBox.hidden = true;
