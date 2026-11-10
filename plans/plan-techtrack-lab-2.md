@@ -455,3 +455,30 @@ A line for the room: *"A link needs two ends. Agents gave everybody endless outp
 is scarce now is the other end."*
 Honest limit: this is a metaphor drawn from the code, not a finding. No measurement says
 the other end is scarce; it is the owner's observation of the boom and its loneliness.
+
+## 12. Bends, feedback, instability and generation: how they fit (2026-11-10)
+
+Asked: *"Read through the plans. You should have plans about circuit bending, feedback loops, and other unstable connections, and also some possible demos for ambient generation, image generation, etc. So summarize it how it could fit into the presentation technically and conceptually too."* From a read-only pass over plans/, research/, lessons/ and HANDOFF.md. All the 2026-11-02 handoff plans are "none started; the owner picks" (BACKLOG). The "Drift Machine" conference demo was refused in the chat: not to build.
+
+**The owner's rules (positron-concepts, decided 2026-10-24 to 11-02):** AI on the patchbay proposes and never connects; everything random takes a seed (a recipe is code, parameters and seed); bends work on parsed messages, never raw bytes, and consent is checked again after the bend. The wish pages go one step further on request (2026-09-25, 09-28): a proposed row is connected once it exists, but only after a person's press. Accurate form: AI proposes, a person presses.
+
+**Conceptual thread.** Each theme is a way of letting the system surprise its maker, which is the essay's loopback line ("can produce something that wasn't there before") and its process line ("I start with one idea ... I follow that instead"). Feedback is output becoming input. A bend is a link that misbehaves on purpose; a weak signal is a link that half fails; an unstable return (auto exposure chasing the loop, the room making the drone howl) is the material, not a fault. Generation (the seeded cast, the ambient piece) is a loop that "plays itself; the player nudges". A wish is a model proposing the next input. The same three guards cover all of them, which answers a mentor's "is this serious": consent (a bent or generated message still has to pass the port's `accepts`), seeds (an accident can be kept and replayed), and a person (nothing changes without a press). The twist: the bay refuses the essay's own loopback (measured 2026-11-10), so in the demo the loop is closed by hand, through light and air.
+
+| theme | doc | status |
+| --- | --- | --- |
+| bends on MIDI, CC, clock, audio | plan-bends.md | proposed |
+| frame bends and feedback, 1-bit and grey | rig/pico/firmware/fx.c | built, not deployed (fx-test 22/22, stills in research/fx-screens/) |
+| weak digital TV signal | rig/pico/firmware/weak.c | built, not deployed (12/12, 1.3 ms a frame at 640x360); /video/weak/ in BACKLOG |
+| picture stack, strobe, glitch nodes | plan-frames.md | proposed |
+| TFT command and signal bends | plan-pi-tft.md section 6 | proposed, screen not bought |
+| camera at its own screen | plan-screens-odd.md, plan-feedback-demo.md | proposed, never tried |
+| sound to picture and back | plan-crossmodal.md | proposed |
+| touch bends, hand tracking, taste | plan-esp32-controllers, plan-hand, plan-taste | proposed |
+| shader feedback | /shader/mirror/ (uPrev at 0.78) | deployed |
+| ambient piece, drone and two echoes | plan-ambient-piece.md, /ambient/drone/ | step 2 deployed; tape, photos, recipes proposed |
+| seeded generative radio | plan-cast-*.md, /radio/cast/ | deployed; aired at Üle Heli, 7 day cap, off now |
+| SAPF, live coding engines | plan-sapf.md, plan-livecoding.md | proposed (SAPF research measured) |
+| sentence to shader or sound | plan-text-to-code.md, /shader/wish/, /code/wish/ | deployed; 20/20 compiled first shot, 6 to 7 s |
+| diffusion image generation | none | no plan exists |
+
+**Pages that could illustrate it tomorrow, and their cost:** /lonely-software/ (nothing sends); /ambient/drone/ (no AI, no outside server, works offline from the local server; laptop speakers only); /shader/mirror/ (GPU only); /devices/hdmi/ (the Pi, camera, monitor and the Cloudflare relay; the loop untested); /video/camera/ (camera permission); /shader/wish/ and /code/wish/ (a paid Workers AI call per wish, 6 to 7 s, a live risk on venue wifi); /radio/cast/ (network, cast and shout workers); /radio/scenery/ opens live ERR streams, which the standing rule avoids. Stills: research/fx-screens/*.png and weak-frames.jpg.
