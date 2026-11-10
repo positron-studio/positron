@@ -123,7 +123,7 @@ static void sendPalette(void) {
 static void tone(UInt16 freq, UInt16 ms, UInt8 amp) {
   SndCommandType c;
   MemSet(&c, sizeof(c), 0);
-  c.cmd = sndCmdFreqDurationAmp;
+  c.cmd = sndCmdFrqOn;           // returns at once; FreqDurationAmp blocks the whole tone (SoundMgr.h)
   c.param1 = freq;
   c.param2 = ms;
   c.param3 = amp > sndMaxAmp ? sndMaxAmp : amp;

@@ -1,8 +1,10 @@
 ## Open
 
+- ~~**radio1965: no listener count, more padding, a new title (overline POSITRON.STUDIO, Soundscape, @ ...), a How it works button**~~ DONE 2026-11-10, @ Üle Heli / festival (2026-11-10). Asked: *"rm 1 lsitener. add bit more padding. Rename to overline: POSITRON.STUDIO / Soundscape / @ ... Add how it works buttion. when on, draw patchbady and dim the waves and fade sound minimal volume"*. What follows the @ is unknown: placeholder kept as the owner typed it.
+
 - ~~**radio1965: the granulator's steps and bursts back in the landscape, from onsets in the v2in sound**~~ DONE 2026-11-10 (2026-11-10). Asked: *"radio: missing those granulator steps and burts in visualization. can yoi get them from sound or we need to run browser granulator"*, then *"yes"* to onset detection now; the real events from v2in's engine later.
 
-- **Palm sound: a plan and tests from beeps to real players, and a feedback loop** (2026-11-10). Asked: *"plan and so sound tests for palm from beeps to actual players. plan ahead also a feedback loop. ftrack has mic in ch 2"*. The Fast Track Pro's input 2 is a microphone: the Palm's speaker into the mic on the Pi closes a loop.
+- **Palm sound: a plan and tests from beeps to real players, and a feedback loop** (2026-11-10). PLAN WRITTEN: plans/plan-palm-sound.md, rig/palm/tones.mjs and listen.mjs (not run on hardware); tones switched to sndCmdFrqOn (FreqDurationAmp blocks). Asked: *"plan and so sound tests for palm from beeps to actual players. plan ahead also a feedback loop. ftrack has mic in ch 2"*. The Fast Track Pro's input 2 is a microphone: the Palm's speaker into the mic on the Pi closes a loop.
 
 - ~~**/radio1965/ plays v2in.stream's radio1965 channel, its landscape driven by that sound**~~ DONE 2026-11-10 (2026-11-10). Asked: *"look into ../v2in radio1965 sound then and v2in.stream, use that"*, *"forget edgecast, make radio1965 work"*. Stream https://v2in.stream/stream/radio1965 (on air, CORS *), state at /api/now.
 
