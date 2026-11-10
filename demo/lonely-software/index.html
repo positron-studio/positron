@@ -14,7 +14,6 @@
   .ls h2 { margin: 30px 0 0; font-size: 26px; font-weight: 600; }
   .ls strong { color: var(--fg); font-weight: 600; }
   .ls-fig { display: flex; flex-direction: column; gap: 12px; margin: 36px 0; }
-  .ls-cap { color: var(--dim); font-size: 15px; text-align: center; }
   /* The kit sizes a picture to its box, so a one node picture gets a narrow box, centred; zoom makes the patch larger. */
   .ls-fig .lv { zoom: 1.35; }
   .ls-fig.one .lv { width: 170px; margin: 0 auto; }
@@ -37,13 +36,11 @@
   const PICTURES = {
     node: {
       bay: patch([{ id: ME, kind: 'person', label: 'me' }], mine('value'), []),
-      cap: 'One node, an input and an output, and no links.',
     },
     loopback: {
       bay: patch([{ id: ME, kind: 'person', label: 'me' }], mine('value'), [
         { id: 'v', from: `${ME}:value-out`, to: `${ME}:value-in` },
       ]),
-      cap: 'A loopback: the output fed back into its own input.',
     },
     two: {
       bay: patch([{ id: ME, kind: 'person', label: 'me' }, { id: YOU, kind: 'person', label: 'somebody' }],
@@ -51,7 +48,6 @@
           { id: 'a', from: `${ME}:audio-out`, to: `${YOU}:audio-in` },
           { id: 'b', from: `${YOU}:value-out`, to: `${ME}:value-in` },
         ]),
-      cap: 'Two ends: what I make reaches somebody, and what they change comes back.',
     },
   };
 
@@ -123,14 +119,14 @@
   body.innerHTML = TEXT;
   const drawn = [];
   for (const fig of body.querySelectorAll('figure[data-pic]')) {
-    const { bay, cap } = PICTURES[fig.dataset.pic];
+    const { bay } = PICTURES[fig.dataset.pic];
     const pb = createPatchbay(bay, { title: '', detail: () => [] });
     fig.className = bay.nodes().length === 1 ? `ls-fig one${bay.links().length ? ' loop' : ''}` : 'ls-fig';
     // The kit titles a box with its site:node id; this page names a node once, by its label.
     const names = new Map(bay.nodes().map((n) => [n.id, n.label]));
     const rename = () => { for (const t of pb.el.querySelectorAll('.lv-title')) { const want = names.get(t.textContent); if (want) t.textContent = want; } };
     new MutationObserver(rename).observe(pb.el, { childList: true, subtree: true });
-    fig.append(pb.el, Object.assign(document.createElement('figcaption'), { className: 'ls-cap', textContent: cap }));
+    fig.append(pb.el);
     drawn.push(pb);
   }
   d.stack.add(body);
