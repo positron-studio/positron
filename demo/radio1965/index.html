@@ -305,4 +305,15 @@
   if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
   d.ready();
 </script>
+<style>
+  .sl-nav { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 16px); right: 16px; z-index: 50; display: flex; gap: 8px; }
+  .sl-nav a { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--line2, #2b3546); border-radius: 4px;
+    background: rgba(11, 14, 20, .6); color: var(--fg, #e6e6e6); font: 600 20px var(--mono, monospace); text-decoration: none; }
+  .sl-nav a:hover, .sl-nav a:focus-visible { color: var(--hi, #ffd400); border-color: var(--hi, #ffd400); }
+</style>
+<nav class="sl-nav" aria-label="slides"><a href="/huddersfield/" aria-label="previous">&lt;</a><a href="/huddersfield/" aria-label="next">&gt;</a></nav>
+<script>
+  // These pages are shown as slides: the arrow keys step between them as the two buttons do.
+  addEventListener("keydown", (e) => { if (e.target.closest?.("input, textarea")) return; if (e.key === "ArrowLeft") location.href = "/huddersfield/"; if (e.key === "ArrowRight") location.href = "/huddersfield/"; });
+</script>
 </html>
