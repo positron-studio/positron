@@ -5,8 +5,8 @@
 <meta name="robots" content="noindex, nofollow">
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
-<meta property="og:title" content="lonely-software">
-<meta property="og:description" content="An essay on making alone, a loopback, and the other end">
+<meta property="og:title" content="Lonely Software">
+<meta property="og:description" content="When everyone can create anything, what makes someone else care?">
 <meta property="og:url" content="https://positron.studio/lonely-software/">
 <meta property="og:image" content="https://positron.studio/og/lonely-software-87f4fc9d.png">
 <meta property="og:image:width" content="1200">
@@ -25,7 +25,9 @@
   .ls { display: flex; flex-direction: column; gap: 16px; max-width: 62ch; font-family: var(--sans); font-size: 19px; line-height: 1.6; color: var(--fg); }
   .ls p { margin: 0; }
   /* The title and the line under it in the front page hero's type (.pos-hero-h, .pos-hero-l in shell.css). */
-  .pos-name { font: 600 clamp(32px, 7vw, 56px)/1.08 var(--mono); letter-spacing: -.04em; text-wrap: balance; }
+  /* With no script the article stands alone in <body>: its own title and gutter. */
+  body > .ls { margin: 0 auto; padding: 32px 16px 72px; }
+  .ls-h1, .pos-name { font: 600 clamp(32px, 7vw, 56px)/1.08 var(--mono); letter-spacing: -.04em; text-wrap: balance; }
   .ls .ls-sub { font: 400 clamp(19px, 2.3vw, 23px)/1.45 var(--sans); letter-spacing: -.01em; color: var(--dim); text-wrap: balance; margin-bottom: 40px; }
   .ls h2 { margin: 56px 0 14px; font-size: 26px; font-weight: 600; }
   .ls strong { color: var(--fg); font-weight: 600; }
@@ -39,7 +41,7 @@
   .ls-fig.loop .lv { width: 200px; }
 </style>
 <script type="module">
-  import { mount, el } from '/shell/shell.mjs';
+  import { mount } from '/shell/shell.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   useMediumColours();
 
@@ -70,7 +72,39 @@
     },
   };
 
-  const TEXT = `
+
+  // The essay is in the HTML, so it reads with no script at all (an in-app browser); this only moves it into the page.
+  const body = document.getElementById('essay');
+  body.querySelector('.ls-h1').remove();
+  const drawn = [];
+  for (const fig of body.querySelectorAll('figure[data-pic]')) {
+    const { bay } = PICTURES[fig.dataset.pic];
+    const pb = createPatchbay(bay, { title: '', detail: () => [] });
+    fig.className = bay.nodes().length === 1 ? `ls-fig one${bay.links().length ? ' loop' : ''}` : 'ls-fig';
+    // The kit titles a box with its site:node id; this page names a node once, by its label.
+    const names = new Map(bay.nodes().map((n) => [n.id, n.label]));
+    const rename = () => { for (const t of pb.el.querySelectorAll('.lv-title')) { const want = names.get(t.textContent); if (want) t.textContent = want; } };
+    new MutationObserver(rename).observe(pb.el, { childList: true, subtree: true });
+    fig.append(pb.el);
+    drawn.push({ pb, bay });
+  }
+  d.stack.add(body);
+  for (const { pb } of drawn) pb.refresh();
+  // Every link carries a steady pulse, the second of a pair half a beat later: a reply. Nothing moves
+  // for a reader who asked for reduced motion.
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const BEAT = 1400;
+    for (const { pb, bay } of drawn) {
+      bay.links().forEach((l, k) => setTimeout(() => {
+        pb.pulse(l.from, l.to);
+        setInterval(() => pb.pulse(l.from, l.to), BEAT);
+      }, k * BEAT / 2));
+    }
+  }
+  d.ready();
+</script>
+<article class="ls" id="essay">
+<h1 class="ls-h1">Lonely Software</h1>
 <p class="ls-sub">When everyone can create anything, what makes someone else care?</p>
 <p>I've been writing software since 1988. For the first ten years, much of it existed only in A4 notebooks. I wrote code on the left side and drew the worlds it might create on the right, imagining how it would all work.</p>
 <p>Today, one person can create entire worlds inside worlds of software.</p>
@@ -126,35 +160,5 @@
 <p>And suddenly it's not just my experiment anymore.</p>
 <p>I think that's what I'm looking for. Not necessarily a product, or a business, or even somebody on the other end. Just the possibility to see what happens next.</p>
 <figure data-pic="two"></figure>
-`;
-
-  const body = el('div', 'ls');
-  body.innerHTML = TEXT;
-  const drawn = [];
-  for (const fig of body.querySelectorAll('figure[data-pic]')) {
-    const { bay } = PICTURES[fig.dataset.pic];
-    const pb = createPatchbay(bay, { title: '', detail: () => [] });
-    fig.className = bay.nodes().length === 1 ? `ls-fig one${bay.links().length ? ' loop' : ''}` : 'ls-fig';
-    // The kit titles a box with its site:node id; this page names a node once, by its label.
-    const names = new Map(bay.nodes().map((n) => [n.id, n.label]));
-    const rename = () => { for (const t of pb.el.querySelectorAll('.lv-title')) { const want = names.get(t.textContent); if (want) t.textContent = want; } };
-    new MutationObserver(rename).observe(pb.el, { childList: true, subtree: true });
-    fig.append(pb.el);
-    drawn.push({ pb, bay });
-  }
-  d.stack.add(body);
-  for (const { pb } of drawn) pb.refresh();
-  // Every link carries a steady pulse, the second of a pair half a beat later: a reply. Nothing moves
-  // for a reader who asked for reduced motion.
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const BEAT = 1400;
-    for (const { pb, bay } of drawn) {
-      bay.links().forEach((l, k) => setTimeout(() => {
-        pb.pulse(l.from, l.to);
-        setInterval(() => pb.pulse(l.from, l.to), BEAT);
-      }, k * BEAT / 2));
-    }
-  }
-  d.ready();
-</script>
+</article>
 </html>
