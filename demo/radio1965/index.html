@@ -360,6 +360,18 @@
   if (FORCE_RAID) kyiv.set({ on: true, since: new Date(Date.now() - 36e5).toISOString() });
   document.body.append(canvas, kyiv.el, titleBox);
 
+  // Leaving by the slide arrows: the sound and the page fade to black over LEAVE s, then the arrow module navigates.
+  const LEAVE = 1;
+  let leaving = null, veil = null;
+  window.soundscapeLeave = () => leaving ??= new Promise((done) => {
+    if (playing && fade) { const t = ctx.currentTime; fade.gain.cancelScheduledValues(t); fade.gain.setValueAtTime(fade.gain.value, t); fade.gain.linearRampToValueAtTime(0, t + LEAVE); }
+    veil = el('div', 'ss-veil'); document.body.append(veil);
+    requestAnimationFrame(() => requestAnimationFrame(() => veil?.classList.add('on')));
+    setTimeout(done, LEAVE * 1000);
+  });
+  // back from the bfcache: the page is shown again, so the veil goes and the sound comes back up
+  addEventListener('pageshow', (e) => { if (!e.persisted || !leaving) return; veil?.remove(); veil = null; leaving = null; if (playing && fade) fadeTo(1); });
+
   window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, raid: () => kyiv.raid(), how: () => how, setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, heard: () => heard, onsets: () => ({ onsets, bursts, steps, deposits }), play, stop };
 
   async function check() {
@@ -377,11 +389,18 @@
   .sl-nav button { color: var(--fg); }
   .sl-nav svg { width: 18px; height: 18px; flex: none; }
   .sl-nav button.pos-lg { width: var(--ctl-lg); padding: 0; justify-content: center; }
+  .ss-veil { position: fixed; inset: 0; z-index: 1000; background: #000; opacity: 0; transition: opacity 1s linear; }
+  .ss-veil.on { opacity: 1; }
+  body::after { content: ''; position: fixed; inset: 0; z-index: 1000; background: #000; pointer-events: none; animation: ss-in .6s ease-out forwards; }
+  @keyframes ss-in { to { opacity: 0; } }
 </style>
 <script type="module">
   // These pages are shown as slides: a joined pair of the kit's arrow buttons, and the arrow keys, step between them.
   import { createButtonGroup } from '/shell/button-group.mjs';
-  const go = () => { location.href = '/huddersfield/'; };
+  // the page fades out first (soundscapeLeave in the module above); presses during the fade are ignored
+  let going = false;
+  const go = async () => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = '/huddersfield/'; };
+  addEventListener('pageshow', (e) => { if (e.persisted) going = false; });
   const nav = createButtonGroup({ buttons: [
     { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: go },
     { id: 'next', icon: 'arrow-right', label: 'next', onPress: go },
