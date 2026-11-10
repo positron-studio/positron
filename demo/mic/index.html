@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Microphone</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* The picture is the page: over everything, the whole viewport. */
+  html, body { background: #000; }
+  .mic { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; }
+  /* The title over the picture, top left; taps go through it to the picture. */
+  .mic-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
+    top: max(48px, env(safe-area-inset-top)); left: max(48px, env(safe-area-inset-left));
+    max-height: calc(100dvh - 64px); overflow-y: auto; }
+  .mic-t .pos-hero-eye { margin: 0 0 12px; }
+  .mic-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.2 var(--mono); letter-spacing: 0; }
+  .mic-t .mic-at { margin: 0; height: auto; color: var(--fg); font: 600 clamp(34px, 4.4vw, 56px)/1.2 var(--mono); }
+  /* the line keeps its height whatever it says, so the buttons under it never move */
+  .mic-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 4.2em; overflow: hidden;
+    max-width: min(24em, calc(100vw - 64px)); font-variant-numeric: tabular-nums; }
+  .mic-t p b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mic-btns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .mic-t .pos-lg, .mic-knobs { pointer-events: auto; }
+  /* the level: one bar, the loudest sample of the last frame on a dBFS scale from -100 to 0 */
+  .mic-meter { margin-top: 16px; width: min(320px, calc(100vw - 96px)); height: 4px; background: rgba(255, 255, 255, .15); }
+  .mic-meter i { display: block; height: 100%; width: 0; background: var(--fg); }
+  .mic-knobs { margin-top: 24px; }
+  .mic-knobs[hidden] { display: none; }
+</style>
+<script type="module">
+  // The Shure SM57 on the Pi's Fast Track Pro input 2, to this page over the relay in the board's audio frames
+  // (rig/palm/mic.mjs), dry or through /ambient/drone/'s chain on wasm scsynth. Nothing opens until Listen or Process.
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBoard, BOARD_RATE } from '/shell/board.mjs';
+  import { createLease } from '/shell/openers.mjs';
+  import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { createKnobGrid } from '/shell/knob-grid.mjs';
+  import { bootScsynth } from '/shell/scsynth.mjs';
+  import { compile } from '/shell/sclang-lite.mjs';
+
+  const ROOM = new URLSearchParams(location.search).get('room') || 'studio-1-mic';
+  const AT = ['Shure SM57', 'on a Raspberry Pi'];
+  const d = mount({ name: 'Microphone', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
+
+  // ── the processing: /ambient/drone/'s programs, copied (that page keeps them inline), the radio layer reading the mic ──
+  const DRY = 10;
+  const ECHO_RATIO = 6.7 / 4.3;
+  const glide = (x, t) => `Lag.kr(Lag.kr(Lag.kr(${x}, ${t}), ${t}), ${t})`;
+  const PROGRAMS = {
+    adrone: { bus: DRY, src: `{ var amp = Lag.kr(\\amp.kr(0), 2);
+  var f = ${glide('\\root.kr(36).midicps', 3)};
+  var cut = Lag.kr(\\cut.kr(600), 1) * (1 + (LFNoise2.kr(0.03) * 0.5));
+  var w = (LFNoise2.kr(0.05) * 0.3) + 0.5;
+  var s = (VarSaw.ar(f, 0, w) + (VarSaw.ar(f * 1.4983, 0, 1 - w) * 0.7) + (VarSaw.ar(f * 2.003, 0, w * 0.6) * 0.5)) * 0.5;
+  Pan2.ar(RLPF.ar(s, cut, 0.5) * amp, LFNoise2.kr(0.04) * 0.4) }` },
+    aradio: { bus: DRY, src: `{ var amp = Lag.kr(\\amp.kr(0.3), 1);
+  var x = Mix(In.ar(2, 2)) * 0.5;
+  var b = BPF.ar(x, Lag.kr(\\band.kr(1200), 1), 0.8) * 2;
+  Pan2.ar(LeakDC.ar(b) * amp, 0) }` },
+    aspace: { bus: 0, src: `{ var dry = In.ar(${DRY}, 2);
+  var t = Lag.kr(\\time.kr(4.3), 4);
+  var dec = Lag.kr(\\decay.kr(20), 1);
+  var x = LPF.ar(Mix(dry) * 0.5, 3000) * Lag.kr(\\echo.kr(0.4), 1);
+  var l = In.ar(${DRY}, 1) + CombC.ar(x, 9, t, dec);
+  var r = In.ar(${DRY + 1}, 1) + CombC.ar(x, 14, t * ${ECHO_RATIO.toFixed(4)}, dec);
+  var w = FreeVerb2.ar(l, r, Lag.kr(\\room.kr(0.4), 1), 0.9, 0.5);
+  Limiter.ar(w, 0.8, 0.01) }` },
+  };
+  const NODE_IDS = { adrone: 2001, aradio: 2002, aspace: 2099 };
+  // the mic is the radio layer at full level: a voice at a metre sits far under a radio's line level
+  const MIC_AMP = 1;
+  const KNOBS = [
+    { name: 'echo', to: 'aspace', param: 'echo', min: 0, max: 1, value: 0.4 },
+    { name: 'room', to: 'aspace', param: 'room', min: 0, max: 1, value: 0.4 },
+    { name: 'drone', to: 'adrone', param: 'amp', min: 0, max: 1, value: 0.4 },
+  ];
+
+  // ── the sound: one 48 kHz context, made on the first press ──
+  // mic (playout) -> micIn -> an (picture, meter); micIn -> dry -> master; micIn -> scsynth -> wet -> master; master -> fade -> out
+  const VOLUME = 0.3, FADE = 1.5;
+  let ctx = null, micIn = null, an = null, dry = null, wet = null, master = null, fade = null;
+  let board = null, lease = null, playout = null, listening = false, stopT = 0;
+  let sc = null, booting = null, processing = false, droneOn = false;
+  function ensureCtx() {
+    if (ctx) { ctx.resume().catch(() => {}); return ctx; }
+    ctx = new AudioContext({ sampleRate: BOARD_RATE, latencyHint: 'interactive' });
+    ctx.resume().catch(() => {});
+    micIn = ctx.createGain();
+    an = ctx.createAnalyser(); an.fftSize = 2048;
+    dry = ctx.createGain(); dry.gain.value = processing ? 0 : 1;
+    wet = ctx.createGain(); wet.gain.value = processing ? 1 : 0;
+    master = ctx.createGain(); master.gain.value = VOLUME;
+    fade = ctx.createGain(); fade.gain.value = 0;
+    micIn.connect(an); micIn.connect(dry).connect(master); wet.connect(master);
+    master.connect(fade).connect(ctx.destination);
+    return ctx;
+  }
+  const ramp = (p, v, s = FADE) => { const t = ctx.currentTime; p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + s); };
+
+  function listen() {
+    ensureCtx();
+    clearTimeout(stopT); stopT = 0;
+    listening = true; face();
+    if (!board) {
+      board = createBoard({ room: ROOM, of: 'microphone', showName: false, audioContext: ctx, toDestination: false,
+        log: (line, kind) => d.log(line, kind),
+        onOpen: () => { if (listening) want(); } });
+      board.startAudio().then(() => {
+        const p = board?.playout();
+        if (p && p !== playout) { playout = p; p.connect(micIn); }
+      });
+      if (board.state() === 1) want();
+    } else if (!lease) want();
+    ramp(fade.gain, 1);
+  }
+  function want() {
+    lease?.stop();
+    lease = createLease({ ask: (m, r, ms) => board.ask(m, r, ms), what: 'the microphone', log: (line, kind) => d.log(line, kind) });
+  }
+  function stop() {
+    listening = false; face();
+    lease?.stop(); lease = null;
+    board?.send({ type: 'input.stop' });
+    if (!ctx) return;
+    ramp(fade.gain, 0);
+    clearTimeout(stopT);
+    // the socket goes once the sound has faded, so a stopped page holds nothing open
+    stopT = setTimeout(() => { stopT = 0; try { playout?.disconnect(); } catch {} playout = null; board?.close(); board = null; }, FADE * 1000);
+  }
+
+  const set = (prog, kv) => sc?.send('/n_set', NODE_IDS[prog], ...Object.entries(kv).flat());
+  async function bootSc() {
+    sc = await bootScsynth({ audioContext: ctx, input: micIn, log: (m) => d.log(m) });
+    for (const [name, p] of Object.entries(PROGRAMS)) {
+      const r = compile(p.src, { name, bus: p.bus });
+      if (!r.ok) { d.log(`${name} did not compile: ${r.message}`, 'bad'); continue; }
+      const done = await sc.sendAndWait((m) => (m[0] === '/done' && m[1] === '/d_recv') || m[0] === '/fail', 5000, '/d_recv', r.bytes);
+      if (!done || done[0] !== '/done') d.log(`${name} was not taken: ${done?.[2] || 'no answer'}`, 'bad');
+    }
+    sc.send('/s_new', 'adrone', NODE_IDS.adrone, 0, 0, 'amp', 0);
+    sc.send('/s_new', 'aradio', NODE_IDS.aradio, 0, 0, 'amp', MIC_AMP);
+    sc.send('/s_new', 'aspace', NODE_IDS.aspace, 1, 0);
+    for (const k of KNOBS) if (k.to !== 'adrone') set(k.to, { [k.param]: knobs.get(k.name).value() });
+    // the engine's own out, which bootScsynth wires to the speakers, goes through wet and the volume instead
+    sc.out.disconnect(); sc.out.connect(wet);
+  }
+  async function setProcess(on) {
+    ensureCtx();
+    processing = on;
+    procBtn.setAttribute('aria-pressed', String(on));
+    knobBox.hidden = !on;
+    if (on && !sc) {
+      procBtn.dataset.busy = '';
+      try { await (booting ??= bootSc()); } catch (e) { d.log(`SuperCollider did not start: ${e.message}`, 'bad'); booting = null; sc = null; }
+      delete procBtn.dataset.busy;
+    }
+    ramp(dry.gain, processing ? 0 : 1, 0.5); ramp(wet.gain, processing ? 1 : 0, 0.5);
+    if (!listening) ramp(fade.gain, processing ? 1 : 0);
+  }
+  function setDrone(on) {
+    droneOn = on;
+    droneBtn.setAttribute('aria-pressed', String(on));
+    set('adrone', { amp: on ? knobs.get('drone').value() : 0 });
+  }
+
+  // ── the picture: the mic's envelope scrolling in from the right, monochrome, on a dBFS scale from -100 to 0 ──
+  const canvas = el('canvas', 'mic');
+  canvas.setAttribute('aria-hidden', 'true');
+  const g = canvas.getContext('2d', { alpha: false });
+  const STEP = 2;
+  let buf = null, frames = 0, nonZero = 0, lastDb = -Infinity;
+  function size() {
+    const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+    if (canvas.width === w && canvas.height === h) return;
+    canvas.width = w; canvas.height = h; g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+  }
+  size(); addEventListener('resize', size);
+  const toFrac = (db) => Math.max(0, Math.min(1, (db + 100) / 100));
+  function draw() {
+    requestAnimationFrame(draw);
+    if (!an) return;
+    buf ??= new Float32Array(an.fftSize);
+    an.getFloatTimeDomainData(buf);
+    let s = 0, pk = 0;
+    for (const v of buf) { s += v * v; const a = v < 0 ? -v : v; if (a > pk) pk = a; }
+    if (pk > 0) nonZero++;
+    const rms = Math.sqrt(s / buf.length);
+    const pdb = pk > 0 ? 20 * Math.log10(pk) : -Infinity, rdb = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+    lastDb = pdb;
+    const w = canvas.width, h = canvas.height, mid = h / 2;
+    g.drawImage(canvas, STEP, 0, w - STEP, h, 0, 0, w - STEP, h);
+    g.fillStyle = '#000'; g.fillRect(w - STEP, 0, STEP, h);
+    const ph = toFrac(pdb) * mid * 0.92, rh = toFrac(rdb) * mid * 0.92;
+    g.fillStyle = 'rgb(70,70,70)'; g.fillRect(w - STEP, mid - ph, STEP, 2 * ph);
+    g.fillStyle = 'rgb(235,235,235)'; g.fillRect(w - STEP, mid - rh, STEP, 2 * rh);
+    meterBar.style.width = `${(toFrac(pdb) * 100).toFixed(1)}%`;
+    if (frames++ % 15 === 0) drawLine();
+  }
+  requestAnimationFrame(draw);
+
+  // ── the words and the buttons ──
+  const titleBox = el('div', 'mic-t');
+  const eye = el('div', 'pos-hero-eye');
+  eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
+  const h = el('h1', '', 'Microphone');
+  const atLine = el('p', 'mic-at');
+  AT.forEach((t, i) => atLine.append(...(i ? [el('br')] : []), t));
+  const line = el('p');
+  function drawLine() {
+    const st = board?.stats();
+    const level = Number.isFinite(lastDb) && an ? `${lastDb.toFixed(0)} dBFS` : '';
+    const tail = !listening ? 'Listen plays the microphone in studio 1.'
+      : !st?.frames ? 'Waiting for the Pi.'
+      : `${processing ? 'Processed' : 'Dry'}, ${level}`;
+    line.replaceChildren(el('b', '', 'Headphones, or the mic will howl.'), tail);
+  }
+  const meter = el('div', 'mic-meter'), meterBar = el('i');
+  meter.append(meterBar);
+  const btn = barButton({ icon: 'headphones', label: 'Listen', word: true, size: 'lg', onPress: () => (listening ? stop() : listen()) });
+  const face = () => { setButtonFace(btn, listening ? { icon: 'stop', label: 'Stop' } : { icon: 'headphones', label: 'Listen' }); drawLine(); };
+  const procBtn = barButton({ icon: 'waveform', label: 'Process', word: true, size: 'lg', onPress: () => setProcess(!processing) });
+  procBtn.setAttribute('aria-pressed', 'false');
+  const droneBtn = barButton({ icon: 'music', label: 'Drone', word: true, size: 'lg', onPress: () => setDrone(!droneOn) });
+  droneBtn.setAttribute('aria-pressed', 'false');
+  const knobs = new Map(KNOBS.map((k) => [k.name, createKnob({
+    label: k.name, min: k.min, max: k.max, value: k.value, hand: true,
+    onInput: (v) => { if (k.to === 'adrone') { if (droneOn) set('adrone', { amp: v }); } else set(k.to, { [k.param]: v }); },
+  })]));
+  const knobBox = el('div', 'mic-knobs');
+  knobBox.append(createKnobGrid(knobs, { row: true }).el);
+  knobBox.hidden = true;
+  const btns = el('div', 'mic-btns');
+  btns.append(btn, procBtn, droneBtn);
+  titleBox.append(eye, h, atLine, line, btns, meter, knobBox);
+  face();
+  document.body.append(canvas, titleBox);
+
+  // Leaving by the slide arrows: the sound and the page fade to black over LEAVE s, then the arrow module navigates.
+  const LEAVE = 1;
+  let leaving = null, veil = null;
+  window.soundscapeLeave = () => leaving ??= new Promise((done) => {
+    if (fade) ramp(fade.gain, 0, LEAVE);
+    veil = el('div', 'ss-veil'); document.body.append(veil);
+    requestAnimationFrame(() => requestAnimationFrame(() => veil?.classList.add('on')));
+    setTimeout(done, LEAVE * 1000);
+  });
+  addEventListener('pageshow', (e) => { if (!e.persisted || !leaving) return; veil?.remove(); veil = null; leaving = null; if (fade && (listening || processing)) ramp(fade.gain, 1); });
+  addEventListener('pagehide', () => { if (listening) { lease?.stop(); board?.send({ type: 'input.stop' }); } });
+
+  window.__demo.mic = { listen, stop, setProcess, setDrone, knobs, board: () => board, context: () => ctx, sc: () => sc,
+    listening: () => listening, processing: () => processing, frames: () => frames, nonZero: () => nonZero, level: () => lastDb,
+    stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0 };
+
+  async function check() {
+    d.assert('a visit opened no audio context and no socket', ctx === null && board === null);
+    d.assert('Listen, Process and Drone under the line', document.querySelectorAll('.mic-btns button').length === 3);
+  }
+  if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
+  d.ready();
+</script>
+<style>
+  .sl-nav { position: fixed; top: max(48px, env(safe-area-inset-top)); right: max(48px, env(safe-area-inset-right)); z-index: 50; }
+  .sl-nav button { color: var(--fg); }
+  .sl-nav svg { width: 18px; height: 18px; flex: none; }
+  .sl-nav button.pos-lg { width: var(--ctl-lg); padding: 0; justify-content: center; }
+  .ss-veil { position: fixed; inset: 0; z-index: 1000; background: #000; opacity: 0; transition: opacity 1s linear; }
+  .ss-veil.on { opacity: 1; }
+  body::after { content: ''; position: fixed; inset: 0; z-index: 1000; background: #000; pointer-events: none; animation: ss-in .6s ease-out forwards; }
+  @keyframes ss-in { to { opacity: 0; } }
+</style>
+<script type="module">
+  // These pages are shown as slides: /mic/, /radio1965/, /huddersfield/ and round again. The arrow buttons and keys step.
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  const PREV = '/huddersfield/', NEXT = '/radio1965/';
+  // the page fades out first (soundscapeLeave in the module above); presses during the fade are ignored
+  let going = false;
+  const go = async (to) => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = to; };
+  addEventListener('pageshow', (e) => { if (e.persisted) going = false; });
+  const nav = createButtonGroup({ buttons: [
+    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => go(PREV) },
+    { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => go(NEXT) },
+  ] });
+  for (const b of nav.el.querySelectorAll('button')) b.classList.add('pos-lg');
+  nav.el.classList.add('sl-nav');
+  document.body.append(nav.el);
+  addEventListener('keydown', (e) => { if (e.target.closest?.('input, textarea')) return; if (e.key === 'ArrowLeft') go(PREV); if (e.key === 'ArrowRight') go(NEXT); });
+</script>
+</html>

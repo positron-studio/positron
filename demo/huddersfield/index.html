@@ -558,19 +558,20 @@
   @keyframes ss-in { to { opacity: 0; } }
 </style>
 <script type="module">
-  // These pages are shown as slides: a joined pair of the kit's arrow buttons, and the arrow keys, step between them.
+  // These pages are shown as slides: /mic/, /radio1965/, /huddersfield/ and round again. The arrow buttons and keys step.
   import { createButtonGroup } from '/shell/button-group.mjs';
   // the page fades out first (soundscapeLeave in the module above); presses during the fade are ignored
   let going = false;
-  const go = async () => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = '/radio1965/'; };
+  const PREV = '/radio1965/', NEXT = '/mic/';
+  const go = async (to) => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = to; };
   addEventListener('pageshow', (e) => { if (e.persisted) going = false; });
   const nav = createButtonGroup({ buttons: [
-    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: go },
-    { id: 'next', icon: 'arrow-right', label: 'next', onPress: go },
+    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => go(PREV) },
+    { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => go(NEXT) },
   ] });
   for (const b of nav.el.querySelectorAll('button')) b.classList.add('pos-lg');
   nav.el.classList.add('sl-nav');
   document.body.append(nav.el);
-  addEventListener('keydown', (e) => { if (e.target.closest?.('input, textarea')) return; if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') go(); });
+  addEventListener('keydown', (e) => { if (e.target.closest?.('input, textarea')) return; if (e.key === 'ArrowLeft') go(PREV); if (e.key === 'ArrowRight') go(NEXT); });
 </script>
 </html>
