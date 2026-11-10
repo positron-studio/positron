@@ -35,6 +35,8 @@ export function ranks(nodes, links) {
     if (a !== b && out.has(a) && out.has(b)) out.get(a).push([l, b]);
   }
   const back = new Set(), state = new Map();      // 1 on the stack, 2 done
+  // A loopback (a node into itself) is drawn as a return wire, not two stubs.
+  for (const l of links) if (nodeOf(l.from) === nodeOf(l.to)) back.add(l.id);
   const visit = (id) => {
     state.set(id, 1);
     for (const [l, b] of out.get(id)) {

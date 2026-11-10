@@ -295,6 +295,12 @@ export const DEMOS = [
   // demo/patch/vendor/ holds the vendored engine other pages use; the row went, the files stay.
   // why: lessons/manifest.md#patch
 
+  // /lonely-software/: the owner's essay with three patch pictures, copied as it is, no card.
+  { name: 'lonely-software', group: 'kit', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/lonely-software/index.html', page: '/lonely-software/',
+    one: 'an essay on making alone, a loopback, and the other end',
+    tags: ['shell', 'no network'] },
+
   // /kit/ is a forwarder to the part pages; a card at the foot of the front page.
   // why: lessons/manifest.md#kit
   { name: 'kit', group: 'kit', act: 0, created: '2026-09-12', // why: lessons/manifest.md#kit-built

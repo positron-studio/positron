@@ -24,7 +24,7 @@ const GLIDE_S = 8;                            // a new preset's places, colour a
 
 // Waves's master, gentler: a slow leveller with less lift, so a far arrangement stays quieter than a near one; its
 // limiter's ceiling (0.65) keeps true peaks near -3.7 dBTP after MP3. A preset's `master` overrides.
-const MEM_MASTER = { TARGET: 0.1, GMAX: 3, SLOW: 12, GLIDE: 6 };
+const MEM_MASTER = { TARGET: 0.14, GMAX: 3, SLOW: 12, GLIDE: 6 };   // about -16 LUFS, level with v2in's other channels
 const dB = (x) => (x > 0 ? 10 * Math.log10(x) : -120);
 
 
@@ -332,7 +332,7 @@ export class Mem {
       if (t < this.soloNext) return;
       // never a slowed loop (an octave down, a drone): those play under the others, not alone
       const can = this.players.filter((pl) => !pl.leaving && !pl.rest && pl !== this.soloLast && pl.voices.some((v) => !v.out && Math.abs(v.r1) >= 0.5));
-      if (can.length < 1 || this.players.filter((pl) => pl.voices.some((v) => !v.out)).length < 3) { this.soloNext = t + 10 * sr; return; }
+      if (can.length < 1 || this.players.filter((pl) => pl.voices.some((v) => !v.out)).length < 2) { this.soloNext = t + 10 * sr; return; }
       // `music`: the share of passages given to a loop that is not talk, when one plays
       const music = can.filter((x) => (x.voices.find((v) => !v.out)?.take.speech ?? 1) < 0.5);
       const pl = r.pick(music.length && r.chance(S.music ?? 0) ? music : can);
@@ -495,7 +495,7 @@ export class Mem {
   addTake(data, cs, meta) {
     let ss = 0; for (let i = 0; i < data.length; i++) { const v = data[i] / 32768; ss += v * v; }
     const rms = Math.sqrt(ss / data.length) + 1e-9;
-    const take = { id: ++this.tid, data, cs, at: this.t / this.sr, uses: 0, gain: Math.min(8, 0.1 / rms), ...meta };
+    const take = { id: ++this.tid, data, cs, at: this.t / this.sr, uses: 0, gain: Math.min(2.5, 0.1 / rms), ...meta };   // at most +8 dB: a faint take of hiss or whistle is not turned up to everything else
     take.speech ??= speechOf(data, this.sr); this.lastTakeAt = this.t;
     this.takes.push(take); this.counts.takes++; if (meta.from !== 'live') this.counts.past++;
     if (take.speech >= 0.5) this.counts.talk = (this.counts.talk || 0) + 1;
