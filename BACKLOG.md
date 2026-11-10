@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**Slides from the Lonely Software essay: key sentences, the patches, a placeholder for the feedback demo**~~ DONE 2026-11-10, /slides/lonely/, 13 slides, local (2026-11-10). Asked: *"In bg do slides based on the essay with key senteces, patches and placeholder for feedback demo"*. For TechTrack Lab II, 2026-11-11 15:30.
+
 - ~~**/radio/edgecast/ gets radio1965's scan landscape**~~ DONE 2026-11-10, local; driven by the page's own analyser (/shader/landscape/'s followers), grain scope one press away (2026-11-10). Asked: *"Is edgevast visualizing like radio1965 demo?"*, then *"I want it"*. Edgecast draws a grain scope today; radio1965 draws createScanField moved by /state and live analysis.
 
 - **A browser renderer for the Palm Z22, like the OLED one** (2026-11-10). Built /devices/palm/ (5025d958). Then *"Look at oled ui ketches. What can be ported to palm? Fullscr and split."* and *"Do in bg"*: the OLED screens (oled-ui.wasm) into the Palm, full (one at 1:1) and split (two stacked, 128x128, a touch strip as the four keys). Asked: *"Build palms ui rendere for broswer like oled"*. 160x160 colour screen, stylus as a pointer, as a kit piece and a page; the real Palm waits on a HotSync (pilot-link built on the Pi with libusb, plan-screens-odd).

@@ -404,6 +404,9 @@ export const DEMOS = [
   { name: 'slides/synths', title: 'synths', group: 'slides', act: 0, created: '2026-10-06', built: true, unlisted: true,
     one: 'A slide deck that turns a few lines of Faust into a sound in this page.',
     tags: ['shell', 'no network'] },
+  { name: 'slides/lonely', title: 'lonely', group: 'slides', act: 0, created: '2026-11-10', built: true, unlisted: true,
+    one: 'The Lonely Software essay as a talk, with its three patch pictures.',
+    tags: ['shell', 'no network'] },
 
   // `unlisted`: deployed and graded, not advertised; byGroup() drops it. Unlisted is not secret.
   // why: lessons/manifest.md#unlisted
