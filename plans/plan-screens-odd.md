@@ -120,6 +120,7 @@ at 8-bit, more at 1-bit. Measure before designing pieces around it.
 - **Steps 3 to 5 work.** prc-tools-remix in Docker on the M2 (rig/palm/, build.sh) built two apps, installed with `pilot-xfer -p usb: -i` on a HotSync tap: `positron` (hello.prc, 1.4 KB) draws six RGB bars and bold text, correct on the Z22; `pframe` (frame.prc) opens the link with `SrmExtOpen(serPortCradleUSBPort)` and draws 160x160 1 bit frames from `rig/palm/send.mjs` on the Pi (`sudo modprobe visor`, then the visor tty). The owner saw "ball moving on checkerboard": frames stream and draw.
 - **The first build froze the Palm** after one frame and needed a soft reset (the hole on the back); the second build (a status line with a frame counter after each draw) runs. The cause of the freeze was not isolated.
 - **Not yet measured:** frames per second (pframe prints a counter on its bottom line), the stylus lines coming back, colour frames.
+- **The Pi camera on the Palm, 2026-11-10 evening.** `rig/palm/cam.mjs` on the Pi (the C925e by ffmpeg, cropped square, 160x160 grey, the OLED's ordered 4x4 dither) into the installed one bit pframe: the owner's photo shows the room, recognisable, counter f172. The Pi measured 15 fps written, the camera's own rate; after two runs the Palm stopped reading once (cause unknown, a relaunch or soft reset).
 
 ## plan-camera-feedback: a Pi camera looking at its own screen
 
