@@ -125,6 +125,7 @@ export const DEMO_CARDS = {
   // concept like rows first, then use cases; archived rows are listed on /archive/.
   // why: lessons/kit-concept-list.md#archived-rows
   radio1965: { group: 'latest', plain: true, title: 'Radio1965', say: 'Sound archives processed, mixed and visualized in Oct 2026.' },
+  'lonely-software': { group: 'about', plain: true, title: 'Lonely Software', say: 'When everyone can create anything, what makes someone else care?' },
   held: { group: 'performances', say: 'Held in Human, a 2024 mixed reality piece, played back from its own score across its eight scenes.' },
   // why: lessons/kit-concept-list.md#archived-cases
 };
