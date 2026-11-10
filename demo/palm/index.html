@@ -41,6 +41,7 @@
   /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
   .mic-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
   body.mic-how .mic-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
+  .mic-vol { pointer-events: auto; margin-top: 20px; max-width: 360px; }
 </style>
 <script type="module">
   // The Shure SM57 on the Pi's Fast Track Pro input 2, to this page over the relay in the board's audio frames
@@ -55,6 +56,7 @@
   import { createPatchbay } from '/shell/patchbay.mjs';
   import { barButton } from '/shell/bar.mjs';
   import { createKnob } from '/shell/knob.mjs';
+  import { createFader } from '/shell/fader.mjs';
   import { createKnobGrid } from '/shell/knob-grid.mjs';
   import { bootScsynth } from '/shell/scsynth.mjs';
   import { compile } from '/shell/sclang-lite.mjs';
@@ -190,7 +192,7 @@
     dry = ctx.createGain(); dry.gain.value = processing ? 0 : 1;
     wet = ctx.createGain(); wet.gain.value = processing ? 1 : 0;
     mix = ctx.createGain();
-    master = ctx.createGain(); master.gain.value = VOLUME;
+    master = ctx.createGain(); master.gain.value = volNow;
     howG = ctx.createGain(); howG.gain.value = how ? QUIET : 1;
     fade = ctx.createGain(); fade.gain.value = 0;
     // the analyser before the volume, so the picture hears the sound at full level while How it works turns it down
@@ -462,6 +464,12 @@
     label: k.name, min: k.min, max: k.max, value: k.value, hand: true,
     onInput: (v) => bay.send(k.to === 'adrone' ? 'web:knobs:value-out-2' : 'web:knobs:value-out', { name: k.param, v }),
   })]));
+  // volume: 0 to 1.5 times the sound, from the slider; it starts at 0.75 (the old fixed level was 0.3)
+  let volNow = 0.75;
+  const volFader = createFader({ label: 'volume', min: 0, max: 127, value: Math.round(volNow / 1.5 * 127),
+    onInput: (v) => { volNow = v / 127 * 1.5; if (master && ctx) master.gain.setTargetAtTime(volNow, ctx.currentTime, 0.05); } });
+  const volBox = el('div', 'mic-vol');
+  volBox.append(volFader.el);
   const knobBox = el('div', 'mic-knobs');
   knobBox.append(createKnobGrid(knobs, { row: true }).el);
   knobBox.hidden = true;
@@ -485,7 +493,7 @@
   howBtn.setAttribute('aria-pressed', 'false');
   const btns = el('div', 'mic-btns');
   btns.append(btn, procBtn, droneBtn, howBtn);
-  titleBox.append(eye, h, atLine, line, btns, heldLine, knobBox, howBox);
+  titleBox.append(eye, h, atLine, line, btns, volBox, heldLine, knobBox, howBox);
   face();
   document.body.append(canvas, titleBox);
 
