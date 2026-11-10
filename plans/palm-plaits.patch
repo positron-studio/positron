@@ -1,0 +1,224 @@
+diff --git a/demo/palm/index.html b/demo/palm/index.html
+index dfa5682e..52204518 100644
+--- a/demo/palm/index.html
++++ b/demo/palm/index.html
+@@ -55,7 +55,8 @@
+ <script type="module">
+   // The Shure SM57 on the Pi's Fast Track Pro input 2, to this page over the relay in the board's audio frames
+   // (rig/palm/mic.mjs), dry or through /ambient/drone/'s chain on wasm scsynth; the MK-425C's notes go to
+-  // studio-1 as screen.note (and the knobs as palm.cc), for rig/palm/bridge.mjs and the board's OLED. Nothing opens until Listen or Process.
++  // studio-1 as screen.note (and the knobs as palm.cc), for rig/palm/bridge.mjs and the board's OLED, and as note.on to the
++  // board's Plaits (rig/board/plaits.mjs), whose sound comes back in studio-1's frames. Nothing opens until Listen or Process.
+   import { mount, el } from '/shell/shell.mjs';
+   import { SELFCHECK } from '/shell/selfcheck.mjs';
+   import { createBoard, BOARD_RATE } from '/shell/board.mjs';
+@@ -70,6 +71,7 @@
+   import { createChoice } from '/shell/choice.mjs';
+   import { bootScsynth } from '/shell/scsynth.mjs';
+   import { compile } from '/shell/sclang-lite.mjs';
++  import { PATCHES } from '/shell/plaits-params.mjs';
+ 
+   const Q = new URLSearchParams(location.search);
+   const ROOM = Q.get('room') || 'studio-1-mic';
+@@ -138,6 +140,7 @@
+   node('pi-1:mic', 'engine', 'mic.mjs', PI);
+   node('pi-1:line', 'engine', 'mic.mjs --line', PI);
+   node('pi-1:bridge', 'engine', 'bridge.mjs', PI);
++  node('pi-1:plaits', 'engine', 'Plaits, scsynth', PI);
+   node('pi-1:palm', 'device', 'Palm: rings, voice', PI);
+   node('pi-1:board', 'engine', 'board', PI);
+   node('pi-1:oled', 'screen', 'OLED rings', PI);
+@@ -166,7 +169,8 @@
+   port('pi-1:mic:audio-out', 'out', 'audio', `room ${ROOM}`, { transports: ['relay'] });
+   port('web:board:audio-in', 'in', 'audio', 'board frames', { transports: ['relay'] });
+   port('web:board:audio-in-2', 'in', 'audio', 'Circuit frames', { transports: ['relay'] });
+-  port('web:board:audio-out', 'out', 'audio', 'mic, Circuit');
++  port('web:board:audio-in-3', 'in', 'audio', 'Plaits frames', { transports: ['relay'] });
++  port('web:board:audio-out', 'out', 'audio', 'mic, Circuit, Plaits');
+   port('web:drone:audio-out', 'out', 'audio', 'drone');
+   port('web:drone:value-in', 'in', 'value', 'pitch, tone, motion, level', { deliver: (ev) => { if (ev.name !== 'amp' || droneOn) set('adrone', { [ev.name]: ev.v }); } });
+   port('web:space:audio-in', 'in', 'audio', 'mic, drone');
+@@ -184,6 +188,11 @@
+   port('pi-1:palm:midi-in', 'in', 'midi', 'screen, speaker', { accepts: ['note'] });
+   port('pi-1:board:midi-in', 'in', 'midi', 'screen.note', { accepts: ['note'], deliver: (ev) => { toRoom(ev); bay.send('pi-1:board:midi-out', ev); } });
+   port('pi-1:board:midi-out', 'out', 'midi', 'rings', { emits: ['note'] });
++  // only once Plaits answered up on the Pi; before that a note would be dropped there anyway
++  port('pi-1:plaits:midi-in', 'in', 'midi', 'note.on', { accepts: ['note'], deliver: (ev) => {
++    if (plaitsUp) pi?.send(ev.d2 > 0 ? { type: 'note.on', node: 'plaits', note: ev.d1, vel: ev.d2 } : { type: 'note.off', node: 'plaits', note: ev.d1 });
++  } });
++  port('pi-1:plaits:audio-out', 'out', 'audio', `room ${KEYS_ROOM}`, { transports: ['relay'] });
+   port('pi-1:oled:midi-in', 'in', 'midi', '128x64', { accepts: ['note'] });
+   const link = (a, b, via) => { const r = bay.link(a, b, [], { site: 'web', ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); return r.ok ? r.id : null; };
+   link('pi-1:sm57:audio-out', 'pi-1:fasttrack:audio-in');
+@@ -194,8 +203,10 @@
+   link('pi-1:fasttrack:audio-out-2', 'pi-1:jack:audio-in-2');
+   link('pi-1:jack:audio-out-2', 'pi-1:line:audio-in');
+   link('pi-1:line:audio-out', 'web:board:audio-in-2', 'relay');
++  link('pi-1:plaits:audio-out', 'web:board:audio-in-3', 'relay');
+   link('web:keys:midi-out', 'pi-1:bridge:midi-in');
+   link('web:keys:midi-out', 'pi-1:board:midi-in');
++  link('web:keys:midi-out', 'pi-1:plaits:midi-in');
+   link('web:keys:midi-out', 'web:held:midi-in');
+   link('pi-1:bridge:midi-out', 'pi-1:palm:midi-in');
+   link('pi-1:board:midi-out', 'pi-1:oled:midi-in');
+@@ -221,7 +232,7 @@
+   // mic (playout) -> micIn -> dry -> mix; micIn -> scsynth -> wet -> mix; mix -> an (picture); mix -> master -> how -> fade -> out
+   const VOLUME = 0.3, FADE = 1.5, QUIET = 0.08, RAMP = 2.5;
+   let ctx = null, micIn = null, an = null, dry = null, wet = null, mix = null, master = null, howG = null, fade = null;
+-  let micG = null, lineG = null;
++  let micG = null, lineG = null, scG = null;
+   let lineBoard = null, lineLease = null, linePlayout = null;
+   let board = null, lease = null, playout = null, listening = false, stopT = 0;
+   let sc = null, booting = null, processing = false, droneOn = false, how = false;
+@@ -232,6 +243,7 @@
+     micIn = ctx.createGain();
+     micG = ctx.createGain(); micG.gain.value = micNow; micG.connect(micIn);
+     lineG = ctx.createGain(); lineG.gain.value = lineNow; lineG.connect(micIn);
++    scG = ctx.createGain(); scG.gain.value = scNow; scG.connect(micIn);
+     an = ctx.createAnalyser(); an.fftSize = 2048;
+     dry = ctx.createGain(); dry.gain.value = processing ? 0 : 1;
+     wet = ctx.createGain(); wet.gain.value = processing ? 1 : 0;
+@@ -301,7 +313,7 @@
+   // A press-held note sends on and off; past MAX_PER_S note-ons a second the extra ones are dropped, never their offs.
+   // While Process or Drone is on, a released key LATCHES: it keeps sounding until the next note-on releases it.
+   const MAX_PER_S = 30;
+-  let midi = null, asking = null, wire = null, roomSent = 0, dropped = 0, lastK = 0, k = 0, ccSent = 0;
++  let midi = null, asking = null, roomSent = 0, dropped = 0, lastK = 0, k = 0, ccSent = 0;
+   const onSent = new Set(), heldNotes = new Set(), onTimes = [], phys = new Set(), latched = new Set();
+   const latching = () => processing || droneOn;
+   const emit = (ch, n, v) => {
+@@ -342,7 +354,7 @@
+       const w = ccWant.get(cc);
+       ccWant.delete(cc);
+       if (w === undefined) { ccTimer.delete(cc); return; }
+-      if (cc === 'bend' ? wire?.send({ type: 'palm.bend', v: w })?.sent : wire?.send({ type: 'palm.cc', cc, v: w })?.sent) ccSent++;
++      if (toPi(cc === 'bend' ? { type: 'palm.bend', v: w } : { type: 'palm.cc', cc, v: w })) ccSent++;
+       ccTimer.set(cc, setTimeout(flush, CC_MS));
+     };
+     flush();
+@@ -356,25 +368,63 @@
+   function toRoom(ev) {
+     if (ev.k === lastK) return;
+     lastK = ev.k;
+-    if (wire?.send({ type: 'screen.note', n: ev.d1, on: ev.d2 > 0 })?.sent) roomSent++;
++    if (toPi({ type: 'screen.note', n: ev.d1, on: ev.d2 > 0 })) roomSent++;
+     // the same note plays the Circuit on the Pi, synth 1, as /remote/circuit/ sends it
+     circuit?.send({ type: 'midi.send', bytes: ev.d2 > 0 ? [0x90, ev.d1, Math.max(1, ev.d2)] : [0x80, ev.d1, 0] });
+   }
+   function attach() { for (const i of midi?.inputs.values() ?? []) i.onmidimessage = listening ? (e) => midiIn(e.data) : null; }
++  // One socket to studio-1 carries the notes, the knobs and Plaits' sound back: a plain wire there would get the same frames twice.
++  const PLAITS_PATCH = PATCHES[0].name;
++  let pi = null, piPlayout = null, plaitsUp = false, plaitsStarting = null;
++  const toPi = (m) => pi?.send(m) != null;
+   function keysOn() {
+-    wire ??= openWire(KEYS_ROOM, { onOpen: () => d.log(`the keyboard reaches ${KEYS_ROOM}`) });
++    if (!pi) {
++      const b = pi = createBoard({ room: KEYS_ROOM, of: 'Raspberry Pi', showName: false, audioContext: ctx, toDestination: false,
++        cushionMs: 160, maxCushionMs: 400, log: (line, kind) => d.log(line, kind),
++        onOpen: () => { d.log(`the keyboard reaches ${KEYS_ROOM}`); if (listening) startPlaits(); },
++        onMessage: (m) => { if (m?.type === 'note.ack' && m.node === 'plaits' && m.dropped && m.reason) d.log(`the Pi dropped a note: ${m.reason}`, 'warn'); } });
++      b.startAudio().then(() => {
++        const p = b.playout();
++        if (p && pi === b && p !== piPlayout) { piPlayout = p; p.connect(scG); }
++      });
++      if (b.state() === 1) startPlaits();
++    }
+     circuit ??= openWire(CIRCUIT_ROOM, { onOpen: () => d.log(`the keyboard plays the Circuit in ${CIRCUIT_ROOM}`) });
+     if (midi) { attach(); return; }
+     if (!navigator.requestMIDIAccess) { d.log('this browser has no Web MIDI, so the keyboard is not heard', 'warn'); return; }
+     asking ??= navigator.requestMIDIAccess().then((m) => { midi = m; m.onstatechange = attach; attach(); },
+       (e) => d.log(`Web MIDI was refused: ${e.message}`, 'warn'));
+   }
++  // As /remote/plaits/: audio.status, audio.start {source: 'plaits'} only if it is not up, then the patch.
++  function startPlaits() {
++    const b = pi;
++    if (!b || plaitsUp || plaitsStarting) return;
++    plaitsStarting = (async () => {
++      const st = await b.ask({ type: 'audio.status' }, 'audio.started', 6000);
++      if (pi !== b || !listening) return;
++      if (!st) return d.log(`the Raspberry Pi is not answering in ${KEYS_ROOM}, so Plaits is not playing`, 'warn');
++      if (!st.plaits) return d.log('the Pi runs board code from before Plaits, so there is nothing to play', 'warn');
++      if (!st.plaits.up) {
++        const t0 = performance.now();
++        const r = await b.ask({ type: 'audio.start', source: 'plaits' }, 'audio.started', 20000);
++        if (!r?.ok) return d.log(`the Pi could not start Plaits${r?.reason ? `, it said ${r.reason}` : ''}`, 'bad');
++        d.log(`Plaits up on the Pi in ${Math.round(performance.now() - t0)} ms`);
++      }
++      if (pi !== b || !listening) return;
++      b.send({ type: 'plaits.patch', name: PLAITS_PATCH });
++      plaitsUp = true;
++      d.log(`Plaits on the Pi, ${PLAITS_PATCH}`);
++    })().finally(() => { plaitsStarting = null; });
++  }
+   function keysOff() {
+     attach();
+     releaseAll();
+-    wire?.send({ type: 'screen.note', panic: true });
+-    const w = wire, c = circuit; wire = null; circuit = null;
+-    setTimeout(() => { w?.close(); c?.close(); }, 200);
++    toPi({ type: 'screen.note', panic: true });
++    // Plaits stays up on the Pi, as /remote/plaits/ leaves it; only this page's notes are released
++    if (plaitsUp) pi?.send({ type: 'note.panic', node: 'plaits' });
++    plaitsUp = false;
++    const b = pi, p = piPlayout, c = circuit; pi = null; piPlayout = null; circuit = null;
++    setTimeout(() => { try { p?.disconnect(); } catch {} b?.close(); c?.close(); }, 200);
+   }
+   const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+   const nameOf = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+@@ -519,7 +569,7 @@
+   function drawLine() {
+     const st = board?.stats();
+     const level = Number.isFinite(lastDb) && an ? `${lastDb.toFixed(0)} dBFS` : '';
+-    const tail = !listening ? 'Listen plays the microphone and the Circuit in studio 1, and the keyboard on the Palm.'
++    const tail = !listening ? 'Listen plays the microphone and the Circuit in studio 1, and the keyboard on the Palm and Plaits.'
+       : !st?.frames ? 'Waiting for the Pi.'
+       : `${processing ? 'Processed' : 'Dry'}, ${level}`;
+     line.replaceChildren(el('b', '', 'Headphones, or the mic will howl.'), tail);
+@@ -544,17 +594,18 @@
+   const droneBox = el('div', 'mic-voice');
+   droneBox.append(el('div', 'mic-voice-h', 'Drone'), createKnobGrid(droneKnobs, { row: true }).el);
+   droneBox.hidden = true;
+-  // three faders, 0 to 1.5 times: c1 the Circuit (input 1) and c2 the SM57 (input 2) before the chain, the output after it
++  // 0 to 1.5 times: c1 the Circuit (input 1), c2 the SM57 (input 2) and sc Plaits before the chain, out after it
+   const gainFader = (label, value, onSet) => createFader({ label, min: 0, max: 127, value: Math.round(value / 1.5 * 127), onInput: (v) => onSet(v / 127 * 1.5) });
+   const toGain = (g, v) => { if (g && ctx) g.gain.setTargetAtTime(v, ctx.currentTime, 0.05); };
+-  let micNow = 1, lineNow = 1, volNow = 0.75;
++  let micNow = 1, lineNow = 1, scNow = 1, volNow = 0.75;
+   const micFader = gainFader('c2', micNow, (v) => { micNow = v; toGain(micG, v); });
+   const lineFader = gainFader('c1', lineNow, (v) => { lineNow = v; toGain(lineG, v); });
++  const scFader = gainFader('sc', scNow, (v) => { scNow = v; toGain(scG, v); });
+   const volFader = gainFader('out', volNow, (v) => { volNow = v; toGain(master, v); });
+   // the Palm's own voice, CC 7 to the bridge: it scales the tones under the Palm's maximum, so the top is full
+   const palmFader = createFader({ label: 'palm', min: 0, max: 127, value: 127, onInput: (v) => ccIn(7, Math.round(v)) });
+   const volBox = el('div', 'mic-vol');
+-  volBox.append(lineFader.el, micFader.el, volFader.el, palmFader.el);
++  volBox.append(lineFader.el, micFader.el, scFader.el, volFader.el, palmFader.el);
+   const knobBox = el('div', 'mic-knobs');
+   knobBox.append(createKnobGrid(knobs, { row: true }).el);
+   knobBox.hidden = true;
+@@ -631,10 +682,10 @@
+     listening: () => listening, processing: () => processing, how: () => how, frames: () => frames, inked: () => inked,
+     nonZero: () => nonZero, level: () => lastDb, stats: () => board?.stats() ?? null, renewals: () => lease?.renewals() ?? 0,
+     midiIn, midi: () => !!midi, voiceChoices, voiceKnobs, held: () => [...heldNotes], latched: () => [...latched], root: () => root,
+-    keys: () => ({ roomSent, dropped, ccSent, wire: wire?.stats() ?? null }) };
++    keys: () => ({ roomSent, dropped, ccSent, pi: pi?.stats() ?? null }), plaitsUp: () => plaitsUp };
+ 
+   async function check() {
+-    d.assert('a visit opened no audio context, no socket and no Web MIDI', ctx === null && board === null && wire === null && midi === null);
++    d.assert('a visit opened no audio context, no socket and no Web MIDI', ctx === null && board === null && pi === null && midi === null);
+     d.assert('Listen, Process, Drone and How it works under the line', document.querySelectorAll('.mic-btns button').length === 4);
+   }
+   if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
+diff --git a/rig/palm/bridge.mjs b/rig/palm/bridge.mjs
+index e590bc77..b8fd0b7e 100644
+--- a/rig/palm/bridge.mjs
++++ b/rig/palm/bridge.mjs
+@@ -193,6 +193,8 @@ if (!DEMO) {
+   });
+   join(ROOM, (m) => {
+     const node = m.node || 'board';
++    // /palm/ sends each key as screen.note too, so its Plaits notes would sound twice here
++    if (m.node === 'plaits' && /^(note\.on|note\.off)$/.test(m.type)) return;
+     if (m.type === 'note.on') noteOn(`${node}:${m.from}`, (m.channel ?? 0) + 1, Number(m.note), m.vel ?? 100);
+     else if (m.type === 'note.off') noteOff(`${node}:${m.from}`, (m.channel ?? 0) + 1, Number(m.note));
+     else if (m.type === 'note.panic') panic();
