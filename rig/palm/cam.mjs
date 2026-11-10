@@ -19,7 +19,8 @@
 // screen camera or HDMI picture), this says so and exits without touching it.
 import fs from 'node:fs';
 import tty from 'node:tty';
-import { spawn, execFileSync, spawnSync } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import { findVideo, holdersOf, ffArgs, levels, BAYER4 } from './camera.mjs';
 
 const W = 160, H = 160;
 const args = process.argv.slice(2);
@@ -38,49 +39,15 @@ if (![1, 2, 4].includes(fmt)) { console.error('--fmt must be 1, 2 or 4'); proces
 if (old && fmt !== 1) { console.error('--old is the 1 bit build, so --fmt 1 only'); process.exit(2); }
 if (!['bayer', 'fs', 'none'].includes(dither)) { console.error('--dither bayer, fs or none'); process.exit(2); }
 
-// The first capture device v4l2-ctl lists outside the Pi's own codec and ISP nodes.
-function findVideo() {
-  const given = opt('--video', null);
-  if (given) return given;
-  const r = spawnSync('v4l2-ctl', ['--list-devices'], { encoding: 'utf8' });
-  let name = '', platform = false;
-  for (const line of (r.stdout || '').split('\n')) {
-    if (line && !/^\s/.test(line)) { name = line; platform = /platform:|bcm2835|rpi-|pispbe|rp1-cfe/.test(line); continue; }
-    const d = line.trim();
-    if (!platform && /^\/dev\/video\d+$/.test(d)) return d;
-  }
-  return null;
-}
-
-const video = findVideo();
+const video = findVideo(opt('--video', null));
 if (!video) { console.error('no USB camera: v4l2-ctl lists none beside the Pi\'s own codec nodes'); process.exit(3); }
-const holders = spawnSync('fuser', [video], { encoding: 'utf8' });
-const pids = `${holders.stdout || ''}`.trim();
-if (pids) {
-  const who = pids.split(/\s+/).map(p => { try { return `${p} ${fs.readFileSync(`/proc/${p}/cmdline`, 'utf8').replace(/\0/g, ' ').trim().slice(0, 120)}`; } catch { return p; } });
+const who = holdersOf(video);
+if (who.length) {
   console.error(`${video} is held, and only one process may read it:\n  ${who.join('\n  ')}\nNothing was stopped. Free it on the board (its screen camera or HDMI picture) and run again.`);
   process.exit(3);
 }
 
-// ffmpeg arguments: the camera at 320x240, a centred square crop, area scaled to 160x160, grey bytes on stdout.
-const ff = ['-hide_banner', '-loglevel', 'error', '-f', 'v4l2', '-video_size', '320x240', '-framerate', String(camFps),
-  '-i', video, '-vf', `crop=ih:ih,scale=${W}:${H}:flags=area,format=gray`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'];
-
-// The 2nd and 98th percentile, stretched to full scale, as the board does for its OLED.
-function levels(g) {
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < g.length; i++) hist[g[i]]++;
-  const a = g.length * 0.02, b = g.length * 0.98;
-  let acc = 0, min = 0, max = 255, seen = false;
-  for (let v = 0; v < 256; v++) {
-    acc += hist[v];
-    if (!seen && acc > a) { min = v; seen = true; }
-    if (acc >= b) { max = v; break; }
-  }
-  return max - min < 16 ? { min: Math.max(0, min - 8), max: Math.min(255, min + 8) } : { min, max };
-}
-
-const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const ff = ffArgs(video, camFps, W, H);
 const err = new Float32Array(W * H);
 
 // 160x160 grey (bright is high) to a packet. Below 8 bit pframe draws 0 as white, so ink is dark.

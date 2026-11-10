@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // The Pi's synths with the Palm as their picture: notes heard in the board's relay rooms are drawn
-// on the Palm (pframe) as rings, keys, a roll, or split (the default: a spectrogram of --wave-port over
-// the rings); --voice plays the held notes on the Palm (arp, mono, echo or chip), and --pen
+// on the Palm (pframe) as rings, keys, a roll, or split (a spectrogram of --wave-port over the rings);
+// the default view is the Pi's USB camera on the Palm (160x160, 4 bit grey) and on the OLED (128x64, 1 bit); --voice plays the held notes on the Palm (arp, mono, echo or chip), and --pen
 // turns the stylus into two Circuit macro CCs sent the way /remote/circuit/ sends them.
 //
 //   sudo modprobe visor                                   # pframe's tty
-//   node bridge.mjs /dev/ttyUSB0 --voice --pen            # split: spectrogram on top, rings below
+//   node bridge.mjs /dev/ttyUSB0 --voice --pen            # the camera on the Palm and the OLED
+//   node bridge.mjs /dev/ttyUSB0 --view split             # spectrogram on top, rings below
 //   node bridge.mjs /dev/ttyUSB0 --demo                   # an arpeggio made here, no relay: the Palm alone
 //   node bridge.mjs --dry --snap /tmp/palm.pgm --secs 10  # no Palm: log notes, write the picture as PGM
-//   --view split|rings|keys|roll  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
+//   --view camera|split|rings|keys|roll  --cam-fps 15  --video /dev/videoN  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
 //   --room studio-1   --relay wss://...   --pen-cc 80,81   --pen-ch 1   --dry   --demo   --secs N   --light (black on white; the default is white on black)   --no-oled
 //   the voice (with --voice): --voice-mode arp|mono|echo|chip|plain (default arp)   --pattern up|down|updown|random
 //   --rate 110 (ms an arp step)   --glide 40 (ms)   --vib 0 (cents, 5.5 Hz)   --echo 0.5 (feedback 0 to 0.85)   --echo-ms 240
@@ -29,23 +30,24 @@
 // One writer: every packet goes through one queue, whole, so a note never lands inside a frame.
 // The spectrogram (split) is read only from JACK: ffmpeg is one more client with one connection from
 // --wave-port to it, as listen.mjs reads capture_2; no board lease, none of the board's connections touched.
-// The OLED stays on the board's own rings (screen.note): panel.raw() is fed only by the board's own
-// screen camera, and no relay message lets an outside client push a raw frame.
+// The OLED gets screen.raw frames (1024 bytes, page major) in <room>, or with --oled-notes screen.note, so the board draws its own rings.
 // The Palm draws its status lines over rows 124 to 159, so the picture uses rows 0 to 121.
 import fs from 'node:fs';
 import tty from 'node:tty';
 import { execFileSync, spawn } from 'node:child_process';
+import { findVideo, holdersOf, ffArgs, levels, BAYER4 } from './camera.mjs';
 
 // No text on the Palm by default (the owner: "rm text / debug lines from palm"); --text brings it back.
 const TEXT = process.argv.includes('--text');
 const W = 160, H = 160, DH = TEXT ? 122 : 160;
 const args = process.argv.slice(2);
 const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port',
-  '--voice-mode', '--pattern', '--rate', '--glide', '--vib', '--echo', '--echo-ms', '--double', '--tuning', '--drums-below'];
+  '--cam-fps', '--video', '--voice-mode', '--pattern', '--rate', '--glide', '--vib', '--echo', '--echo-ms', '--double', '--tuning', '--drums-below'];
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const flag = (name) => args.includes(name);
 const dev = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || '/dev/ttyUSB0';
-const VIEW = opt('--view', 'split');
+const VIEW = opt('--view', 'camera');
+const CAM_FPS = Number(opt('--cam-fps', 15));
 const WAVE_PORT = opt('--wave-port', 'circuit:capture_1');
 const FMT = Number(opt('--fmt', 4));
 const FPS = Number(opt('--fps', FMT === 1 ? 30 : FMT === 2 ? 20 : 15));
@@ -60,7 +62,8 @@ const LIGHT = flag('--light');
 // The board's OLED shows the split at 128x64 as screen.raw frames unless --no-oled; --oled-notes sends
 // screen.note instead, so the board draws its own rings.
 const OLED = !flag('--no-oled'), OLED_RAW = OLED && !flag('--oled-notes');
-if (!['split', 'rings', 'keys', 'roll'].includes(VIEW)) die('--view split, rings, keys or roll');
+if (!['camera', 'split', 'rings', 'keys', 'roll'].includes(VIEW)) die('--view camera, split, rings, keys or roll');
+if (!(CAM_FPS > 0 && CAM_FPS <= 30)) die('--cam-fps 1 to 30');
 if (![1, 2, 4].includes(FMT)) die('--fmt 1, 2 or 4 (the picture is grey)');
 if (!(FPS > 0 && FPS <= 50)) die('--fps 1 to 50');
 if (![PEN_X, PEN_Y].every((c) => Number.isInteger(c) && c >= 0 && c <= 119)) die('--pen-cc two controller numbers, e.g. 80,81');
@@ -727,7 +730,7 @@ function snap(file) {
 // Frames at FPS while anything moves, once a second when still.
 let lastFrame = 0;
 const moving = (t) => held.size || !silent || gone.some((s) => t - s.off < FADE_MS) || hits.some((h) => t - h.t < 400) || dirty;
-setInterval(() => {
+if (VIEW !== 'camera') setInterval(() => {
   const t = Date.now();
   if (!moving(t) && t - lastFrame < 1000) return;
   if (frameQueued) return;   // the link is behind: skip this one rather than queue a stale picture
@@ -756,21 +759,96 @@ function oledFrame(t) {
   }
   return out;
 }
-if (OLED_RAW) setInterval(() => {
+if (OLED_RAW && VIEW !== 'camera') setInterval(() => {
   if (stopping) return;
   const t = Date.now(), b = oledFrame(t);
   if (sendTo(ROOM, { type: 'screen.raw', b64: b.toString('base64') })) oledSent++;
 }, 1000 / OLED_FPS);
-if (SNAP) setInterval(() => { render(Date.now()); snap(SNAP); }, 1000);
+if (SNAP && VIEW !== 'camera') setInterval(() => { render(Date.now()); snap(SNAP); }, 1000);
+
+// ── the camera view: the Pi's USB camera on the Palm and the OLED, nothing drawn over it ──
+// One capture (cam.mjs's: 320x240, square crop, 160x160 grey), levels stretched 2 to 98 percent.
+// The Palm gets each new frame whole at 4 bit grey, no dither, whenever the last one has gone out;
+// the OLED gets the middle 160x80 band scaled to 128x64, Bayer dithered to 1 bit, at OLED_CAM_FPS.
+const OLED_CAM_FPS = 12;
+let camProc = null, camFrame = null, camFresh = false, camFrames = 0, camVideo = null;
+function camStart() {
+  if (VIEW !== 'camera' || stopping) return;
+  camVideo = findVideo(opt('--video', null));
+  if (!camVideo) { log('camera: none listed by v4l2-ctl, again in 5 s'); return setTimeout(camStart, 5000); }
+  const who = holdersOf(camVideo);
+  if (who.length) { log(`camera: ${camVideo} is held (one holder at a time, nothing stopped), again in 5 s: ${who.join('; ')}`); return setTimeout(camStart, 5000); }
+  const p = spawn('ffmpeg', ffArgs(camVideo, CAM_FPS, W, H), { stdio: ['ignore', 'pipe', 'pipe'] });
+  camProc = p;
+  let acc = Buffer.alloc(0);
+  p.on('error', (e) => log(`camera: ffmpeg ${e.message}`));
+  p.stderr.on('data', (d) => { for (const l of d.toString().split('\n')) if (l.trim()) log(`camera: ${l.trim().slice(0, 160)}`); });
+  p.stdout.on('data', (chunk) => {
+    acc = acc.length ? Buffer.concat([acc, chunk]) : chunk;
+    while (acc.length >= W * H) {
+      camFrame = Buffer.from(acc.subarray(0, W * H)); acc = acc.subarray(W * H);
+      camFresh = true; camFrames++;
+      camToPalm();
+    }
+  });
+  p.on('exit', (code, sig) => {
+    if (camProc === p) camProc = null;
+    if (!stopping) { log(`camera: ffmpeg ended (${sig ?? code}), again in 2 s`); setTimeout(camStart, 2000); }
+  });
+  log(`camera: ${camVideo} 320x240 at ${CAM_FPS} fps, square crop to ${W}x${H}`);
+}
+function camPack(g) {
+  const len = W * H / 2, buf = Buffer.alloc(5 + len);
+  buf[0] = 0x50; buf[1] = 0x46; buf[2] = 4; buf[3] = len >> 8; buf[4] = len & 0xff;
+  const { min, max } = levels(g), k = 255 / Math.max(1, max - min);
+  // pframe draws 0 as white and 15 as black
+  for (let i = 0; i < W * H; i++) {
+    const v = Math.max(0, Math.min(255, (g[i] - min) * k));
+    buf[5 + (i >> 1)] |= Math.round((255 - v) / 17) << (i & 1 ? 0 : 4);
+  }
+  return buf;
+}
+function camToPalm() {
+  if (DRY || stopping || !camFresh || frameQueued) return;   // the link is behind: the newest frame goes next
+  camFresh = false;
+  enqueue(camPack(camFrame), { frame: true });
+}
+const OY0 = (H - W / 2) / 2;   // the 2:1 band: rows 40 to 119 of the square
+function camOled(g) {
+  const b = Buffer.alloc(OW * OH / 8), band = g.subarray(OY0 * W, (OY0 + W / 2) * W), { min, max } = levels(band);
+  const k = 255 / Math.max(1, max - min), sx = W / OW, sy = (W / 2) / OH;
+  for (let y = 0; y < OH; y++) {
+    const y0 = Math.floor(y * sy), y1 = Math.max(y0 + 1, Math.floor((y + 1) * sy));
+    for (let x = 0; x < OW; x++) {
+      const x0 = Math.floor(x * sx), x1 = Math.max(x0 + 1, Math.floor((x + 1) * sx));
+      let n = 0, c = 0;
+      for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { n += band[yy * W + xx]; c++; }
+      const v = (n / c - min) * k;
+      if (v > (BAYER4[((y & 3) << 2) | (x & 3)] + 0.5) * 16) b[(y >> 3) * OW + x] |= 1 << (y & 7);
+    }
+  }
+  return b;
+}
+if (VIEW === 'camera') {
+  // the tty takes a frame, then the newest camera frame goes, so the Palm runs as fast as it reads
+  setInterval(camToPalm, 5);
+  if (OLED_RAW) setInterval(() => {
+    if (stopping || !camFrame) return;
+    if (sendTo(ROOM, { type: 'screen.raw', b64: camOled(camFrame).toString('base64') })) oledSent++;
+  }, 1000 / OLED_CAM_FPS);
+  if (SNAP) setInterval(() => { if (camFrame) fs.writeFileSync(SNAP, Buffer.concat([Buffer.from(`P5\n${W} ${H}\n255\n`), camFrame])); }, 1000);
+  camStart();
+}
 
 let win = { t: Date.now(), f: 0, b: 0 };
 setInterval(() => {
   const dt = (Date.now() - win.t) / 1000;
+  const cf = VIEW === 'camera' ? `, camera ${((camFrames - (win.cam ?? 0)) / dt).toFixed(1)} frames/s` : '';
   const fps = (sent.frames - win.f) / dt, kbs = (sent.bytes - win.b) / dt / 1024, tps = (sent.tones - (win.tones ?? 0)) / dt;
-  win = { t: Date.now(), f: sent.frames, b: sent.bytes, tones: sent.tones };
+  win = { t: Date.now(), f: sent.frames, b: sent.bytes, tones: sent.tones, cam: camFrames };
   const top = soundingNote !== null ? nameOf(soundingNote) : '-';
   const w = VIEW === 'split' ? `, wave ${wConnected || 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
-  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${w}`);
+  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${cf}${w}`);
 }, 5000);
 
 log(`bridge: ${DRY ? 'dry, no tty' : dev}, view ${VIEW}, fmt ${FMT} at ${FPS} fps${VOICE ? `, voice ${JSON.stringify(vs)}` : ''}${PEN ? `, pen to cc ${PEN_X},${PEN_Y} ch ${PEN_CH}` : ''}, ${DEMO ? 'demo notes' : `rooms ${ROOM} and ${CROOM}`}`);
@@ -779,6 +857,7 @@ function stop() {
   if (stopping) return;
   stopping = true;
   wProc?.kill();
+  camProc?.kill('SIGKILL');
   if (fd === null) { if (OLED && oledHeld.size) sendTo(ROOM, { type: 'screen.note', panic: true }); return setTimeout(() => process.exit(0), 200); }
   if (OLED && oledHeld.size) sendTo(ROOM, { type: 'screen.note', panic: true });
   queue.length = 0;
@@ -792,4 +871,6 @@ function stop() {
 }
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
+process.on('SIGHUP', stop);
+process.on('exit', () => { try { camProc?.kill('SIGKILL'); } catch { /* gone */ } });
 if (SECS > 0) setTimeout(stop, SECS * 1000);
