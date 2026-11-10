@@ -35,6 +35,11 @@
   /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
   .r65-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
   body.r65-how .r65-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
+  /* During an air raid in Kyiv the hours of the war cover the picture in black on white, and the words go gray on it */
+  .r65-t, .r65-t h1, .r65-t .r65-at, .r65-t p, .r65-t p b, .r65-t .pos-hero-eye, .r65-t .pos-hero-eye b { transition: color 1s; }
+  body.raid .r65-t, body.raid .r65-t h1, body.raid .r65-t .r65-at, body.raid .r65-t p, body.raid .r65-t p b,
+  body.raid .r65-t .pos-hero-eye, body.raid .r65-t .pos-hero-eye b { color: rgba(0, 0, 0, .45);
+    text-shadow: 0 0 6px #fff, 0 0 2px #fff; }
 </style>
 <script type="module">
   // The scan landscape (/shader/landscape/'s picture), moved by the sound of the v2in radio1965 channel after Play,
@@ -47,6 +52,7 @@
   import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, LANES, createFeatures } from '/shell/radio-gran.mjs';
   import { createEnvFollower } from '/shell/pappus-mod.mjs';
   import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { createKyivRaid, kyivClock } from '/shell/kyiv-raid.mjs';
   import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
 
   const V2IN = new URLSearchParams(location.search).get('v2in') || 'https://v2in.stream';
@@ -148,6 +154,7 @@
       const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
       const ch = (j?.channels || []).find((c) => c.id === STATION);
       if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
+      if (playing && !FORCE_RAID) kyiv.set(j?.raid ?? ch?.raid);
     } catch { /* next time */ }
     if (playing) pollT = setTimeout(readNow, 15_000);
   }
@@ -187,6 +194,7 @@
   }
   function stop() {
     playing = false; clearTimeout(pollT); state = null;
+    if (!FORCE_RAID) kyiv.set(null);
     delete btn.dataset.busy;
     face();
     if (!audio || !fade) return;
@@ -295,6 +303,9 @@
   function frame(t) { tick(t); requestAnimationFrame(frame); }
   if (field) requestAnimationFrame(frame);
 
+  // ?raid=1 shows the raid view with no network, for the harness and a preview
+  const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
+  const kyiv = createKyivRaid({ onChange: () => drawLine() });
   const titleBox = el('div', 'r65-t');
   const eye = el('div', 'pos-hero-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
@@ -305,6 +316,7 @@
   const line = el('p');
   // At rest the closing line; while playing, the channel's title in bold and who made it.
   function drawLine() {
+    if (kyiv.raid().on) { const t = kyiv.raid().since ? kyivClock(Date.parse(kyiv.raid().since)) : ''; line.replaceChildren(el('b', '', `Air raid in Kyiv${t ? ` since ${t}` : ''}`), 'v2in is silent until the all clear.'); return; }
     if (!playing) { line.replaceChildren(ABOUT); return; }
     if (!state?.title) { line.replaceChildren(el('b', '', 'radio1965 on v2in'), 'Tuning in.'); return; }
     line.replaceChildren(el('b', '', state.title), state.by ? `${state.by}.` : '');
@@ -335,9 +347,10 @@
   btns.append(btn, howBtn);
   titleBox.append(eye, h, atLine, line, btns, howBox);
   face();
-  document.body.append(canvas, titleBox);
+  if (FORCE_RAID) kyiv.set({ on: true, since: new Date(Date.now() - 36e5).toISOString() });
+  document.body.append(canvas, kyiv.el, titleBox);
 
-  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, how: () => how, setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, heard: () => heard, onsets: () => ({ onsets, bursts, steps, deposits }), play, stop };
+  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, raid: () => kyiv.raid(), how: () => how, setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, heard: () => heard, onsets: () => ({ onsets, bursts, steps, deposits }), play, stop };
 
   async function check() {
     d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
