@@ -295,8 +295,8 @@ export const DEMOS = [
   // demo/patch/vendor/ holds the vendored engine other pages use; the row went, the files stay.
   // why: lessons/manifest.md#patch
 
-  // /lonely-software/: the owner's essay with three patch pictures, copied as it is, no card.
-  { name: 'lonely-software', title: 'Lonely Software', group: 'kit', act: 0, created: '2026-11-10', built: false, unlisted: true,
+  // /lonely-software/: the owner's essay with three patch pictures, copied as it is, a card under about.
+  { name: 'lonely-software', title: 'Lonely Software', group: 'kit', act: 0, created: '2026-11-10', built: false,
     src: 'demo/lonely-software/index.html', page: '/lonely-software/',
     one: 'When everyone can create anything, what makes someone else care?',
     tags: ['shell', 'no network'] },

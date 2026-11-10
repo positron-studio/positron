@@ -136,7 +136,8 @@
   // order. A row with no entry in DEMO_CARDS lands under `other` rather than
   // disappearing, and says so in the console.
   for (const row of DEMOS) {
-    if (!row.built || row.unlisted) continue;
+    // A row copied in as it is (`src`, no harness) is deployed too, so it may have a card.
+    if (row.unlisted || (!row.built && !row.src)) continue;
     const at = DEMO_CARDS[row.name];
     if (!at) console.warn(`concepts: ${row.name} has no entry in DEMO_CARDS`);
     const group = at?.group || 'other';

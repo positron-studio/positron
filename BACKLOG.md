@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**Front page: an About section with a card to the Lonely Software essay**~~ DONE 2026-11-10 (2026-11-10). Asked: *"make a section to frontpqge About and have card to lnk to essay"*. Card to https://positron.studio/lonely-software/.
+
 - ~~**A page for the owner's essay "Lonely Software", local preview**~~ DONE and deployed 2026-11-10 at https://positron.studio/lonely-software/ (BUILD a7cb3b49-104029-cbd4), after a run of the owner's line edits (2026-11-10). Asked: *"make a page lonely-software and format that text into it. local previw. then illsutrate with patchbay diagram (node, 2 nodes, loopback)"*, with the essay pasted in full (sections The loopback, My own loop, The other end). The text is the owner's, kept word for word. Three patchbay pictures: a lonely node, two nodes linked, a loopback. Local preview only, no deploy asked. Built at /lonely/software/ first (the one word slug rule), then the owner: *"lonely-software"*, so it is a top level page at /lonely-software/ (demo/lonely-software/), not a concept group page.
 
 - ~~**ossia score against positron, background research**~~ DONE 2026-11-10, research/ossia-2026-11-10.md (2026-11-10). Asked: *"Bg research with ossia"*, after the TechTrack plan named ossia score *"the strongest overall architectural relative"* (plan-synthesis entry 29). For Lab II on 11 Nov: what ossia is, who makes and funds it, how it is distributed and sustained, where it overlaps positron and where it does not, and what a mentor would hear. Output research/ossia-2026-11-10.md.
