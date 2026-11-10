@@ -101,6 +101,20 @@ at 8-bit, more at 1-bit. Measure before designing pieces around it.
   emulator); talk to the device from the Pi. If it must be the M1, a Linux VM
   with USB passthrough (UTM). Docker on macOS cannot pass USB through.
 
+### 10. Measured 2026-11-10: the Pi lists the Palm
+
+- **Step 2 is done.** `pilot-xfer -p usb: -l` on pi-1 listed **141 files** in about one second, at 16:50:09, the moment HotSync was tapped on the Palm ("Connecting with the desktop using Cradle/Cable"). Among them PiLocEstonianRes and a System MIDI Sounds database.
+- **pilot-link is not packaged in Debian 13 (trixie).** Built on the Pi from https://github.com/jichu4n/pilot-link into /usr/local (35 tools). What it took:
+  - `config.guess` and `config.sub` copied from /usr/share/misc and `--build=aarch64-unknown-linux-gnu` (the bundled ones do not know arm64);
+  - GCC 14 errors relaxed: `CFLAGS="-O2 -std=gnu99 -Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=return-mismatch -Wno-error=implicit-int"`;
+  - `--enable-conduits` (the command line tools are "conduits"; without it popt is not checked and no tools build) and `libpopt-dev`;
+  - `--enable-libusb`: the stock "Linux" USB backend reads /proc/bus/usb, which this kernel does not have, so `usb:` could not bind;
+  - `--without-perl --without-python --without-tcl --without-java --with-libpng=no`.
+- **The serial ports did not work.** /dev/ttyUSB0 and 1 (the kernel's visor driver) stayed silent for two minutes each. `sudo rmmod visor`, then `pilot-xfer -p usb:`. visor comes back on a reboot.
+- **The Palm starts every sync.** Nothing on the Pi can trigger it: a person taps HotSync.
+- **Next: step 3, a Palm OS app.** It needs a 68k Palm OS compiler (prc-tools and the SDK). Debian has `gcc-m68k-linux-gnu` for the Pi, but that targets Linux, not Palm OS; whether it can build a .prc with the Palm SDK headers and a custom link is UNTESTED. The known route is prc-tools-remix with the Palm OS SDK, on x86 Linux (Docker on the M2 would emulate). Hours, not minutes.
+- **Meanwhile** the browser Palm (/devices/palm/, demo/shell/palm-view.mjs) shows the OLED screens full and split at 12 bit colour.
+
 ## plan-camera-feedback: a Pi camera looking at its own screen
 
 Status (2026-10-30): a plan, nothing built. Builds on `fx.c`, `plan-screens.md`
