@@ -1,8 +1,8 @@
 ## Open
 
-- **v2in: live loses its playlist and is not hidden; a hidden channel mem-source plays the huddersfield playlist, and MEM listens to it** (2026-11-11). Asked: *"in v2in: rm playlist from live and make it nohiddent. create hidden channel mem-source with huddersfield playlist. mem will take input from there"*. v2in channels.json, the mem engine's input (run.mjs / config).
+- ~~**v2in: live loses its playlist and is not hidden; a hidden channel mem-source plays the huddersfield playlist, and MEM listens to it**~~ DONE 2026-11-11 (v2in 66edb25, run 43082358107 deploy success; /api/now lists live, not mem-source), (2026-11-11). Asked: *"in v2in: rm playlist from live and make it nohiddent. create hidden channel mem-source with huddersfield playlist. mem will take input from there"*. v2in channels.json, the mem engine's input (run.mjs / config).
 
-- **MEM: soften it, on top of calm2b** (2026-11-11). Asked: *"work on it more. soften somehow?"* after the now vs calm2b A/B. Scratch engines from plans/plan-mem-listenable.md, 20 min renders per feed, measured, an A/B page for the owner. Nothing deployed until the owner says yes.
+- ~~**MEM: soften it, on top of calm2b**~~ DONE 2026-11-11, soft2 chosen by the owner (positron 02360513, v2in 66edb25, run 43082358107), (2026-11-11). Asked: *"work on it more. soften somehow?"* after the now vs calm2b A/B. Scratch engines from plans/plan-mem-listenable.md, 20 min renders per feed, measured, an A/B page for the owner. Nothing deployed until the owner says yes.
 
 - 2026-11-11, when the Pi is back on the network (it was not reachable at home that evening): (1) remove the three `/etc/hosts` lines marked "Telia filter workaround 2026-11-11, remove after" (`sudo sed -i '/Telia filter workaround/d' /etc/hosts`); (2) the owner runs `rig/board/push.sh <pi address>` to ship b0831b10 (jackd killed when the card goes away); (3) test it: play something, pull the Fast Track USB, sound back on the headphone output within seconds. The Mac's two positron lines in /etc/hosts go too (owner, sudo, a real Terminal). lessons/venue-setup.md.
 
