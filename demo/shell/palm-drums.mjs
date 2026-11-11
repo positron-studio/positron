@@ -54,23 +54,31 @@ export function draw({ rect, put }, s) {
  * why: lessons/rig-palm-drums.md#strokes
  */
 export function createPen(grid, { onFlip = () => {}, onPlay = () => {}, onClear = () => {}, onUp = () => {} } = {}) {
-  let stroke = null, last = null, strokes = 0;
+  let stroke = null, strokes = 0;
+  function cell(x, y) {
+    const h = hitAt(x, y);
+    if (h.kind !== 'cell') return;
+    const k = h.r * STEPS + h.c;
+    if (stroke.seen.has(k)) return;
+    stroke.seen.add(k);
+    grid[h.r][h.c] = !grid[h.r][h.c];
+    onFlip(h.r, h.c, grid[h.r][h.c], !stroke.flips++);
+  }
   function pen(x, y, down) {
-    if (!down) { if (stroke) onUp(x, y, stroke === 'lane' ? null : stroke.flips); stroke = null; last = null; return; }
+    if (!down) { if (stroke) onUp(x, y, stroke === 'lane' ? null : stroke.flips); stroke = null; return; }
     if (!stroke) {
       strokes++;
       const h = hitAt(x, y);
       if (y >= LANE) { stroke = 'lane'; if (h.kind === 'play') onPlay(); else if (h.kind === 'clear') onClear(); return; }
-      stroke = { seen: new Set(), flips: 0 };
+      stroke = { seen: new Set(), flips: 0, x, y };
+      return cell(x, y);
     }
     if (stroke === 'lane') return;
-    const h = hitAt(x, y);
-    if (h.kind !== 'cell') return;
-    const k = h.r * STEPS + h.c;
-    if (k === last || stroke.seen.has(k)) return;
-    last = k; stroke.seen.add(k);
-    grid[h.r][h.c] = !grid[h.r][h.c];
-    onFlip(h.r, h.c, grid[h.r][h.c], !stroke.flips++);
+    // the stylus is reported every few tens of ms, so a fast stroke jumps squares: walk the line between
+    // two reports in 2 px steps and flip every square on it
+    const n = Math.max(1, Math.ceil(Math.hypot(x - stroke.x, y - stroke.y) / 2));
+    for (let i = 1; i <= n; i++) cell(stroke.x + (x - stroke.x) * i / n, stroke.y + (y - stroke.y) * i / n);
+    stroke.x = x; stroke.y = y;
   }
   return { pen, active: () => !!stroke && stroke !== 'lane', strokes: () => strokes };
 }

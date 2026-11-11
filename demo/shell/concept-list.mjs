@@ -35,6 +35,7 @@ export const CONCEPTS = [
   { id: 'devices/dots', title: 'Dots on Pi screen', say: 'A short score plays as rings of dots on the Pi\'s small screen, the dot piano of the Pico.' },
   { id: 'devices/patches', title: 'Patches on Pi screen', say: 'Small patches drawn as the Pi\'s screen shows them. Send one to the Pi to check it.' },
   { id: 'devices/drums', title: 'Drums on Pi', say: 'The Pi\'s sequencer plays its own drums out of its PWM output. Its keys edit the steps.' },
+  { id: 'devices/palmdrums', title: 'Palm drums', say: 'The Palm\'s drum grid in a tab. Draw steps and the Pi\'s drums play them.' },
   { id: 'devices/beat', title: 'Circuit drums from Pi', say: 'The Pi\'s sequencer plays the Circuit\'s drums. Its keys edit the steps.' },
   { id: 'devices/camera', title: 'Camera on Pi screen', say: 'The Pi\'s camera plays in one bit dots on its small screen and here. It needs the camera key.' },
   { id: 'devices/keys', title: 'Keyboard to Circuit on Pi', say: 'The keyboard on the Pi plays the Circuit\'s synth 1 or 2. The Pi keeps the link when the tab closes.' },
