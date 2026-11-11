@@ -33,6 +33,8 @@
   const KEY_STORE = 'positron.present.cam';
   let CAM_KEY = q.get('cam') || '';
   try { if (CAM_KEY) localStorage.setItem(KEY_STORE, CAM_KEY); else CAM_KEY = localStorage.getItem(KEY_STORE) || ''; } catch { /* no storage */ }
+  // the key leaves the address once kept, so it is not left in the bar, the history or a shared screen
+  if (q.has('cam')) { const u = new URL(location.href); u.searchParams.delete('cam'); history.replaceState(null, '', u); }
 
   // ── the ground: one 1024 byte frame, page major as the SSD1306 takes it, white on black ──
   const W = 128, H = 64;
