@@ -367,7 +367,8 @@
 
   // ?raid=1 shows the raid view with no network, for the harness and a preview
   const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
-  const kyiv = createKyivRaid({ onChange: () => drawLine() });
+  // a raid cuts the sound at once (the context suspended), back when it ends if playing, as the slides do
+  const kyiv = createKyivRaid({ onChange: (r) => { drawLine(); if (ctx) { if (r?.on) ctx.suspend().catch(() => {}); else if (playing) ctx.resume().catch(() => {}); } } });
   // Esc hides this raid until the all clear; r shows a simulated one or takes it away
   let raidOff = false;
   const setRaid = (r) => { if (!r?.on) raidOff = false; if (!raidOff) kyiv.set(r); };
