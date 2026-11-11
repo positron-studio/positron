@@ -573,22 +573,44 @@ async function transport() {
 }
 // pframe sends a down and a move alike ("p x y 1"), so only a pen up ends a stroke. A stylus held still sends
 // nothing, and ending a stroke on a quiet gap flipped the square back on the next move (measured 2026-11-11).
+// The lane's two buttons: play and stop on the left, clear on the right, nothing between them.
+const PLAY_X = 40, CLEAR_X = 120;
+function clearGrid() {
+  for (const row of grid) row.fill(false);
+  log('clear: every step off');
+  edited();
+}
+// pframe answers any hard button (the four, the rocker, page up and down) with one "stop" line and never says
+// which, so in the drums view every button is play and stop; a held button repeats, hence the 400 ms.
+let buttonAt = 0;
+function hardButton() {
+  const t = Date.now();
+  if (t - buttonAt < 400) return;
+  buttonAt = t;
+  log(`hard button: ${seqS.running ? 'stop' : 'play'}`);
+  transport();
+}
 function drumPen(x, y, down) {
   if (!down) { if (stroke) log(`pen up ${x} ${y}`); stroke = null; lastCell = null; return; }
   if (!stroke) {
     strokes++;
-    if (y >= G_LANE) { stroke = 'lane'; log(`pen down ${x} ${y}: the lane, ${seqS.running ? 'stop' : 'start'}`); transport(); return; }
-    stroke = { paint: null }; lastCell = null;
+    if (y >= G_LANE) {
+      stroke = 'lane';
+      if (x < PLAY_X) { log(`pen down ${x} ${y}: ${seqS.running ? 'stop' : 'play'}`); transport(); }
+      else if (x >= CLEAR_X) clearGrid();
+      return;
+    }
+    stroke = { seen: new Set(), flips: 0 }; lastCell = null;
   }
   if (stroke === 'lane') return;
   const r = Math.floor((y - G_TOP) / G_PY), c = Math.floor((x - G_X0) / G_PX);
   if (r < 0 || r >= G_ROWS || c < 0 || c >= G_STEPS || !gVoices) return;
   const k = r * G_STEPS + c;
-  if (k === lastCell) return;
-  lastCell = k;
-  if (stroke.paint === null) { stroke.paint = !grid[r][c]; log(`pen down ${x} ${y}: ${gVoices[r].key} step ${c + 1} ${stroke.paint ? 'on' : 'off'}`); }
-  if (grid[r][c] === stroke.paint) return;
-  grid[r][c] = stroke.paint;
+  // every square a stroke crosses flips once: drawing over a filled one erases it
+  if (k === lastCell || stroke.seen.has(k)) return;
+  lastCell = k; stroke.seen.add(k);
+  grid[r][c] = !grid[r][c];
+  if (!stroke.flips++) log(`pen down ${x} ${y}: ${gVoices[r].key} step ${c + 1} ${grid[r][c] ? 'on' : 'off'}`);
   edited();
 }
 function drawDrums(t) {
@@ -604,10 +626,11 @@ function drawDrums(t) {
     box(x - 1, G_TOP - 1, G_CW + 2, G_ROWS * G_PY + 2, 15);
     rect(x, G_TOP - 5, G_CW, 3, 15);
   }
-  // the lane: a play triangle while stopped, a square while running, dim while the Pi is being asked
-  const v = starting ? 5 : 13, cx = 80, cy = G_LANE + 12;
+  // the lane: play (a square while running, dim while the Pi is being asked) at the left, clear (an X) at the right
+  const v = starting ? 5 : 13, cx = 16, cy = G_LANE + 12;
   if (seqS.running) rect(cx - 4, cy - 4, 9, 9, v);
   else for (let i = 0; i < 6; i++) rect(cx - 3 + i, cy - 5 + i, 1, 11 - 2 * i, v);
+  for (let i = 0; i < 9; i++) { put(140 + i, cy - 4 + i, 13); put(148 - i, cy - 4 + i, 13); put(141 + i, cy - 4 + i, 13); put(147 - i, cy - 4 + i, 13); }
   if (pen?.down) put(pen.x, pen.y, 15);
 }
 async function drumsInit() {
@@ -640,6 +663,7 @@ if (isTty) {
       pending = pending.slice(i + 1);
       const m = /^p (-?\d+) (-?\d+) ([01])$/.exec(line);
       if (m) onPen(Number(m[1]), Number(m[2]), m[3] === '1');
+      else if (line === 'stop' && VIEW === 'drums') hardButton();
       else if (line === 'stop') { log('a hard button on the Palm stopped the sound, quiet until the next note'); muted = true; silent = true; sounding = null; }
       else if (line.startsWith('st ')) { if (!saidSt || stopping) log(`the Palm answers the ping: ${line}`); saidSt = true; lastSt = Date.now(); }
       else if (line && !line.startsWith('pal')) log(`palm: ${line}`);
