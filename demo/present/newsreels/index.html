@@ -296,7 +296,7 @@
   // ── the presentation layout (present-layout.mjs), with the playing film as the banner ──
   const lay = createPresentLayout({
     title: 'Newsreels', sub: 'ERR\'s 1965 newsreels on a line, each silent film played with that day\'s surviving radio.',
-    desc: 'Every newsreel ERR kept from 1965 is a mark on the line, on the day it was broadcast. Press one and the film streams from ERR\'s archive, and the radio from the same day follows the picture. Nothing reaches ERR until you play.',
+    desc: 'err:newsreel sends video and err:radio sends audio, both as HLS over https from ERR\'s archive, into web:screen and web:speaker. web:timeline sends the picked day as a value to both. web:screen\'s clock-out drives the timeline\'s playhead and the speaker\'s sync, so the picture is the master and the radio follows it.',
     main: panel.el, aspect: '4 / 3', extra: 'calc(var(--ctl-lg) + 2px)', line: lineHost, patch: pb.el,
     banner: film, moving: () => !!opened && !film.paused && film.readyState >= 2, blank: () => !opened,
     onHow: (on) => { if (on) pb.refresh(); },

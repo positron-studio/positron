@@ -49,7 +49,11 @@ const CSS = `
   body.prl-open .prl-line { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
   .prl-how { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; max-height: 70dvh; overflow-y: auto; }
   body.prl-open .prl-how { opacity: 1; visibility: visible; transition: opacity .8s .8s, visibility 0s .8s; }
-  .prl-how .prl-desc { margin: 0 0 24px; font: 400 clamp(18px, 1.9vw, 24px)/1.45 var(--sans); color: var(--fg); text-wrap: balance; }
+  /* no "patchbay" heading over the patch here (the owner, 2026-11-11), and no empty row where it was */
+  .prl-how .pb-head > .pos-sec-h { display: none; }
+  .prl-how .pb-head:not(:has(> :not(.pos-sec-h))) { display: none; }
+  /* a readable measure: about 60 characters a line, however wide the screen */
+  .prl-how .prl-desc { margin: 0 0 24px; max-width: 32em; font: 400 clamp(18px, 1.9vw, 24px)/1.45 var(--sans); color: var(--fg); text-wrap: pretty; }
   @media (prefers-reduced-motion: reduce) { .prl-main, .prl-line, .prl-how, body.prl-open .prl-line, body.prl-open .prl-how { transition: none; } }
   /* a phone: one column that scrolls, the picture full width under the title */
   @media (max-width: 760px) {
@@ -65,7 +69,8 @@ const CSS = `
 `;
 
 /**
- * `createPresentLayout({ title, sub, desc, main, line, patch, aspect, extra, banner })`:
+ * `createPresentLayout({ title, sub, desc, main, line, patch, aspect, extra, banner })`: `desc` is technical, how the patch
+ * works: its nodes, which port links to which, the medium on each link and the transport where it leaves the machine.
  * `main` is the picture (a kit video panel, usually), `aspect` its shape as a CSS ratio ('4 / 3') and `extra` the
  * height under the picture inside it (its footer, a CSS length). `line` goes across the bottom, `patch` is the
  * patchbay block How it works shows under `desc`. `banner`, a video or canvas, is redrawn blurred under everything
