@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* the Pi's camera is the page's ground: one 128x64 frame covering the viewport, square pixels, dimmed under the words */
+  .st-under { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; margin: 0; z-index: 10; display: block;
+    background: #000; object-fit: cover; image-rendering: pixelated; filter: brightness(.35); transition: filter 1.2s; }
+  body.prl-open .st-under { filter: brightness(.12); }
+</style>
+
+<script type="module">
+  // The first slide: the Pi's camera, dithered to one bit at 128x64 on the board (the OLED's frames), drawn dimmed
+  // under the title. The protocol is /devices/camera/'s; the key comes from ?cam= and is kept for the arrows.
+  import { mount, el } from '/shell/shell.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { RELAY_BASE, HTTP_BASE, randomId } from '/shell/wire.mjs';
+
+  const d = mount({ name: 'Positron Studio', what: '', readout: null, showLog: false, chrome: false });
+
+  const q = new URLSearchParams(location.search);
+  const ROOM = q.get('room') || 'studio-1';
+  const CAM_ROOM = `${ROOM}-cam`;
+  const ME = `web-studio-${randomId(6)}`;
+  const RENEW_MS = 5000;               // the board's lease is 15 s (screen-camera.mjs LEASE_MS)
+  // The arrows drop the query, so a key seen once in the address is kept in this browser.
+  const KEY_STORE = 'positron.present.cam';
+  let CAM_KEY = q.get('cam') || '';
+  try { if (CAM_KEY) localStorage.setItem(KEY_STORE, CAM_KEY); else CAM_KEY = localStorage.getItem(KEY_STORE) || ''; } catch { /* no storage */ }
+
+  // ── the ground: one 1024 byte frame, page major as the SSD1306 takes it, white on black ──
+  const W = 128, H = 64;
+  const cv = Object.assign(el('canvas', 'st-under pos-out'), { width: W, height: H });
+  const g = cv.getContext('2d');
+  const img = g.createImageData(W, H);
+  let painted = 0;
+  function paint(frame) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const v = (frame[(y >> 3) * W + x] >> (y & 7)) & 1 ? 255 : 0, i = (y * W + x) * 4;
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    painted++;
+  }
+  const blank = () => { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); };
+  blank();
+  document.body.append(cv);
+
+  // ── the keyed camera room, as on /devices/camera/: key check, cam.key, a renewal every 5 s while visible ──
+  let ws = null, on = false, keyed = false, beat = null, lastAt = 0, frames = 0;
+  const say = (m) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ ...m, from: ME })); };
+  const renew = () => { if (keyed && !document.hidden) say({ type: 'screen.camera', on: true }); };
+
+  async function start() {
+    if (on) return;
+    if (!CAM_KEY) { d.log('This slide needs the camera key in its address, as ?cam=, so no camera is asked for', 'warn'); return; }
+    on = true;
+    playGroup.setIcon('play', 'stop', 'stop the camera');
+    let r = null;
+    try { r = await fetch(`${HTTP_BASE}/room/${CAM_ROOM}/key`, { method: 'POST', body: CAM_KEY }); } catch { /* stays null */ }
+    if (!on) return;
+    if (!r || r.status !== 204) {
+      d.log(r?.status === 403 ? 'The relay refused the camera key' : 'The relay did not answer the key check', 'warn');
+      return stop(false);
+    }
+    ws = new WebSocket(`${RELAY_BASE}/room/${CAM_ROOM}/ws`);
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'cam.key', key: CAM_KEY, from: ME }));
+    ws.onmessage = (e) => {
+      if (typeof e.data !== 'string') return;
+      let m; try { m = JSON.parse(e.data); } catch { return; }
+      if (m.type === 'cam.key.ok') { keyed = true; renew(); clearInterval(beat); beat = setInterval(renew, RENEW_MS); d.log(`Asking the Pi for its camera in ${CAM_ROOM}`); }
+      else if (m.type === 'screen.camera.started') d.log(`The Pi's camera is on, ${m.source}, ${m.w}x${m.h} at ${m.fps} fps`, 'ok');
+      else if (m.type === 'screen.camera.refused') d.log(`The Pi did not start the camera: ${m.why}`, 'warn');
+      else if (m.type === 'screen.camera.stopped') { if (on) d.log(`The Pi's camera stopped: ${m.why}`, 'warn'); }
+      else if (m.type === 'screen.frame' && typeof m.b64 === 'string') {
+        const bin = atob(m.b64);
+        if (bin.length !== 1024) return;
+        frames++; lastAt = performance.now();
+        paint(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+      }
+    };
+    ws.onclose = (e) => {
+      if (!on) return;
+      d.log(e?.code === 4003 ? 'The relay closed the camera room: it did not take the key' : `The camera room closed (${e?.code ?? '?'})`, 'warn');
+      stop(false);
+    };
+  }
+  function stop(tell = true) {
+    if (tell && keyed) say({ type: 'screen.camera', on: false });
+    clearInterval(beat); beat = null;
+    try { ws?.close(); } catch { /* gone */ }
+    ws = null; on = false; keyed = false;
+    playGroup.setIcon('play', 'play', 'start the camera');
+    blank();
+    if (tell) d.log('Stopped');
+  }
+  addEventListener('visibilitychange', renew);
+  addEventListener('pagehide', () => { if (on) stop(); });
+
+  const playGroup = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'start the camera', onPress: () => (on ? stop() : start()) }] });
+  playGroup.button('play').classList.add('pos-lg');
+
+  // ── the patch as the code runs it: camera and dither on the Pi, frames through the keyed room to this page ──
+  useMediumColours();
+  const port = (node, dir) => ({ id: `${node}:video-${dir}`, dir, medium: 'video' });
+  const NODES = [{ id: 'pi-1:camera', kind: 'device', label: 'USB camera' }, { id: 'pi-1:dither', kind: 'engine', label: 'one bit 128x64' },
+    { id: 'pi-1:screen', kind: 'device', label: 'OLED 128x64' }, { id: 'cf-relay:room', kind: 'endpoint', label: CAM_ROOM },
+    { id: 'web:studio', kind: 'screen', label: 'this page' }];
+  const PORTS = [port('pi-1:camera', 'out'), port('pi-1:dither', 'in'), port('pi-1:dither', 'out'), port('pi-1:screen', 'in'),
+    port('cf-relay:room', 'in'), port('cf-relay:room', 'out'), port('web:studio', 'in')];
+  const LINKS = [{ id: 'a', from: 'pi-1:camera:video-out', to: 'pi-1:dither:video-in' }, { id: 'b', from: 'pi-1:dither:video-out', to: 'pi-1:screen:video-in' },
+    { id: 'c', from: 'pi-1:dither:video-out', to: 'cf-relay:room:video-in' }, { id: 'd', from: 'cf-relay:room:video-out', to: 'web:studio:video-in' }];
+  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: () => LINKS }, { flowing: () => on && performance.now() - lastAt < 500 });
+  setInterval(() => { if (lay.how()) pb.refresh?.(); }, 200);
+
+  const lay = createPresentLayout({
+    title: 'Positron Studio',
+    desc: `pi-1:camera, a USB camera on the Raspberry Pi in ${ROOM}, sends gray video to pi-1:dither, which makes each frame `
+      + 'one bit at 128x64 for pi-1:screen, the OLED. The same frames leave the Pi as 1024 byte text messages through '
+      + `cf-relay:room, Cloudflare's relay room ${CAM_ROOM}, which opens only to the camera key, to web:studio, this page, `
+      + 'which draws them under the title. Play asks the Pi for its camera and renews the ask every five seconds; stop or '
+      + 'leaving ends it.',
+    main: null, line: playGroup.el, patch: pb.el, onHow: (open) => { if (open) pb.refresh(); },
+  });
+
+  window.__demo.how = lay.setHow;
+  window.__demo.raid = () => lay.keys.raid();
+  window.__demo.probe = () => ({ on, keyed, frames, painted, key: !!CAM_KEY, ws: !!ws });
+  // a test hook: paints a 1024 byte frame as if it came from the Pi, opening nothing
+  window.__demo.frame = (bytes) => paint(Uint8Array.from(bytes));
+  d.ready();
+</script>
+</html>
