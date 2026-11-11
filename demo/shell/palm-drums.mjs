@@ -5,10 +5,14 @@
 export const W = 160, H = 160;
 export const STEPS = 16, ROWS = 16;
 // the grid starts 8 rows under pframe's old top strip, so a tap on the kick row stays clear of it
-export const TOP = 22, PY = 7, CH = 6, PX = 10, CW = 8, X0 = 1;
-/** The lane under the grid, 24 rows: play and stop left of PLAY_X, clear from CLEAR_X, nothing between. */
-export const LANE = TOP + ROWS * PY + 2;
+export const TOP = 22, PY = 6, CH = 5, PX = 10, CW = 8, X0 = 1;
+/** Plaits' wave under the grid, 24 rows; the pen does nothing there. */
+export const WAVE_Y = TOP + ROWS * PY + 2, WAVE_H = 24;
+/** The lane under the wave, 15 rows: play and stop left of PLAY_X, clear from CLEAR_X, nothing between. */
+export const LANE = WAVE_Y + WAVE_H + 1;
 export const PLAY_X = 40, CLEAR_X = 120;
+/** A wave is `WAVE_COLS` columns as [lo, hi] pairs, flat, each -100 to 100 (the palm.wave message's `cols`). */
+export const WAVE_COLS = 64;
 
 /** An empty grid, `ROWS` arrays of `STEPS` booleans. */
 export const emptyGrid = () => Array.from({ length: ROWS }, () => new Array(STEPS).fill(false));
@@ -22,7 +26,7 @@ export function hitAt(x, y) {
 
 /**
  * `draw({ rect, put }, s)`: `rect(x, y, w, h, v)` and `put(x, y, v)` paint ink 0 to 15, and `s` is
- * `{ grid, step, running, starting, selRow, pen }`. Shapes, not greys, so it reads the same at 1 bit.
+ * `{ grid, step, running, starting, selRow, pen, wave }`. Shapes, not greys, so it reads the same at 1 bit.
  */
 export function draw({ rect, put }, s) {
   const now = s.running ? s.step : -1;
@@ -39,12 +43,30 @@ export function draw({ rect, put }, s) {
     rect(x - 1, TOP - 1, 1, ROWS * PY + 2, 15); rect(x + CW, TOP - 1, 1, ROWS * PY + 2, 15);
     rect(x, TOP - 5, CW, 3, 15);
   }
+  drawWave(rect, 0, WAVE_Y, W, WAVE_H, s.wave);
   // play (a square while running, dim while the Pi is being asked) at the left, clear (an X) at the right
-  const v = s.starting ? 5 : 15, cx = 16, cy = LANE + 12;
+  const v = s.starting ? 5 : 15, cx = 16, cy = LANE + 7;
   if (s.running) rect(cx - 4, cy - 4, 9, 9, v);
   else for (let i = 0; i < 6; i++) rect(cx - 3 + i, cy - 5 + i, 1, 11 - 2 * i, v);
   for (let i = 0; i < 9; i++) { put(140 + i, cy - 4 + i, 15); put(148 - i, cy - 4 + i, 15); put(141 + i, cy - 4 + i, 15); put(147 - i, cy - 4 + i, 15); }
   if (s.pen?.down) put(s.pen.x, s.pen.y, 15);
+}
+
+/**
+ * `drawWave(rect, x, y, w, h, cols)`: `cols` (see WAVE_COLS) stretched over w as one connected trace, each
+ * column joined to the one before; no cols, or silence, is a flat line through the middle.
+ */
+export function drawWave(rect, x0, y0, w, h, cols) {
+  const n = cols?.length >> 1, mid = y0 + (h >> 1), k = (h - 1) / 200;
+  if (!n) return rect(x0, mid, w, 1, 15);
+  const yOf = (v) => Math.round(mid - v * k);
+  let pTop = null, pBot = null;
+  for (let x = 0; x < w; x++) {
+    const c = Math.min(n - 1, Math.floor(x * n / w)), top = yOf(cols[c * 2 + 1]), bot = yOf(cols[c * 2]);
+    const a = pTop === null ? top : Math.min(top, pBot), b = pTop === null ? bot : Math.max(bot, pTop);
+    rect(x0 + x, a, 1, b - a + 1, 15);
+    pTop = top; pBot = bot;
+  }
 }
 
 /**

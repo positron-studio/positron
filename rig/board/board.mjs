@@ -113,12 +113,14 @@ function drumHit(name, from) {
   const r = core.hit({ hits: [{ name, ...choke }] }, { from });
   return r.ok ? { ok: true } : { ok: false, why: r.refused?.[0]?.reason || 'refused' };
 }
+let rawAt = 0;   // when the last screen.raw frame was drawn
 const drumSeq = createSequencerService({
   graph: () => (graphFacts ? graphOf(graphFacts) : null),
   midiSend: circuitSend,
   hit: (name) => drumHit(name, 'sequencer'),
   // While the Circuit's drums hold the screen, the sequencer runs without drawing.
-  screen: (steps) => { if (panel && steps && !cdrums.held()) panel.steps(steps); },
+  // nor for 2 s after a screen.raw frame, while the Palm bridge draws grid and wave itself
+  screen: (steps) => { if (panel && steps && !cdrums.held() && Date.now() - rawAt > 2000) panel.steps(steps); },
   log: (l) => log(l),
 });
 // The MK-425C on the Pi into the Circuit (keyboard.mjs): held by the board until kbd.unlink, so it
@@ -1099,7 +1101,7 @@ async function handle(msg, replyVia = null) {
     case 'screen.raw': {
       if (!panel || screenTaken() || typeof msg.b64 !== 'string') return;
       const b = Buffer.from(msg.b64, 'base64');
-      if (b.length === 1024) panel.frame(new Uint8Array(b));
+      if (b.length === 1024) { rawAt = Date.now(); panel.frame(new Uint8Array(b)); }
       return;
     }
     // A small patch for the screen (/devices/patches/), asked so the page can say it landed.

@@ -9,8 +9,9 @@
 //   node bridge.mjs /dev/ttyUSB0 --view split             # spectrogram on top, rings below
 //   node bridge.mjs /dev/ttyUSB0 --demo                   # an arpeggio made here, no relay: the Palm alone
 //   node bridge.mjs --dry --snap /tmp/palm.pgm --secs 10  # no Palm: log notes, write the picture as PGM
-//   node bridge.mjs /dev/ttyUSB0 --view drums             # a 16 step grid of 16 drums, drawn with the stylus, played by the board's sequencer
-//   --view camera|split|rings|keys|roll|drums  --drums-target drums|circuit (default drums)  --bpm 120  --cam-fps 15  --video /dev/videoN  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
+//   node bridge.mjs /dev/ttyUSB0 --view drums             # a 16 step grid of 16 drums, drawn with the stylus, played by the board's sequencer, Plaits' wave under it
+//   node bridge.mjs --dry --view drums --snap p.pgm --oled-snap o.pgm --secs 3   # no Palm, no room messages: both pictures as PGM, a made up wave off the Pi
+//   --view camera|split|rings|keys|roll|drums  --drums-target drums|circuit (default drums)  --bpm 120  --cam-fps 15  --video /dev/videoN  --wave-port circuit:capture_1 (capture_2 is the SM57)  --synth-port posplaits:out_1 (drums: the wave under the grid)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
 //   --room studio-1   --relay wss://...   --pen-cc 80,81   --pen-ch 1   --dry   --demo   --secs N   --light (black on white; the default is white on black)   --no-oled
 //   the voice (with --voice): --voice-mode arp|mono|echo|chip|plain (default arp)   --pattern up|down|updown|random
 //   --rate 110 (ms an arp step)   --glide 40 (ms)   --vib 0 (cents, 5.5 Hz)   --echo 0.5 (feedback 0 to 0.85)   --echo-ms 240
@@ -35,7 +36,7 @@
 // The Palm draws its status lines over rows 124 to 159, so the picture uses rows 0 to 121.
 import fs from 'node:fs';
 import tty from 'node:tty';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { findVideo, holdersOf, ffArgs, levels, BAYER4 } from './camera.mjs';
 // The drum grid's picture and pen (demo/shell/palm-drums.mjs, shared with /devices/palmdrums/); on the Pi a copy sits beside this file.
 let PD = null;
@@ -45,14 +46,16 @@ for (const u of ['../../demo/shell/palm-drums.mjs', './palm-drums.mjs']) { try {
 const TEXT = process.argv.includes('--text');
 const W = 160, H = 160, DH = TEXT ? 122 : 160;
 const args = process.argv.slice(2);
-const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port',
+const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--oled-snap', '--secs', '--wave-port', '--synth-port',
   '--drums-target', '--bpm', '--cam-fps', '--video', '--voice-mode', '--pattern', '--rate', '--glide', '--vib', '--echo', '--echo-ms', '--double', '--tuning', '--drums-below'];
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const flag = (name) => args.includes(name);
 const dev = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || '/dev/ttyUSB0';
 const VIEW = opt('--view', 'camera');
 const CAM_FPS = Number(opt('--cam-fps', 15));
-const WAVE_PORT = opt('--wave-port', 'circuit:capture_1');
+// the drum grid's wave is Plaits alone, never the drums: its own JACK output (--synth-port), not the capture,
+// so drums.sh's --wave-port system:capture_1 does not reach it
+const WAVE_PORT = VIEW === 'drums' ? opt('--synth-port', 'posplaits:out_1') : opt('--wave-port', 'circuit:capture_1');
 // the drum grid goes at 1 bit: a quarter of the bytes, so a tap's flip reaches the Palm sooner
 const FMT = Number(opt('--fmt', VIEW === 'drums' ? 1 : 4));
 const FPS = Number(opt('--fps', FMT === 1 ? 30 : FMT === 2 ? 20 : 15));
@@ -61,7 +64,7 @@ const RELAY = opt('--relay', 'wss://ws.positron.studio');
 const [PEN_X, PEN_Y] = opt('--pen-cc', '80,81').split(',').map(Number);
 const PEN_CH = Number(opt('--pen-ch', 1));
 const VOICE = flag('--voice'), PEN = flag('--pen'), DRY = flag('--dry'), DEMO = flag('--demo');
-const SNAP = opt('--snap', null), SECS = Number(opt('--secs', 0));
+const SNAP = opt('--snap', null), OLED_SNAP = opt('--oled-snap', null), SECS = Number(opt('--secs', 0));
 // White on black by default (the owner: "circle notes on palm. white on black"); --light draws black on white.
 const LIGHT = flag('--light');
 // The board's OLED shows the split at 128x64 as screen.raw frames unless --no-oled; --oled-notes sends
@@ -476,8 +479,8 @@ function penFlush() {
 }
 
 // ── the drum grid (--view drums): the board's own sequencer (rig/board/sequencer.mjs), edited by the pen ──
-// The picture and the pen are palm-drums.mjs. Edits land on the next bar; the OLED shows the top 8 rows
-// (steps-oled.mjs). The playhead is the board's step, read every 2 s.
+// The picture and the pen are palm-drums.mjs. Edits land on the next bar; the OLED gets all 16 rows and
+// Plaits' wave from this bridge (drumsOled). The playhead is the board's step, read every 2 s.
 const DRUMS_TARGET = opt('--drums-target', 'drums'), DRUMS_BPM = Number(opt('--bpm', 120));
 if (!['drums', 'circuit'].includes(DRUMS_TARGET)) die('--drums-target drums or circuit');
 if (!(DRUMS_BPM >= 40 && DRUMS_BPM <= 240)) die('--bpm 40 to 240');
@@ -630,7 +633,7 @@ function drumPen(x, y, down) { if (gVoices) drumPens.pen(x, y, down); }
 function drawDrums(t) {
   const now = stepNow(t);
   drawnStep = now;
-  PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow, pen });
+  PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow, pen, wave: waveCols });
 }
 async function drumsInit() {
   // demo/drums/voices.mjs from this checkout, or the board's copy on the Pi (the bridge runs from ~/palm there)
@@ -775,7 +778,7 @@ function drawRoll(t) {
 const RATE = 48000, WBUF = 8192, wave = new Float32Array(WBUF);
 let wPos = 0, wGot = 0, wProc = null, wConnected = false, wPeak = 0;
 function waveStart() {
-  if (VIEW !== 'split' || stopping) return;
+  if ((VIEW !== 'split' && VIEW !== 'drums') || stopping) return;
   const client = `palmwave${process.pid % 1000}`;
   let carry = null;
   wConnected = false;
@@ -790,7 +793,7 @@ function waveStart() {
     const n = chunk.length >> 1;
     if (chunk.length & 1) carry = chunk.subarray(chunk.length - 1);
     for (let i = 0; i < n; i++) { wave[wPos] = chunk.readInt16LE(i * 2) / 32768; wPos = (wPos + 1) % WBUF; }
-    wGot += n; dirty = true;
+    wGot += n; if (VIEW === 'split') dirty = true;
   });
   p.on('exit', (code) => {
     if (wProc === p) wProc = null;
@@ -802,12 +805,29 @@ function waveStart() {
   const tryConnect = () => {
     if (wProc !== p) return;
     for (const port of ports) {
-      try { execFileSync('jack_connect', [port, `${client}:input_1`], { stdio: 'ignore', timeout: 2000 }); wConnected = port; log(`wave: reading ${port} through JACK as ${client}`); return; }
+      try { execFileSync('jack_connect', [port, `${client}:input_1`], { stdio: 'ignore', timeout: 2000 }); wConnected = port; log(`wave: reading ${port} through JACK as ${client}`); if (VIEW === 'drums') waitPlaits(p, client, [port], true); return; }
       catch { /* not this name, or the client is not up yet */ }
     }
-    if (Date.now() - t0 < 5000) setTimeout(tryConnect, 100); else { log(`wave: could not connect ${ports.join(' or ')} to ${client}:input_1`); p.kill(); }
+    if (Date.now() - t0 < 5000) setTimeout(tryConnect, 100);
+    else if (VIEW === 'drums') waitPlaits(p, client, ports);
+    else { log(`wave: could not connect ${ports.join(' or ')} to ${client}:input_1`); p.kill(); }
   };
   setTimeout(tryConnect, 100);
+}
+// Plaits comes and goes with the pages that start it: ffmpeg stays up reading silence, and every 3 s
+// jack_lsp says whether the port still feeds it, and jack_connect is tried when it does not.
+function waitPlaits(p, client, ports, quiet = false) {
+  if (!quiet) log(`wave: no ${ports[0]} yet (Plaits is not running), asking every 3 s`);
+  const iv = setInterval(() => {
+    if (wProc !== p) return clearInterval(iv);
+    execFile('jack_lsp', ['-c', `${client}:input_1`], { timeout: 2000 }, (e1, out) => {
+      if (String(out || '').includes(ports[0])) return;
+      if (wConnected) { wConnected = false; log(`wave: ${ports[0]} went away`); }
+      execFile('jack_connect', [ports[0], `${client}:input_1`], { timeout: 2000 }, (err) => {
+        if (!err) { wConnected = ports[0]; log(`wave: reading ${ports[0]} through JACK as ${client}`); }
+      });
+    });
+  }, 3000);
 }
 // The spectrogram (/palm/'s, on the Pi): one column every SPEC_COL_MS, newest on the right, rows log 60 Hz to
 // 12 kHz, ink over SPEC_RANGE dB under the loudest recent bin, which falls back SPEC_FALL dB a second.
@@ -932,6 +952,7 @@ if (VIEW !== 'camera') setInterval(() => {
   enqueue(pack(FMT), { frame: true });
 }, 1000 / FPS);
 if (!DRY || process.platform === 'linux') waveStart();
+else if (VIEW === 'drums') fakePlaits();
 
 // The OLED: the same split at 128x64, the spectrogram's newest 128 columns over 32 rows and the rings under it,
 // dithered to one bit and packed page major (8 pages of 128 bytes, bit 0 on top) as the SSD1306 takes it.
@@ -952,6 +973,80 @@ function oledFrame(t) {
   }
   return out;
 }
+// ── the drum grid's wave and OLED, 10 a second: Plaits' wave as a still trace, the grid over it on the OLED ──
+// The trace starts on a rising crossing of a smoothed copy, so a held note stands still; it is scaled to its
+// own peak (at least WAVE_MIN), so the knobs show as shape. Silence is no cols: a flat line.
+const SCOPE_N = 2048, WAVE_MIN = 0.2, WAVE_QUIET = 0.002;
+let waveCols = null, waveSent = 0, waveWas = false, oledLast = null, oledAt = 0;
+function scopeCols() {
+  if (wGot < SCOPE_N * 2) return null;
+  const at = (i) => wave[((i % WBUF) + WBUF) % WBUF];
+  let start = wPos - SCOPE_N, lp = 0, prev = 0, peak = 0;
+  for (let i = wPos - SCOPE_N; i < wPos; i++) peak = Math.max(peak, Math.abs(at(i)));
+  wPeak = peak;
+  if (peak < WAVE_QUIET) return null;
+  // one pole at about 150 Hz: a folded wave crosses zero many times a period, its fundamental once
+  for (let i = wPos - SCOPE_N * 2; i < wPos - SCOPE_N; i++) {
+    lp += 0.02 * (at(i) - lp);
+    if (prev < 0 && lp >= 0) start = i;
+    prev = lp;
+  }
+  const n = PD.WAVE_COLS, per = SCOPE_N / n, k = 100 / Math.max(peak, WAVE_MIN), cols = new Array(n * 2);
+  for (let c = 0; c < n; c++) {
+    let lo = 1, hi = -1;
+    for (let j = 0; j < per; j++) { const v = at(start + c * per + j); if (v < lo) lo = v; if (v > hi) hi = v; }
+    cols[c * 2] = Math.max(-100, Math.round(lo * k)); cols[c * 2 + 1] = Math.min(100, Math.round(hi * k));
+  }
+  return cols;
+}
+/** --dry off the Pi: a C2 drone folded like the Growl patch, three seconds on and one off, so both lanes are seen. */
+function fakePlaits() {
+  let ph = 0, n = 0;
+  setInterval(() => {
+    for (let i = 0; i < RATE / 50; i++, n++) {
+      const on = n % (RATE * 4) < RATE * 3, x = Math.sin(ph) * (1.5 + Math.sin(n / RATE));
+      wave[wPos] = on ? 0.3 * Math.sin(x * 1.7) : 0;
+      wPos = (wPos + 1) % WBUF; ph += 2 * Math.PI * 65.4 / RATE;
+    }
+    wGot += RATE / 50;
+  }, 20);
+}
+/** The OLED in the drum view: 16 steps of 8 px over 16 rows of 3 (a hit is 6 by 2), the playing step inverted, the wave in rows 49 to 63. */
+function drumsOled(t) {
+  const img = new Uint8Array(OW * OH);
+  const r1 = (x, y, w, h, v) => { for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (i >= 0 && j >= 0 && i < OW && j < OH) img[j * OW + i] = v ? 1 : 0; };
+  const now = stepNow(t);
+  if (now >= 0) r1(now * 8, 0, 8, 48, 1);
+  for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
+    const on = c === now ? 0 : 1;
+    if (grid[r][c]) r1(c * 8 + 1, r * 3, 6, 2, on);
+    else if (c % 4 === 0 && c !== now) r1(c * 8 + 4, r * 3, 1, 1, 1);
+  }
+  PD.drawWave((x, y, w, h) => r1(x, y, w, h, 1), 0, 49, OW, 15, waveCols);
+  const out = Buffer.alloc(OW * OH / 8);
+  for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) if (img[y * OW + x]) out[(y >> 3) * OW + x] |= 1 << (y & 7);
+  return out;
+}
+function oledPgm(file, b) {
+  const px = Buffer.alloc(OW * OH);
+  for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) px[y * OW + x] = b[(y >> 3) * OW + x] & (1 << (y & 7)) ? 255 : 0;
+  fs.writeFileSync(file, Buffer.concat([Buffer.from(`P5\n${OW} ${OH}\n255\n`), px]));
+}
+if (VIEW === 'drums') setInterval(() => {
+  if (stopping || !PD || !gVoices) return;
+  const t = Date.now();
+  waveCols = scopeCols();
+  if (waveCols || waveWas) dirty = true;
+  // the page's lane (/present/pipalm/): only while there is a wave, and once more when it goes quiet; never --dry
+  if (!DRY && (waveCols || waveWas) && sendTo(ROOM, { type: 'palm.wave', cols: waveCols || [] })) waveSent++;
+  waveWas = !!waveCols;
+  if (!OLED_RAW) return;
+  const b = drumsOled(t);
+  if (OLED_SNAP) oledPgm(OLED_SNAP, b);
+  // a still frame once a second keeps the board's own grid drawing from coming back (board.mjs, rawAt)
+  if (DRY || (oledLast && b.equals(oledLast) && t - oledAt < 1000)) return;
+  if (sendTo(ROOM, { type: 'screen.raw', b64: b.toString('base64') })) { oledSent++; oledLast = b; oledAt = t; }
+}, 100);
 if (OLED_RAW && VIEW !== 'camera' && VIEW !== 'drums') setInterval(() => {
   if (stopping) return;
   const t = Date.now(), b = oledFrame(t);
@@ -1040,7 +1135,7 @@ setInterval(() => {
   const fps = (sent.frames - win.f) / dt, kbs = (sent.bytes - win.b) / dt / 1024, tps = (sent.tones - (win.tones ?? 0)) / dt;
   win = { t: Date.now(), f: sent.frames, b: sent.bytes, tones: sent.tones, cam: camFrames };
   const top = soundingNote !== null ? nameOf(soundingNote) : '-';
-  const w = VIEW === 'split' ? `, wave ${wConnected || 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
+  const w = VIEW === 'split' || VIEW === 'drums' ? `, wave ${wConnected || 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}${VIEW === 'drums' ? `, palm.wave sent ${waveSent}` : ''}` : '';
   log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${VIEW === 'drums' ? `, strokes ${drumPens?.strokes() ?? 0}${seqS.running ? ` playing step ${stepNow() + 1}` : ''}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${cf}${w}`);
 }, 5000);
 
