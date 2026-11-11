@@ -63,6 +63,10 @@ const CSS = `
      it lay out 2 margins wider than it had and scroll (the owner: avoid the sideways scroll); its boxes' border still
      overshoots by 2 px, and bay-view sets overflow-x inline, so only !important clips that */
   .prl-how .lv { overflow-x: clip !important; }
+  /* How it works lays a black veil over whatever a page draws under the layout (a camera, the floor), under the words */
+  .prl::before { content: ''; position: fixed; inset: 0; z-index: -1; background: rgba(0, 0, 0, .6); opacity: 0;
+    pointer-events: none; transition: opacity 1.2s; }
+  body.prl-open .prl::before { opacity: 1; }
   .prl-main { transition: filter 1.2s; }
   body.prl-open .prl-main { filter: brightness(.18); }
   .prl-line { transition: opacity .6s .6s, visibility 0s; }
