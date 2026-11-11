@@ -30,7 +30,11 @@ const CSS = `
   /* buttons under the words (a Play), one step under them */
   .prl-acts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
   /* knobs under the words are the large ones: twice the kit's width, the dial and its hand both read --knob-w */
-  .prl-acts .pos-knob { --knob-w: calc(var(--ctl-w) * 2.2); }
+  .prl-acts .pos-knob { --knob-w: calc(var(--ctl-w) * 2.2); --knob-num-h: 20px; }
+  /* and their words and hand grow with them: the number, the name, and the hand's button and glyph */
+  .prl-acts .pos-knob-v { font-size: 15px; line-height: var(--knob-num-h); }
+  .prl-acts .pos-knob-lab { font-size: 13px; }
+  .prl-acts .pos-knob-hand { width: 34px; min-width: 34px; height: 34px; font-size: 18px; }
   .prl-foot { margin-top: var(--pr-m); }
   .prl-head { grid-area: head; min-width: 0; }
   /* the box is the ink, so the capitals' tops meet the picture's top edge */
