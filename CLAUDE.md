@@ -245,6 +245,14 @@ Every 06 log opens with `BUILD <sha>-<hhmmss>`, so a report can be attributed.
 Clear with `POST /logs/clear`. `GET /status` blocks on the container's cold start
 — that is expected, not a hang.
 
+## Away from the desk, a network can block positron.studio
+
+Telia's filter rates the domain "Malicious Websites" and answers its DNS with a block page (`208.91.112.55`), even
+for `dig @1.1.1.1`. Check `dig +short positron.studio` first. The fix that worked (2026-11-11): pin
+`positron.studio`, `pub.` AND `ws.positron.studio` (the relay) in `/etc/hosts`, IPv4 AND IPv6, on the laptop
+and the Pi. The site also answers at `https://positron.kristjan-jansen.workers.dev/`. The Fast Track dropping off
+USB hangs JACK and every sound button. Everything else from that day: `lessons/venue-setup.md`.
+
 ## The VPN passes the handshake and drops the media
 
 🔴 **THERE IS A VPN ON THIS MACHINE AND IT IS SWITCHED ON AND OFF. CORRECTED

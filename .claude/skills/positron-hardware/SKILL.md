@@ -192,6 +192,13 @@ or checking it tells you nothing about what is running. Compare `md5sum` against
   measuring the wrong device. Resolve by NAME from
   `-list_devices true` every time; `rig/m1/live-check.mjs` does.
 
+## At a venue (2026-11-11)
+
+The Fast Track's USB is the Pi's audio clock: if it drops, JACK hangs and every sound button spins; the board falls
+back to the dummy clock after about 12 min, and `rig/board/push.sh` moves it back. No `/dev/ttyUSB*` means the
+Palm is unplugged. A filtered network blocks the relay (`ws.positron.studio`). All of it, with commands:
+`lessons/venue-setup.md`.
+
 ## From the handoffs (extracted 2026-10-19)
 
 ### The Pi's outputs, measured
