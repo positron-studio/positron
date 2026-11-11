@@ -44,7 +44,10 @@ const CSS = `
   /* the line holds the bottom row; How it works stands on the same bottom edge and rises over the dimmed picture,
      out of flow so its height never takes the picture's room while it is closed */
   .prl-foot { grid-area: foot; position: relative; min-width: 0; }
-  .prl-how { position: absolute; left: 0; right: 0; bottom: 0; }
+  /* edge to edge: the panel and the patch's own scroller reach past the page margin, padded back by the same margin,
+     so a wide patch scrolls from screen edge to screen edge while everything sits where it did */
+  .prl-how { position: absolute; left: calc(-1 * var(--pr-m)); right: calc(-1 * var(--pr-m)); bottom: 0; padding-inline: var(--pr-m); }
+  .prl-how .lv { width: auto; margin-inline: calc(-1 * var(--pr-m)); padding-inline: var(--pr-m); }
   .prl-main { transition: filter 1.2s; }
   body.prl-open .prl-main { filter: brightness(.18); }
   .prl-line { transition: opacity .6s .6s, visibility 0s; }
@@ -73,7 +76,7 @@ const CSS = `
     .prl-main { margin-top: var(--pr-m); container-type: normal; justify-items: stretch; }
     .prl-main.prl-main > * { width: 100%; }
     /* the page scrolls, so How it works takes the line's place in the flow instead of rising over the picture */
-    .prl-how { position: static; max-height: none; display: none; }
+    .prl-how { position: static; max-height: none; display: none; margin-inline: calc(-1 * var(--pr-m)); }
     body.prl-open .prl-head { opacity: 1; visibility: visible; }
     body.prl-open .prl-how { display: block; }
     body.prl-open .prl-line { display: none; }
@@ -114,7 +117,8 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   function alignHow() {
     const svg = howBox.querySelector('svg'), box = svg?.querySelector('rect');
     if (!box) return;
-    const inset = box.getBoundingClientRect().left - howBox.getBoundingClientRect().left;
+    // from the panel's content edge: its padding is the page margin it bleeds by
+    const inset = box.getBoundingClientRect().left - howBox.getBoundingClientRect().left - parseFloat(getComputedStyle(howBox).paddingLeft);
     howBox.style.setProperty('--prl-inset', `${Math.max(0, Math.round(inset))}px`);
   }
   // How it works rises from the bottom edge to one step under the top bar, measured on open and on resize
