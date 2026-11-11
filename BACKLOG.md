@@ -1,5 +1,9 @@
 ## Open
 
+- ~~**v2in: remove 'Nobody live now'**~~ DONE 2026-11-11 (v2in 102add7, a blank line instead; live hidden again on *"hide live again if not hidden already"*), (2026-11-11). Asked: *"rm 'Nobody live now'"*, after live became public with no playlist.
+
+- **v2in MEM after soft2: still noisy** (2026-11-11). Said: *"https://v2in.stream/stream/mem - nosiyyy"*, right after soft2 and mem-source went live (v2in 66edb25). Measure the stream, find whether it is the input (huddersfield AM, 48 % hiss) or the engine. MEASURED 19:07: mem 120 s at -23.5 LUFS, 11 % hiss, harshness 0.11; mem-source was the Icecast hold (silence, 'One moment') from the 66edb25 deploy until 102add7 at about 19:12, so MEM had no new input then. mem-source at -27.4 dB mean after. Listen again once the ring has refilled.
+
 - ~~**v2in: live loses its playlist and is not hidden; a hidden channel mem-source plays the huddersfield playlist, and MEM listens to it**~~ DONE 2026-11-11 (v2in 66edb25, run 43082358107 deploy success; /api/now lists live, not mem-source), (2026-11-11). Asked: *"in v2in: rm playlist from live and make it nohiddent. create hidden channel mem-source with huddersfield playlist. mem will take input from there"*. v2in channels.json, the mem engine's input (run.mjs / config).
 
 - ~~**MEM: soften it, on top of calm2b**~~ DONE 2026-11-11, soft2 chosen by the owner (positron 02360513, v2in 66edb25, run 43082358107), (2026-11-11). Asked: *"work on it more. soften somehow?"* after the now vs calm2b A/B. Scratch engines from plans/plan-mem-listenable.md, 20 min renders per feed, measured, an A/B page for the owner. Nothing deployed until the owner says yes.
