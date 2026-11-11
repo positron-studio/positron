@@ -17,24 +17,15 @@
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createBoard, BOARD_RATE } from '/shell/board.mjs';
   import { createBoardCollide } from '/shell/board-collide.mjs';
-  import { createStepGrid } from '/shell/step-grid.mjs';
+  import { createStepGrid, PAD_GAP, PAD_MIN } from '/shell/step-grid.mjs';
+  import { createInstrumentPanel } from '/shell/instrument-panel.mjs';
   import * as PD from '/shell/palm-drums.mjs';
   import { voices } from '/drums/voices.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createKnob } from '/shell/knob.mjs';
-  import { createNoteRecorder } from '/shell/note-recorder.mjs';
   import { PATCHES as PLAITS } from '/shell/plaits-params.mjs';
   import { createPresentCamera } from '/shell/present-camera.mjs';
   useMediumColours();
-  document.head.append(Object.assign(document.createElement('style'), { textContent:
-    '.pm-foot-left, .pm-knobs { display: flex; gap: 12px; align-items: center; }'
-    // the label column beside the steps; the strip is the grid's scroller and its width sizes the pads
-    // (min-width 0, or the grid item takes its content's width and the pads size themselves from it)
-    + ' .ok-grid { display: flex; align-items: flex-start; min-width: 0; }'
-    + ' .ok-grid > .pos-pg-labs { flex: none; }'
-    + ' .ok-grid > .ok-strip { flex: 1 1 0; min-width: 0; overflow-x: auto; }'
-    + ' .ok-timeline { display: flex; flex-direction: column; gap: 12px; } .ok-timeline[hidden] { display: none; }'
-    + ' @media (min-width: 761px) { .ok-grid .pos-pg-lab { font-size: 14px; } }' }));
 
   const d = mount({ name: 'OK GO', what: '', readout: null, showLog: false, chrome: false });
 
@@ -160,7 +151,7 @@
     if (await reached()) startPlaits();
     if (listening) {
       try { lift?.disconnect(); } catch { /* not connected */ }
-      listening = false; buttons.setIcon('listen', 'headphones', 'listen here');
+      listening = false; listenBtn.setIcon('listen', 'headphones', 'listen here');
       d.log('not listening here; the Pi still plays out of its PWM output', 'dim');
       return pb.refresh();
     }
@@ -172,7 +163,7 @@
     lift.gain.value = LIFT;
     board.playout().connect(lift);
     lift.connect(ctx.destination);
-    listening = true; buttons.setIcon('listen', 'mute', 'stop listening here');
+    listening = true; listenBtn.setIcon('listen', 'mute', 'stop listening here');
     d.log('listening to the Pi\'s drums here', 'ok');
     pb.refresh();
   }
@@ -225,32 +216,14 @@
     midiAt = performance.now();
     if (latch) {
       if (hi !== 0x90 || !d2) return;
-      // the timeline hears what sounds: a latched note from its press to the press that lets it go
-      if (latched.delete(d1)) { board.send({ type: 'palm.release', note: d1 }); recorder.take({ d1, d2: 0 }); }
-      else { latched.add(d1); board.send({ type: 'palm.hold', note: d1, vel: d2 }); recorder.take({ d1, d2 }); }
+      if (latched.delete(d1)) board.send({ type: 'palm.release', note: d1 });
+      else { latched.add(d1); board.send({ type: 'palm.hold', note: d1, vel: d2 }); }
       return;
     }
-    if (hi === 0x90 && d2) { held.add(d1); board.send({ type: 'note.on', node: 'plaits', note: d1, vel: d2 }); recorder.take({ d1, d2 }); }
-    else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); recorder.take({ d1, d2: 0 }); }
+    if (hi === 0x90 && d2) { held.add(d1); board.send({ type: 'note.on', node: 'plaits', note: d1, vel: d2 }); }
+    else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); }
   }
 
-  // ── the timeline (note-recorder.mjs): rec takes the keyboard's notes, play sends them to Plaits on the Pi at their times ──
-  const replaying = new Set();
-  let recAt = 0;
-  const recorder = createNoteRecorder({
-    send: (ev) => {
-      recAt = performance.now();
-      if (!plaitsUp || !connected) return;
-      if (ev.d2) { replaying.add(ev.d1); board.send({ type: 'note.on', node: 'plaits', note: ev.d1, vel: ev.d2 }); }
-      else { replaying.delete(ev.d1); board.send({ type: 'note.off', node: 'plaits', note: ev.d1 }); }
-    },
-    // only the notes its own playback holds, so a key held or latched by hand keeps sounding
-    onStop: () => { if (connected) for (const n of replaying) board.send({ type: 'note.off', node: 'plaits', note: n }); replaying.clear(); },
-  });
-  recorder.drawNotes();
-  const timeline = el('div', 'ok-timeline');
-  timeline.append(recorder.transport.el, recorder.table.el);
-  timeline.hidden = true;
   let midiAsked = false;
   async function askMidi() {
     if (midiAsked || !navigator.requestMIDIAccess) return;
@@ -266,10 +239,9 @@
   addEventListener('pagehide', () => { if (connected) for (const n of held) board.send({ type: 'note.off', node: 'plaits', note: n }); });
 
   // ── the kit's drum grid (step-grid.mjs): a press edits a step and goes to the Pi as the Palm's pen did ──
-  const gridBox = el('div', 'ok-grid');
-  const labs = el('div'), strip = el('div', 'ok-strip');
-  gridBox.append(labs, strip);
-  const sg = createStepGrid({ fixed: labs, strip, rows: VOICES.length, steps: PD.STEPS, ticks: true,
+  // no label column: each pad's hover and accessible name carry its drum
+  const strip = el('div', 'ok-strip');
+  const sg = createStepGrid({ strip, rows: VOICES.length, steps: PD.STEPS, ticks: true,
     label: (r) => VOICES[r].label,
     onToggle: (r, s, lit, why) => { if (why === 'quiet') return; grid[r][s] = lit; edited(); } });
   // a stroke in progress keeps a pattern from the Pi from overwriting it
@@ -291,11 +263,11 @@
     { id: 'pi-1:drums', kind: 'engine', label: 'drums on the Pi' }, { id: 'pi-1:pwm', kind: 'device', label: 'PWM out' },
     { id: 'web:midi', kind: 'device', label: 'MIDI keyboard' },
     ...DIALS.map(([name]) => ({ id: `web:knob-${name}`, kind: 'person', label: name })),
-    { id: 'web:rec', kind: 'store', label: 'recorder' }, { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
+    { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
     { id: 'web:speaker', kind: 'device', label: 'speaker' }, ...cam.nodes];
   const PORTS = [port('web:grid', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
     port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in'),
-    port('web:midi', 'midi', 'out'), port('web:rec', 'midi', 'in'), port('web:rec', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
+    port('web:midi', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
     port('pi-1:plaits', 'midi', 'in'), port('pi-1:plaits', 'value', 'in'), port('pi-1:plaits', 'audio', 'out'), ...cam.ports];
   const LINKS = () => [
     { id: 'a', from: 'web:grid:value-out', to: 'pi-1:sequencer:value-in' },
@@ -303,60 +275,76 @@
     { id: 'c', from: 'pi-1:drums:audio-out', to: 'pi-1:pwm:audio-in' },
     ...(listening ? [{ id: 'd', from: 'pi-1:drums:audio-out', to: 'web:speaker:audio-in' }] : []),
     { id: 'e', from: 'web:midi:midi-out', to: 'pi-1:plaits:midi-in' },
-    { id: 'r', from: 'web:midi:midi-out', to: 'web:rec:midi-in' }, { id: 'q', from: 'web:rec:midi-out', to: 'pi-1:plaits:midi-in' },
     ...DIALS.map(([name]) => ({ id: `k-${name}`, from: `web:knob-${name}:value-out`, to: 'pi-1:plaits:value-in' })),
     { id: 'f', from: 'pi-1:plaits:audio-out', to: 'pi-1:pwm:audio-in' },
     ...(listening ? [{ id: 'g', from: 'pi-1:plaits:audio-out', to: 'web:speaker:audio-in' }] : []),
     ...cam.links,
   ];
-  const FLOW = { a: () => performance.now() - editAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, r: () => recorder.armed() && performance.now() - midiAt < 400, q: () => recorder.playing() && performance.now() - recAt < 400, f: () => held.size > 0, g: () => held.size > 0 };
+  const FLOW = { a: () => performance.now() - editAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, f: () => held.size > 0, g: () => held.size > 0 };
   const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
     { room: ROOM, flowing: (l) => cam.flows(l.id) ?? (FLOW[l.id] ? FLOW[l.id]() : l.id.startsWith('k-') ? plaitsUp && performance.now() - turnedAt < 400 : seq.running) });
 
-  // Listen, play, the latch and the timeline sit under the title with the knobs (the layout's actions)
-  const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
-  function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
-  const buttons = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
-  const btnRow = el('div', 'pm-foot-left');
+  // ── the instrument: one glued panel (instrument-panel.mjs), the large buttons left and the knobs right over the pads ──
+  const listenBtn = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
+  const play = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
   const latchBtn = createButtonGroup({ buttons: [{ id: 'latch', icon: 'unlock', label: 'latch off', onPress: () => setLatch(!latch) }] });
-  const tlBtn = createButtonGroup({ buttons: [{ id: 'timeline', icon: 'list', label: 'show the timeline', onPress: () => showTimeline(timeline.hidden) }] });
-  function showTimeline(on) {
-    timeline.hidden = !on;
-    tlBtn.setIcon('timeline', 'list', on ? 'hide the timeline' : 'show the timeline');
-    tlBtn.button('timeline').setAttribute('aria-pressed', String(on));
-  }
-  btnRow.append(buttons.el, top.el, latchBtn.el, tlBtn.el);
-  // the three knobs, large, under the words (the layout's actions), each with its invisible hand
-  const dials = el('div', 'pm-knobs');
+  function showPlaying() { play?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
+  for (const g of [listenBtn, play, latchBtn]) g.buttons[0].classList.add('pos-lg');
+  const btns = el('div', 'pi-cluster'), dials = el('div', 'pi-cluster');
+  btns.append(listenBtn.el, play.el, latchBtn.el);
   dials.append(...[...knobs.values()].map((k) => k.el));
+  const inst = createInstrumentPanel({
+    rows: [[[btns, dials], { align: 'between' }], [strip]],
+    full: true, cls: 'pi-inst',
+  });
 
-  // ── the presentation layout (present-layout.mjs): the grid is 2 / 1 less what the label column and gutters cost ──
+  // ── the presentation layout (present-layout.mjs): the instrument as the main picture, no title, no line ──
   const lay = createPresentLayout({
     title: '',
-    desc: "The grid drives pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs and recorded on the timeline. The camera comes through studio-1-cam.",
-    main: gridBox, line: timeline, aspect: '2 / 1', extra: '0px', tools: [cam.el], patch: pb.el, actions: [btnRow, dials],
+    desc: "The grid drives pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The camera comes through studio-1-cam.",
+    main: inst.el, tools: [cam.el], patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
   });
-  // height = ruler + 8 gaps + (width - labels - 15 gaps) / 2 at 16 square pads, so extra is the rest; labels read, never typed
+  // After the layout's sheet, so equal weight wins on order: the instrument spans both columns, centred both ways,
+  // at the width fit() measures; its one track is minmax(0, 1fr), or the pads' min-content widens it past a phone.
+  // The strip's width sizes the pads. A large icon button is square, as the layout's top bar draws it.
+  document.head.append(Object.assign(document.createElement('style'), { textContent: `
+    .ok-strip { min-width: 0; overflow-x: auto; }
+    .pi-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ctl-gap); }
+    button.pos-lg[data-glyph="1"] { width: var(--ctl-lg); padding: 0; justify-content: center; }
+    button.pos-lg[data-glyph="1"] > svg { width: 18px; height: 18px; }
+    .prl-main { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); justify-items: center; }
+    .prl-main.prl-main > * { width: var(--pi-w, 100%); }
+    @media (min-width: 761px) {
+      .prl-main { align-items: center; }
+    }` }));
+  // A pad is the large button's size (--ctl-lg), smaller where the room is short: all but the pads is measured
+  // (C across, F down), never typed, and the width is set whole so sixteen pads fill the strip with no slack.
   const mainBox = lay.root.querySelector('.prl-main');
-  function fitExtra() {
-    const cs = getComputedStyle(gridBox), ruler = parseFloat(cs.getPropertyValue('--pg-ruler')) || 8, gap = parseFloat(cs.getPropertyValue('--pg-gap')) || 2;
-    const L = labs.getBoundingClientRect().width;
-    if (L) mainBox.style.setProperty('--prl-extra', `${Math.ceil(ruler + 8 * gap - (L + 15 * gap) / 2)}px`);
+  function fit() {
+    const c = parseFloat(getComputedStyle(sg.el).getPropertyValue('--pg-cell')), r = inst.el.getBoundingClientRect();
+    if (!c || !r.width) return;
+    const C = r.width - strip.clientWidth, F = r.height - (PD.ROWS * c + (PD.ROWS - 1) * PAD_GAP), cross = (PD.STEPS - 1) * PAD_GAP;
+    // the room's height bounds the pads only where the layout fixes it (a phone scrolls)
+    const tall = getComputedStyle(mainBox).containerType === 'size';
+    const lg = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ctl-lg')) || Infinity;
+    const cell = Math.max(PAD_MIN, Math.floor(Math.min(lg, (mainBox.clientWidth - C - cross) / PD.STEPS, tall ? (mainBox.clientHeight - F - (PD.ROWS - 1) * PAD_GAP) / PD.ROWS : Infinity)));
+    const w = `${Math.round(C + cross + PD.STEPS * cell)}px`;
+    if (mainBox.style.getPropertyValue('--pi-w') !== w) mainBox.style.setProperty('--pi-w', w);
   }
-  new ResizeObserver(fitExtra).observe(labs);
+  const fitRo = new ResizeObserver(() => fit());
+  fitRo.observe(mainBox); fitRo.observe(inst.el);
   window.__demo.raid = () => lay.keys.raid();
   window.__demo.how = lay.setHow;
   window.__demo.grid = sg;
-  window.__demo.timeline = showTimeline;
-  window.__demo.shape = () => { const g = sg.el.getBoundingClientRect(), b = gridBox.getBoundingClientRect(), m = mainBox.getBoundingClientRect();
-    return { cell: parseFloat(getComputedStyle(sg.el).getPropertyValue('--pg-cell')), labels: labs.getBoundingClientRect().width,
+  window.__demo.shape = () => { const g = sg.el.getBoundingClientRect(), b = strip.getBoundingClientRect(), m = mainBox.getBoundingClientRect();
+    return { cell: parseFloat(getComputedStyle(sg.el).getPropertyValue('--pg-cell')),
       grid: [Math.round(g.width), Math.round(g.height)], box: [Math.round(b.width), Math.round(b.height)], main: [Math.round(m.width), Math.round(m.height)],
-      extra: mainBox.style.getPropertyValue('--prl-extra') }; };
+      inst: [Math.round(inst.el.getBoundingClientRect().width), Math.round(inst.el.getBoundingClientRect().height)], rows: inst.shape() }; };
 
   window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
     on: grid.flat().filter(Boolean).length, plaitsUp, held: held.size, midiIns, dials: Object.fromEntries(DIALS.map(([n]) => [n, dial(n)])),
-    links: LINKS().length, board: !!board, timeline: !timeline.hidden, notes: recorder.notes.length, cam: cam.probe() });
+    links: LINKS().length, board: !!board, cam: cam.probe() });
   d.ready();
 </script>
 </html>
