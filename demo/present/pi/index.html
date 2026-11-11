@@ -23,6 +23,7 @@
   import { voices } from '/drums/voices.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createKnob } from '/shell/knob.mjs';
+  import { QWERTY_CHROMATIC } from '/shell/keyboard.mjs';
   import { PATCHES as PLAITS } from '/shell/plaits-params.mjs';
   import { createPresentCamera } from '/shell/present-camera.mjs';
   useMediumColours();
@@ -224,6 +225,27 @@
     else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); }
   }
 
+  // a s d f ... plays Plaits as a MIDI key would (keyboard.mjs's QWERTY_CHROMATIC), z and x move the octave;
+  // the first key brings Plaits up on the Pi
+  let qwOct = 48;
+  const qwDown = new Map();
+  addEventListener('keydown', (e) => {
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea, select')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' || k === 'x') { qwOct = Math.max(24, Math.min(84, qwOct + (k === 'z' ? -12 : 12))); return; }
+    if (!(k in QWERTY_CHROMATIC) || qwDown.has(k)) return;
+    if (!plaitsUp) { reached().then((ok) => ok && startPlaits()); return; }
+    const n = qwOct + QWERTY_CHROMATIC[k];
+    qwDown.set(k, n);
+    midiIn({ data: [0x90, n, 100] });
+  });
+  addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase(), n = qwDown.get(k);
+    if (n === undefined) return;
+    qwDown.delete(k);
+    midiIn({ data: [0x80, n, 0] });
+  });
+  addEventListener('blur', () => { for (const n of qwDown.values()) midiIn({ data: [0x80, n, 0] }); qwDown.clear(); });
   let midiAsked = false;
   async function askMidi() {
     if (midiAsked || !navigator.requestMIDIAccess) return;
