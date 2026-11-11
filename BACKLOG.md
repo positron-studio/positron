@@ -1,5 +1,7 @@
 ## Open
 
+- **/present/typists/: one slider that brings in echoes, dubs and ambient sonics behind the typists' rhythm** (2026-11-11). Asked: *"have a slider fx for typits that brings in echoes dubs ambient sonics to create sound landscape behing the typist rythm"*. Presentation copy only.
+
 - **/present/floor/: drag or swipe the floor to move that way, with inertia, like the VR ray drag** (2026-11-11). Asked: *"make drag / wipe the floor to "move" that diretoion with inertia like vr ray drag. work on bg on it and make it revetable"*. Built by a background agent in demo/present/floor/ only, committed on its own so one revert takes it out.
 
 - **The VR newsreel floor in the presentation, right after Newsreels** (2026-11-11). Asked: *"add vr newsreel floor after newsreels"*. Order: newsreels, floor, playback, typists, palmdrums (*"palmdrums too"*).
