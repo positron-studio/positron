@@ -66,6 +66,9 @@ const CSS = `
      it lay out 2 margins wider than it had and scroll (the owner: avoid the sideways scroll); its boxes' border still
      overshoots by 2 px, and bay-view sets overflow-x inline, so only !important clips that */
   .prl-how .lv { overflow-x: clip !important; }
+  /* the patch's cards about a third larger for a room to read; laid out in the zoomed width, its gaps come out tighter */
+  .prl-how .lv { zoom: 1.3; }
+  @media (max-width: 760px) { .prl-how .lv { zoom: 1; } }
   /* How it works lays a black veil over whatever a page draws under the layout (a camera, the floor), under the words */
   .prl::before { content: ''; position: fixed; inset: 0; z-index: -1; background: rgba(0, 0, 0, .6); opacity: 0;
     pointer-events: none; transition: opacity 1.2s; }
@@ -139,7 +142,11 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   function alignHow() {
     // a patch wider than the room is shrunk to fit (CSS zoom) rather than scrolled or cut
     const lv = howBox.querySelector('.lv');
-    if (lv) { lv.style.zoom = ''; const k = lv.clientWidth / lv.scrollWidth; if (k < 0.99) lv.style.zoom = String(Math.max(0.5, k)); }
+    if (lv) {
+      lv.style.zoom = '';
+      const base = parseFloat(getComputedStyle(lv).zoom) || 1, k = lv.clientWidth / lv.scrollWidth;
+      if (k < 0.99) lv.style.zoom = String(Math.max(0.5, base * k));
+    }
     const svg = howBox.querySelector('svg'), box = svg?.querySelector('rect');
     if (!box) return;
     // from the panel's content edge: its padding is the page margin it bleeds by
