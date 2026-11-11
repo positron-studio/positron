@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Playback</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* Playback: /typist/paper/'s sheet over /typist/'s line (deck, transport bar, strip, three
+     lanes), playing first to last. Every change is in memory only, so a reload starts empty.
+     See lessons/page-typist.md#typist-21 */
+
+  /* The sheet fills the stage, as on 000. paper.mjs makes it a sized block;
+     inside the panel it is pinned to the stage instead. */
+  .tp-panel .tpp { position: absolute; inset: 0; }
+  /* A phone gets a taller sheet, set through the panel's own custom property
+     so the panel's full screen rule still wins. */
+  @media (max-width: 560px) { .tp-panel .pos-vp-stage { --vp-aspect: 4 / 5; } }
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
+  import { createStripView } from '/shell/strip.mjs';
+  import { createGlue } from '/shell/glue.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { addNodes } from '/shell/nodes.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { makeLogDeck } from '/timeline/logdeck.mjs';
+  import { createSamples, createVoice } from '/typist/sampler.mjs';
+  import { character } from '/typist/machines/fx.mjs';
+  import { makeTextOpAdapter, deriveOp, selectOp, OP_INSERT, OP_DELETE, OP_SELECT } from '/shell/text-adapter.mjs';
+  import { createPaper } from '/typist/paper.mjs';
+
+  // The presentation copy of /typist/playback/, which stays as it was; only the layout differs.
+  const d = mount({ name: 'Playback', what: '', readout: null, showLog: false, chrome: false });
+
+  const KIND = 'text-op';
+  const LEAD_MS = 250;            // position 0 sits this far before the first change
+  const TAIL_MS = 400;            // and the end this far after the last
+  const EMPTY_MS = 4000;          // the width of the line before anything is typed
+  const COALESCE_MS = 40;         // a drag of the cursor is one move, not forty
+
+  // ── the paper ────────────────────────────────────────────────────────────
+  const paper = createPaper({ label: 'the paper' });
+  const keys = paper.keys;
+
+  // The recording, in memory only. `whole` is the paper as you left it; during playback the
+  // paper shows the recording, and `whole` comes back when you type again.
+  // See lessons/page-typist.md#typist-22
+  const blank = () => ({ text: '', selection: [0, 0], dir: 'none' });
+  const log = [];
+  let whole = blank();
+  let capturing = true;           // true while the paper is yours to type into
+  let parked = 0;                 // where the playhead was put while you type
+  let t0Us = null;                // the first change, which is position LEAD_MS
+  let awayUs = 0, leftUs = 0;     // time spent watching playback is not on the line
+  let pre = null;                 // the beforeinput snapshot
+
+  const nowUs = () => Math.round((performance.timeOrigin + performance.now()) * 1000);
+  const evUs = (ev) => Math.round((performance.timeOrigin + ev.timeStamp) * 1000);
+
+  /** One change applied to a document, as /typist/ does it. */
+  function applyOne(st, op) {
+    const n = st.text.length;
+    const a = Math.max(0, Math.min(n, op.range[0]));
+    const b = Math.max(a, Math.min(n, op.range[1]));
+    if (op.type === OP_SELECT) return { text: st.text, selection: [a, b], dir: op.dir || 'none' };
+    if (op.type === OP_INSERT) {
+      const t = op.text || '';
+      return { text: st.text.slice(0, a) + t + st.text.slice(b), selection: [a + t.length, a + t.length], dir: 'none' };
+    }
+    return { text: st.text.slice(0, a) + st.text.slice(b), selection: [a, a], dir: 'none' };
+  }
+
+  /** A document onto the paper: the box the browser holds, then the drawing. */
+  function show(st) {
+    if (keys.value !== st.text) keys.value = st.text;
+    try { keys.setSelectionRange(st.selection[0], st.selection[1], st.dir || 'none'); } catch { /* not worth a page error */ }
+    paper.draw();
+  }
+
+  // The deck, the kit /typist/ plays its log on. The paper is the fold of the first `upTo`
+  // changes, and every way in goes through `showUpTo`, so a change arriving twice shows once.
+  // See lessons/page-typist.md#typist-23
+  let shown = blank(), upTo = 0;
+  const posOf = [];               // each change's place on the line, in order
+  const countAt = (pos) => { let n = 0; while (n < posOf.length && posOf[n] <= pos) n++; return n; };
+  function showUpTo(n) {
+    if (n === upTo) return;
+    if (n === upTo + 1) shown = applyOne(shown, log[upTo].op);
+    else { shown = blank(); for (let i = 0; i < n; i++) shown = applyOne(shown, log[i].op); }
+    upTo = n;
+    show(shown);
+  }
+
+  const adapter = makeTextOpAdapter({
+    apply(payload) {
+      if (capturing || payload.i < upTo) return;
+      showUpTo(payload.i + 1);
+      bay.send(`${S}:rec:value-out`, { text: payload.op.text || '', kind: payload.op.type });
+    },
+    // a seek folds the prefix to one document and writes it in one go
+    assert() { if (!capturing) showUpTo(countAt(deck.position())); },
+  });
+  // One rate and no rate control: the bar draws no rate choice for a lattice of one.
+  // See lessons/page-typist.md#typist-24
+  adapter.caps.rates = [1];
+
+  const deck = makeLogDeck({ lanes: [{ kind: KIND, rows: [], adapter }], leadInMs: LEAD_MS, tailMs: TAIL_MS, range: [0, EMPTY_MS] });
+
+  // ── capture: beforeinput, input and selectionchange, and no keydown ─────
+  keys.addEventListener('beforeinput', (ev) => {
+    // Typing while it plays back, or parked anywhere, stops it and puts the
+    // whole paper back first; the key then lands on that, at the end.
+    const revived = !capturing;
+    if (revived) goLive();
+    pre = { value: keys.value, s: keys.selectionStart, e: keys.selectionEnd, inputType: ev.inputType, atUs: evUs(ev), revived };
+  });
+
+  keys.addEventListener('input', (ev) => {
+    if (!capturing) return;
+    const p = pre || { value: whole.text, s: keys.selectionStart, e: keys.selectionEnd, inputType: ev.inputType || '', atUs: evUs(ev) };
+    pre = null;
+    // In Chrome, rewriting the box inside beforeinput puts the text right but leaves the caret,
+    // so on that key the caret is computed from the selection and the length change.
+    // See lessons/page-typist.md#typist-25
+    const caret = p.revived ? Math.max(0, p.e + keys.value.length - p.value.length) : keys.selectionStart;
+    const op = deriveOp(p.value, keys.value, caret, p.inputType || ev.inputType || '');
+    if (!op) return;
+    bay.send(`${S}:keys:value-out`, { text: op.text || '', kind: op.type });
+    push(p.atUs, op);
+    if (p.revived) show(whole);
+  });
+
+  document.addEventListener('selectionchange', () => {
+    if (!capturing || document.activeElement !== keys) return;
+    const s = keys.selectionStart, e = keys.selectionEnd;
+    const lo = Math.min(s, e), hi = Math.max(s, e);
+    if (whole.selection[0] === lo && whole.selection[1] === hi) return;
+    const at = nowUs();
+    const prev = log[log.length - 1];
+    if (prev && prev.op.type === OP_SELECT && at - awayUs - prev.at < COALESCE_MS * 1000) {
+      prev.op.range = [lo, hi];
+      prev.op.dir = keys.selectionDirection || 'none';
+      whole = applyOne(whole, prev.op);
+      return;
+    }
+    push(at, selectOp(s, e, keys.selectionDirection || 'none'));
+  });
+
+  // A tap on the paper while it is showing the recording takes it back too.
+  paper.el.addEventListener('pointerdown', () => { if (!capturing) goLive(); });
+
+  /** One change: into the log, onto the whole paper, onto the line. */
+  function push(atUs, op) {
+    const t = atUs - awayUs;
+    if (t0Us === null) t0Us = t;
+    const prev = log[log.length - 1];
+    const row = { at: Math.max(t, prev ? prev.at + 1 : t), op };
+    log.push(row);
+    whole = applyOne(whole, op);
+    const at = LEAD_MS + (row.at - t0Us) / 1000;
+    const i = log.length - 1;
+    posOf.push(at);
+    deck.schedule({ at, kind: KIND, id: `op-${i}`, payload: { kind: KIND, op, i, at } });
+    deck.setRange([0, at + TAIL_MS]);
+    park();
+    view.strip.fit();
+    gutters();
+  }
+
+  /** While you type the playhead sits at the end of the line, under your last change. */
+  function park() { parked = deck.seek(deck.range[1]); }
+
+  /** The paper is yours again: playback stops and the whole paper comes back. */
+  function goLive() {
+    if (capturing) return;
+    deck.pause();
+    shown = whole; upTo = log.length;
+    show(whole);
+    capturing = true;
+    awayUs += nowUs() - leftUs;
+    park();
+  }
+
+  /** The transport has the paper: what it shows is the recording at the playhead. */
+  function letGo() {
+    if (!capturing) return;
+    capturing = false;
+    leftUs = nowUs();
+    shown = whole; upTo = log.length;
+    // the seek that started this was refused while you typed, so fold here
+    showUpTo(countAt(deck.position()));
+  }
+
+  // ── the line: /typist/'s three lanes, the letter as the mark ────────────
+  const css = getComputedStyle(document.documentElement);
+  const tok = (n, fb) => (css.getPropertyValue(n) || '').trim() || fb;
+  const INK = { [OP_INSERT]: tok('--hi', '#ffd400'), [OP_DELETE]: tok('--bad', '#e0908a'), [OP_SELECT]: tok('--dim', '#8b93a1') };
+
+  function laneOf(type, label, height) {
+    return {
+      id: type, kind: KIND, label, height, width: 2, as: 'ticks', terse: true,
+      color: INK[type],
+      // The letter is the mark: a letter or a digit is drawn as itself, and
+      // anything with no shape (a space, a line break, a cursor move) gets the
+      // strip's dot.
+      marks: 'char',
+      glyphOf: (r) => {
+        const op = r.payload?.op;
+        if (!op || op.type === OP_SELECT) return '';
+        const t = op.type === OP_DELETE ? (op.removed ?? '') : (op.text ?? '');
+        const c = t ? [...t][0] : '';
+        return /[\p{L}\p{N}]/u.test(c) ? c : '';
+      },
+      filter: (r) => r.payload?.op?.type === type,
+      describeRow: (r) => {
+        const op = r.payload.op;
+        if (op.type === OP_SELECT) return [op.range[0] === op.range[1] ? `cursor to ${op.range[0]}` : `${op.range[0]} to ${op.range[1]} held`];
+        if (op.type === OP_DELETE) return [`${op.range[1] - op.range[0]} gone at ${op.range[0]}`];
+        const t = op.text || '';
+        return [`${JSON.stringify(t.length > 12 ? t.slice(0, 12) + '…' : t)} at ${op.range[0]}`,
+                op.inputType === 'insertFromPaste' ? 'pasted' : op.inputType === 'insertLineBreak' ? 'a new line' : 'typed'];
+      },
+    };
+  }
+
+  const glue = el('div');
+  // The play button joins the bar once the bay below exists, since it presses along the bay.
+  const control = createTransportControl(deck);
+  const bar = createBar({ middle: [clockView(control).el], end: [ratesView(control).el] });
+  glue.append(bar.el);
+  publishTransport(transportApi(control, { el: bar.el }));
+  const view = createStripView(glue, deck, {
+    size: 'auto', follow: false, gutter: 132,
+    // 36 asked; an auto strip raises a lane to its description plus 8 px of
+    // air above and below (timeline/strip.mjs `gutterNeed`), so the two with
+    // two numbers draw at 47 and the cursor lane stays 36
+    lanes: [laneOf(OP_INSERT, 'typed', 36), laneOf(OP_DELETE, 'taken back', 36), laneOf(OP_SELECT, 'cursor', 36)],
+  });
+  const surface = createGlue(bar.el, view.surface);
+
+  /** Per lane numbers beside their own ink. */
+  function gutters() {
+    const of = (t) => log.filter((r) => r.op.type === t);
+    const chars = of(OP_INSERT).reduce((a, r) => a + (r.op.text || '').length, 0);
+    const gone = of(OP_DELETE).reduce((a, r) => a + (r.op.range[1] - r.op.range[0]), 0);
+    const by = { [OP_INSERT]: [`${of(OP_INSERT).length} edits`, `${chars} letters in`],
+                 [OP_DELETE]: [`${of(OP_DELETE).length} edits`, `${gone} letters out`],
+                 [OP_SELECT]: [`${of(OP_SELECT).length} moves`] };
+    for (const L of view.strip.lanes()) if (by[L.id]) L.subLabel = by[L.id];
+    view.strip.invalidate();
+  }
+
+  // ── the patchbay: the keyboard into the paper, and a recorder beside it ─
+  // The recorder takes what the keyboard sends and plays it back into the
+  // paper on a link of its own, as the recorder on /synth/dots/ does.
+  const S = 'web';
+  const bay = createBay();
+  // The typewriter sounds what reaches it: live keys on one link, the
+  // recorder's playback on another, so both are heard and the picture says so.
+  addNodes(bay, S, ['typing', 'rec-text', 'paper', 'typewriter', 'speaker'], {
+    deliver: { 'rec:value-in': () => {}, 'paper:value-in': () => {}, 'typewriter:value-in': (e) => strike(e) },
+  });
+  for (const [a, b] of [[`${S}:keys:value-out`, `${S}:paper:value-in`], [`${S}:keys:value-out`, `${S}:rec:value-in`], [`${S}:rec:value-out`, `${S}:paper:value-in`],
+    [`${S}:keys:value-out`, `${S}:typewriter:value-in`], [`${S}:rec:value-out`, `${S}:typewriter:value-in`], [`${S}:typewriter:audio-out`, `${S}:speaker:audio-in`]]) {
+    const r = bay.link(a, b);
+    if (r && r.ok === false) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
+  }
+  // The transport is a node on this bay: its buttons and keys send along a link. why: lessons/kit-bar.md#bay
+  const send = transportOnBay(bay, { site: S, control });
+  bar.set('start', [playToggle(control, { send }).el]);
+  bindTransportKeys(control, { scope: bar.el, send });
+
+  // The sound: /typist/typewriter/'s samples through the shared sampler. Nothing loads on a
+  // visit: the AudioContext and files come with the first key or press.
+  // See lessons/page-typist.md#typist-26
+  let ctx = null, voice = null;
+  const samples = createSamples();
+  function wake() {
+    if (ctx) { ctx.resume(); return; }
+    ctx = new AudioContext();
+    const out = ctx.createGain();
+    out.connect(ctx.destination);
+    voice = createVoice(ctx, samples, { out, tuning: () => character(0) });
+    samples.load(ctx).catch((e) => d.log(`typewriter samples did not load, ${e.message}`, 'warn'));
+  }
+  addEventListener('keydown', wake, { capture: true });
+  addEventListener('pointerdown', wake, { capture: true });
+  function strike(e) {
+    if (!voice || !samples.ready) return;
+    // the recorder's ops are insert, delete and select; the sampler hears
+    // the browser's input types, and a cursor move makes no sound
+    const t = e.text || '';
+    const kind = e.kind === 'delete' ? 'deleteContentBackward'
+      : e.kind === 'insert' ? (t.includes('\n') ? 'insertLineBreak' : 'insertText')
+      : e.kind === 'select' ? null : e.kind;
+    if (kind) voice.sound(kind, t, paper.column());
+  }
+
+  // ── the frame ────────────────────────────────────────────────────────────
+  const panel = createVideoPanel({ left: false, fullMode: 'footer' });
+  panel.el.classList.add('tp-panel');
+  panel.stage.append(paper.el);
+  const pb = createPatchbay(bay, { detail: (n) => [{ text: n.label, sans: true }] });
+  // ── the presentation layout (present-layout.mjs) ──
+  // the panel measured at 1280 px: a 16:9 stage and 57 px under it (the footer 55, the panel border 2)
+  const lay = createPresentLayout({
+    title: 'Playback', sub: 'Everything you type, deletions included, is kept and played back as the page writes itself again.',
+    desc: "The keyboard's value out, carrying text, links to the paper, the recorder and the typewriter. The recorder's value out links to the paper and the typewriter on links of their own, and plays the kept changes back as the transport moves along the line. The typewriter's audio out links to the speakers, and the transport buttons' value out to the transport. Every node is in this one browser tab, so no link leaves the machine and none goes over a network transport.",
+    main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
+    onHow: (on) => { if (on) pb.refresh(); },
+  });
+  window.__demo.raid = () => lay.keys.raid();
+  window.__demo.how = lay.setHow;
+  gutters();
+
+  // The transport takes the paper the moment it plays, or the moment the
+  // playhead is moved on the strip.
+  function frame() {
+    if (capturing && (deck.playing() || Math.abs(deck.position() - parked) > 0.5)) letGo();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  keys.focus({ preventScroll: true });
+
+  window.__demo.playback = {
+    get events() { return log.length; },
+    get playing() { return deck.playing(); },
+    get position() { return deck.position(); },
+    get end() { return deck.range[1]; },
+    get recording() { return capturing; },
+    get shown() { return keys.value; },
+    get whole() { return whole.text; },
+    get ops() { return log.map((r) => r.op.type + ':' + (r.op.text ?? r.op.range.join('-'))); },
+  };
+  d.ready();
+</script>
+</html>

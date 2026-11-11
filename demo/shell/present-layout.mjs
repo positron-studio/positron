@@ -47,13 +47,19 @@ const CSS = `
   body.prl-open .prl-main { filter: brightness(.18); }
   .prl-line { transition: opacity .6s .6s, visibility 0s; }
   body.prl-open .prl-line { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
-  .prl-how { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; max-height: 70dvh; overflow-y: auto; }
+  /* its height is all the room under the top bar (measured, fitHow), so the patch is never cut; the title gives way to it */
+  .prl-how { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; overflow-y: auto; }
+  .prl-head { transition: opacity .6s .6s, visibility 0s; }
+  body.prl-open .prl-head { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
   body.prl-open .prl-how { opacity: 1; visibility: visible; transition: opacity .8s .8s, visibility 0s .8s; }
   /* no "patchbay" heading over the patch here (the owner, 2026-11-11), and no empty row where it was */
   .prl-how .pb-head > .pos-sec-h { display: none; }
   .prl-how .pb-head:not(:has(> :not(.pos-sec-h))) { display: none; }
   /* a readable measure: about 60 characters a line, however wide the screen */
-  .prl-how .prl-desc { margin: 0 0 24px; max-width: 32em; font: 400 clamp(18px, 1.9vw, 24px)/1.45 var(--sans); color: var(--fg); text-wrap: pretty; }
+  /* the heading and the words start where the patch's boxes start (--prl-inset, measured), one margin above the patch */
+  .prl-how .prl-how-h, .prl-how .prl-desc { margin-left: var(--prl-inset, 0px); }
+  .prl-how .prl-how-h { margin-top: 0; margin-bottom: 12px; font: 600 clamp(22px, 2.4vw, 32px)/1.2 var(--mono); letter-spacing: 0; color: var(--fg); }
+  .prl-how .prl-desc { margin-top: 0; margin-bottom: var(--pr-m); max-width: 32em; font: 400 clamp(18px, 1.9vw, 24px)/1.45 var(--sans); color: var(--fg); text-wrap: pretty; }
   @media (prefers-reduced-motion: reduce) { .prl-main, .prl-line, .prl-how, body.prl-open .prl-line, body.prl-open .prl-how { transition: none; } }
   /* a phone: one column that scrolls, the picture full width under the title */
   @media (max-width: 760px) {
@@ -63,6 +69,7 @@ const CSS = `
     .prl-main.prl-main > * { width: 100%; }
     /* the page scrolls, so How it works takes the line's place in the flow instead of rising over the picture */
     .prl-how { position: static; max-height: none; display: none; }
+    body.prl-open .prl-head { opacity: 1; visibility: visible; }
     body.prl-open .prl-how { display: block; }
     body.prl-open .prl-line { display: none; }
   }
@@ -93,8 +100,24 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
     document.body.classList.toggle('prl-open', how);
     howGroup.button('how').setAttribute('aria-pressed', String(how));
     howGroup.setIcon('how', how ? 'close' : 'info', how ? 'close How it works' : 'How it works');
+    fitHow();
     onHow(how);
+    requestAnimationFrame(alignHow);
   }
+  // the patch picture insets its boxes from its own edge: the words take the same inset, so they line up with the boxes
+  function alignHow() {
+    const svg = howBox.querySelector('svg'), box = svg?.querySelector('rect');
+    if (!box) return;
+    const inset = box.getBoundingClientRect().left - howBox.getBoundingClientRect().left;
+    howBox.style.setProperty('--prl-inset', `${Math.max(0, Math.round(inset))}px`);
+  }
+  // How it works rises from the bottom edge to one step under the top bar, measured on open and on resize
+  function fitHow() {
+    if (!how || getComputedStyle(howBox).position !== 'absolute') { howBox.style.maxHeight = ''; return; }
+    const room = foot.getBoundingClientRect().bottom - top.getBoundingClientRect().bottom - 24;
+    howBox.style.maxHeight = `${Math.max(160, Math.floor(room))}px`;
+  }
+  addEventListener('resize', () => { fitHow(); if (how) requestAnimationFrame(alignHow); });
   const here = PAGES.indexOf(location.pathname);
   const go = (by) => { const to = PAGES[((here < 0 ? 0 : here) + by + PAGES.length) % PAGES.length]; if (to !== location.pathname) location.href = to; };
   const arrows = createButtonGroup({ buttons: [
@@ -110,7 +133,7 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   mainBox.style.setProperty('--prl-extra', extra);
   mainBox.append(main);
   const howBox = el('div', 'prl-how');
-  howBox.append(...(desc ? [el('p', 'prl-desc', desc)] : []), ...(patch ? [patch] : []));
+  howBox.append(el('h2', 'prl-how-h', 'How it works'), ...(desc ? [el('p', 'prl-desc', desc)] : []), ...(patch ? [patch] : []));
   const foot = el('div', 'prl-foot');
   if (line) { line.classList.add('prl-line'); foot.append(line); }
   foot.append(howBox);

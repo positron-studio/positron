@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Multi typer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* Multi typer: N papers in one frame, each typed by its own typist through its own
+     typewriter and fx box (Machine k for paper k), into one speaker. The typing is a score
+     on the transport; lanes beyond the count are dimmed. Nothing sounds before a press.
+     See lessons/page-typist.md#typist-28 */
+
+  /* The frame is `createChatGrid` (demo/shell/chat-ui.mjs) with `fixed: true`: one shape
+     at every count, 16:9 at the desk and 3:4 under 560 px, papers edge to edge.
+     See lessons/page-typist.md#typist-29 */
+</style>
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createBar } from '/shell/bar.mjs';
+  import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
+  import { playToggle, clockView, ratesView, loopView } from '/shell/transport-views.mjs';
+  import { bindTransportKeys } from '/shell/transport-keys.mjs';
+  import { createStripView } from '/shell/strip.mjs';
+  import { createGlue } from '/shell/glue.mjs';
+  import { makeLogDeck } from '/timeline/logdeck.mjs';
+  import { createChatGrid } from '/shell/chat-ui.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { addNodes } from '/shell/nodes.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { createIconButton } from '/shell/icon-button.mjs';
+  import { createStepper } from '/shell/stepper.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { createPaper } from '/typist/paper.mjs';
+  import { createSamples, createVoice, FILES } from '/typist/sampler.mjs';
+  import { createFx, character, nameOf, trimFor } from '/typist/machines/fx.mjs';
+
+  // The presentation copy of /typist/score/, which stays as it was; only the layout and the default count differ.
+  const d = mount({ name: 'Multi typer', what: '', readout: null, showLog: false, chrome: false });
+
+  const MAX = 6;
+  const q = new URLSearchParams(location.search);
+  let count = Math.min(MAX, Math.max(1, parseInt(q.get('n'), 10) || 6));
+
+  // Six typists of different kinds: 1, 5 and 6 write letters, 2 writes and rubs out, 3 builds
+  // concrete poetry, 4 draws in characters. `\b` is backspace; `pace` above 1 slows a typist.
+  // See lessons/page-typist.md#typist-30
+  const BS = '\b', rub = (s) => BS.repeat(s.length);
+  const TEXTS = [
+    { text: 'Dear Anna,\nthe weather turned cold this week.\nThe garden is asleep under the snow.' },
+    { text: 'Dear Mr Lind,\n'
+        + 'I am sorry to' + rub('I am sorry to') + 'Thank you for' + rub('Thank you for')
+        + 'I write about the' + rub('the') + 'your letter.' + rub('your letter.') + 'the rent.\n'
+        + 'It will be late' + rub('late') + 'paid on Friday' + rub('on Friday') + 'soon' + rub('soon') + 'on Friday.\n'
+        + 'Yours sincerely' + rub('sincerely') + 'truly' + rub('Yours truly') + 'Best,\nK.' + rub('Best,\nK.') + 'Kind regards,\nK.',
+      pace: 0.8 },
+    { text: 'sea sea sea sea\n'
+        + '  sea sea sea sea\n'
+        + '    sea sea sea sea\n'
+        + '  sea sea sea sea\n'
+        + 'sea sea sea sea\n'
+        + '\n'
+        + '                    sand\n'
+        + '                   sand sand\n'
+        + '                  sand  shell  sand\n'
+        + '\n'
+        + 'r\n a\n  i\n   n          r\n                a\n                 i\n                  n' },
+    { text: 'Postcard from the harbour.\n\n'
+        + '       |\\\n'
+        + '       | \\\n'
+        + '       |__\\\n'
+        + '   _____|_____\n'
+        + '   \\_________/   ~ ~\n'
+        + ' ~~~~~~~~~~~~~~~~~~~~~~\n\n'
+        + 'This is the boat.\nIt leaves at six.\n\n'
+        + '   (  )   <- the sun\n' },
+    { text: 'Note to self.\nCall the printer before noon.\nAsk about the blue paper.' },
+    { text: 'Hello from the fourth floor.\nThe window looks over the harbour.\nShips come in all morning.' },
+  ];
+
+  // One sample set for every typewriter. Each paper has a voice and an fx box, all into one
+  // `master`. Nothing opens on a visit: the AudioContext and fetch wait for the first press.
+  // See lessons/page-typist.md#typist-31
+  const samples = createSamples();
+  let ctx = null, master = null, loading = null, ready = false, muted = false;
+  const tw = [];      // per paper k (1 based): { out, voice, fx, fxIndex, twIndex, tuning }
+  for (let k = 1; k <= MAX; k++) tw[k] = { out: null, voice: null, fx: null, fxIndex: 0, twIndex: 0, tuning: character(0) };
+  const stat = { dropped: 0 };
+
+  /** The fx box of paper k, built on demand at whatever index has arrived for it. */
+  function fxOf(k) {
+    const t = tw[k];
+    if (!ctx || t.fx) return t.fx;
+    t.fx = createFx(ctx, t.fxIndex, (n, a) => samples.load(ctx).then(() => trimFor(samples.buf.get('key-1'), n, a)).catch(() => 1));
+    return t.fx;
+  }
+
+  function wake() {
+    if (ctx) return loading;
+    ctx = new AudioContext({ latencyHint: 'interactive' });
+    master = ctx.createGain();                 // the speakers' audio-in
+    master.connect(ctx.destination);
+    for (let k = 1; k <= MAX; k++) {
+      const t = tw[k];
+      t.out = ctx.createGain();                // typewriter k's audio-out
+      t.voice = createVoice(ctx, samples, { out: t.out, tuning: () => t.tuning, muted: () => muted });
+    }
+    for (let k = 1; k <= count; k++) fxOf(k);
+    route();
+    // Ready means the samples are decoded AND every shown paper's machine is
+    // built, so the first strike is not played into an empty fx box.
+    loading = samples.load(ctx)
+      .then(() => Promise.all(Array.from({ length: count }, (_, i) => tw[i + 1].fx.ready)))
+      .then(() => { ready = true; })
+      .catch((e) => d.log(`the typewriters did not load: ${e.message}`, 'warn'));
+    return loading;
+  }
+
+  // Per paper k: keys-k to paper-k and typewriter-k, typewriter-k to fx-k, fx-k to `speaker`.
+  // One `machines` node sends k on one port per paper. Links exist only for shown papers, so
+  // `bay.links()` is what the router and the picture read.
+  // See lessons/page-typist.md#typist-32
+  const S = 'web', CF = 'cf-r2';
+  const bay = createBay();
+  const P = (k, s) => `${S}:${s}-${k}`;
+  const nth = (base, k) => (k === 1 ? base : `${base}-${k}`);
+  const arrivals = [];
+
+  // One `value-out` per paper on machines: value-out, value-out-2 .. value-out-<MAX>.
+  const outs = Object.fromEntries(Array.from({ length: MAX - 1 }, (_, i) => [`machines:value-out-${i + 2}`, {}]));
+  addNodes(bay, S, ['machines', 'speaker', 'typewriter-samples'], { ports: outs });
+
+  const papers = [];
+  for (let k = 1; k <= MAX; k++) {
+    // The paper draws what ARRIVES: a typist's character is put on the sheet
+    // here. A person's typing is already in the textarea, so it is not put twice.
+    // The typewriter sounds what arrives, whoever typed it.
+    addNodes(bay, S, [{ name: 'typing', as: `keys-${k}`, label: `typist ${k}` }, { name: 'paper', as: `paper-${k}`, label: `paper ${k}` },
+      { name: 'typewriter', as: `typewriter-${k}`, label: `typewriter ${k}` }, { name: 'fx-typewriter', as: `fx-${k}`, label: `fx ${k}` }], {
+      deliver: {
+        [`paper-${k}:value-in`]: (e) => { if (e?.by !== 'typist') return; if (e.kind === 'deleteContentBackward') papers[k].back(); else papers[k].type(e.text); },
+        [`typewriter-${k}:value-in`]: (e) => typed(k, e), [`typewriter-${k}:value-in-2`]: deliverIndex(k, 'typewriter'),
+        [`fx-${k}:value-in`]: deliverIndex(k, 'fx'),
+      },
+      ports: { [`typewriter-${k}:file-in`]: {} },
+    });
+  }
+
+  function deliverIndex(k, where) {
+    return (e, l) => {
+      const n = Math.floor(e?.n);
+      if (e?.of !== 'index' || !Number.isFinite(n) || n < 0) { d.log(`${where} ${k} takes an index, and this was not one`, 'warn'); return; }
+      arrivals.push({ at: `${where}-${k}`, n, link: `${l.from} -> ${l.to}` });
+      if (arrivals.length > 60) arrivals.shift();
+      const t = tw[k];
+      if (where === 'fx') { t.fxIndex = n; t.fx?.set(n); }
+      else { t.twIndex = n; t.tuning = character(n); }
+    };
+  }
+
+  const linksOf = (k) => [
+    [`${P(k, 'keys')}:value-out`, `${P(k, 'paper')}:value-in`],
+    [`${P(k, 'keys')}:value-out`, `${P(k, 'typewriter')}:value-in`],
+    [`${CF}:typewriter:file-out`, `${P(k, 'typewriter')}:file-in`],
+    [`${P(k, 'typewriter')}:audio-out`, `${P(k, 'fx')}:audio-in`],
+    [`${P(k, 'fx')}:audio-out`, `${S}:speaker:audio-in`],
+    [`${S}:machines:${nth('value-out', k)}`, `${P(k, 'fx')}:value-in`],
+    [`${S}:machines:${nth('value-out', k)}`, `${P(k, 'typewriter')}:value-in-2`],
+  ];
+  const held = new Map();     // paper k -> link ids
+  function patch() {
+    for (let k = 1; k <= MAX; k++) {
+      if (k <= count && !held.has(k)) {
+        const ids = [];
+        for (const [a, b] of linksOf(k)) {
+          // One sample set to many typewriters is `internet-many` to the bay,
+          // whose table offers HLS there; files come down by https, so say so.
+          const r = bay.link(a, b, [], { site: S, ...(a.startsWith(CF) ? { via: 'https' } : {}) });
+          if (r.ok) ids.push(r.id); else d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
+        }
+        held.set(k, ids);
+        // Paper k is Machine k: the index leaves on its own port of `machines`.
+        bay.send(`${S}:machines:${nth('value-out', k)}`, { of: 'index', n: k });
+        if (ctx) fxOf(k);
+      } else if (k > count && held.has(k)) {
+        for (const id of held.get(k)) bay.unlink(id);
+        held.delete(k);
+      }
+    }
+    route();
+    pb?.refresh();
+  }
+
+  /**
+   * The router: connects exactly the held audio links after disconnecting every out. A paper
+   * not shown holds no links, so its typewriter reaches nothing.
+   * See lessons/page-typist.md#typist-33
+   */
+  const routed = [];
+  function route() {
+    if (!ctx) return;
+    const N = { speaker: { input: master } };
+    for (let k = 1; k <= MAX; k++) {
+      N[`typewriter-${k}`] = { out: tw[k].out };
+      if (tw[k].fx) N[`fx-${k}`] = { input: tw[k].fx.input, out: tw[k].fx.output };
+    }
+    for (const m of Object.values(N)) if (m.out) { try { m.out.disconnect(); } catch { /* not connected */ } }
+    routed.length = 0;
+    for (const l of bay.links()) {
+      if (bay.port(l.from)?.medium !== 'audio') continue;
+      const src = N[l.from.split(':')[1]]?.out, dst = N[l.to.split(':')[1]]?.input;
+      if (src && dst) { src.connect(dst); routed.push(`${l.from} -> ${l.to}`); }
+    }
+  }
+
+  // ── typing, by a typist or by a person ───────────────────────────────────
+  const LATE = 150;   // ms: a person's press that waited longer than this for the files is dropped, not played late
+  function typed(k, e) {
+    if (muted) return;
+    const v = () => tw[k].voice.sound(e.kind, e.text, papers[k].column());
+    // The press that wakes the typewriters always sounds, however long the samples took. A
+    // typist's letter that arrives before the samples wakes them and is not played late.
+    // See lessons/page-typist.md#typist-34
+    const first = !ctx, at = performance.now();
+    if (ready) return v();
+    if (e.by !== 'person') { wake(); stat.dropped++; return; }
+    wake().then(() => { if (first || performance.now() - at < LATE) v(); else stat.dropped++; });
+  }
+
+  for (let k = 1; k <= MAX; k++) {
+    papers[k] = createPaper({ label: `paper ${k}`, onInput: (e) =>
+      bay.send(`${P(k, 'keys')}:value-out`, { text: e.data || '', kind: e.inputType, by: 'person' }) });
+  }
+
+  // The score: each typist walks its text at a seeded human pace (longer after spaces,
+  // punctuation and line ends, with hesitations), worked out once so every key has a place
+  // on the line, and the transport plays, seeks and loops it.
+  // See lessons/page-typist.md#typist-35
+  const KIND = 'key';
+  const LEAD_MS = 250;            // position 0 sits this far before the first key
+  const TAIL_MS = 1200;           // and the end this far after the last
+  const typists = [];
+  const rnd = (seed) => { let s = seed >>> 0; return () => { s = (Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x6d2b79f5) >>> 0; return s / 2 ** 32; }; };
+  for (let k = 1; k <= MAX; k++) {
+    const r = rnd(k * 7919);
+    typists[k] = { r, base: 95 + r() * 60, typed: 0 };
+  }
+  const textOf = (k) => TEXTS[k - 1];
+  function gap(t, ch, pace, prev) {
+    // a run of spaces is the space bar tapped fast, a run of backspaces the
+    // key held down, so a shaped poem and a rubbed out line do not crawl
+    if (ch === ' ' && prev === ' ') return (30 + t.r() * 25) * pace;
+    if (ch === BS) return (prev === BS ? 55 + t.r() * 35 : 300 + t.r() * 300) * pace;
+    let ms = t.base * (0.55 + t.r() * 0.9);
+    if (ch === ' ') ms += 40;
+    if (/[.,;:!?]/.test(ch)) ms += 200 + t.r() * 250;
+    if (ch === '\n') ms += 450 + t.r() * 400;
+    if (t.r() < 0.03) ms += 250 + t.r() * 400;
+    return ms * pace;
+  }
+  // Every key, in the order it is typed: `at` is its place on the line in ms.
+  // Starts are staggered by 140 ms a typist so the first letters do not land
+  // together, as they were when the timer ran them.
+  const score = [];
+  for (let k = 1; k <= MAX; k++) {
+    const t = typists[k], { text, pace = 1 } = textOf(k);
+    let at = LEAD_MS + (k - 1) * 140;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const kind = ch === BS ? 'deleteContentBackward' : ch === '\n' ? 'insertLineBreak' : 'insertText';
+      score.push({ at: Math.round(at), kind: KIND, id: `t${k}-${i}`, payload: { k, ch: ch === BS ? '' : ch, op: kind } });
+      at += gap(t, ch, pace, text[i - 1]);
+    }
+  }
+  score.sort((a, b) => a.at - b.at);
+  const END = score.reduce((m, it) => Math.max(m, it.at), 0) + TAIL_MS;
+
+  /** What paper k says at a place on the line: its keys up to there, folded. */
+  function sheetAt(k, pos) {
+    let s = '';
+    for (const it of score) {
+      if (it.at > pos) break;
+      if (it.payload.k !== k) continue;
+      s = it.payload.op === 'deleteContentBackward' ? s.slice(0, -1) : s + it.payload.ch;
+    }
+    return s;
+  }
+  /** Put every shown paper at the line's position, in one go (a seek, a loop's
+   *  wrap, a paper added mid play). A paper somebody is typing into is left. */
+  function foldAt(pos) {
+    for (let k = 1; k <= count; k++) {
+      const p = papers[k];
+      if (p.focused()) continue;
+      const want = sheetAt(k, pos);
+      if (p.text !== want) { p.clear(); if (want) p.type(want); }
+    }
+  }
+
+  const typing = { chars: 0, since: 0 };
+  // A key that fires is sent from typist k's `keys` port, reaching paper k and typewriter k
+  // along the held links. A typist beyond the count holds no links and its lane is dimmed.
+  // See lessons/page-typist.md#typist-36
+  const adapter = {
+    caps: { discrete: true, continuous: false, interpolate: false, stateful: true,
+            seek: true, rate: true, catchUp: 'reduce', assertOnSeek: true, rates: [1] },
+    actuate(p) {
+      const k = p.k;
+      if (k > count || papers[k].focused()) return;
+      bay.send(`${P(k, 'keys')}:value-out`, { text: p.ch, kind: p.op, by: 'typist' });
+      typists[k].typed++; typing.chars++;
+      typing.since ||= performance.now();
+    },
+    reduce(payloads, pos) { return { pos }; },
+    assertState(st) { foldAt(st.pos); },
+  };
+  const deck = makeLogDeck({ lanes: [{ kind: KIND, rows: [], adapter }], items: score, leadInMs: LEAD_MS, tailMs: TAIL_MS, range: [0, END] });
+
+  // ── the frame ────────────────────────────────────────────────────────────
+  // The papers are the cells of the kit's chat grid, which places the first
+  // `count` of them and draws each once it is placed.
+  let frame = null;
+  const layout = () => frame?.set(count);
+
+  const mute = createIconButton({ icon: 'volume', label: 'mute the typewriters', pressed: false, onPress: () => {
+    muted = !muted;
+    mute.pressed(muted);
+    mute.set(muted ? 'mute' : 'volume', muted ? 'unmute the typewriters' : 'mute the typewriters');
+    for (let k = 1; k <= MAX; k++) if (tw[k].out) tw[k].out.gain.value = muted ? 0 : 1;
+    // an unmute while the typists run is a gesture too: wake the sound then
+    if (!muted && deck.playing() && !ctx) wake();
+  } });
+  const left = document.createDocumentFragment();
+  left.append(mute.el);
+
+  const NAMES = Array.from({ length: MAX }, (_, i) => `${i + 1} ${i ? 'typists' : 'typist'}`);
+  const setCount = (n) => {
+    count = Math.min(MAX, Math.max(1, n));
+    step.show(NAMES[count - 1], count - 1);
+    layout(); patch();
+    if (ctx) for (let k = 1; k <= count; k++) fxOf(k);
+    // the lanes of typists beyond the count are dimmed, and a paper that has
+    // just come in is put where the line is rather than starting blank
+    activeLanes();
+    foldAt(deck.position());
+  };
+  const step = createStepper({ what: 'typists', prev: () => setCount(count - 1), next: () => setCount(count + 1),
+    pick: { options: NAMES, at: count - 1, onPick: (i) => setCount(i + 1) } });
+
+
+  frame = createChatGrid({ cells: papers.slice(1), count, left, centre: step.el, fixed: true });
+  const panel = frame.panel;
+
+  // `file` and `audio` are lit rather than pulsed: the file wires while the
+  // samples come down and 600 ms after, an audio wire while its typewriter's
+  // last strike still sounds (plus its fx box's room after the box).
+  const flowing = (l, medium) => {
+    if (medium === 'file') return !!samples.loading && (!samples.ready || performance.now() - samples.stat.at < 600);
+    if (medium !== 'audio' || !ctx || muted) return false;
+    const node = l.from.split(':')[1], k = Number(node.split('-')[1]);
+    if (node.startsWith('typewriter')) return ctx.currentTime < tw[k].voice.until;
+    if (node.startsWith('fx')) return ctx.currentTime < tw[k].voice.until + (character(tw[k].fxIndex).room?.ms || 0) / 1000;
+    return false;
+  };
+  // The picture shows the nodes and ports the held links touch, so a paper
+  // that is not shown is not drawn either.
+  const touched = () => { const s = new Set(); for (const l of bay.links()) { s.add(l.from); s.add(l.to); } return s; };
+  const nodeOf = (id) => id.split(':').slice(0, 2).join(':');
+  const view = {
+    nodes: () => { const t = [...touched()].map(nodeOf); return bay.nodes().filter((n) => t.includes(n.id)); },
+    ports: () => { const t = touched(); return bay.ports().filter((p) => t.has(p.id)); },
+    links: () => bay.links(),
+  };
+  // Each fx box says which machine it is, from what last arrived at it.
+  let pb = null;
+  pb = createPatchbay(view, { detail: (n) => {
+    const m = /^web:fx-(\d)$/.exec(n.id);
+    return [{ text: m ? nameOf(tw[+m[1]].fxIndex) : n.label, sans: true }];
+  }, flowing });
+
+  // One lane per typist: a letter or digit is drawn as itself, a key with no shape gets the
+  // strip's dot, and a backspace is a dot in /typist/'s "taken back" red.
+  // See lessons/page-typist.md#typist-37
+  const css = getComputedStyle(document.documentElement);
+  const tok = (n, fb) => (css.getPropertyValue(n) || '').trim() || fb;
+  const INK = { in: tok('--hi', '#ffd400'), out: tok('--bad', '#e0908a') };
+  const SAY = { ' ': 'a space', '\n': 'a new line' };
+  const lanes = Array.from({ length: MAX }, (_, i) => {
+    const k = i + 1;
+    return {
+      id: `typist-${k}`, kind: KIND, label: `typist ${k}`, as: 'ticks', terse: true,
+      color: INK.in, marks: 'char',
+      filter: (r) => r.payload?.k === k,
+      colorOfRow: (r) => (r.payload?.op === 'deleteContentBackward' ? INK.out : null),
+      glyphOf: (r) => (/[\p{L}\p{N}]/u.test(r.payload?.ch || '') ? r.payload.ch : ''),
+      describeRow: (r) => {
+        const p = r.payload;
+        return [p.op === 'deleteContentBackward' ? 'rubbed out' : SAY[p.ch] || JSON.stringify(p.ch), `typist ${k}`];
+      },
+    };
+  });
+  // Per lane, what that typist's sheet holds: letters in and letters taken
+  // back, counted off the score, so the gutter says what the lane will play.
+  for (const L of lanes) {
+    const k = +L.id.split('-')[1];
+    const mine = score.filter((it) => it.payload.k === k);
+    const out = mine.filter((it) => it.payload.op === 'deleteContentBackward').length;
+    L.subLabel = [`${mine.length - out} in, ${out} out`];
+  }
+  const glue = el('div');
+  // The first press of play is the gesture that wakes the typewriters: the
+  // AudioContext is made and the samples fetched then, and the line starts
+  // once they are decoded so the first key sounds. Muted, nothing is fetched.
+  const control = createTransportControl(deck, { command: {
+    play: () => {
+      if (muted || ready) return deck.play();
+      bar.el.dataset.busy = '1';
+      return wake().then(() => { delete bar.el.dataset.busy; deck.play(); });
+    },
+  } });
+  // The transport is a node on this page's bay: its buttons send along a link. why: lessons/kit-bar.md#bay
+  const send = transportOnBay(bay, { site: S, control });
+  const loop = loopView(control, { send });
+  const bar = createBar({ start: [playToggle(control, { send }).el], middle: [clockView(control).el],
+    end: [loop.el, ratesView(control, { send }).el] });
+  glue.append(bar.el);
+  bindTransportKeys(control, { scope: bar.el, send });
+  publishTransport(transportApi(control, { el: bar.el, loopView: loop }));
+  const strip = createStripView(glue, deck, { size: 'auto', follow: true, gutter: 132, lanes });
+  // The whole score in view, fitted when the strip's width is known and whenever it changes:
+  // at build time the canvas had 168 px of plot and the score sat in a third of the line.
+  // See lessons/page-typist.md#typist-38
+  let fitW = 0;
+  new ResizeObserver(() => {
+    const w = strip.el.clientWidth;
+    if (w && w !== fitW) { fitW = w; strip.strip.fit(); }
+  }).observe(strip.el);
+  const surface = createGlue(bar.el, strip.surface);
+  const activeLanes = () => strip.strip.setActive(lanes.slice(0, count).map((L) => L.id));
+  activeLanes();
+
+  // ── the presentation layout (present-layout.mjs) ──
+  // `extra` measured at 1280 px: the footer is 55 px (a 34 px row, 10 px padding each side, 1 px hairline) plus the
+  // panel's two 1 px borders; the papers are 16:9 at the desk, as chat-ui.mjs makes a `fixed` grid.
+  const lay = createPresentLayout({
+    title: 'Multi typer', sub: 'Up to six papers typed at once from a written score, each through a typewriter of its own.',
+    desc: 'Typist k is a keys node whose value-out links to the value-in of paper k and of typewriter k, and the transport plays the score out through those keys. The typewriter samples come from R2 to every typewriter\'s file-in over https. Typewriter k\'s audio-out links to fx k\'s audio-in, and every fx box\'s audio-out links to the speaker\'s audio-in. The machines node sends paper k its machine number as a value, on its own value-out to fx k and typewriter k.',
+    main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
+    onHow: (on) => { if (on) pb.refresh(); },
+  });
+  window.__demo.raid = () => lay.keys.raid();
+  window.__demo.how = lay.setHow;
+  layout();
+  patch();
+
+  // Read only, for a check over CDP.
+  window.__demo.multi = {
+    get count() { return count; },
+    get playing() { return deck.playing(); },
+    get position() { return deck.position(); },
+    get end() { return deck.range[1]; },
+    get keys() { return score.length; },
+    get active() { return strip.strip.active(); },
+    get state() { return ctx?.state || 'none'; },
+    get samples() { return { ...samples.stat, files: FILES.length }; },
+    get papers() {
+      return Array.from({ length: count }, (_, i) => {
+        const k = i + 1, t = tw[k];
+        return { k, chars: papers[k].text.length, typed: typists[k].typed, started: t.voice?.started || 0,
+                 fx: t.fx ? { index: t.fx.index, chains: t.fx.live, trim: t.fx.trim && +t.fx.trim.toFixed(2) } : null,
+                 tuning: { n: t.tuning.n, key: t.tuning.rate.key } };
+      });
+    },
+    get typing() { return { chars: typing.chars, perSecond: typing.since ? +(typing.chars / ((performance.now() - typing.since) / 1000)).toFixed(1) : 0 }; },
+    get dropped() { return stat.dropped; },
+    get routed() { return [...routed]; },
+    get links() { return bay.links().map((l) => `${l.from} -> ${l.to}`); },
+    get arrivals() { return arrivals.map((a) => ({ ...a })); },
+  };
+
+  d.ready();
+</script>
