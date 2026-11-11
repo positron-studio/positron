@@ -37,6 +37,9 @@ import fs from 'node:fs';
 import tty from 'node:tty';
 import { execFileSync, spawn } from 'node:child_process';
 import { findVideo, holdersOf, ffArgs, levels, BAYER4 } from './camera.mjs';
+// The drum grid's picture and pen (demo/shell/palm-drums.mjs, shared with /devices/palmdrums/); on the Pi a copy sits beside this file.
+let PD = null;
+for (const u of ['../../demo/shell/palm-drums.mjs', './palm-drums.mjs']) { try { PD = await import(new URL(u, import.meta.url).href); break; } catch { /* not here */ } }
 
 // No text on the Palm by default (the owner: "rm text / debug lines from palm"); --text brings it back.
 const TEXT = process.argv.includes('--text');
@@ -473,22 +476,19 @@ function penFlush() {
 }
 
 // ── the drum grid (--view drums): the board's own sequencer (rig/board/sequencer.mjs), edited by the pen ──
-// A tap flips a square, a drag paints what it crosses, the lane under the grid starts and stops. Edits land on the
-// next bar; the OLED shows the top 8 rows (steps-oled.mjs). The playhead is the board's step, read every 2 s.
+// The picture and the pen are palm-drums.mjs. Edits land on the next bar; the OLED shows the top 8 rows
+// (steps-oled.mjs). The playhead is the board's step, read every 2 s.
 const DRUMS_TARGET = opt('--drums-target', 'drums'), DRUMS_BPM = Number(opt('--bpm', 120));
 if (!['drums', 'circuit'].includes(DRUMS_TARGET)) die('--drums-target drums or circuit');
 if (!(DRUMS_BPM >= 40 && DRUMS_BPM <= 240)) die('--bpm 40 to 240');
-// the grid starts 8 rows under pframe's top strip: a tap there shows its status and reopens the port
-const G_STEPS = 16, G_ROWS = 16, G_TOP = 22, G_PY = 7, G_CH = 6, G_PX = 10, G_CW = 8, G_X0 = 1;
-const G_LANE = G_TOP + G_ROWS * G_PY + 2;          // 136: the lane, start and stop, 24 rows to the bottom
-const SHORT = { kick: 'BD', snare: 'SD', hho: 'OH', hhc: 'CH', clap: 'CP', tomlo: 'LT', tomhi: 'HT', cowbell: 'CB',
-  rim: 'RS', ride: 'RD', crash: 'CR', shaker: 'SH', tamb: 'TB', claves: 'CL', congalo: 'LC', congahi: 'HC' };
+if (VIEW === 'drums' && !PD) die('drums: no palm-drums.mjs in ../../demo/shell or beside this bridge');
+const G_STEPS = PD?.STEPS ?? 16, G_ROWS = PD?.ROWS ?? 16, SHORT = PD?.SHORT ?? {};
 let gVoices = null;                                  // [{ key, name, program }] from demo/drums/voices.mjs
-const grid = Array.from({ length: G_ROWS }, () => new Array(G_STEPS).fill(false));
+const grid = PD ? PD.emptyGrid() : [];
 // something to hear on the first tap: four on the floor, a backbeat, closed hats
-for (let c = 0; c < G_STEPS; c++) { grid[0][c] = c % 4 === 0; grid[1][c] = c % 8 === 4; grid[3][c] = c % 2 === 0; }
+if (PD) for (let c = 0; c < G_STEPS; c++) { grid[0][c] = c % 4 === 0; grid[1][c] = c % 8 === 4; grid[3][c] = c % 2 === 0; }
 const seqS = { running: false, bpm: DRUMS_BPM, step: -1, at: 0, pending: false, said: '' };
-let stroke = null, lastCell = null, strokes = 0, editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
+let editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
 const waiters = [];
 function ask(msg, type, ms = 8000) {
   const id = rid(16);
@@ -509,7 +509,7 @@ const patternNow = () => ({ v: 1, name: 'palm', bpm: seqS.bpm, steps: G_STEPS,
 const screenNow = () => ({ voices: gVoices.map((v) => SHORT[v.key] || v.key.slice(0, 2).toUpperCase()), look: { empty: 'dot', head: 'frame' } });
 /** A pattern somebody else set: the rows this grid has are taken, by voice name. */
 function adopt(p) {
-  if (!gVoices || !p?.rows || (stroke && stroke !== 'lane')) return;
+  if (!gVoices || !p?.rows || drumPens?.active()) return;
   for (const [r, v] of gVoices.entries()) {
     const row = p.rows.find((x) => x.voice === v.key);
     for (let c = 0; c < G_STEPS; c++) grid[r][c] = !!row && row.steps[c] === '1';
@@ -572,10 +572,6 @@ async function transport() {
     log(`sequencer: ${m?.ok ? `${m.running ? 'running' : 'stopped'} at ${m.bpm} bpm into ${m.target}` : `refused: ${m?.why ?? 'no answer'}`}`);
   } finally { starting = false; dirty = true; }
 }
-// pframe sends a down and a move alike ("p x y 1"), so only a pen up ends a stroke. A stylus held still sends
-// nothing, and ending a stroke on a quiet gap flipped the square back on the next move (measured 2026-11-11).
-// The lane's two buttons: play and stop on the left, clear on the right, nothing between them.
-const PLAY_X = 40, CLEAR_X = 120;
 function clearGrid() {
   for (const row of grid) row.fill(false);
   log('clear: every step off');
@@ -623,50 +619,18 @@ function hardButton() {
   log(`hard button: ${seqS.running ? 'stop' : 'play'}`);
   transport();
 }
-function drumPen(x, y, down) {
-  if (!down) { if (stroke) log(`pen up ${x} ${y}${stroke !== 'lane' ? `, ${stroke.flips} squares flipped` : ''}`); stroke = null; lastCell = null; return; }
-  if (!stroke) {
-    strokes++;
-    if (y >= G_LANE) {
-      stroke = 'lane';
-      if (x < PLAY_X) { log(`pen down ${x} ${y}: ${seqS.running ? 'stop' : 'play'}`); transport(); }
-      else if (x >= CLEAR_X) clearGrid();
-      return;
-    }
-    stroke = { seen: new Set(), flips: 0 }; lastCell = null;
-  }
-  if (stroke === 'lane') return;
-  const r = Math.floor((y - G_TOP) / G_PY), c = Math.floor((x - G_X0) / G_PX);
-  if (r < 0 || r >= G_ROWS || c < 0 || c >= G_STEPS || !gVoices) return;
-  const k = r * G_STEPS + c;
-  // every square a stroke crosses flips once: drawing over a filled one erases it
-  if (k === lastCell || stroke.seen.has(k)) return;
-  lastCell = k; stroke.seen.add(k);
-  grid[r][c] = !grid[r][c];
-  if (!stroke.flips++) log(`pen down ${x} ${y}: ${gVoices[r].key} step ${c + 1} ${grid[r][c] ? 'on' : 'off'}`);
-  edited();
-}
+// the stylus on the grid, palm-drums.mjs's, the same pen the tab copy uses
+const drumPens = PD ? PD.createPen(grid, {
+  onFlip: (r, c, on, first) => { if (first && gVoices) log(`pen down: ${gVoices[r].key} step ${c + 1} ${on ? 'on' : 'off'}`); edited(); },
+  onPlay: () => { log(`pen down: ${seqS.running ? 'stop' : 'play'}`); transport(); },
+  onClear: () => clearGrid(),
+  onUp: (x, y, flips) => log(`pen up ${x} ${y}${flips === null ? '' : `, ${flips} squares flipped`}`),
+}) : null;
+function drumPen(x, y, down) { if (gVoices) drumPens.pen(x, y, down); }
 function drawDrums(t) {
   const now = stepNow(t);
   drawnStep = now;
-  for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
-    const x = G_X0 + c * G_PX, y = G_TOP + r * G_PY;
-    // shapes, not greys, so the grid reads the same at 1 bit: a beat's dot is wider, the picked row's taller
-    if (grid[r][c]) rect(x, y, G_CW, G_CH, 15);
-    else if (r === selRow) rect(x + 3, y + 1, 2, 3, 15);
-    else rect(x + (c % 4 === 0 ? 3 : 4), y + 2, c % 4 === 0 ? 2 : 1, 1, 15);
-  }
-  if (now >= 0) {
-    const x = G_X0 + now * G_PX;
-    box(x - 1, G_TOP - 1, G_CW + 2, G_ROWS * G_PY + 2, 15);
-    rect(x, G_TOP - 5, G_CW, 3, 15);
-  }
-  // the lane: play (a square while running, dim while the Pi is being asked) at the left, clear (an X) at the right
-  const v = starting ? 5 : 15, cx = 16, cy = G_LANE + 12;
-  if (seqS.running) rect(cx - 4, cy - 4, 9, 9, v);
-  else for (let i = 0; i < 6; i++) rect(cx - 3 + i, cy - 5 + i, 1, 11 - 2 * i, v);
-  for (let i = 0; i < 9; i++) { put(140 + i, cy - 4 + i, 15); put(148 - i, cy - 4 + i, 15); put(141 + i, cy - 4 + i, 15); put(147 - i, cy - 4 + i, 15); }
-  if (pen?.down) put(pen.x, pen.y, 15);
+  PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow, pen });
 }
 async function drumsInit() {
   // demo/drums/voices.mjs from this checkout, or the board's copy on the Pi (the bridge runs from ~/palm there)
@@ -1077,7 +1041,7 @@ setInterval(() => {
   win = { t: Date.now(), f: sent.frames, b: sent.bytes, tones: sent.tones, cam: camFrames };
   const top = soundingNote !== null ? nameOf(soundingNote) : '-';
   const w = VIEW === 'split' ? `, wave ${wConnected || 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
-  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${VIEW === 'drums' ? `, strokes ${strokes}${seqS.running ? ` playing step ${stepNow() + 1}` : ''}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${cf}${w}`);
+  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${VIEW === 'drums' ? `, strokes ${drumPens?.strokes() ?? 0}${seqS.running ? ` playing step ${stepNow() + 1}` : ''}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${cf}${w}`);
 }, 5000);
 
 log(`bridge: ${DRY ? 'dry, no tty' : dev}, view ${VIEW}, fmt ${FMT} at ${FPS} fps${VOICE ? `, voice ${JSON.stringify(vs)}` : ''}${PEN ? `, pen to cc ${PEN_X},${PEN_Y} ch ${PEN_CH}` : ''}, ${DEMO ? 'demo notes' : `rooms ${ROOM} and ${CROOM}`}`);
