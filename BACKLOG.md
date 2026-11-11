@@ -1,5 +1,7 @@
 ## Open
 
+- 2026-11-11, *"do not feel like i need to have fasttrack connected just to stream audio out"*. rig/board/jacksynth.mjs: jackd on the Fast Track hung 12 min when its USB dropped (12:56 to 13:08, lessons/venue-setup.md). Fix: on the card's `No such device` / `read error, stopping` jackd is killed at once so the dummy clock takes over; boot without it already falls back.
+
 - **OK GO: no title, and the address becomes /present/pi/** (2026-11-11). Asked: *"rm okgo title"*, *"rename page to pi"*. The folder moves after the drum-grid agent reports (it is editing demo/present/okgo/index.html).
 
 - **A first slide, /present/studio/: the Pi's dithered camera dimmed behind the title Positron Studio** (2026-11-11). Asked: *"make fist slide with pi dirhered camera dimmed in bg. and title positrod studio"*. The camera is /devices/camera/'s keyed room (?cam=), reached on a press.

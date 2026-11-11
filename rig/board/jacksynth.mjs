@@ -189,12 +189,21 @@ async function raiseJackd({ onLog } = {}) {
     const p = spawn('jackd', jackdArgs(card), { stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...JACKD_ENV } });
     p.unref();
     const said = [];
+    let gone = false;
     const hear = (d) => {
       const t = String(d);
       const n = countXruns(t);
       jackdState.xruns += n;
       for (const l of t.split('\n').map((x) => x.trim()).filter((x) => x && !/^Cannot lock down/.test(x))) {
         said.push(l);
+        // The card unplugged: jackd stops its cycle and hangs rather than exiting, and every client with it
+        // (12 min on 2026-11-11). Killed, the clients' restarts raise it again on the dummy clock.
+        // why: lessons/venue-setup.md#the-fast-tracks-usb-is-the-pis-whole-audio
+        if (card && !gone && /No such device|ProcessAsync: read error, stopping/.test(l)) {
+          gone = true;
+          onLog?.(`jackd: ${card.device} went away, stopping jackd so the dummy clock takes over`);
+          try { process.kill(-p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch { /* gone */ } }
+        }
         // Every line for the first 40, then only xruns, one in fifty.
         jackdState.lines++;
         if (jackdState.lines <= 40 || (/xrun/i.test(l) && jackdState.xruns % 50 === 1)) onLog?.(`jackd: ${l.slice(0, 200)}${/xrun/i.test(l) ? ` (xruns ${jackdState.xruns})` : ''}`);
