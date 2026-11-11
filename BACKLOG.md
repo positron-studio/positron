@@ -1,5 +1,7 @@
 ## Open
 
+- **Play drums live on the Palm, and a demo page with the Pi's screen emulated** (2026-11-11). Asked: *"can i actually play drums now? new demo page with pi sreen emulation?"* Context: `rig/palm/bridge.mjs --view drums` makes the Palm a 16x16 grid editing the board's sequencer (seq.pattern), sound on the Pi's PWM out; /devices/drums/ (demo/devices/pi-seq.mjs) already edits the same sequencer and emulates the OLED. Open: whether "play" means pads that hit at once (sc.hit through the board) or the sequencer; what the page adds over /devices/drums/ (the Palm's 16 rows, the Palm's picture, both screens side by side).
+
 - ~~**The mic slide becomes /palm/, run locally, and the Palm's sound does much more**~~ DONE 2026-11-10: arp, echo, chip and mono voices, knobs, a spectrogram on the Palm and the OLED (board screen.raw), the drone on key, keys latch (2026-11-10). Asked: *"do way more with that palm sound. run local server and run mic demo there. rename it palm"*. The Palm plays square tones (sndCmdFrqOn, any Hz) and notes (sndCmdNoteOn); no PCM.
 
 - **Play the Pi's synths with the Palm as their picture, and perhaps the Palm as a MIDI voice and controller** (2026-11-10). Asked: *"i want to move on to play actual synths on pi with palm viz. perhaps even palm midi. we can not simulate pcm with palm, is it piezo?"*. PCM is not implemented for 68k apps on the Z22 (0x080A); the Palm plays notes (sndCmdNoteOn) and MIDI records.

@@ -50,7 +50,8 @@ const dev = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i -
 const VIEW = opt('--view', 'camera');
 const CAM_FPS = Number(opt('--cam-fps', 15));
 const WAVE_PORT = opt('--wave-port', 'circuit:capture_1');
-const FMT = Number(opt('--fmt', 4));
+// the drum grid goes at 1 bit: a quarter of the bytes, so a tap's flip reaches the Palm sooner
+const FMT = Number(opt('--fmt', VIEW === 'drums' ? 1 : 4));
 const FPS = Number(opt('--fps', FMT === 1 ? 30 : FMT === 2 ? 20 : 15));
 const ROOM = opt('--room', 'studio-1');
 const RELAY = opt('--relay', 'wss://ws.positron.studio');
@@ -650,8 +651,10 @@ function drawDrums(t) {
   drawnStep = now;
   for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
     const x = G_X0 + c * G_PX, y = G_TOP + r * G_PY;
-    if (grid[r][c]) rect(x, y, G_CW, G_CH, c === now ? 15 : 12);
-    else rect(x + 3, y + 2, 2, 1, r === selRow ? 13 : c % 4 === 0 ? 8 : 4);
+    // shapes, not greys, so the grid reads the same at 1 bit: a beat's dot is wider, the picked row's taller
+    if (grid[r][c]) rect(x, y, G_CW, G_CH, 15);
+    else if (r === selRow) rect(x + 3, y + 1, 2, 3, 15);
+    else rect(x + (c % 4 === 0 ? 3 : 4), y + 2, c % 4 === 0 ? 2 : 1, 1, 15);
   }
   if (now >= 0) {
     const x = G_X0 + now * G_PX;
@@ -659,10 +662,10 @@ function drawDrums(t) {
     rect(x, G_TOP - 5, G_CW, 3, 15);
   }
   // the lane: play (a square while running, dim while the Pi is being asked) at the left, clear (an X) at the right
-  const v = starting ? 5 : 13, cx = 16, cy = G_LANE + 12;
+  const v = starting ? 5 : 15, cx = 16, cy = G_LANE + 12;
   if (seqS.running) rect(cx - 4, cy - 4, 9, 9, v);
   else for (let i = 0; i < 6; i++) rect(cx - 3 + i, cy - 5 + i, 1, 11 - 2 * i, v);
-  for (let i = 0; i < 9; i++) { put(140 + i, cy - 4 + i, 13); put(148 - i, cy - 4 + i, 13); put(141 + i, cy - 4 + i, 13); put(147 - i, cy - 4 + i, 13); }
+  for (let i = 0; i < 9; i++) { put(140 + i, cy - 4 + i, 15); put(148 - i, cy - 4 + i, 15); put(141 + i, cy - 4 + i, 15); put(147 - i, cy - 4 + i, 15); }
   if (pen?.down) put(pen.x, pen.y, 15);
 }
 async function drumsInit() {
@@ -957,7 +960,8 @@ let lastFrame = 0;
 const moving = (t) => held.size || !silent || gone.some((s) => t - s.off < FADE_MS) || hits.some((h) => t - h.t < 400) || dirty || (VIEW === 'drums' && stepNow(t) !== drawnStep);
 if (VIEW !== 'camera') setInterval(() => {
   const t = Date.now();
-  if (!moving(t) && t - lastFrame < 1000) return;
+  // a still grid refreshes every 5 s, so a tap seldom lands behind a frame nobody needed
+  if (!moving(t) && t - lastFrame < (VIEW === 'drums' ? 5000 : 1000)) return;
   if (frameQueued) return;   // the link is behind: skip this one rather than queue a stale picture
   dirty = false; lastFrame = t;
   render(t);
