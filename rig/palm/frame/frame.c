@@ -29,7 +29,8 @@
  *      Answers "pcm create t<type> r<rate> f<frames> v<variant> err 0x.. vol 0x..
  *      [start 0x.. pulls n under n]".
  * In:  'P' '?': answers one "st ..." line with every counter.
- * Out: "stop\n" when a hard button stopped the sound.
+ * Out: "key <chr> <keyCode> <modifiers>\n" (hex) for a button or silkscreen icon the app takes (the sound
+ *      stops too); "sys ..." the same for a key left to the system (home, power, HotSync, the screen's keys).
  * Watchdog: no packet for 2 s while a sound is meant to be playing: quiet.
  * Line 0 (y 124, once any sound packet came): v<sound mgr version or err>
  *      t<tones> n<notes> m<smf plays> a<ring fill> u<underrun frames> o<overflow bytes> w<watchdog fires> k<key stops>.
@@ -38,7 +39,7 @@
  * Line 1: d<fmt> f<frames> <fps> <KB/s> t<tones> <err>.
  * Line 2: b<bytes read> h<header bytes> x<drops> e<last serial err> a<avail> s<seconds alive>
  *         r<reopens>. The port is closed and opened again after 3 s of errors
- *         in a row, or on a tap on the top 14 rows.
+ *         in a row. The three lines are never drawn since 2026-11-11.
  * The 1 bit path is the first build's: same buffer, same loop, same draw. */
 #include <PalmOS.h>
 #include "frame.h"
@@ -103,7 +104,7 @@ static Boolean showStatus = false;
 static void status(void) {
   RectangleType r;
   char s[96];
-  if (!showStatus) return;   /* no debug lines unless a tap on the top strip asks for them */
+  if (!showStatus) return;   /* never drawn since 2026-11-11 (the owner: "rm logs"); "st" answers a ping instead */
   StrPrintF(s, "d%lu f%lu %lu.%lu/s %luKB/s", (UInt32)depth, frames, fps10 / 10, fps10 % 10, kbps);
   if (err[0]) StrPrintF(s + StrLen(s), " %s", err);
   if (soundShown) {
@@ -277,13 +278,6 @@ static void silence(void) {
   soundUntil = 0;
 }
 
-static void hardStop(void) {
-  silence();
-  keyStops++;
-  soundShown = true;
-  send("stop\n", 5);
-  status();
-}
 
 /* Frames from the ring into the stream's buffer in the stream's type, silence
  * for what the ring does not have. Runs on the sound thread: no globals. */
@@ -648,16 +642,25 @@ static Boolean mainHandler(EventType *e) {
     return true;
   case keyDownEvent: {
     WChar c = e->data.keyDown.chr;
+    char line[40];
     if (!(e->data.keyDown.modifiers & commandKeyMask)) return false;
+    /* every button and silkscreen icon goes to the host by name; home, power, HotSync and the screen's own
+     * keys stay the system's (reported as "sys") so the app can still be left and synced */
     if ((c >= vchrHard1 && c <= vchrHard4) || c == vchrPageUp || c == vchrPageDown ||
-        (c >= vchrRockerUp && c <= vchrRockerCenter) || c == vchrNavChangeP1) {
-      hardStop();
+        (c >= vchrRockerUp && c <= vchrRockerCenter) || c == vchrNavChangeP1 ||
+        c == vchrMenu || c == vchrFind || c == vchrCalc || c == vchrKeyboard || c == vchrKeyboardAlpha ||
+        c == vchrKeyboardNumeric || c == vchrGraffitiReference || c == vchrRonamatic) {
+      silence();
+      keyStops++;
+      StrPrintF(line, "key %lx %lx %lx\n", (UInt32)c, (UInt32)e->data.keyDown.keyCode, (UInt32)e->data.keyDown.modifiers);
+      send(line, StrLen(line));
       return true;
     }
+    StrPrintF(line, "sys %lx %lx %lx\n", (UInt32)c, (UInt32)e->data.keyDown.keyCode, (UInt32)e->data.keyDown.modifiers);
+    send(line, StrLen(line));
     return false;
   }
   case penDownEvent:
-    if (e->screenY < 14) { showStatus = !showStatus; if (!showStatus) { RectangleType r; RctSetRectangle(&r, 0, 122, 160, 38); WinEraseRectangle(&r, 0); } reopen(); return true; }
     sendPen(e->screenX, e->screenY, 1);
     return true;
   case penMoveEvent:

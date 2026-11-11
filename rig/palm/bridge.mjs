@@ -580,8 +580,40 @@ function clearGrid() {
   log('clear: every step off');
   edited();
 }
-// pframe answers any hard button (the four, the rocker, page up and down) with one "stop" line and never says
-// which, so in the drums view every button is play and stop; a held button repeats, hence the 400 ms.
+// pframe (2026-11-11 build) sends "key <chr> <keyCode> <modifiers>" in hex for each button and icon it takes, and
+// "sys ..." for one left to Palm OS. Names from Chars.h and palmOneNavigator.h; the 5-way may send either form.
+const KEY_NAMES = { 0x204: 'hard1', 0x205: 'hard2', 0x206: 'hard3', 0x207: 'hard4', 0xb: 'up', 0xc: 'down',
+  0x132: 'up', 0x133: 'down', 0x134: 'left', 0x135: 'right', 0x136: 'center', 0x105: 'menu', 0x10a: 'find', 0x10b: 'calc' };
+const NAV_BITS = [[0x01, 0x100, 'up'], [0x02, 0x200, 'down'], [0x04, 0x400, 'left'], [0x08, 0x800, 'right'], [0x10, 0x1000, 'center']];
+const keyAt = {};
+let selRow = 0;
+function onKey(line) {
+  const [kind, ...hex] = line.split(' '), [chr, code, mods] = hex.map((h) => parseInt(h, 16));
+  let name = KEY_NAMES[chr] ?? null;
+  if (chr === 0x503) name = NAV_BITS.find(([bit, change]) => (code & change) && (code & bit))?.[2] ?? null;   // a release has no bit
+  log(`${kind} ${hex.join(' ')}${name ? ` (${name})` : ''}`);
+  if (kind !== 'key' || !name) return;
+  if (VIEW !== 'drums') { muted = true; silent = true; sounding = null; return; }
+  // one press can come as two forms, and a held key repeats: the same name within 150 ms is the same press
+  const t = Date.now(), repeat = (mods & 0x40) !== 0;
+  if (t - (keyAt[name] ?? 0) < 150 || (repeat && !['left', 'right', 'up', 'down'].includes(name))) return;
+  keyAt[name] = t;
+  drumKey(name);
+}
+/** The buttons on the drum grid: centre plays, left and right move the tempo, up and down pick a row,
+ *  the left app button puts a hit on every beat of it, the right one empties it, menu clears all, find dices it. */
+function drumKey(name) {
+  if (!gVoices) return;
+  const row = grid[selRow];
+  if (name === 'center') return transport();
+  if (name === 'left' || name === 'right') { seqS.bpm = Math.max(40, Math.min(240, seqS.bpm + (name === 'left' ? -5 : 5))); log(`tempo ${seqS.bpm}`); return edited(); }
+  if (name === 'up' || name === 'down') { selRow = (selRow + (name === 'up' ? G_ROWS - 1 : 1)) % G_ROWS; dirty = true; return log(`row ${gVoices[selRow].key}`); }
+  if (name === 'hard1') { for (let c = 0; c < G_STEPS; c++) row[c] = c % 4 === 0; log(`${gVoices[selRow].key}: every beat`); return edited(); }
+  if (name === 'hard2') { row.fill(false); log(`${gVoices[selRow].key}: cleared`); return edited(); }
+  if (name === 'menu') return clearGrid();
+  if (name === 'find') { for (let c = 0; c < G_STEPS; c++) row[c] = Math.random() < 0.3; log(`${gVoices[selRow].key}: diced`); return edited(); }
+}
+// The old pframe answers any hard button with one "stop" line and never says which: play and stop.
 let buttonAt = 0;
 function hardButton() {
   const t = Date.now();
@@ -591,7 +623,7 @@ function hardButton() {
   transport();
 }
 function drumPen(x, y, down) {
-  if (!down) { if (stroke) log(`pen up ${x} ${y}`); stroke = null; lastCell = null; return; }
+  if (!down) { if (stroke) log(`pen up ${x} ${y}${stroke !== 'lane' ? `, ${stroke.flips} squares flipped` : ''}`); stroke = null; lastCell = null; return; }
   if (!stroke) {
     strokes++;
     if (y >= G_LANE) {
@@ -619,7 +651,7 @@ function drawDrums(t) {
   for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
     const x = G_X0 + c * G_PX, y = G_TOP + r * G_PY;
     if (grid[r][c]) rect(x, y, G_CW, G_CH, c === now ? 15 : 12);
-    else rect(x + 3, y + 2, 2, 1, c % 4 === 0 ? 8 : 4);
+    else rect(x + 3, y + 2, 2, 1, r === selRow ? 13 : c % 4 === 0 ? 8 : 4);
   }
   if (now >= 0) {
     const x = G_X0 + now * G_PX;
@@ -663,6 +695,7 @@ if (isTty) {
       pending = pending.slice(i + 1);
       const m = /^p (-?\d+) (-?\d+) ([01])$/.exec(line);
       if (m) onPen(Number(m[1]), Number(m[2]), m[3] === '1');
+      else if (line.startsWith('key ') || line.startsWith('sys ')) onKey(line);
       else if (line === 'stop' && VIEW === 'drums') hardButton();
       else if (line === 'stop') { log('a hard button on the Palm stopped the sound, quiet until the next note'); muted = true; silent = true; sounding = null; }
       else if (line.startsWith('st ')) { if (!saidSt || stopping) log(`the Palm answers the ping: ${line}`); saidSt = true; lastSt = Date.now(); }
