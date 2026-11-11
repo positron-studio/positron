@@ -3,13 +3,13 @@
 // (/devices/palmdrums/). Pure: no DOM, no socket; node imports it.
 
 export const W = 160, H = 160;
-export const STEPS = 16, ROWS = 16;
-// the grid starts 8 rows under pframe's old top strip, so a tap on the kick row stays clear of it
-export const TOP = 22, PY = 6, CH = 5, PX = 10, CW = 8, X0 = 1;
-/** Plaits' wave under the grid, 24 rows; the pen does nothing there. */
-export const WAVE_Y = TOP + ROWS * PY + 2, WAVE_H = 24;
-/** The lane under the wave, 15 rows: play and stop left of PLAY_X, clear from CLEAR_X, nothing between. */
-export const LANE = WAVE_Y + WAVE_H + 1;
+export const STEPS = 16, ROWS = 8;
+// three bands: the 8 rows in the top third, Plaits' wave in the middle third, the bottom third empty
+export const TOP = 6, PY = 6, CH = 5, PX = 10, CW = 8, X0 = 1;
+/** Plaits' wave under the grid, the middle third; the pen does nothing there. */
+export const WAVE_Y = 57, WAVE_H = 46;
+/** No lane on the screen any more (play is the Palm's centre button, clear its Menu icon): LANE is the bottom edge. */
+export const LANE = H;
 export const PLAY_X = 40, CLEAR_X = 120;
 /** A wave is `WAVE_COLS` columns as [lo, hi] pairs, flat, each -100 to 100 (the palm.wave message's `cols`). */
 export const WAVE_COLS = 64;
@@ -44,11 +44,6 @@ export function draw({ rect, put }, s) {
     rect(x, TOP - 5, CW, 3, 15);
   }
   drawWave(rect, 0, WAVE_Y, W, WAVE_H, s.wave);
-  // play (a square while running, dim while the Pi is being asked) at the left, clear (an X) at the right
-  const v = s.starting ? 5 : 15, cx = 16, cy = LANE + 7;
-  if (s.running) rect(cx - 4, cy - 4, 9, 9, v);
-  else for (let i = 0; i < 6; i++) rect(cx - 3 + i, cy - 5 + i, 1, 11 - 2 * i, v);
-  for (let i = 0; i < 9; i++) { put(140 + i, cy - 4 + i, 15); put(148 - i, cy - 4 + i, 15); put(141 + i, cy - 4 + i, 15); put(147 - i, cy - 4 + i, 15); }
   if (s.pen?.down) put(s.pen.x, s.pen.y, 15);
 }
 

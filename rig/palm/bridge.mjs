@@ -1029,18 +1029,20 @@ function fakePlaits() {
     wGot += RATE / 50;
   }, 20);
 }
-/** The OLED in the drum view: 16 steps of 8 px over 16 rows of 3 (a hit is 6 by 2), the playing step inverted, the wave in rows 49 to 63. */
+/** The OLED in the drum view, split in halves: 16 steps of 8 px over the rows in the top 32 (a hit fills its cell but
+ *  a pixel's gap), the playing step inverted, the wave in the bottom half. */
 function drumsOled(t) {
+  const PITCH = Math.floor(32 / G_ROWS);
   const img = new Uint8Array(OW * OH);
   const r1 = (x, y, w, h, v) => { for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (i >= 0 && j >= 0 && i < OW && j < OH) img[j * OW + i] = v ? 1 : 0; };
   const now = stepNow(t);
-  if (now >= 0) r1(now * 8, 0, 8, 48, 1);
+  if (now >= 0) r1(now * 8, 0, 8, G_ROWS * PITCH, 1);
   for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
     const on = c === now ? 0 : 1;
-    if (grid[r][c]) r1(c * 8 + 1, r * 3, 6, 2, on);
-    else if (c % 4 === 0 && c !== now) r1(c * 8 + 4, r * 3, 1, 1, 1);
+    if (grid[r][c]) r1(c * 8 + 1, r * PITCH, 6, PITCH - 1, on);
+    else if (c % 4 === 0 && c !== now) r1(c * 8 + 4, r * PITCH + (PITCH >> 1), 1, 1, 1);
   }
-  PD.drawWave((x, y, w, h) => r1(x, y, w, h, 1), 0, 49, OW, 15, waveCols);
+  PD.drawWave((x, y, w, h) => r1(x, y, w, h, 1), 0, 34, OW, 30, waveCols);
   const out = Buffer.alloc(OW * OH / 8);
   for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) if (img[y * OW + x]) out[(y >> 3) * OW + x] |= 1 << (y & 7);
   return out;
