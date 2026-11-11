@@ -1,3 +1,30 @@
+# Handoff, 2026-11-11, session 95: the HARNO keynote research, VÄIN on TestFlight
+
+- **HARNO keynote, 27.11.2026, 15.00–15.50** (*"Raamistikust klassiruumi"*, Öpiku, about 150
+  teachers; the closing talk of the day launching the AI-updated digital competence model).
+  Not replied to yet; the Estonian reply draft is in the private notes.
+  - **Research, public:** `~/personal/visualia/research/harno/` (README, model, work,
+    learning, ideas, play, material, sources, plus `sources/` with two received reviews
+    verbatim). **Not committed.** Its first version is visualia `2fa33a5`
+    (`research/digital-competence-2026-11.md`), now deleted in the working tree in favour
+    of the folder. Commit both together.
+  - **Private:** `~/personal/talks/harno/event.md` (the invitation, people, prep-call
+    questions, reply draft) and `talk.md` (angle, arc, demo, the Monday activity, what to
+    avoid).
+  - **Direction so far:** "Making got easy. Becoming good at something, and finding someone
+    who listens, didn't." Close on *"Now that we can make so much on our own, what do we
+    still need one another for?"*, then the essay's last line. The Lonely Software essay
+    and the loopback demo (/devices/hdmi/, /ambient/drone/) are the core.
+  - **Facts worth remembering:** "scenius" has no Estonian-language use found; the model
+    already covers making (3.1.22, 3.4, 5.3); TLÜ teaches "Digipädevus ja tehisaru"
+    (HIK6442.HT, Andres Karjus); Linda Helene Sillat also wrote the Eesti.ai AI literacy
+    model.
+- **VÄIN app:** the owner joined Tarmo's App Store Connect team as Developer and is invited
+  to TestFlight's Väin-testers. What to test, and what 0.8.3 holds: `~/personal/v2in/HANDOFF.md`
+  (top).
+- Nothing changed in positron this session (a research file was made here, then moved to
+  visualia). Nothing deployed. No headless Chrome started.
+
 # Handoff, 2026-11-11, session 94: MEM soft2 on v2in, mem-source, the MEM lab archived
 
 - **On air at https://v2in.stream/stream/mem: MEM soft2** (v2in 66edb25, CI run 43082358107). On calm2b (hiss measured per take, passed over while two loops sound, never staying, talk at 0.6, more body) it adds: a hiss loop's low pass pulled to 40 % (`colour.hissLp` 0.4, `lpOf(pl)` in mem.mjs) and its gain up to 8 dB down (`takes.hissDown` 0.6); colour lp 2.5 to 6 kHz, drive to 1.25, reverb damp 0.75, `solo.sudden` 0. Measured on 20 min renders, AM feed: hiss 58 % (old) to 8 %, harshness 0.37 to 0.07, centroid 1689 to 681 Hz. The owner chose it by ear and said *"mem is ok for now"*. All numbers and caveats: plans/plan-mem-listenable.md, last section.
