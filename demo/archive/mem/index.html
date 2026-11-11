@@ -67,7 +67,7 @@
 
   const d = mount({ name: 'MEM', what: '', joined: false, index: '/', indexLabel: 'positron',
     readout: { time: 's', players: '', mood: '', room: '', takes: '', talk: '%', loudness: 'LUFS', memory: 'MB' } });
-  conceptNav('radio/mem');
+  conceptNav('archive/mem');
 
   const hold = (a, b) => { const r = bay.link(a, b, [], { site: S }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
   const holds = (a, b) => bay.links().some((l) => l.from === a && l.to === b);
