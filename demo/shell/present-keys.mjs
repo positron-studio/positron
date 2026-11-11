@@ -15,9 +15,10 @@ const CSS = `
  * `createPresentKeys({ prev, next, escape })`: `prev()` and `next()` on the arrow keys, `escape()` on Esc when no
  * raid is showing. Answers `{ raid, setRaid, simulate }`. Mark the page's own UI roots with the class `pres-ui`.
  */
-export function createPresentKeys({ prev = () => {}, next = () => {}, escape = () => {} } = {}) {
+export function createPresentKeys({ prev = () => {}, next = () => {}, escape = () => {}, onRaid = () => {} } = {}) {
   document.head.append(Object.assign(document.createElement('style'), { textContent: CSS }));
-  const kyiv = createKyivRaid();
+  // `onRaid(on)` whenever the raid shows or goes, by v2in or by hand: a radio page cuts its sound on it
+  const kyiv = createKyivRaid({ onChange: (r) => onRaid(!!r?.on) });
   // over the page's own layers, which are hidden while it shows
   kyiv.el.style.zIndex = '100';
   kyiv.el.classList.add('pos-out');

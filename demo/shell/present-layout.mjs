@@ -114,7 +114,7 @@ const CSS = `
  * while `moving()` says it moves; it keeps its last frame until `blank()` says to clear it. Answers `{ root, setHow, how, keys, go }`.
  */
 export function createPresentLayout({ title, sub = '', desc = '', main, line = null, patch = null, aspect = '4 / 3', extra = '0px',
-  banner = null, moving = () => false, blank = () => false, onHow = () => {}, actions = [], tools = [] }) {
+  banner = null, moving = () => false, blank = () => false, onHow = () => {}, actions = [], tools = [], onRaid = () => {} }) {
   document.head.append(Object.assign(document.createElement('style'), { textContent: CSS }));
   const eye = el('div', 'pos-hero-eye prl-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
@@ -179,7 +179,7 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   const parts = [root];
   if (banner) parts.unshift(createBanner(banner, moving, blank));
   document.body.append(...parts);
-  const keys = createPresentKeys({ prev: () => go(-1), next: () => go(1), escape: () => { if (how) setHow(false); } });
+  const keys = createPresentKeys({ prev: () => go(-1), next: () => go(1), escape: () => { if (how) setHow(false); }, onRaid });
   if (new URLSearchParams(location.search).get('how') === '1') setHow(true);
   return { root, setHow, how: () => how, keys, go };
 }

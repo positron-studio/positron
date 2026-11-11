@@ -380,6 +380,8 @@
   canvas.classList.add('pos-out'); headLine.classList.add('pos-out');
   document.body.append(canvas, headLine);
   const lay = createPresentLayout({
+    // a raid (from v2in or by r) cuts the sound at once: the context is suspended, and resumed when it ends if playing
+    onRaid: (on) => { if (!ctx) return; if (on) ctx.suspend().catch(() => {}); else if (playing) ctx.resume().catch(() => {}); },
     title: `Soundscape\n${AT.join('\n')}`, sub: ABOUT,
     desc: 'v2in streams its MEM channel from Icecast as MP3 over https. An analyser draws it as a spectrogram, and a drag replays the last 90 s from an AudioWorklet ring.',
     main: null, line: playGroup.el, patch: pb.el, onHow,
