@@ -487,7 +487,7 @@ const grid = Array.from({ length: G_ROWS }, () => new Array(G_STEPS).fill(false)
 // something to hear on the first tap: four on the floor, a backbeat, closed hats
 for (let c = 0; c < G_STEPS; c++) { grid[0][c] = c % 4 === 0; grid[1][c] = c % 8 === 4; grid[3][c] = c % 2 === 0; }
 const seqS = { running: false, bpm: DRUMS_BPM, step: -1, at: 0, pending: false, said: '' };
-let stroke = null, lastCell = null, penAt = 0, strokes = 0, editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
+let stroke = null, lastCell = null, strokes = 0, editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
 const waiters = [];
 function ask(msg, type, ms = 8000) {
   const id = rid(16);
@@ -571,13 +571,9 @@ async function transport() {
     log(`sequencer: ${m?.ok ? `${m.running ? 'running' : 'stopped'} at ${m.bpm} bpm into ${m.target}` : `refused: ${m?.why ?? 'no answer'}`}`);
   } finally { starting = false; dirty = true; }
 }
-// pframe sends a down and a move alike ("p x y 1"), so a stroke also ends after STROKE_GAP ms with no pen event:
-// a lost pen up would otherwise leave every later tap read as part of the old stroke.
-const STROKE_GAP = 250;
+// pframe sends a down and a move alike ("p x y 1"), so only a pen up ends a stroke. A stylus held still sends
+// nothing, and ending a stroke on a quiet gap flipped the square back on the next move (measured 2026-11-11).
 function drumPen(x, y, down) {
-  const t = Date.now();
-  if (stroke && t - penAt > STROKE_GAP) stroke = null;
-  penAt = t;
   if (!down) { if (stroke) log(`pen up ${x} ${y}`); stroke = null; lastCell = null; return; }
   if (!stroke) {
     strokes++;
