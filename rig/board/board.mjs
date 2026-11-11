@@ -120,7 +120,7 @@ const drumSeq = createSequencerService({
   hit: (name) => drumHit(name, 'sequencer'),
   // While the Circuit's drums hold the screen, the sequencer runs without drawing.
   // nor for 2 s after a screen.raw frame, while the Palm bridge draws grid and wave itself
-  screen: (steps) => { if (panel && steps && !cdrums.held() && Date.now() - rawAt > 2000) panel.steps(steps); },
+  screen: (steps) => { if (panel && steps && !cdrums.held() && Date.now() - rawAt > 2000 && !screenCam?.running()) panel.steps(steps); },
   log: (l) => log(l),
 });
 // The MK-425C on the Pi into the Circuit (keyboard.mjs): held by the board until kbd.unlink, so it
