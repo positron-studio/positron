@@ -42,6 +42,11 @@ const CSS = `
   .prl-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
   .prl-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
   .prl-top button, .prl-acts button, .prl-foot > .pos-bgroup button { color: var(--fg); }
+  /* buttons that stand on the page's ground are see-through with a white outline, so a picture under them shows */
+  .prl-top button, .prl-acts .pos-bgroup button, .prl-foot > .pos-bgroup button {
+    background: transparent; border: 1px solid rgba(255, 255, 255, .7); color: #fff; }
+  .prl-top button:hover, .prl-acts .pos-bgroup button:hover, .prl-foot > .pos-bgroup button:hover { background: rgba(255, 255, 255, .08); border-color: #fff; }
+  .prl-top .pos-bgroup .pos-bgroup-row, .prl-foot > .pos-bgroup .pos-bgroup-row { background: transparent; }
   .prl-top .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   .prl-top svg, .prl-acts .pos-bgroup svg, .prl-foot > .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
   .prl-top button.pos-lg, .prl-acts .pos-bgroup button.pos-lg, .prl-foot > .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
