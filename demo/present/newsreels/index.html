@@ -83,6 +83,7 @@
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createBar, barButton } from '/shell/bar.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createPresentKeys } from '/shell/present-keys.mjs';
   import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
   import { playToggle, ratesView } from '/shell/transport-views.mjs';
   import { bindTransportKeys } from '/shell/transport-keys.mjs';
@@ -398,7 +399,10 @@
     try { bctx.drawImage(film, (w - vw) / 2, (h - vh) / 2, vw, vh); bannerOn = true; } catch { /* not drawable yet */ }
   })(0);
   document.body.append(banner, root);
-  addEventListener('keydown', (e) => { if (e.key === 'Escape' && how) setHow(false); });
+  // the arrows, Esc and the raid view, as on every presentation page
+  root.classList.add('pres-ui');
+  const keys = createPresentKeys({ prev: () => go(-1), next: () => go(1), escape: () => { if (how) setHow(false); } });
+  window.__demo.raid = () => keys.raid();
   window.__demo.how = setHow;
   if (new URLSearchParams(location.search).get('how') === '1') setHow(true);
   // After the stack has it, so the panel knows where to put it back (`under`

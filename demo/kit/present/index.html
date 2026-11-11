@@ -50,6 +50,7 @@
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createPresentKeys } from '/shell/present-keys.mjs';
   useMediumColours();
 
   const d = mount({ name: 'kit/present', what: '', readout: null, showLog: false, chrome: false });
@@ -116,12 +117,10 @@
   const top = el('div', 'pr-top');
   top.append(howGroup.el, arrows.el);
   document.body.append(bg, foot, top);
-  addEventListener('keydown', (e) => {
-    if (e.target.closest?.('input, textarea')) return;
-    if (e.key === 'ArrowLeft') show(at - 1);
-    else if (e.key === 'ArrowRight') show(at + 1);
-    else if (e.key === 'Escape' && how) setHow(false);
-  });
+  // the arrows, Esc and the raid view, as on every presentation page
+  foot.classList.add('pres-ui'); top.classList.add('pres-ui');
+  const keys = createPresentKeys({ prev: () => show(at - 1), next: () => show(at + 1), escape: () => { if (how) setHow(false); } });
+  window.__demo.raid = () => keys.raid();
   show(0);
   // ?how=1 opens How it works at once, for a preview or a shot
   if (new URLSearchParams(location.search).get('how') === '1') { document.body.classList.add('pr-still'); setHow(true); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('pr-still'))); }
