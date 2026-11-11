@@ -55,6 +55,7 @@
   function onSeqState(m) {
     if (!m?.ok) { if (m?.why) d.log(`the Pi's sequencer: ${m.why}`, 'warn'); return; }
     seq.running = !!m.running;
+    showPlaying();
     if (Number.isFinite(m.bpm)) seq.bpm = m.bpm;
     seq.step = Number.isInteger(m.step) ? m.step : -1; seq.at = performance.now();
     // its own edit still on its way, or not landed until the next bar: the board's copy is the older one
@@ -126,12 +127,12 @@
     if (starting || !await reached()) return;
     starting = true;
     try {
-      if (seq.running) { onSeqState(await board.ask({ type: 'seq.stop', from: 'palmdrums' }, 'seq.state', 6000)); return; }
+      if (seq.running) { onSeqState(await board.ask({ type: 'seq.stop' }, 'seq.state', 6000)); return; }
       if (!await drumsOnPi()) return;
-      const m = await board.ask({ type: 'seq.start', target: 'drums', pattern: patternNow(), screen: screenNow(), from: 'palmdrums' }, 'seq.state', 6000);
+      const m = await board.ask({ type: 'seq.start', target: 'drums', pattern: patternNow(), screen: screenNow() }, 'seq.state', 6000);
       onSeqState(m);
       d.log(`the Pi's sequencer: ${m?.ok ? `running at ${m.bpm} bpm` : `refused: ${m?.why ?? 'no answer'}`}`, m?.ok ? 'ok' : 'warn');
-    } finally { starting = false; pb.refresh(); }
+    } finally { starting = false; showPlaying(); pb.refresh(); }
   }
   /** Listen: the drums on the Pi, and their sound here over the relay. One press, a browser needs one. */
   async function listen() {
@@ -193,7 +194,12 @@
   const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
     { flowing: (l) => (l.id === 'a' ? performance.now() - editAt < 400 : seq.running) });
 
-  const buttons = createButtonGroup({ buttons: [{ id: 'listen', label: 'Listen', primary: true, title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
+  // play and stop on top, the same press as the Palm's play in its lane; Listen under the screen
+  const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', primary: true, onPress: () => transport() }] });
+  function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
+  const buttons = createButtonGroup({ buttons: [{ id: 'listen', label: 'Listen', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
+  const topRow = el('div', 'pm-row');
+  topRow.append(top.el);
   const row = el('div', 'pm-row');
   row.append(buttons.el);
   const media = el('div', 'pm-media');
@@ -214,7 +220,7 @@
   }
   setZoom(innerWidth < 560 ? 1 : zi);
   const panel = createVideoPanel({ media, left: scale, right: zoomBtns.el, aspect: 'auto' });
-  d.stack.add(panel.el, row, pb.el);
+  d.stack.add(topRow, panel.el, row, pb.el);
 
   window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
     on: grid.flat().filter(Boolean).length });
