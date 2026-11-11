@@ -737,6 +737,7 @@
     // unable to play anything.
     // See lessons/page-floor.md#floor-53
     setHover(pickFloor(eye, rayThrough(...ndcOf(e))));
+    moveDown(e);                     // drag to move (2026-11-11)
     wrap.setPointerCapture(e.pointerId);
   });
   /** A pointer event as normalised device coordinates. Was inline in
@@ -750,6 +751,7 @@
     setHover(pickFloor(eye, rayThrough(...ndcOf(e))));
     if (!dragging) return;
     moved += Math.abs(e.clientX - lastX) + Math.abs(e.clientY - lastY);
+    if (!moveTurn) { moveDrag(e); lastX = e.clientX; lastY = e.clientY; return; }   // drag to move (2026-11-11)
     // Drag the floor, not the camera: drag right and the view turns left. The pointer moves
     // a target (0.0021 rad/px) and the camera eases toward it, which smooths pointer noise.
     // See lessons/page-floor.md#floor-54
@@ -759,11 +761,74 @@
   });
   wrap.addEventListener('pointerup', (e) => {
     dragging = false;
+    moveUp(moved);                   // drag to move (2026-11-11)
     // A click plays the tile; under 6 px of travel is a click, more is a drag.
     // See lessons/page-floor.md#floor-55
     if (moved < 6 && hover >= 0) playTile(hover);
     try { wrap.releasePointerCapture(e.pointerId); } catch { /* gone */ }
   });
+
+  // ── drag to move, with inertia (2026-11-11) ──
+  // A drag grabs the floor point under the pointer and keeps it under the pointer, so the eye
+  // travels the other way, as the headset's ray drag does. On release the eye coasts on the
+  // release velocity, decaying exponentially. Shift+drag or a right-button drag still turns.
+  // Moving only changes `eye`; pump() stays gated on `started`, rewrap() follows the eye.
+  const MOVE_DECAY = 2.5;          // 1/s: speed *= exp(-2.5 dt), half gone in 0.28 s
+  const MOVE_STOP = 0.05;          // m/s: below this the coast ends
+  const MOVE_MAX = 12;             // m/s: a flick near the horizon is not a teleport
+  const MOVE_STEP = 3;             // m: the most one pointer event may carry the eye
+  const MOVE_HELD = 0.1;           // s: a pointer held still this long before release throws nothing
+  const moveV = [0, 0];            // m/s over the floor, x and z
+  let moveGrab = null, moveTurn = false, moveLastT = 0;
+  /** The floor point under a pointer event, or null at or above the horizon. */
+  function floorUnder(e) {
+    const dir = rayThrough(...ndcOf(e));
+    if (dir[1] > -0.05) return null;
+    const t = -eye[1] / dir[1];
+    return [eye[0] + dir[0] * t, eye[2] + dir[2] * t];
+  }
+  function moveDown(e) {
+    moveTurn = e.shiftKey || e.button === 2;
+    moveV[0] = moveV[1] = 0;        // a press catches a coasting floor
+    moveGrab = moveTurn ? null : floorUnder(e);
+    moveLastT = performance.now();
+  }
+  function moveDrag(e) {
+    const p = floorUnder(e);
+    if (!p) return;
+    if (!moveGrab) { moveGrab = p; return; }
+    let dx = moveGrab[0] - p[0], dz = moveGrab[1] - p[1];
+    const L = Math.hypot(dx, dz);
+    if (L > MOVE_STEP) { dx *= MOVE_STEP / L; dz *= MOVE_STEP / L; }
+    eye[0] += dx; eye[2] += dz;
+    if (L > MOVE_STEP) moveGrab = floorUnder(e);
+    const now = performance.now(), dt = Math.max(0.004, (now - moveLastT) / 1000);
+    moveLastT = now;
+    const k = Math.min(1, dt * 12);  // the release velocity is the last ~80 ms of the drag
+    moveV[0] += (dx / dt - moveV[0]) * k;
+    moveV[1] += (dz / dt - moveV[1]) * k;
+  }
+  function moveUp(travel) {
+    moveGrab = null;
+    if (moveTurn || travel < 6 || (performance.now() - moveLastT) / 1000 > MOVE_HELD) {
+      moveV[0] = moveV[1] = 0;
+      return;
+    }
+    const sp = Math.hypot(moveV[0], moveV[1]);
+    if (sp > MOVE_MAX) { moveV[0] *= MOVE_MAX / sp; moveV[1] *= MOVE_MAX / sp; }
+  }
+  /** One frame of coasting; called from step() before rewrap(). */
+  function moveCoast(dt) {
+    if (dragging || !(moveV[0] || moveV[1])) return;
+    eye[0] += moveV[0] * dt; eye[2] += moveV[1] * dt;
+    const k = Math.exp(-MOVE_DECAY * dt);
+    moveV[0] *= k; moveV[1] *= k;
+    if (Math.hypot(moveV[0], moveV[1]) < MOVE_STOP) moveV[0] = moveV[1] = 0;
+  }
+  wrap.addEventListener('contextmenu', (e) => e.preventDefault());   // the right button turns
+  window.__demo.eye = () => [eye[0], eye[2]];
+  window.__demo.moveV = () => [moveV[0], moveV[1]];
+  // ── end drag to move, with inertia ──
   // Arrow keys must not also scroll the page.
   // See lessons/page-floor.md#floor-56
   addEventListener('keydown', (e) => {
@@ -812,6 +877,7 @@
       yaw += (yawT - yaw) * kk;
       pitch += (pitchT - pitch) * kk;
     }
+    moveCoast(dt);                   // drag to move (2026-11-11)
     gaze = gazePoint();
     rewrap();
     placeSound();
