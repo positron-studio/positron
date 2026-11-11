@@ -1,5 +1,7 @@
 ## Open
 
+- **OK GO: no title, and the address becomes /present/pi/** (2026-11-11). Asked: *"rm okgo title"*, *"rename page to pi"*. The folder moves after the drum-grid agent reports (it is editing demo/present/okgo/index.html).
+
 - **A first slide, /present/studio/: the Pi's dithered camera dimmed behind the title Positron Studio** (2026-11-11). Asked: *"make fist slide with pi dirhered camera dimmed in bg. and title positrod studio"*. The camera is /devices/camera/'s keyed room (?cam=), reached on a press.
 
 - **/present/pipalm/ (Pi + Palm): a split screen with the wave of the Pi's sound below, and Plaits on the Pi as a growl drone with harmonics, timbre and morph** (2026-11-11). Asked: *"add split screen with wave below and add some synth from pi"*, then *"plaits. growl drone. add harm timbre morph"*. Plaits and collide are separate board services (board.mjs lines 672-673), so the drone should play beside the drums: not yet tried on the Pi.
