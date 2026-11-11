@@ -220,6 +220,7 @@ if (!DEMO) {
     else if (m.type === 'note.panic') panic();
     else if (m.type === 'seq.state') { answered(m); if (VIEW === 'drums') onSeqState(m); }
     else if (m.type === 'seq.pattern') { if (VIEW === 'drums' && m.pattern) { editAt = 0; adopt(m.pattern); } }
+    else if (m.type === 'plaits.set') { if (VIEW === 'drums') heardSlide(m); }
     else if (m.type === 'audio.started' || m.type === 'sc.loaded' || m.type === 'jack.linked') answered(m);
     // the latch on /present/pipalm/: the bridge plays and holds these Plaits notes itself, so they outlive the page
     // (the board quiet-releases a page's notes after 15 s; this process never goes quiet)
@@ -645,13 +646,32 @@ const drumPens = PD ? PD.createPen(grid, {
   onFlip: (r, c, on, first) => { if (first && gVoices) log(`pen down: ${gVoices[r].key} step ${c + 1} ${on ? 'on' : 'off'}`); edited(); },
   onPlay: () => { log(`pen down: ${seqS.running ? 'stop' : 'play'}`); transport(); },
   onClear: () => clearGrid(),
+  onSlide: (name, v) => slide(name, v),
   onUp: (x, y, flips) => log(`pen up ${x} ${y}${flips === null ? '' : `, ${flips} squares flipped`}`),
 }) : null;
 function drumPen(x, y, down) { if (gVoices) drumPens.pen(x, y, down); }
+// Plaits' three controls on the bottom third, started at the Growl drone patch's values (demo/shell/plaits-params.mjs)
+const sliders = { harmonics: 0.3, timbre: 0.6, morph: 0.35 };
+const SLIDE_MS = 50, slideSent = {}, slideTimer = {}, slideAt = {};
+/** The pen's drag: drawn at once, sent to Plaits at most every SLIDE_MS per slider, the last value always sent. */
+function slide(name, v) {
+  sliders[name] = v; slideAt[name] = Date.now(); dirty = true;
+  if (slideTimer[name]) return;
+  const go = () => { slideTimer[name] = null; slideSent[name] = Date.now(); sendTo(ROOM, { type: 'plaits.set', name, v: Math.round(sliders[name] * 1000) / 1000 }); };
+  const wait = SLIDE_MS - (Date.now() - (slideSent[name] || 0));
+  if (wait <= 0) go(); else slideTimer[name] = setTimeout(go, wait);
+}
+/** Somebody else's plaits.set (the page's knobs, or the Pi's answer to one) moves the slider, unless the pen moved it just now. */
+function heardSlide(m) {
+  if (!(m.name in sliders) || m.ok === false || typeof m.v !== 'number' || m.from === sockets[ROOM]?.from) return;
+  if (Date.now() - (slideAt[m.name] || 0) < 500) return;
+  const v = Math.max(0, Math.min(1, m.v));
+  if (v !== sliders[m.name]) { sliders[m.name] = v; dirty = true; }
+}
 function drawDrums(t) {
   const now = stepNow(t);
   drawnStep = now;
-  PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow, pen, wave: waveCols });
+  PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow, pen, wave: waveCols, sliders });
 }
 async function drumsInit() {
   // demo/drums/voices.mjs from this checkout, or the board's copy on the Pi (the bridge runs from ~/palm there)
