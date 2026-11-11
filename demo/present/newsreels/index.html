@@ -28,13 +28,19 @@
   .pt-banner { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000;
     filter: blur(32px) brightness(.45) saturate(.7); transform: scale(1.1); transition: filter 1.2s; }
   body.pt-open .pt-banner { filter: blur(32px) brightness(.12) saturate(.7); }
-  .pt { position: fixed; inset: 0; z-index: 11; box-sizing: border-box; display: grid; gap: var(--pr-m);
+  .pt { position: fixed; inset: 0; z-index: 11; box-sizing: border-box; display: grid; gap: 0 var(--pr-m);
     padding: max(var(--pr-m), env(safe-area-inset-top)) max(var(--pr-m), env(safe-area-inset-right)) max(var(--pr-m), env(safe-area-inset-bottom)) max(var(--pr-m), env(safe-area-inset-left));
     grid-template-columns: minmax(16em, 1fr) minmax(0, 2.4fr); grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "head top" "head film" "foot foot"; }
+    grid-template-areas: "eye top" "head film" "foot foot"; }
+  /* the overline shares the top row with the buttons, centred on them; the title and the film start one small step
+     under that row, on one line, and the line is one margin under the film */
+  .pt-eye { grid-area: eye; align-self: center; }
+  .pt-head, .pt-film { margin-top: 12px; }
+  .pt-foot { margin-top: var(--pr-m); }
   .pt-head { grid-area: head; min-width: 0; }
-  .pt-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; }
-  .pt-head p { margin: .7em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
+  /* the box is the ink, so the capitals' tops meet the film's top edge */
+  .pt-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; text-box: trim-both cap alphabetic; }
+  .pt-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
   .pt-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
   .pt-top button { color: var(--fg); }
   .pt-top svg { width: 18px; height: 18px; flex: none; }
@@ -56,9 +62,9 @@
   @media (prefers-reduced-motion: reduce) { .pt-film, .pt-line, .pt-how, body.pt-open .pt-line, body.pt-open .pt-how { transition: none; } }
   /* a phone: one column that scrolls, the film full width under the title */
   @media (max-width: 760px) {
-    .pt { position: relative; inset: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto;
-      grid-template-areas: "top" "head" "film" "foot"; }
-    .pt-top { justify-self: end; }
+    .pt { position: relative; inset: auto; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto auto;
+      grid-template-areas: "eye top" "head head" "film film" "foot foot"; }
+    .pt-film { margin-top: var(--pr-m); }
     .pt-film { container-type: normal; justify-items: stretch; }
     .pt-film > .pos-vp { width: 100%; }
     /* the page scrolls, so How it works takes the line's place in the flow instead of rising over the film */
@@ -337,6 +343,8 @@
   };
 
   // ── the presentation layout ─────────────────────────────────────────────
+  const eye = el('div', 'pos-hero-eye pt-eye');
+  eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
   const head = el('div', 'pt-head');
   head.append(el('h1', '', 'Newsreels'), el('p', '', 'ERR\'s 1965 newsreels on a line, each silent film played with that day\'s surviving radio.'));
   const howBox = el('div', 'pt-how');
@@ -373,7 +381,7 @@
   const foot = el('div', 'pt-foot');
   foot.append(lineHost, howBox);
   const root = el('div', 'pt');
-  root.append(head, top, filmBox, foot);
+  root.append(eye, top, head, filmBox, foot);
   // the banner redraws the film at a tenth of the screen's size, ten times a second, only while it plays
   const banner = el('canvas', 'pt-banner');
   const bctx = banner.getContext('2d');
