@@ -241,7 +241,7 @@
   // ── the kit's drum grid (step-grid.mjs): a press edits a step and goes to the Pi as the Palm's pen did ──
   // no label column: each pad's hover and accessible name carry its drum
   const strip = el('div', 'ok-strip');
-  const sg = createStepGrid({ strip, rows: VOICES.length, steps: PD.STEPS, ticks: true,
+  const sg = createStepGrid({ strip, rows: VOICES.length, steps: PD.STEPS,
     label: (r) => VOICES[r].label,
     onToggle: (r, s, lit, why) => { if (why === 'quiet') return; grid[r][s] = lit; edited(); } });
   // a stroke in progress keeps a pattern from the Pi from overwriting it
@@ -290,7 +290,7 @@
   const latchBtn = createButtonGroup({ buttons: [{ id: 'latch', icon: 'unlock', label: 'latch off', onPress: () => setLatch(!latch) }] });
   function showPlaying() { play?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
   for (const g of [listenBtn, play, latchBtn]) g.buttons[0].classList.add('pos-lg');
-  const btns = el('div', 'pi-cluster'), dials = el('div', 'pi-cluster');
+  const btns = el('div', 'pi-cluster pi-btns'), dials = el('div', 'pi-cluster');
   btns.append(listenBtn.el, play.el, latchBtn.el);
   dials.append(...[...knobs.values()].map((k) => k.el));
   const inst = createInstrumentPanel({
@@ -311,6 +311,12 @@
   document.head.append(Object.assign(document.createElement('style'), { textContent: `
     .ok-strip { min-width: 0; overflow-x: auto; }
     .pi-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ctl-gap); }
+    .pi-cluster.pi-btns { padding-inline-start: var(--panel-gap); }
+    .ok-strip .pos-pg-ruler { display: none; }
+    .pi-inst .pos-knob { --knob-w: calc(var(--ctl-w) * 2.2); --knob-num-h: 20px; }
+    .pi-inst .pos-knob-v { font-size: 15px; line-height: var(--knob-num-h); }
+    .pi-inst .pos-knob-lab { font-size: 13px; }
+    .pi-inst .pos-knob-hand { width: 34px; min-width: 34px; height: 34px; font-size: 18px; }
     button.pos-lg[data-glyph="1"] { width: var(--ctl-lg); padding: 0; justify-content: center; }
     button.pos-lg[data-glyph="1"] > svg { width: 18px; height: 18px; }
     .prl-main { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); justify-items: center; }
