@@ -44,12 +44,11 @@
      Escape key, so createFullscreenExit (fullscreen.mjs) puts a real button here, styled
      .pos-fsx, pointer-events: none while faded.
      See lessons/page-floor.md#floor-8 */
-  /* The presentation copy: one press opens anything (the gate, centred on the empty floor), and the
-     picture's own buttons sit inside it, bottom left, so full screen keeps them. */
-  .fl-gate { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; }
-  .fl-gate[hidden] { display: none; }
-  /* Inside the kit video panel the stage owns the shape and the edge, so .fl just fills it. */
-  .pos-vp-stage > .fl { aspect-ratio: auto; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+  /* The presentation copy: one press (Play under the words) opens anything; until then the floor is dark. */
+  /* the floor is the page's ground: the whole viewport, under the layout, dimmed while How it works is open */
+  .fl.fl-under { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; aspect-ratio: auto; min-height: 0;
+    z-index: 10; margin: 0; border: 0; border-radius: 0; transition: filter 1.2s; }
+  body.prl-open .fl.fl-under { filter: brightness(.18); }
 </style>
 
 <script type="module">
@@ -59,7 +58,8 @@
   import { createXRControllers } from '/shell/xr-controller.mjs';
   import { createProjector, VOICES } from '/shell/projector.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
-  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { barButton } from '/shell/bar.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
 
 
@@ -91,10 +91,10 @@
   const FLOOR_RGB = [0.018, 0.022, 0.030];
 
   // The presentation copy of /floor/, which stays as it was. Three differences: nothing reaches ERR
-  // until the Start press (the thumbnails come through /err-img, which asks arhiiv-img.err.ee on a
+  // until the Play press (the thumbnails come through /err-img, which asks arhiiv-img.err.ee on a
   // cache miss), a film plays on a click only (no dwell), and left and right arrows step the
   // presentation, so walking is up and down. No VR entry: the copy is the window only, and the
-  // floor sits in the kit video panel, whose own button fills the screen.
+  // floor is the ground of the whole page, under the layout.
   const d = mount({ name: 'Floor', what: '', readout: null, showLog: false, chrome: false });
   guard(d);
 
@@ -102,12 +102,10 @@
   const canvas = el('canvas');
   const nameEl = el('div', 'fl-name');
   wrap.append(canvas, nameEl);
-  // The gate: until this press the floor is dark and nothing is asked of anybody's server.
+  // Until Play is pressed the floor is dark and nothing is asked of anybody's server.
   let started = false;
-  const gate = el('div', 'fl-gate');
-  const startBtn = el('button', 'pos-pri pos-lg', 'Start the floor', { type: 'button' });
-  gate.append(startBtn);
-  wrap.append(gate);
+  // Play sits under the words, outside the picture, whose pointer handlers take every press there for walking
+  const startBtn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => start() });
 
   const gl = canvas.getContext('webgl2', { antialias: true, alpha: true, xrCompatible: true });
   if (!gl) { d.fail(new Error('this browser draws no 3-D')); throw new Error('no webgl2'); }
@@ -1135,24 +1133,37 @@
   rewrap();
   requestAnimationFrame(frame);
 
-  // The floor in the kit video panel (its own full screen, footer kept), laid out by present-layout.mjs.
-  const panel = createVideoPanel({ media: wrap, left: null, aspect: '16 / 9', fullMode: 'footer',
-    onFull: (on, how) => d.log(on ? `filling the screen (${how})` : 'back to the page', 'hi') });
+  // The floor is the ground of the whole page, under present-layout.mjs's words and buttons.
+  wrap.classList.add('fl-under');
+  document.body.append(wrap);
+  // The patch as the code runs it: thumbnails from ERR through our origin's image proxy, a pressed film as HLS
+  // from ERR, both into the WebGL2 floor; the projector's sound is made here
+  useMediumColours();
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const FNODES = [{ id: 'err:thumbnails', kind: 'external', label: 'ERR thumbnails' }, { id: 'cf:err-img', kind: 'endpoint', label: 'image proxy' },
+    { id: 'err:film', kind: 'external', label: 'ERR film, HLS' }, { id: 'web:floor', kind: 'screen', label: 'WebGL2 floor' },
+    { id: 'web:projector', kind: 'engine', label: 'projector sound' }, { id: 'web:speaker', kind: 'device', label: 'speakers' }];
+  const FPORTS = [port('err:thumbnails', 'file', 'out'), port('cf:err-img', 'file', 'in'), port('cf:err-img', 'file', 'out'), port('web:floor', 'file', 'in'),
+    port('err:film', 'video', 'out'), port('web:floor', 'video', 'in'), port('web:projector', 'audio', 'out'), port('web:speaker', 'audio', 'in')];
+  const FLINKS = [{ id: 'a', from: 'err:thumbnails:file-out', to: 'cf:err-img:file-in' }, { id: 'b', from: 'cf:err-img:file-out', to: 'web:floor:file-in' },
+    { id: 'c', from: 'err:film:video-out', to: 'web:floor:video-in' }, { id: 'd', from: 'web:projector:audio-out', to: 'web:speaker:audio-in' }];
+  const pb = createPatchbay({ nodes: () => FNODES, ports: () => FPORTS, links: () => FLINKS }, { flowing: (l) => started && (l.id !== 'c' || playing >= 0) });
   const lay = createPresentLayout({
-    title: 'Floor', sub: 'Every 1965 newsreel face up on a floor you walk over, and any of them plays where it lies.',
+    title: 'Floor of 1965', sub: 'Every 1965 newsreel face up on a floor you walk over, and any of them plays where it lies.',
     desc: 'The ERR archive feeds the floor on two links. Thumbnails go as images over https through the Cloudflare '
       + 'proxy on our own origin into one WebGL2 texture array. A pressed film goes as video over HLS into one video '
       + 'element, whose frames become the floor\'s video texture.',
-    main: panel.el, aspect: '16 / 9', extra: '57px',
-    banner: video, moving: () => vidReady && !video.paused, blank: () => playing < 0,
+    main: null, actions: [startBtn], patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
   });
   window.__demo.how = lay.setHow;
   window.__demo.raid = () => lay.keys.raid();
-  startBtn.addEventListener('click', () => {
-    started = true; gate.hidden = true;
+  function start() {
+    if (started) return;
+    started = true; startBtn.hidden = true;
     soundWake();
+    pump();
     d.log('started: the floor asks for its pictures', 'hi');
-  });
+  }
   window.__demo.started = () => started;
   d.assert('the whole 1965 film catalogue is on the floor', tiles.length === 298,
     `${tiles.length} tiles`);

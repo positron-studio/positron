@@ -24,9 +24,11 @@ const CSS = `
     grid-template-columns: minmax(16em, 1fr) minmax(0, 2.4fr); grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas: "eye top" "head main" "foot foot"; }
   /* the overline shares the top row with the buttons, centred on them; the title and the main picture start one
-     small step under that row, on one line, and the line is one margin under the picture */
+     margin under that row, on one line, and the line is one margin under the picture */
   .prl-eye { grid-area: eye; align-self: center; }
-  .prl-head, .prl-main { margin-top: 12px; }
+  .prl-head, .prl-main { margin-top: var(--pr-m); }
+  /* buttons under the words (a Play), one step under them */
+  .prl-acts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
   .prl-foot { margin-top: var(--pr-m); }
   .prl-head { grid-area: head; min-width: 0; }
   /* the box is the ink, so the capitals' tops meet the picture's top edge */
@@ -55,6 +57,9 @@ const CSS = `
   /* no "patchbay" heading over the patch here (the owner, 2026-11-11), and no empty row where it was */
   .prl-how .pb-head > .pos-sec-h { display: none; }
   .prl-how .pb-head:not(:has(> :not(.pos-sec-h))) { display: none; }
+  /* no picture of its own: the page draws under the whole layout (the floor), and presses on the empty parts reach it */
+  .prl.prl-under, .prl-under .prl-head, .prl-under .prl-main { pointer-events: none; }
+  .prl-under .prl-top, .prl-under .prl-foot, .prl-under .prl-acts, .prl-under .prl-how { pointer-events: auto; }
   /* a readable measure: about 60 characters a line, however wide the screen */
   /* the heading and the words start where the patch's boxes start (--prl-inset, measured), one margin above the patch */
   .prl-how .prl-how-h, .prl-how .prl-desc { margin-left: var(--prl-inset, 0px); }
@@ -78,18 +83,19 @@ const CSS = `
 /**
  * `createPresentLayout({ title, sub, desc, main, line, patch, aspect, extra, banner })`: `desc` is technical, how the patch
  * works: its nodes, which port links to which, the medium on each link and the transport where it leaves the machine.
- * `main` is the picture (a kit video panel, usually), `aspect` its shape as a CSS ratio ('4 / 3') and `extra` the
+ * `main` is the picture (a kit video panel, usually; null when the page draws under the whole layout itself), `aspect` its shape as a CSS ratio ('4 / 3') and `extra` the
  * height under the picture inside it (its footer, a CSS length). `line` goes across the bottom, `patch` is the
  * patchbay block How it works shows under `desc`. `banner`, a video or canvas, is redrawn blurred under everything
  * while `moving()` says it moves; it keeps its last frame until `blank()` says to clear it. Answers `{ root, setHow, how, keys, go }`.
  */
 export function createPresentLayout({ title, sub = '', desc = '', main, line = null, patch = null, aspect = '4 / 3', extra = '0px',
-  banner = null, moving = () => false, blank = () => false, onHow = () => {} }) {
+  banner = null, moving = () => false, blank = () => false, onHow = () => {}, actions = [] }) {
   document.head.append(Object.assign(document.createElement('style'), { textContent: CSS }));
   const eye = el('div', 'pos-hero-eye prl-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
   const head = el('div', 'prl-head');
   head.append(el('h1', '', title), ...(sub ? [el('p', '', sub)] : []));
+  if (actions.length) { const acts = el('div', 'prl-acts'); acts.append(...actions); head.append(acts); }
 
   let how = false;
   const howGroup = createButtonGroup({ buttons: [{ id: 'how', icon: 'info', label: 'How it works', onPress: () => setHow(!how) }] });
@@ -131,13 +137,13 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   const mainBox = el('div', 'prl-main');
   mainBox.style.setProperty('--prl-aspect', aspect);
   mainBox.style.setProperty('--prl-extra', extra);
-  mainBox.append(main);
+  if (main) mainBox.append(main);
   const howBox = el('div', 'prl-how');
   howBox.append(el('h2', 'prl-how-h', 'How it works'), ...(desc ? [el('p', 'prl-desc', desc)] : []), ...(patch ? [patch] : []));
   const foot = el('div', 'prl-foot');
   if (line) { line.classList.add('prl-line'); foot.append(line); }
   foot.append(howBox);
-  const root = el('div', 'prl pres-ui');
+  const root = el('div', `prl pres-ui${main ? '' : ' prl-under'}`);
   root.append(eye, top, head, mainBox, foot);
 
   const parts = [root];
