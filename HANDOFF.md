@@ -6,7 +6,7 @@
 - **⚠️ After the 66edb25 deploy /stream/mem-source served Icecast's hold ("One moment", silence) for about 15 min**, so MEM had no new input; the next deploy (102add7, about 19:12) brought it back at -27.4 dB mean. Cause not found: reading the v2in container's logs was refused by the auto mode classifier. If MEM sounds starved after a deploy, check `curl -sD- https://v2in.stream/stream/mem-source -o /dev/null --max-time 4 | grep icy-name` first.
 - **The MEM lab moved to https://positron.studio/archive/mem/** (7c50f5df; /radio/mem/ is 404). Site BUILD 7c50f5df-190401-c4e6, deployed from the clean worktree in this session's scratchpad because workers/view/public here holds other sessions' uncommitted build output. The deploy needed `CLOUDFLARE_ACCOUNT_ID=dc1ee8d72a1fb7da857c46479a8503b8` (wrangler: more than one account).
 - **Listening files (temporary, gone on reboot):** the A/B page `/private/tmp/claude-501/-Users-s32863-personal-positron/659afcc9-23dc-4e8b-9117-b11a4501b49b/scratchpad/mem/listen/ab2.html` (now, calm2b, hissdark, soft1, soft2; one shared player, a click in the same column keeps the second), the 20 min renders in `../out/`, the scratch engines in `../eng/`, `render.sh` and `measure.mjs` beside them.
-- **Not pushed:** positron 3e6852d6 to the handoff commit. v2in is pushed. No headless Chrome left.
+- **Pushed:** positron and v2in, both main. No headless Chrome left.
 
 # Handoff, 2026-11-11, session 93: the Palm as a drum grid
 
