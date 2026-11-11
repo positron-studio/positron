@@ -1225,7 +1225,7 @@
     { id: 'c', from: 'err:film:video-out', to: 'web:floor:video-in' }, { id: 'd', from: 'web:projector:audio-out', to: 'web:speaker:audio-in' }];
   const pb = createPatchbay({ nodes: () => FNODES, ports: () => FPORTS, links: () => FLINKS }, { flowing: (l) => started && (l.id !== 'c' || playing >= 0) });
   const lay = createPresentLayout({
-    title: 'Floor of 1965', sub: '\u00a0',
+    title: 'Today\nat 1965', sub: '\u00a0',
     desc: 'The ERR archive feeds the floor on two links. Thumbnails go as images over https through the Cloudflare '
       + 'proxy on our own origin into one WebGL2 texture array. A pressed film goes as video over HLS into one video '
       + 'element, whose frames become the floor\'s video texture.',

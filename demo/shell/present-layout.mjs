@@ -32,7 +32,7 @@ const CSS = `
   .prl-foot { margin-top: var(--pr-m); }
   .prl-head { grid-area: head; min-width: 0; }
   /* the box is the ink, so the capitals' tops meet the picture's top edge */
-  .prl-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; text-box: trim-both cap alphabetic; }
+  .prl-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; text-box: trim-both cap alphabetic; white-space: pre-line; }
   .prl-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
   .prl-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
   .prl-top button, .prl-acts button { color: var(--fg); }
