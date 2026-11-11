@@ -447,6 +447,7 @@ function onCC(cc, v) {
 let pen = null, penSent = {}, penWant = {}, penTimer = null, penCount = 0;
 const clamp = (v) => Math.max(0, Math.min(127, Math.round(v)));
 function onPen(x, y, down) {
+  if (VIEW === 'drums') { pen = { x, y, down }; dirty = true; return drumPen(x, y, down); }   // a pen up off the screen still ends the stroke
   if (y >= DH) return;
   pen = { x, y, down };
   dirty = true;
@@ -476,8 +477,9 @@ function penFlush() {
 const DRUMS_TARGET = opt('--drums-target', 'drums'), DRUMS_BPM = Number(opt('--bpm', 120));
 if (!['drums', 'circuit'].includes(DRUMS_TARGET)) die('--drums-target drums or circuit');
 if (!(DRUMS_BPM >= 40 && DRUMS_BPM <= 240)) die('--bpm 40 to 240');
-const G_STEPS = 16, G_ROWS = 16, G_TOP = 15, G_PY = 8, G_CH = 7, G_PX = 10, G_CW = 8, G_X0 = 1;
-const G_LANE = G_TOP + G_ROWS * G_PY + 2;          // 145: the lane, start and stop, to the bottom
+// the grid starts 8 rows under pframe's top strip: a tap there shows its status and reopens the port
+const G_STEPS = 16, G_ROWS = 16, G_TOP = 22, G_PY = 7, G_CH = 6, G_PX = 10, G_CW = 8, G_X0 = 1;
+const G_LANE = G_TOP + G_ROWS * G_PY + 2;          // 136: the lane, start and stop, 24 rows to the bottom
 const SHORT = { kick: 'BD', snare: 'SD', hho: 'OH', hhc: 'CH', clap: 'CP', tomlo: 'LT', tomhi: 'HT', cowbell: 'CB',
   rim: 'RS', ride: 'RD', crash: 'CR', shaker: 'SH', tamb: 'TB', claves: 'CL', congalo: 'LC', congahi: 'HC' };
 let gVoices = null;                                  // [{ key, name, program }] from demo/drums/voices.mjs
@@ -485,7 +487,7 @@ const grid = Array.from({ length: G_ROWS }, () => new Array(G_STEPS).fill(false)
 // something to hear on the first tap: four on the floor, a backbeat, closed hats
 for (let c = 0; c < G_STEPS; c++) { grid[0][c] = c % 4 === 0; grid[1][c] = c % 8 === 4; grid[3][c] = c % 2 === 0; }
 const seqS = { running: false, bpm: DRUMS_BPM, step: -1, at: 0, pending: false, said: '' };
-let paint = null, lastCell = null, editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
+let stroke = null, lastCell = null, penAt = 0, strokes = 0, editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
 const waiters = [];
 function ask(msg, type, ms = 8000) {
   const id = rid(16);
@@ -506,7 +508,7 @@ const patternNow = () => ({ v: 1, name: 'palm', bpm: seqS.bpm, steps: G_STEPS,
 const screenNow = () => ({ voices: gVoices.map((v) => SHORT[v.key] || v.key.slice(0, 2).toUpperCase()), look: { empty: 'dot', head: 'frame' } });
 /** A pattern somebody else set: the rows this grid has are taken, by voice name. */
 function adopt(p) {
-  if (!gVoices || !p?.rows || paint !== null) return;
+  if (!gVoices || !p?.rows || (stroke && stroke !== 'lane')) return;
   for (const [r, v] of gVoices.entries()) {
     const row = p.rows.find((x) => x.voice === v.key);
     for (let c = 0; c < G_STEPS; c++) grid[r][c] = !!row && row.steps[c] === '1';
@@ -536,7 +538,12 @@ function edited() {
 function tell() {
   if (!gVoices) return;
   if (DRY) return log(`seq.pattern (dry, not sent): ${patternNow().rows.filter((r) => r.steps.includes('1')).map((r) => `${r.voice} ${r.steps}`).join(', ')}`);
-  ask({ type: 'seq.pattern', pattern: patternNow(), screen: screenNow() }, 'seq.state', 4000).then((m) => m && onSeqState(m));
+  if (!sockets[ROOM]?.open) return log('seq.pattern: not sent, the relay room is not open yet (sent once it is)');
+  ask({ type: 'seq.pattern', pattern: patternNow(), screen: screenNow() }, 'seq.state', 4000).then((m) => {
+    if (!m) return log('seq.pattern: the board did not answer in 4 s');
+    if (m.ok) log(`seq.pattern: the board took it, ${m.landed ?? 'now'}`);
+    onSeqState(m);
+  });
 }
 /** The drums compiled on the Pi's SuperCollider and their sound on the PWM output, as /devices/drums/ does. */
 async function drumsOnPi() {
@@ -564,17 +571,28 @@ async function transport() {
     log(`sequencer: ${m?.ok ? `${m.running ? 'running' : 'stopped'} at ${m.bpm} bpm into ${m.target}` : `refused: ${m?.why ?? 'no answer'}`}`);
   } finally { starting = false; dirty = true; }
 }
+// pframe sends a down and a move alike ("p x y 1"), so a stroke also ends after STROKE_GAP ms with no pen event:
+// a lost pen up would otherwise leave every later tap read as part of the old stroke.
+const STROKE_GAP = 250;
 function drumPen(x, y, down) {
-  if (!down) { paint = null; lastCell = null; return; }
-  if (y >= G_LANE) { if (paint === null && lastCell !== 'lane') { lastCell = 'lane'; transport(); } return; }
+  const t = Date.now();
+  if (stroke && t - penAt > STROKE_GAP) stroke = null;
+  penAt = t;
+  if (!down) { if (stroke) log(`pen up ${x} ${y}`); stroke = null; lastCell = null; return; }
+  if (!stroke) {
+    strokes++;
+    if (y >= G_LANE) { stroke = 'lane'; log(`pen down ${x} ${y}: the lane, ${seqS.running ? 'stop' : 'start'}`); transport(); return; }
+    stroke = { paint: null }; lastCell = null;
+  }
+  if (stroke === 'lane') return;
   const r = Math.floor((y - G_TOP) / G_PY), c = Math.floor((x - G_X0) / G_PX);
   if (r < 0 || r >= G_ROWS || c < 0 || c >= G_STEPS || !gVoices) return;
   const k = r * G_STEPS + c;
   if (k === lastCell) return;
-  if (paint === null) { if (lastCell === 'lane') return; paint = !grid[r][c]; }
   lastCell = k;
-  if (grid[r][c] === paint) return;
-  grid[r][c] = paint;
+  if (stroke.paint === null) { stroke.paint = !grid[r][c]; log(`pen down ${x} ${y}: ${gVoices[r].key} step ${c + 1} ${stroke.paint ? 'on' : 'off'}`); }
+  if (grid[r][c] === stroke.paint) return;
+  grid[r][c] = stroke.paint;
   edited();
 }
 function drawDrums(t) {
@@ -583,17 +601,17 @@ function drawDrums(t) {
   for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
     const x = G_X0 + c * G_PX, y = G_TOP + r * G_PY;
     if (grid[r][c]) rect(x, y, G_CW, G_CH, c === now ? 15 : 12);
-    else rect(x + 3, y + 3, 2, 1, c % 4 === 0 ? 8 : 4);
+    else rect(x + 3, y + 2, 2, 1, c % 4 === 0 ? 8 : 4);
   }
   if (now >= 0) {
     const x = G_X0 + now * G_PX;
     box(x - 1, G_TOP - 1, G_CW + 2, G_ROWS * G_PY + 2, 15);
-    rect(x, G_LANE + 3, G_CW, 3, 15);
+    rect(x, G_TOP - 5, G_CW, 3, 15);
   }
   // the lane: a play triangle while stopped, a square while running, dim while the Pi is being asked
-  const v = starting ? 5 : 13, cx = 80, cy = G_LANE + 8;
-  if (seqS.running) rect(cx - 3, cy - 3, 7, 7, v);
-  else for (let i = 0; i < 5; i++) rect(cx - 2 + i, cy - 4 + i, 1, 9 - 2 * i, v);
+  const v = starting ? 5 : 13, cx = 80, cy = G_LANE + 12;
+  if (seqS.running) rect(cx - 4, cy - 4, 9, 9, v);
+  else for (let i = 0; i < 6; i++) rect(cx - 3 + i, cy - 5 + i, 1, 11 - 2 * i, v);
   if (pen?.down) put(pen.x, pen.y, 15);
 }
 async function drumsInit() {
@@ -1002,7 +1020,7 @@ setInterval(() => {
   win = { t: Date.now(), f: sent.frames, b: sent.bytes, tones: sent.tones, cam: camFrames };
   const top = soundingNote !== null ? nameOf(soundingNote) : '-';
   const w = VIEW === 'split' ? `, wave ${wConnected || 'off'} ${(wGot / RATE / Math.max(1, (Date.now() - t0) / 1000) * 100).toFixed(0)}% peak ${wPeak.toFixed(4)}` : '';
-  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${cf}${w}`);
+  log(`${VIEW} fmt ${FMT}: ${DRY ? 'dry' : `${fps.toFixed(1)} frames/s ${kbs.toFixed(0)} KB/s`}, heard ${heard}, held ${held.size}${VOICE ? `, voice ${vs.mode} ${top} ${tps.toFixed(1)} tones/s` : ''}${PEN ? `, pen ccs ${penCount}` : ''}${VIEW === 'drums' ? `, strokes ${strokes}${seqS.running ? ` playing step ${stepNow() + 1}` : ''}` : ''}${OLED_RAW ? `, oled frames ${oledSent}` : ''}${cf}${w}`);
 }, 5000);
 
 log(`bridge: ${DRY ? 'dry, no tty' : dev}, view ${VIEW}, fmt ${FMT} at ${FPS} fps${VOICE ? `, voice ${JSON.stringify(vs)}` : ''}${PEN ? `, pen to cc ${PEN_X},${PEN_Y} ch ${PEN_CH}` : ''}, ${DEMO ? 'demo notes' : `rooms ${ROOM} and ${CROOM}`}`);
