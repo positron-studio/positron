@@ -63,7 +63,7 @@
   import { createProjector, VOICES } from '/shell/projector.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
-  import { barButton } from '/shell/bar.mjs';
+  import { barButton, setButtonFace } from '/shell/bar.mjs';
   import { sentenceCase } from '/shell/reel-line.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
 
@@ -110,7 +110,8 @@
   // Until Play is pressed the floor is dark and nothing is asked of anybody's server.
   let started = false;
   // Play sits under the words, outside the picture, whose pointer handlers take every press there for walking
-  const startBtn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => start() });
+  // one icon: play starts the floor, then stop stops the playing film and play plays the one nearest the view's centre
+  const startBtn = barButton({ icon: 'play', aria: 'play', size: 'lg', onPress: () => playStop() });
 
   const gl = canvas.getContext('webgl2', { antialias: true, alpha: true, xrCompatible: true });
   if (!gl) { d.fail(new Error('this browser draws no 3-D')); throw new Error('no webgl2'); }
@@ -1167,15 +1168,23 @@
   setInterval(() => {
     if (playing === nowShown) return;
     nowShown = playing;
+    setButtonFace(startBtn, playing >= 0 ? { icon: 'stop', aria: 'stop the film' } : { icon: 'play', aria: 'play' });
     if (playing < 0) { nowEl.textContent = '\u00a0'; return; }
     const t = tiles[state[playing].film];
     nowEl.replaceChildren(el('b', '', sentenceCase(t.title)), `${t.series ? `${t.series}, ` : ''}${t.date}`);
   }, 250);
   window.__demo.how = lay.setHow;
   window.__demo.raid = () => lay.keys.raid();
+  function playStop() {
+    if (!started) return start();
+    if (playing >= 0) { stopVideo(true); return; }
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < state.length; i++) { if (state[i].layer < 0) continue; const dd = distGaze(i); if (dd < bestD) { bestD = dd; best = i; } }
+    if (best >= 0) playTile(best);
+  }
   function start() {
     if (started) return;
-    started = true; startBtn.hidden = true;
+    started = true;
     soundWake();
     pump();
     d.log('started: the floor asks for its pictures', 'hi');
