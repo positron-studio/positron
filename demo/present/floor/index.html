@@ -49,6 +49,10 @@
   .fl.fl-under { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; aspect-ratio: auto; min-height: 0;
     z-index: 10; margin: 0; border: 0; border-radius: 0; transition: filter 1.2s; }
   body.prl-open .fl.fl-under { filter: brightness(.18); }
+  /* The line under the title: empty until a film plays, then that film's title, series and date. Three lines high
+     whatever it says, so Play under it never moves. */
+  .prl-head p.fl-now { height: 4.35em; overflow: hidden; }
+  .fl-now b { display: block; color: var(--fg); font-weight: 600; }
 </style>
 
 <script type="module">
@@ -60,6 +64,7 @@
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { barButton } from '/shell/bar.mjs';
+  import { sentenceCase } from '/shell/reel-line.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
 
 
@@ -1149,12 +1154,23 @@
     { id: 'c', from: 'err:film:video-out', to: 'web:floor:video-in' }, { id: 'd', from: 'web:projector:audio-out', to: 'web:speaker:audio-in' }];
   const pb = createPatchbay({ nodes: () => FNODES, ports: () => FPORTS, links: () => FLINKS }, { flowing: (l) => started && (l.id !== 'c' || playing >= 0) });
   const lay = createPresentLayout({
-    title: 'Floor of 1965', sub: 'Every 1965 newsreel face up on a floor you walk over, and any of them plays where it lies.',
+    title: 'Floor of 1965', sub: '\u00a0',
     desc: 'The ERR archive feeds the floor on two links. Thumbnails go as images over https through the Cloudflare '
       + 'proxy on our own origin into one WebGL2 texture array. A pressed film goes as video over HLS into one video '
       + 'element, whose frames become the floor\'s video texture.',
     main: null, actions: [startBtn], patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
   });
+  // the playing film in the line under the title, read off `playing` four times a second
+  const nowEl = lay.root.querySelector('.prl-head p');
+  nowEl.classList.add('fl-now');
+  let nowShown = -2;
+  setInterval(() => {
+    if (playing === nowShown) return;
+    nowShown = playing;
+    if (playing < 0) { nowEl.textContent = '\u00a0'; return; }
+    const t = tiles[state[playing].film];
+    nowEl.replaceChildren(el('b', '', sentenceCase(t.title)), `${t.series ? `${t.series}, ` : ''}${t.date}`);
+  }, 250);
   window.__demo.how = lay.setHow;
   window.__demo.raid = () => lay.keys.raid();
   function start() {
