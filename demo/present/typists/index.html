@@ -16,6 +16,10 @@
   /* The frame is `createChatGrid` (demo/shell/chat-ui.mjs) with `fixed: true`: one shape
      at every count, 16:9 at the desk and 3:4 under 560 px, papers edge to edge.
      See lessons/page-typist.md#typist-29 */
+
+  /* A 309 px phone footer has no room for the space slider beside the stepper (measured 41 px left over),
+     so the phone keeps the footer it had and the space stays at its value. */
+  @media (max-width: 560px) { .pos-vp-l > .sld { display: none; } }
 </style>
 <script type="module">
   import { mount, el } from '/shell/shell.mjs';
@@ -32,6 +36,8 @@
   import { createPatchbay } from '/shell/patchbay.mjs';
   import { createIconButton } from '/shell/icon-button.mjs';
   import { createStepper } from '/shell/stepper.mjs';
+  import { createSlider } from '/shell/slider.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createPaper } from '/typist/paper.mjs';
   import { createSamples, createVoice, FILES } from '/typist/sampler.mjs';
@@ -97,11 +103,71 @@
     return t.fx;
   }
 
+  // The space behind the typing: a dub delay (3/8 s, a darkening loop, slow drift), a 6 s room
+  // of generated decaying noise, and a low bed that recirculates the room's tail. All built here.
+  const SPACE = { delay: 0.375, driftS: 0.006, driftHz: 0.11, roomS: 6, preS: 0.03, bedS: 2.3, tau: 0.12 };
+  function roomImpulse(ac, secs) {
+    const n = Math.round(secs * ac.sampleRate), b = ac.createBuffer(2, n, ac.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const x = b.getChannelData(c);
+      let y = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / n, a = 0.25 + 0.7 * t;          // the one-pole closes as it decays, so the tail darkens
+        y += (1 - a) * ((Math.random() * 2 - 1) - y);
+        x[i] = y * Math.exp(-6.9 * t) * Math.min(1, i / (0.01 * ac.sampleRate));
+      }
+    }
+    return b;
+  }
+  function createSpace(ac) {
+    const g = (v) => { const n = ac.createGain(); n.gain.value = v; return n; };
+    const f = (type, hz, Q = 0) => { const n = ac.createBiquadFilter(); n.type = type; n.frequency.value = hz; n.Q.value = Q; return n; };
+    const lfo = (hz, amt, to) => { const o = ac.createOscillator(); o.frequency.value = hz; o.connect(g(amt)).connect(to); o.start(); };
+    const input = g(1), send = g(0), hp = f('highpass', 180), wet = g(0), output = g(1);
+    input.connect(send).connect(hp);
+    // dub delay: the loop is delay, low-pass, high-pass, feedback, so every repeat is darker and thinner
+    const dl = ac.createDelay(2), lp = f('lowpass', 2600), lc = f('highpass', 220), fb = g(0.4), pan = ac.createStereoPanner();
+    dl.delayTime.value = SPACE.delay;
+    lfo(SPACE.driftHz, SPACE.driftS, dl.delayTime);
+    lfo(0.07, 0.6, pan.pan);
+    hp.connect(dl); dl.connect(lp).connect(lc).connect(fb).connect(dl);
+    lc.connect(g(0.6)).connect(pan).connect(wet);
+    // the room takes the dry send and the echoes
+    const pre = ac.createDelay(0.1), room = ac.createConvolver();
+    pre.delayTime.value = SPACE.preS;
+    room.buffer = roomImpulse(ac, SPACE.roomS);
+    hp.connect(pre); lc.connect(pre); pre.connect(room).connect(g(0.7)).connect(wet);
+    // the bed: the room's tail, low-passed and recirculated every 2.3 s at 0.55, a slow wash under the keys
+    const bedLp = f('lowpass', 600), bedDl = ac.createDelay(4), bedFb = g(0.55), bed = g(0);
+    bedDl.delayTime.value = SPACE.bedS;
+    lfo(0.05, 0.012, bedDl.delayTime);
+    room.connect(bedLp).connect(bedDl).connect(bedFb).connect(bedLp);
+    bedDl.connect(bed).connect(wet);
+    wet.connect(output);
+    const level = { send: 0, wet: 0, fb: 0.4, lp: 2600, bed: 0 };
+    const ramp = (p, v) => { const t = ac.currentTime; p.cancelScheduledValues(t); p.setTargetAtTime(v, t, SPACE.tau); };
+    return {
+      input, output, level,
+      // v 0..1: send v, wet 0.5 + 0.7 v, feedback 0.4 to 0.8, loop low-pass 2600 to 1400 Hz, bed 0.9 v^1.5
+      set(v) {
+        Object.assign(level, { send: v, wet: v ? 0.5 + 0.7 * v : 0, fb: Math.min(0.8, 0.4 + 0.4 * v), lp: 2600 - 1200 * v, bed: 0.9 * v ** 1.5 });
+        ramp(send.gain, level.send); ramp(wet.gain, level.wet); ramp(fb.gain, level.fb);
+        ramp(lp.frequency, level.lp); ramp(bed.gain, level.bed);
+        // a target is approached, never reached: land the send on an exact 0 once it is inaudible
+        if (!v) send.gain.setValueAtTime(0, ac.currentTime + 10 * SPACE.tau);
+      },
+    };
+  }
+  let space = null, spaceAmount = 0;
+  const setSpace = (v) => { spaceAmount = Math.max(0, Math.min(1, +v || 0)); space?.set(spaceAmount); };
+
   function wake() {
     if (ctx) return loading;
     ctx = new AudioContext({ latencyHint: 'interactive' });
     master = ctx.createGain();                 // the speakers' audio-in
     master.connect(ctx.destination);
+    space = createSpace(ctx);
+    space.set(spaceAmount);
     for (let k = 1; k <= MAX; k++) {
       const t = tw[k];
       t.out = ctx.createGain();                // typewriter k's audio-out
@@ -131,6 +197,17 @@
   // One `value-out` per paper on machines: value-out, value-out-2 .. value-out-<MAX>.
   const outs = Object.fromEntries(Array.from({ length: MAX - 1 }, (_, i) => [`machines:value-out-${i + 2}`, {}]));
   addNodes(bay, S, ['machines', 'speaker', 'typewriter-samples'], { ports: outs });
+  // The space slider is a knob node; its value reaches the space engine only along the link.
+  addNodes(bay, S, ['knob-space']);
+  bay.addNode({ id: `${S}:space`, kind: 'engine', label: 'space', place: 'browser' });
+  bay.addPort({ id: `${S}:space:audio-in`, dir: 'in', medium: 'audio', label: 'audio-in' });
+  bay.addPort({ id: `${S}:space:value-in`, dir: 'in', medium: 'value', label: 'value-in', shape: { of: 'param' },
+    deliver: (e) => { if (e?.of === 'param') setSpace(e.v); } });
+  bay.addPort({ id: `${S}:space:audio-out`, dir: 'out', medium: 'audio', label: 'audio-out' });
+  for (const [a, b] of [[`${S}:knob-space:value-out`, `${S}:space:value-in`], [`${S}:space:audio-out`, `${S}:speaker:audio-in`]]) {
+    const r = bay.link(a, b, [], { site: S });
+    if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn');
+  }
 
   const papers = [];
   for (let k = 1; k <= MAX; k++) {
@@ -166,6 +243,7 @@
     [`${CF}:typewriter:file-out`, `${P(k, 'typewriter')}:file-in`],
     [`${P(k, 'typewriter')}:audio-out`, `${P(k, 'fx')}:audio-in`],
     [`${P(k, 'fx')}:audio-out`, `${S}:speaker:audio-in`],
+    [`${P(k, 'fx')}:audio-out`, `${S}:space:audio-in`],
     [`${S}:machines:${nth('value-out', k)}`, `${P(k, 'fx')}:value-in`],
     [`${S}:machines:${nth('value-out', k)}`, `${P(k, 'typewriter')}:value-in-2`],
   ];
@@ -201,7 +279,7 @@
   const routed = [];
   function route() {
     if (!ctx) return;
-    const N = { speaker: { input: master } };
+    const N = { speaker: { input: master }, space: { input: space.input, out: space.output } };
     for (let k = 1; k <= MAX; k++) {
       N[`typewriter-${k}`] = { out: tw[k].out };
       if (tw[k].fx) N[`fx-${k}`] = { input: tw[k].fx.input, out: tw[k].fx.output };
@@ -331,8 +409,11 @@
     // an unmute while the typists run is a gesture too: wake the sound then
     if (!muted && deck.playing() && !ctx) wake();
   } });
+  // Moving it opens nothing: before the first press it only sets where the space will start.
+  const spaceSlider = createSlider({ label: 'space', min: 0, max: 1, step: 0.01, value: 0,
+    onInput: (v) => bay.send(`${S}:knob-space:value-out`, { of: 'param', v }) });
   const left = document.createDocumentFragment();
-  left.append(mute.el);
+  left.append(mute.el, spaceSlider.el);
 
   const NAMES = Array.from({ length: MAX }, (_, i) => `${i + 1} ${i ? 'typists' : 'typist'}`);
   const setCount = (n) => {
@@ -359,6 +440,9 @@
     if (medium === 'file') return !!samples.loading && (!samples.ready || performance.now() - samples.stat.at < 600);
     if (medium !== 'audio' || !ctx || muted) return false;
     const node = l.from.split(':')[1], k = Number(node.split('-')[1]);
+    // the space is lit only while its slider is up, and for its room's length after the last strike
+    if (l.to === `${S}:space:audio-in` && !spaceAmount) return false;
+    if (node === 'space') return spaceAmount > 0 && ctx.currentTime < Math.max(0, ...tw.slice(1).map((t) => t.voice?.until || 0)) + SPACE.roomS;
     if (node.startsWith('typewriter')) return ctx.currentTime < tw[k].voice.until;
     if (node.startsWith('fx')) return ctx.currentTime < tw[k].voice.until + (character(tw[k].fxIndex).room?.ms || 0) / 1000;
     return false;
@@ -445,7 +529,7 @@
   // panel's two 1 px borders; the papers are 16:9 at the desk, as chat-ui.mjs makes a `fixed` grid.
   const lay = createPresentLayout({
     title: 'Multi typer', sub: 'Up to six papers typed at once from a written score, each through a typewriter of its own.',
-    desc: 'Typist k is a keys node whose value-out links to the value-in of paper k and of typewriter k, and the transport plays the score out through those keys. The typewriter samples come from R2 to every typewriter\'s file-in over https. Typewriter k\'s audio-out links to fx k\'s audio-in, and every fx box\'s audio-out links to the speaker\'s audio-in. The machines node sends paper k its machine number as a value, on its own value-out to fx k and typewriter k.',
+    desc: 'Typist k is a keys node whose value-out links to the value-in of paper k and of typewriter k, and the transport plays the score out through those keys. The typewriter samples come from R2 to every typewriter\'s file-in over https. Typewriter k\'s audio-out links to fx k\'s audio-in, and every fx box\'s audio-out links to the speaker\'s audio-in. The machines node sends paper k its machine number as a value, on its own value-out to fx k and typewriter k. Every fx box\'s audio-out also links to the audio-in of the space, a WebAudio engine with a dub delay, a long generated room and a slow bed, whose audio-out links to the speaker. The space slider is a knob node whose value-out links to the space\'s value-in, raising the send and the wet level together.',
     main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
   });
@@ -477,7 +561,37 @@
     get routed() { return [...routed]; },
     get links() { return bay.links().map((l) => `${l.from} -> ${l.to}`); },
     get arrivals() { return arrivals.map((a) => ({ ...a })); },
+    get space() { return { amount: spaceAmount, slider: spaceSlider.get(), level: space ? { ...space.level } : null }; },
   };
+
+  // The space rendered offline from one click, no device opened: silent at 0, a decaying tail above it.
+  async function renderSpace(v, secs = 24) {
+    const sr = 22050, oac = new OfflineAudioContext(2, sr * secs, sr);
+    const sp = createSpace(oac);
+    sp.set(v);
+    sp.output.connect(oac.destination);
+    const click = oac.createBuffer(1, 32, sr);
+    click.getChannelData(0).fill(0.8);
+    const src = oac.createBufferSource();
+    src.buffer = click; src.connect(sp.input); src.start(0.5);
+    const out = await oac.startRendering();
+    const L = out.getChannelData(0), R = out.getChannelData(1);
+    let peak = 0; const rms = [];
+    for (let s = 0; s < secs; s++) {
+      let e = 0;
+      for (let i = s * sr; i < (s + 1) * sr; i++) { e += L[i] * L[i] + R[i] * R[i]; peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i])); }
+      rms.push(+Math.sqrt(e / (2 * sr)).toFixed(5));
+    }
+    return { send: sp.level.send, peak: +peak.toFixed(4), rms };
+  }
+  if (SELFCHECK) {
+    const [dry, wide] = await Promise.all([renderSpace(0, 4), renderSpace(1)]);
+    // the bed is the slowest part, about 1 dB a second, so the tail is judged over the last 8 s
+    const loud = Math.max(...wide.rms), last = wide.rms.at(-1);
+    d.assert('the space at 0 sends nothing and is silent', dry.send === 0 && dry.peak === 0, JSON.stringify(dry));
+    d.assert('the space at full sends, and its tail rings then dies away', wide.send > 0 && loud > 0 && wide.peak < 4
+      && Number.isFinite(wide.peak) && last < loud / 10 && last < wide.rms.at(-9) / 2, JSON.stringify(wide));
+  }
 
   d.ready();
 </script>
