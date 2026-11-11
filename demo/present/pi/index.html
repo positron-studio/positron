@@ -311,13 +311,13 @@
   document.head.append(Object.assign(document.createElement('style'), { textContent: `
     .ok-strip { min-width: 0; overflow-x: auto; }
     .pi-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ctl-gap); }
-    .pi-cluster.pi-btns { padding-inline-start: var(--panel-gap); }
+    .pi-cluster.pi-btns { align-self: flex-start; }
     .ok-strip .pos-pg-ruler { display: none; }
     body[data-cam="regular"] .pi-inst, body[data-cam="dither"] .pi-inst { opacity: .5; }
-    .pi-inst .pos-knob { --knob-w: calc(var(--ctl-w) * 2.2); --knob-num-h: 20px; }
-    .pi-inst .pos-knob-v { font-size: 15px; line-height: var(--knob-num-h); }
+    .pi-inst .pos-knob { --knob-w: calc(var(--ctl-w) * 1.6); --knob-num-h: 18px; }
+    .pi-inst .pos-knob-v { font-size: 14px; line-height: var(--knob-num-h); }
     .pi-inst .pos-knob-lab { font-size: 13px; }
-    .pi-inst .pos-knob-hand { width: 34px; min-width: 34px; height: 34px; font-size: 18px; }
+    .pi-inst .pos-knob-hand { width: 28px; min-width: 28px; height: 28px; font-size: 16px; }
     button.pos-lg[data-glyph="1"] { width: var(--ctl-lg); padding: 0; justify-content: center; }
     button.pos-lg[data-glyph="1"] > svg { width: 18px; height: 18px; }
     .prl-main { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); justify-items: center; }
