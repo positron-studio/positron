@@ -1,5 +1,7 @@
 ## Open
 
+- **The VR newsreel floor in the presentation, right after Newsreels** (2026-11-11). Asked: *"add vr newsreel floor after newsreels"*. Order: newsreels, floor, playback, typists, palmdrums (*"palmdrums too"*).
+
 - **Presentation copies of the typist pages, single and six** (2026-11-11). Asked: *"Brig in single typing ad 6 typist pages"*. Copy, never move, as /present/newsreels/.
 - ~~**The real Kyiv raid on the presentation pages from v2in's stats**~~ REFUSED by the owner 2026-11-11: *"i mean only radio pages should be affecet by raid. do not show raid automaticaly, i trigger it"*. Presentation pages show the raid by r or ?raid=1 only; the v2in poll was built and taken out the same hour.
 
