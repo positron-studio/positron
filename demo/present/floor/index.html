@@ -52,6 +52,8 @@
   /* The line under the title: empty until a film plays, then that film's title, series and date. Three lines high
      whatever it says, so Play under it never moves. */
   .prl-head p.fl-now { height: 4.35em; overflow: hidden; }
+  /* the floor's own name strip is not drawn: the line under the title says it */
+  .fl.fl-under .fl-name { display: none; }
   .fl-now b { display: block; color: var(--fg); font-weight: 600; }
 </style>
 
@@ -1229,16 +1231,17 @@
       + 'element, whose frames become the floor\'s video texture.',
     main: null, actions: [startBtn], patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
   });
-  // the playing film in the line under the title, read off `playing` four times a second
+  // the line under the title: the playing film, else the one under the pointer, read four times a second
   const nowEl = lay.root.querySelector('.prl-head p');
   nowEl.classList.add('fl-now');
-  let nowShown = -2;
+  let nowShown = '';
   setInterval(() => {
-    if (playing === nowShown) return;
-    nowShown = playing;
+    const shown = playing >= 0 ? playing : hover;
+    if (`${playing} ${shown}` === nowShown) return;
+    nowShown = `${playing} ${shown}`;
     playGroup.setIcon('play', playing >= 0 ? 'stop' : 'play', playing >= 0 ? 'stop the film' : 'play');
-    if (playing < 0) { nowEl.textContent = '\u00a0'; return; }
-    const t = tiles[state[playing].film];
+    if (shown < 0) { nowEl.textContent = '\u00a0'; return; }
+    const t = tiles[state[shown].film];
     nowEl.replaceChildren(el('b', '', sentenceCase(t.title)), `${t.series ? `${t.series}, ` : ''}${t.date}`);
   }, 250);
   window.__demo.how = lay.setHow;
