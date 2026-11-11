@@ -50,7 +50,6 @@
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { barButton, setButtonFace } from '/shell/bar.mjs';
   useMediumColours();
 
   const d = mount({ name: 'kit/present', what: '', readout: null, showLog: false, chrome: false });
@@ -100,10 +99,13 @@
     how = on;
     document.body.classList.toggle('pr-open', on);
     howBtn.setAttribute('aria-pressed', String(on));
-    setButtonFace(howBtn, { icon: on ? 'close' : 'info', label: 'How it works' });
+    howGroup.setIcon('how', on ? 'close' : 'info', on ? 'close How it works' : 'How it works');
     if (on) pb.refresh();
   }
-  const howBtn = barButton({ icon: 'info', label: 'How it works', word: true, size: 'lg', onPress: () => setHow(!how) });
+  const howGroup = createButtonGroup({ buttons: [{ id: 'how', icon: 'info', label: 'How it works', onPress: () => setHow(!how) }] });
+  const howBtn = howGroup.button('how');
+  howBtn.classList.add('pos-lg');
+  howGroup.el.classList.add('pr-arrows');
   howBtn.setAttribute('aria-pressed', 'false');
   const arrows = createButtonGroup({ buttons: [
     { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => show(at - 1) },
@@ -112,7 +114,7 @@
   for (const b of arrows.el.querySelectorAll('button')) b.classList.add('pos-lg');
   arrows.el.classList.add('pr-arrows');
   const top = el('div', 'pr-top');
-  top.append(howBtn, arrows.el);
+  top.append(howGroup.el, arrows.el);
   document.body.append(bg, foot, top);
   addEventListener('keydown', (e) => {
     if (e.target.closest?.('input, textarea')) return;

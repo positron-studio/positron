@@ -28,7 +28,7 @@
   .pt-banner { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000;
     filter: blur(32px) brightness(.45) saturate(.7); transform: scale(1.1); transition: filter 1.2s; }
   body.pt-open .pt-banner { filter: blur(32px) brightness(.12) saturate(.7); }
-  .pt { position: fixed; inset: 0; z-index: 11; box-sizing: border-box; display: grid; gap: 24px var(--pr-m);
+  .pt { position: fixed; inset: 0; z-index: 11; box-sizing: border-box; display: grid; gap: var(--pr-m);
     padding: max(var(--pr-m), env(safe-area-inset-top)) max(var(--pr-m), env(safe-area-inset-right)) max(var(--pr-m), env(safe-area-inset-bottom)) max(var(--pr-m), env(safe-area-inset-left));
     grid-template-columns: minmax(16em, 1fr) minmax(0, 2.4fr); grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas: "head top" "head film" "foot foot"; }
@@ -75,7 +75,7 @@
   import { createPatchbay } from '/shell/patchbay.mjs';
   import { createIconButton } from '/shell/icon-button.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
-  import { createBar, barButton, setButtonFace } from '/shell/bar.mjs';
+  import { createBar, barButton } from '/shell/bar.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
   import { playToggle, ratesView } from '/shell/transport-views.mjs';
@@ -346,10 +346,13 @@
     how = on;
     document.body.classList.toggle('pt-open', on);
     howBtn.setAttribute('aria-pressed', String(on));
-    setButtonFace(howBtn, { icon: on ? 'close' : 'info', label: 'How it works' });
+    howGroup.setIcon('how', on ? 'close' : 'info', on ? 'close How it works' : 'How it works');
     if (on) pb.refresh();
   }
-  const howBtn = barButton({ icon: 'info', label: 'How it works', word: true, size: 'lg', onPress: () => setHow(!how) });
+  const howGroup = createButtonGroup({ buttons: [{ id: 'how', icon: 'info', label: 'How it works', onPress: () => setHow(!how) }] });
+  const howBtn = howGroup.button('how');
+  howBtn.classList.add('pos-lg');
+  howGroup.el.classList.add('pt-arrows');
   howBtn.setAttribute('aria-pressed', 'false');
   // the presentation's own pages, in order; one page so far, so the arrows wait for the next copy
   const PAGES = ['/present/newsreels/'];
@@ -363,7 +366,7 @@
   arrows.el.classList.add('pt-arrows');
   if (PAGES.length < 2) { arrows.enable('prev', false, 'the only page so far'); arrows.enable('next', false, 'the only page so far'); }
   const top = el('div', 'pt-top');
-  top.append(howBtn, arrows.el);
+  top.append(howGroup.el, arrows.el);
   const filmBox = el('div', 'pt-film');
   filmBox.append(panel.el);
   lineHost.classList.add('pt-line');
