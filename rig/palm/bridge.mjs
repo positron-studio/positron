@@ -9,7 +9,8 @@
 //   node bridge.mjs /dev/ttyUSB0 --view split             # spectrogram on top, rings below
 //   node bridge.mjs /dev/ttyUSB0 --demo                   # an arpeggio made here, no relay: the Palm alone
 //   node bridge.mjs --dry --snap /tmp/palm.pgm --secs 10  # no Palm: log notes, write the picture as PGM
-//   --view camera|split|rings|keys|roll  --cam-fps 15  --video /dev/videoN  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
+//   node bridge.mjs /dev/ttyUSB0 --view drums             # a 16 step grid of 16 drums, drawn with the stylus, played by the board's sequencer
+//   --view camera|split|rings|keys|roll|drums  --drums-target drums|circuit (default drums)  --bpm 120  --cam-fps 15  --video /dev/videoN  --wave-port circuit:capture_1 (capture_2 is the SM57)  --fmt 1|2|4 (default 4)  --fps N (default 15 at 4 bit, 30 at 1 bit)
 //   --room studio-1   --relay wss://...   --pen-cc 80,81   --pen-ch 1   --dry   --demo   --secs N   --light (black on white; the default is white on black)   --no-oled
 //   the voice (with --voice): --voice-mode arp|mono|echo|chip|plain (default arp)   --pattern up|down|updown|random
 //   --rate 110 (ms an arp step)   --glide 40 (ms)   --vib 0 (cents, 5.5 Hz)   --echo 0.5 (feedback 0 to 0.85)   --echo-ms 240
@@ -42,7 +43,7 @@ const TEXT = process.argv.includes('--text');
 const W = 160, H = 160, DH = TEXT ? 122 : 160;
 const args = process.argv.slice(2);
 const VALUED = ['--view', '--fmt', '--fps', '--room', '--relay', '--pen-cc', '--pen-ch', '--snap', '--secs', '--wave-port',
-  '--cam-fps', '--video', '--voice-mode', '--pattern', '--rate', '--glide', '--vib', '--echo', '--echo-ms', '--double', '--tuning', '--drums-below'];
+  '--drums-target', '--bpm', '--cam-fps', '--video', '--voice-mode', '--pattern', '--rate', '--glide', '--vib', '--echo', '--echo-ms', '--double', '--tuning', '--drums-below'];
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const flag = (name) => args.includes(name);
 const dev = args.find((a, i) => !a.startsWith('--') && !VALUED.includes(args[i - 1])) || '/dev/ttyUSB0';
@@ -62,7 +63,7 @@ const LIGHT = flag('--light');
 // The board's OLED shows the split at 128x64 as screen.raw frames unless --no-oled; --oled-notes sends
 // screen.note instead, so the board draws its own rings.
 const OLED = !flag('--no-oled'), OLED_RAW = OLED && !flag('--oled-notes');
-if (!['camera', 'split', 'rings', 'keys', 'roll'].includes(VIEW)) die('--view camera, split, rings, keys or roll');
+if (!['camera', 'split', 'rings', 'keys', 'roll', 'drums'].includes(VIEW)) die('--view camera, split, rings, keys, roll or drums');
 if (!(CAM_FPS > 0 && CAM_FPS <= 30)) die('--cam-fps 1 to 30');
 if (![1, 2, 4].includes(FMT)) die('--fmt 1, 2 or 4 (the picture is grey)');
 if (!(FPS > 0 && FPS <= 50)) die('--fps 1 to 50');
@@ -196,6 +197,9 @@ if (!DEMO) {
     if (m.type === 'note.on') noteOn(`${node}:${m.from}`, (m.channel ?? 0) + 1, Number(m.note), m.vel ?? 100);
     else if (m.type === 'note.off') noteOff(`${node}:${m.from}`, (m.channel ?? 0) + 1, Number(m.note));
     else if (m.type === 'note.panic') panic();
+    else if (m.type === 'seq.state') { answered(m); if (VIEW === 'drums') onSeqState(m); }
+    else if (m.type === 'seq.pattern') { if (VIEW === 'drums' && m.pattern) { editAt = 0; adopt(m.pattern); } }
+    else if (m.type === 'audio.started' || m.type === 'sc.loaded' || m.type === 'jack.linked') answered(m);
     else if (m.type === 'palm.cc') onCC(Number(m.cc), Number(m.v));
     else if (m.type === 'palm.bend') { vs.bend = Math.max(-1, Math.min(1, Number(m.v) / 8192 || 0)) * 200; }
     else if (m.type === 'screen.note') { if (m.panic) panic(); else if (m.on) noteOn(`screen:${m.from}`, 1, Number(m.n), 100); else noteOff(`screen:${m.from}`, 1, Number(m.n)); }
@@ -446,6 +450,7 @@ function onPen(x, y, down) {
   if (y >= DH) return;
   pen = { x, y, down };
   dirty = true;
+  if (VIEW === 'drums') return drumPen(x, y, down);
   if (!PEN || !down) return;
   penWant[PEN_X] = clamp(x / (W - 1) * 127);
   penWant[PEN_Y] = clamp((1 - (y - 14) / (DH - 1 - 14)) * 127);
@@ -464,6 +469,151 @@ function penFlush() {
   }
   if (any) penTimer = setTimeout(penFlush, 40);   // at most 25 a second per CC, the last value wins
 }
+
+// ── the drum grid (--view drums): the board's own sequencer (rig/board/sequencer.mjs), edited by the pen ──
+// A tap flips a square, a drag paints what it crosses, the lane under the grid starts and stops. Edits land on the
+// next bar; the OLED shows the top 8 rows (steps-oled.mjs). The playhead is the board's step, read every 2 s.
+const DRUMS_TARGET = opt('--drums-target', 'drums'), DRUMS_BPM = Number(opt('--bpm', 120));
+if (!['drums', 'circuit'].includes(DRUMS_TARGET)) die('--drums-target drums or circuit');
+if (!(DRUMS_BPM >= 40 && DRUMS_BPM <= 240)) die('--bpm 40 to 240');
+const G_STEPS = 16, G_ROWS = 16, G_TOP = 15, G_PY = 8, G_CH = 7, G_PX = 10, G_CW = 8, G_X0 = 1;
+const G_LANE = G_TOP + G_ROWS * G_PY + 2;          // 145: the lane, start and stop, to the bottom
+const SHORT = { kick: 'BD', snare: 'SD', hho: 'OH', hhc: 'CH', clap: 'CP', tomlo: 'LT', tomhi: 'HT', cowbell: 'CB',
+  rim: 'RS', ride: 'RD', crash: 'CR', shaker: 'SH', tamb: 'TB', claves: 'CL', congalo: 'LC', congahi: 'HC' };
+let gVoices = null;                                  // [{ key, name, program }] from demo/drums/voices.mjs
+const grid = Array.from({ length: G_ROWS }, () => new Array(G_STEPS).fill(false));
+// something to hear on the first tap: four on the floor, a backbeat, closed hats
+for (let c = 0; c < G_STEPS; c++) { grid[0][c] = c % 4 === 0; grid[1][c] = c % 8 === 4; grid[3][c] = c % 2 === 0; }
+const seqS = { running: false, bpm: DRUMS_BPM, step: -1, at: 0, pending: false, said: '' };
+let paint = null, lastCell = null, editAt = 0, editTimer = null, drumsUp = false, starting = false, drawnStep = -2;
+const waiters = [];
+function ask(msg, type, ms = 8000) {
+  const id = rid(16);
+  if (!sendTo(ROOM, { ...msg, id })) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const w = { id, type, resolve, timer: setTimeout(() => { waiters.splice(waiters.indexOf(w), 1); resolve(null); }, ms) };
+    waiters.push(w);
+  });
+}
+function answered(m) {
+  const i = waiters.findIndex((w) => w.type === m.type && w.id === m.re);
+  if (i < 0) return;
+  const [w] = waiters.splice(i, 1);
+  clearTimeout(w.timer); w.resolve(m);
+}
+const patternNow = () => ({ v: 1, name: 'palm', bpm: seqS.bpm, steps: G_STEPS,
+  rows: gVoices.map((v, r) => ({ voice: v.key, steps: grid[r].map((x) => (x ? '1' : '0')).join(''), mute: false })) });
+const screenNow = () => ({ voices: gVoices.map((v) => SHORT[v.key] || v.key.slice(0, 2).toUpperCase()), look: { empty: 'dot', head: 'frame' } });
+/** A pattern somebody else set: the rows this grid has are taken, by voice name. */
+function adopt(p) {
+  if (!gVoices || !p?.rows || paint !== null) return;
+  for (const [r, v] of gVoices.entries()) {
+    const row = p.rows.find((x) => x.voice === v.key);
+    for (let c = 0; c < G_STEPS; c++) grid[r][c] = !!row && row.steps[c] === '1';
+  }
+  if (Number.isFinite(p.bpm)) seqS.bpm = p.bpm;
+  dirty = true;
+}
+function onSeqState(m) {
+  if (!m?.ok) { if (m?.why && m.why !== seqS.said) { seqS.said = m.why; log(`sequencer: ${m.why}`); } return; }
+  seqS.running = !!m.running; seqS.pending = !!m.pending;
+  if (Number.isFinite(m.bpm)) seqS.bpm = m.bpm;
+  seqS.step = Number.isInteger(m.step) ? m.step : -1; seqS.at = Date.now();
+  // its own edit still on its way, or not landed until the next bar: the board's copy is the older one
+  if (m.pattern && !m.pending && Date.now() - editAt > 3000) adopt(m.pattern);
+  if (m.refused && m.lastRefusal && m.lastRefusal !== seqS.said) { seqS.said = m.lastRefusal; log(`sequencer: ${m.refused} hits not taken (${m.lastRefusal})`); }
+  dirty = true;
+}
+/** The step playing now: the board's last one, counted on by the clock since it said so. */
+function stepNow(t = Date.now()) {
+  if (!seqS.running || seqS.step < 0) return -1;
+  return (seqS.step + Math.floor((t - seqS.at) / (60000 / (seqS.bpm * 4)))) % G_STEPS;
+}
+function edited() {
+  editAt = Date.now(); dirty = true;
+  if (!editTimer) editTimer = setTimeout(() => { editTimer = null; tell(); }, 60);
+}
+function tell() {
+  if (!gVoices) return;
+  if (DRY) return log(`seq.pattern (dry, not sent): ${patternNow().rows.filter((r) => r.steps.includes('1')).map((r) => `${r.voice} ${r.steps}`).join(', ')}`);
+  ask({ type: 'seq.pattern', pattern: patternNow(), screen: screenNow() }, 'seq.state', 4000).then((m) => m && onSeqState(m));
+}
+/** The drums compiled on the Pi's SuperCollider and their sound on the PWM output, as /devices/drums/ does. */
+async function drumsOnPi() {
+  const up = await ask({ type: 'audio.start', source: 'collide' }, 'audio.started', 15000);
+  if (!up?.ok) { log(`drums: the Pi did not start its drums: ${up?.reason ?? 'no answer'}`); return false; }
+  if (drumsUp && up.already) return true;
+  for (const v of gVoices) {
+    const r = await ask({ type: 'sc.load', name: v.name, text: v.program }, 'sc.loaded', 8000);
+    if (!r?.ok) { log(`drums: the Pi did not take ${v.name}: ${r?.reason ?? 'no answer'}`); return false; }
+  }
+  const j = await ask({ type: 'jack.link', link: 'pi-1:drums:audio-out -> pi-1:pwm:audio-in' }, 'jack.linked', 8000);
+  if (!j?.ok) { log(`drums: no sound to the PWM output: ${(j?.problems || []).join(', ') || j?.hint || 'no answer'}`); return false; }
+  log(`drums: ${gVoices.length} compiled on the Pi, pi-1:drums:audio-out -> pi-1:pwm:audio-in held`);
+  return (drumsUp = true);
+}
+async function transport() {
+  if (starting || !gVoices) return;
+  if (DRY) { seqS.running = !seqS.running; seqS.step = 0; seqS.at = Date.now(); return log(`seq.${seqS.running ? 'start' : 'stop'} (dry, not sent)`); }
+  starting = true; dirty = true;
+  try {
+    if (seqS.running) { const m = await ask({ type: 'seq.stop', from: 'palm' }, 'seq.state', 6000); if (m) onSeqState(m); return; }
+    if (DRUMS_TARGET === 'drums' && !await drumsOnPi()) return;
+    const m = await ask({ type: 'seq.start', target: DRUMS_TARGET, pattern: patternNow(), screen: screenNow() }, 'seq.state', 6000);
+    if (m) onSeqState(m);
+    log(`sequencer: ${m?.ok ? `${m.running ? 'running' : 'stopped'} at ${m.bpm} bpm into ${m.target}` : `refused: ${m?.why ?? 'no answer'}`}`);
+  } finally { starting = false; dirty = true; }
+}
+function drumPen(x, y, down) {
+  if (!down) { paint = null; lastCell = null; return; }
+  if (y >= G_LANE) { if (paint === null && lastCell !== 'lane') { lastCell = 'lane'; transport(); } return; }
+  const r = Math.floor((y - G_TOP) / G_PY), c = Math.floor((x - G_X0) / G_PX);
+  if (r < 0 || r >= G_ROWS || c < 0 || c >= G_STEPS || !gVoices) return;
+  const k = r * G_STEPS + c;
+  if (k === lastCell) return;
+  if (paint === null) { if (lastCell === 'lane') return; paint = !grid[r][c]; }
+  lastCell = k;
+  if (grid[r][c] === paint) return;
+  grid[r][c] = paint;
+  edited();
+}
+function drawDrums(t) {
+  const now = stepNow(t);
+  drawnStep = now;
+  for (let r = 0; r < G_ROWS; r++) for (let c = 0; c < G_STEPS; c++) {
+    const x = G_X0 + c * G_PX, y = G_TOP + r * G_PY;
+    if (grid[r][c]) rect(x, y, G_CW, G_CH, c === now ? 15 : 12);
+    else rect(x + 3, y + 3, 2, 1, c % 4 === 0 ? 8 : 4);
+  }
+  if (now >= 0) {
+    const x = G_X0 + now * G_PX;
+    box(x - 1, G_TOP - 1, G_CW + 2, G_ROWS * G_PY + 2, 15);
+    rect(x, G_LANE + 3, G_CW, 3, 15);
+  }
+  // the lane: a play triangle while stopped, a square while running, dim while the Pi is being asked
+  const v = starting ? 5 : 13, cx = 80, cy = G_LANE + 8;
+  if (seqS.running) rect(cx - 3, cy - 3, 7, 7, v);
+  else for (let i = 0; i < 5; i++) rect(cx - 2 + i, cy - 4 + i, 1, 9 - 2 * i, v);
+  if (pen?.down) put(pen.x, pen.y, 15);
+}
+async function drumsInit() {
+  // demo/drums/voices.mjs from this checkout, or the board's copy on the Pi (the bridge runs from ~/palm there)
+  for (const u of [new URL('../../demo/drums/voices.mjs', import.meta.url).href, 'file:///opt/positron-board/demo/drums/voices.mjs']) {
+    try { gVoices = (await import(u)).voices({ more: true }).slice(0, G_ROWS); break; } catch { /* not here */ }
+  }
+  if (!gVoices) die('drums: no demo/drums/voices.mjs beside this bridge or in /opt/positron-board');
+  log(`drums: ${gVoices.map((v) => v.key).join(' ')}, into ${DRUMS_TARGET} at ${DRUMS_BPM} bpm`);
+  dirty = true;
+  if (DRY || DEMO) return;
+  while (!sockets[ROOM]?.open) await new Promise((r) => setTimeout(r, 200));
+  const m = await ask({ type: 'seq.status' }, 'seq.state', 4000);
+  if (m?.ok && m.pattern) { adopt(m.pattern); log(`drums: took the board's pattern${m.running ? `, running at ${m.bpm} bpm` : ''}`); }
+  if (m) onSeqState(m);
+  // the OLED draws the grid from this pattern; while it runs, the same pattern lands on the next bar, no change
+  tell();
+  setInterval(() => { if (sockets[ROOM]?.open) ask({ type: 'seq.status' }, 'seq.state', 3000).then((s) => s && onSeqState(s)); }, 2000);
+}
+if (VIEW === 'drums') drumsInit();
 if (isTty) {
   const rd = new tty.ReadStream(fd);
   let saidSt = false;
@@ -692,6 +842,7 @@ function drawHits(t) {
 
 function render(t) {
   ink.fill(0);
+  if (VIEW === 'drums') return drawDrums(t);
   if (VIEW === 'split') drawSplit(t);
   else if (VIEW === 'rings') drawRings(t); else if (VIEW === 'keys') drawKeys(t); else drawRoll(t);
   // The note, large, top left; its velocity and channel under it. Split: small, bottom left.
@@ -732,7 +883,7 @@ function snap(file) {
 
 // Frames at FPS while anything moves, once a second when still.
 let lastFrame = 0;
-const moving = (t) => held.size || !silent || gone.some((s) => t - s.off < FADE_MS) || hits.some((h) => t - h.t < 400) || dirty;
+const moving = (t) => held.size || !silent || gone.some((s) => t - s.off < FADE_MS) || hits.some((h) => t - h.t < 400) || dirty || (VIEW === 'drums' && stepNow(t) !== drawnStep);
 if (VIEW !== 'camera') setInterval(() => {
   const t = Date.now();
   if (!moving(t) && t - lastFrame < 1000) return;
@@ -762,7 +913,7 @@ function oledFrame(t) {
   }
   return out;
 }
-if (OLED_RAW && VIEW !== 'camera') setInterval(() => {
+if (OLED_RAW && VIEW !== 'camera' && VIEW !== 'drums') setInterval(() => {
   if (stopping) return;
   const t = Date.now(), b = oledFrame(t);
   if (sendTo(ROOM, { type: 'screen.raw', b64: b.toString('base64') })) oledSent++;
