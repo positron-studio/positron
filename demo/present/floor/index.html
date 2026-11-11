@@ -63,7 +63,7 @@
   import { createProjector, VOICES } from '/shell/projector.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
-  import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
   import { sentenceCase } from '/shell/reel-line.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
 
@@ -111,7 +111,9 @@
   let started = false;
   // Play sits under the words, outside the picture, whose pointer handlers take every press there for walking
   // one icon: play starts the floor, then stop stops the playing film and play plays the one nearest the view's centre
-  const startBtn = barButton({ icon: 'play', aria: 'play', size: 'lg', onPress: () => playStop() });
+  const playGroup = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => playStop() }] });
+  playGroup.button('play').classList.add('pos-lg');
+  const startBtn = playGroup.el;
 
   const gl = canvas.getContext('webgl2', { antialias: true, alpha: true, xrCompatible: true });
   if (!gl) { d.fail(new Error('this browser draws no 3-D')); throw new Error('no webgl2'); }
@@ -1234,7 +1236,7 @@
   setInterval(() => {
     if (playing === nowShown) return;
     nowShown = playing;
-    setButtonFace(startBtn, playing >= 0 ? { icon: 'stop', aria: 'stop the film' } : { icon: 'play', aria: 'play' });
+    playGroup.setIcon('play', playing >= 0 ? 'stop' : 'play', playing >= 0 ? 'stop the film' : 'play');
     if (playing < 0) { nowEl.textContent = '\u00a0'; return; }
     const t = tiles[state[playing].film];
     nowEl.replaceChildren(el('b', '', sentenceCase(t.title)), `${t.series ? `${t.series}, ` : ''}${t.date}`);

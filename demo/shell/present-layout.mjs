@@ -35,9 +35,9 @@ const CSS = `
   .prl-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; text-box: trim-both cap alphabetic; }
   .prl-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
   .prl-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
-  .prl-top button { color: var(--fg); }
-  .prl-top svg { width: 18px; height: 18px; flex: none; }
-  .prl-top button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
+  .prl-top button, .prl-acts button { color: var(--fg); }
+  .prl-top svg, .prl-acts .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
+  .prl-top button.pos-lg, .prl-acts .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   /* the main picture as large as its shape (--prl-aspect) and its footer (--prl-extra) allow, at the top right */
   .prl-main { grid-area: main; min-height: 0; container-type: size; display: grid; justify-items: end; align-items: start; }
   .prl-main.prl-main > * { width: min(100cqw, calc((100cqh - var(--prl-extra, 0px)) * var(--prl-aspect, 4 / 3))); }
