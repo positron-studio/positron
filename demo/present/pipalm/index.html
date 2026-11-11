@@ -32,7 +32,7 @@
     + ' .pos-vp[data-full] .pos-vp-stage.pm-stage { container-type: size; display: grid; place-items: center; }'
     + ' .pos-vp[data-full] .pos-vp-stage > canvas.palm-cv { width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); }' }));
 
-  const d = mount({ name: 'Palm drums', what: '', readout: null, showLog: false, chrome: false });
+  const d = mount({ name: 'Pi + Palm', what: '', readout: null, showLog: false, chrome: false });
 
   const q = new URLSearchParams(location.search);
   const ROOM = q.get('room') || 'studio-1';
@@ -143,7 +143,7 @@
   async function listen() {
     if (listening) {
       try { lift?.disconnect(); } catch { /* not connected */ }
-      listening = false; buttons.button('listen').textContent = 'Listen';
+      listening = false; buttons.setIcon('listen', 'headphones', 'listen here');
       d.log('not listening here; the Pi still plays out of its PWM output', 'dim');
       return pb.refresh();
     }
@@ -155,7 +155,7 @@
     lift.gain.value = LIFT;
     board.playout().connect(lift);
     lift.connect(ctx.destination);
-    listening = true; buttons.button('listen').textContent = 'Stop';
+    listening = true; buttons.setIcon('listen', 'mute', 'stop listening here');
     d.log('listening to the Pi\'s drums here', 'ok');
     pb.refresh();
   }
@@ -200,9 +200,10 @@
     { flowing: (l) => (l.id === 'a' ? performance.now() - editAt < 400 : seq.running) });
 
   // the presentation copy: play and Listen in the screen's footer, since the layout's top bar holds How it works and the arrows
-  const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', primary: true, onPress: () => transport() }] });
+  const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
   function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
-  const buttons = createButtonGroup({ buttons: [{ id: 'listen', label: 'Listen', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
+  // one style in the footer: two icon buttons, play or stop the sequencer, listen here or stop
+  const buttons = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
   const panel = createVideoPanel({ media: palm.el, left: null, aspect: '1 / 1', fullMode: 'footer' });
   panel.stage.classList.add('pm-stage');
   const footLeft = el('div', 'pm-foot-left');
@@ -211,7 +212,7 @@
 
   // ── the presentation layout (present-layout.mjs); extra is the footer's height, measured 55 px (34 px buttons, 10 px padding, a 1 px line) ──
   const lay = createPresentLayout({
-    title: 'Palm drums', sub: 'The Palm\'s drum grid in a tab. Draw steps and the Pi\'s drums play them.',
+    title: 'Pi + Palm', sub: 'The Palm\'s drum grid in a tab. Draw steps and the Pi\'s drums play them.',
     desc: 'web:palm sends the grid as a value through cf-relay:room, Cloudflare\'s relay room studio-1, to pi-1:sequencer. The sequencer\'s midi-out plays pi-1:drums, whose audio-out feeds pi-1:pwm, the Pi\'s own output. Listen adds an audio link from pi-1:drums to web:speaker, its sound frames over the same relay. Nothing reaches the relay until the first press.',
     main: panel.el, aspect: '1 / 1', extra: '55px', patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
