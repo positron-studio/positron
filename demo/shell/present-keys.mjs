@@ -1,9 +1,10 @@
 // demo/shell/present-keys.mjs: what every presentation page (/kit/present/, /present/<slug>/) does the same way
 // as the radio slides (/radio1965/, /huddersfield/): the arrow keys step, Esc closes, and the Kyiv air raid
-// view (kyiv-raid.mjs) covers the page with the hours of the war. r shows a simulated raid or takes it away,
+// view (kyiv-raid.mjs) covers the page with the hours of the war, only by hand: r shows a simulated raid or takes it away,
 // Esc hides a raid until the next one, ?raid=1 shows one on load. During a raid every `.pres-ui` fades out.
 
 import { createKyivRaid } from './kyiv-raid.mjs';
+// Only by hand: a presentation page never asks v2in, so a real raid reaches the radio pages alone (the owner, 2026-11-11).
 
 const CSS = `
   .pres-ui { transition: opacity 1s; }

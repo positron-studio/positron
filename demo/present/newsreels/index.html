@@ -19,59 +19,6 @@
      See lessons/page-history.md#history-2 */
   .pos-vp[data-full] .pos-vp-stage { container-type: size; display: grid; place-items: center; }
   .pos-vp[data-full] .pos-vp-stage > video.ar-film { width: min(100cqw, 133.333cqh); height: min(100cqh, 75cqw); }
-  /* The presentation copy of /history/newsreels/ (the original stays as it is): the title and description top left,
-     How it works and the arrows top right, the film over most of the screen, the line across the bottom.
-     How it works dims the film and puts the description and the patch where the line was. */
-  :root { --pr-m: clamp(16px, 4vw, 48px); }
-  html, body { background: #000; }
-  /* the banner: the playing film again, blurred and dark, under everything (black until a film plays) */
-  .pt-banner { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000;
-    filter: blur(32px) brightness(.45) saturate(.7); transform: scale(1.1); transition: filter 1.2s; }
-  body.pt-open .pt-banner { filter: blur(32px) brightness(.12) saturate(.7); }
-  .pt { position: fixed; inset: 0; z-index: 11; box-sizing: border-box; display: grid; gap: 0 var(--pr-m);
-    padding: max(var(--pr-m), env(safe-area-inset-top)) max(var(--pr-m), env(safe-area-inset-right)) max(var(--pr-m), env(safe-area-inset-bottom)) max(var(--pr-m), env(safe-area-inset-left));
-    grid-template-columns: minmax(16em, 1fr) minmax(0, 2.4fr); grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "eye top" "head film" "foot foot"; }
-  /* the overline shares the top row with the buttons, centred on them; the title and the film start one small step
-     under that row, on one line, and the line is one margin under the film */
-  .pt-eye { grid-area: eye; align-self: center; }
-  .pt-head, .pt-film { margin-top: 12px; }
-  .pt-foot { margin-top: var(--pr-m); }
-  .pt-head { grid-area: head; min-width: 0; }
-  /* the box is the ink, so the capitals' tops meet the film's top edge */
-  .pt-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; text-box: trim-both cap alphabetic; }
-  .pt-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
-  .pt-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
-  .pt-top button { color: var(--fg); }
-  .pt-top svg { width: 18px; height: 18px; flex: none; }
-  .pt-top .pt-arrows button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
-  /* the film as large as its 4:3 and its footer allow in the space it has, at the top right */
-  .pt-film { grid-area: film; min-height: 0; container-type: size; display: grid; justify-items: end; align-items: start; }
-  .pt-film > .pos-vp { width: min(100cqw, calc((100cqh - var(--ctl-lg) - 2px) * 4 / 3)); }
-  /* the line holds the bottom row; How it works stands on the same bottom edge and rises over the dimmed film,
-     out of flow so its height never takes the film's room while it is closed */
-  .pt-foot { grid-area: foot; position: relative; min-width: 0; }
-  .pt-how { position: absolute; left: 0; right: 0; bottom: 0; }
-  .pt-film { transition: filter 1.2s; }
-  body.pt-open .pt-film { filter: brightness(.18); }
-  .pt-line { transition: opacity .6s .6s, visibility 0s; }
-  body.pt-open .pt-line { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
-  .pt-how { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; max-height: 70dvh; overflow-y: auto; }
-  body.pt-open .pt-how { opacity: 1; visibility: visible; transition: opacity .8s .8s, visibility 0s .8s; }
-  .pt-how .pt-desc { margin: 0 0 24px; font: 400 clamp(18px, 1.9vw, 24px)/1.45 var(--sans); color: var(--fg); text-wrap: balance; }
-  @media (prefers-reduced-motion: reduce) { .pt-film, .pt-line, .pt-how, body.pt-open .pt-line, body.pt-open .pt-how { transition: none; } }
-  /* a phone: one column that scrolls, the film full width under the title */
-  @media (max-width: 760px) {
-    .pt { position: relative; inset: auto; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto auto;
-      grid-template-areas: "eye top" "head head" "film film" "foot foot"; }
-    .pt-film { margin-top: var(--pr-m); }
-    .pt-film { container-type: normal; justify-items: stretch; }
-    .pt-film > .pos-vp { width: 100%; }
-    /* the page scrolls, so How it works takes the line's place in the flow instead of rising over the film */
-    .pt-how { position: static; max-height: none; display: none; }
-    body.pt-open .pt-how { display: block; }
-    body.pt-open .pt-line { display: none; }
-  }
 </style>
 
 <script type="module">
@@ -82,8 +29,7 @@
   import { createIconButton } from '/shell/icon-button.mjs';
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createBar, barButton } from '/shell/bar.mjs';
-  import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createPresentKeys } from '/shell/present-keys.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createTransportControl, transportApi, publishTransport, transportOnBay } from '/shell/transport-control.mjs';
   import { playToggle, ratesView } from '/shell/transport-views.mjs';
   import { bindTransportKeys } from '/shell/transport-keys.mjs';
@@ -192,9 +138,13 @@
   const send = transportOnBay(bay, { site: S, control });
   const prevBtn = barButton({ icon: 'chevron-left', aria: 'the broadcast day before this one', onPress: () => step(-1) });
   const nextBtn = barButton({ icon: 'chevron-right', aria: 'the broadcast day after this one', onPress: () => step(+1) });
-  const bar = createBar({ start: [playToggle(control, { send }).el, prevBtn, nextBtn], end: [ratesView(control, { send }).el] });
+  // the presentation copy: play and the two steps in the film's footer, left of mute and full screen, so full
+  // screen is the film and its own buttons; the speed stays on the line's bar
+  const playBtn = playToggle(control, { send }).el;
+  panel.slots.left.append(playBtn, prevBtn, nextBtn);
+  const bar = createBar({ end: [ratesView(control, { send }).el] });
   lineHost.append(bar.el);
-  bindTransportKeys(control, { scope: bar.el, send });
+  bindTransportKeys(control, { scope: panel.el, send });
   publishTransport(transportApi(control, { el: bar.el }));
   // No footer under the line: the strip's tooltip says the same on hover.
   // See lessons/page-history.md#history-7
@@ -343,71 +293,18 @@
     pause: () => { film.pause(); if (hasSound()) wireless.pause(); deck.pause(); face(); },
   };
 
-  // ── the presentation layout ─────────────────────────────────────────────
-  const eye = el('div', 'pos-hero-eye pt-eye');
-  eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
-  const head = el('div', 'pt-head');
-  head.append(el('h1', '', 'Newsreels'), el('p', '', 'ERR\'s 1965 newsreels on a line, each silent film played with that day\'s surviving radio.'));
-  const howBox = el('div', 'pt-how');
-  howBox.append(el('p', 'pt-desc', 'Every newsreel ERR kept from 1965 is a mark on the line, on the day it was broadcast. Press one and the film streams from ERR\'s archive, and the radio from the same day follows the picture. Nothing reaches ERR until you play.'), pb.el);
-  let how = false;
-  function setHow(on) {
-    how = on;
-    document.body.classList.toggle('pt-open', on);
-    howBtn.setAttribute('aria-pressed', String(on));
-    howGroup.setIcon('how', on ? 'close' : 'info', on ? 'close How it works' : 'How it works');
-    if (on) pb.refresh();
-  }
-  const howGroup = createButtonGroup({ buttons: [{ id: 'how', icon: 'info', label: 'How it works', onPress: () => setHow(!how) }] });
-  const howBtn = howGroup.button('how');
-  howBtn.classList.add('pos-lg');
-  howGroup.el.classList.add('pt-arrows');
-  howBtn.setAttribute('aria-pressed', 'false');
-  // the presentation's own pages, in order; one page so far, so the arrows wait for the next copy
-  const PAGES = ['/present/newsreels/'];
-  const here = PAGES.indexOf(location.pathname);
-  const go = (by) => { const to = PAGES[(here + by + PAGES.length) % PAGES.length]; if (to !== location.pathname) location.href = to; };
-  const arrows = createButtonGroup({ buttons: [
-    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => go(-1) },
-    { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => go(1) },
-  ] });
-  for (const b of arrows.el.querySelectorAll('button')) b.classList.add('pos-lg');
-  arrows.el.classList.add('pt-arrows');
-  if (PAGES.length < 2) { arrows.enable('prev', false, 'the only page so far'); arrows.enable('next', false, 'the only page so far'); }
-  const top = el('div', 'pt-top');
-  top.append(howGroup.el, arrows.el);
-  const filmBox = el('div', 'pt-film');
-  filmBox.append(panel.el);
-  lineHost.classList.add('pt-line');
-  const foot = el('div', 'pt-foot');
-  foot.append(lineHost, howBox);
-  const root = el('div', 'pt');
-  root.append(eye, top, head, filmBox, foot);
-  // the banner redraws the film at a tenth of the screen's size, ten times a second, only while it plays
-  const banner = el('canvas', 'pt-banner');
-  const bctx = banner.getContext('2d');
-  let bannerAt = 0, bannerOn = false;
-  (function paint(t) {
-    requestAnimationFrame(paint);
-    const live = !!opened && !film.paused && film.readyState >= 2 && film.videoWidth > 0;
-    if (!live) { if (bannerOn && !opened) { bctx.clearRect(0, 0, banner.width, banner.height); bannerOn = false; } return; }
-    if (document.hidden || t - bannerAt < 100) return;
-    bannerAt = t;
-    const w = Math.max(1, Math.round(innerWidth / 10)), h = Math.max(1, Math.round(innerHeight / 10));
-    if (banner.width !== w || banner.height !== h) { banner.width = w; banner.height = h; }
-    const k = Math.max(w / film.videoWidth, h / film.videoHeight), vw = film.videoWidth * k, vh = film.videoHeight * k;
-    try { bctx.drawImage(film, (w - vw) / 2, (h - vh) / 2, vw, vh); bannerOn = true; } catch { /* not drawable yet */ }
-  })(0);
-  document.body.append(banner, root);
-  // the arrows, Esc and the raid view, as on every presentation page
-  root.classList.add('pres-ui');
-  const keys = createPresentKeys({ prev: () => go(-1), next: () => go(1), escape: () => { if (how) setHow(false); } });
+  // ── the presentation layout (present-layout.mjs), with the playing film as the banner ──
+  const lay = createPresentLayout({
+    title: 'Newsreels', sub: 'ERR\'s 1965 newsreels on a line, each silent film played with that day\'s surviving radio.',
+    desc: 'Every newsreel ERR kept from 1965 is a mark on the line, on the day it was broadcast. Press one and the film streams from ERR\'s archive, and the radio from the same day follows the picture. Nothing reaches ERR until you play.',
+    main: panel.el, aspect: '4 / 3', extra: 'calc(var(--ctl-lg) + 2px)', line: lineHost, patch: pb.el,
+    banner: film, moving: () => !!opened && !film.paused && film.readyState >= 2, blank: () => !opened,
+    onHow: (on) => { if (on) pb.refresh(); },
+  });
+  const keys = lay.keys, setHow = lay.setHow;
   window.__demo.raid = () => keys.raid();
   window.__demo.how = setHow;
-  if (new URLSearchParams(location.search).get('how') === '1') setHow(true);
-  // After the stack has it, so the panel knows where to put it back (`under`
-  // records the node's home when it is handed over).
-  panel.under(lineHost);
+  // no `panel.under(lineHost)`: full screen shows the film and its footer only, never the line
   face();
 
   // ── load the year ───────────────────────────────────────────────────────
@@ -424,17 +321,17 @@
     d.assert('a visit opens nothing at ERR', errOpens === 0, `${errOpens} reaches since the page loaded`);
     const footButtons = [...panel.foot.querySelectorAll('button')];
     const right = [...panel.slots.right.querySelectorAll('button')];
-    d.assert('the standard video panel: mute then its own full screen at the right of the footer, nothing else',
-      footButtons.length === 2 && right.length === 2 && right[0] === muteBtn.el && right[1].matches('.pos-vp-full')
-        && !panel.slots.left.childElementCount && !panel.slots.centre.childElementCount,
+    d.assert('the video footer: play and the two steps at the left, mute then its own full screen at the right',
+      footButtons.length === 5 && right.length === 2 && right[0] === muteBtn.el && right[1].matches('.pos-vp-full')
+        && panel.slots.left.contains(playBtn) && panel.slots.left.contains(prevBtn) && panel.slots.left.contains(nextBtn),
       footButtons.map((b) => b.getAttribute('aria-label')).join(', '));
     const stageR = panel.stage.getBoundingClientRect();
     d.assert('the panel is 4:3 and the film covers it, so the bars are cropped',
       Math.abs(stageR.width / stageR.height - 4 / 3) < 0.01 && getComputedStyle(film).objectFit === 'cover',
       `${stageR.width.toFixed(0)}x${stageR.height.toFixed(0)}, ${getComputedStyle(film).objectFit}`);
-    d.assert('the transport bar is glued to the line, with play and the two steps on it',
+    d.assert('the line keeps its bar, glued to it, with the speed and without play or the steps',
       !!bar.el.closest('.pos-glue') && bar.el.closest('.pos-glue') === view.surface.closest('.pos-glue')
-        && !!bar.el.querySelector('.tbar-toggle') && bar.el.contains(prevBtn) && bar.el.contains(nextBtn),
+        && !bar.el.querySelector('.tbar-toggle') && !bar.el.contains(prevBtn) && !bar.el.contains(nextBtn),
       [...bar.el.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent).join(', '));
     // The transport's own link (its buttons to it) is not one of the three boxes' wires.
     const links = bay.links().filter((l) => !l.from.startsWith(`${S}:transport-buttons:`)).map((l) => `${l.from} -> ${l.to}`);
@@ -446,7 +343,7 @@
       // picks the first mark and steps walk a day, all opening nothing; then the page resets.
       // See lessons/page-history.md#history-10
       const before = errOpens;
-      bar.el.querySelector('.tbar-toggle').click();
+      playBtn.click();
       const picked = line.current;
       nextBtn.click();
       const stepped = line.current;
@@ -478,8 +375,8 @@
       const fr = film.getBoundingClientRect();
       const fullRatio = fr.width / fr.height;
       await panel.full(false);
-      d.assert('full screen fills by the panel\'s own button, keeps the 4:3 crop, mute, the bar and the line on screen, and comes back',
-        wasFull && footShown && barIn && Math.abs(fullRatio - 4 / 3) < 0.01
+      d.assert('full screen fills by the panel\'s own button, keeps the 4:3 crop and the footer with play, leaves the line out, and comes back',
+        wasFull && footShown && !barIn && Math.abs(fullRatio - 4 / 3) < 0.01
           && !panel.isFull() && !('full' in panel.el.dataset) && !panel.el.contains(bar.el),
         `full ${wasFull} by ${panel.support()}, film ${fr.width.toFixed(0)}x${fr.height.toFixed(0)}, footer ${footShown}, bar ${barIn}, back ${!panel.isFull()}`);
       select(null);

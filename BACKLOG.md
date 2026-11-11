@@ -1,5 +1,8 @@
 ## Open
 
+- **Presentation copies of the typist pages, single and six** (2026-11-11). Asked: *"Brig in single typing ad 6 typist pages"*. Copy, never move, as /present/newsreels/.
+- ~~**The real Kyiv raid on the presentation pages from v2in's stats**~~ REFUSED by the owner 2026-11-11: *"i mean only radio pages should be affecet by raid. do not show raid automaticaly, i trigger it"*. Presentation pages show the raid by r or ?raid=1 only; the v2in poll was built and taken out the same hour.
+
 - **The raid view and the hotkeys on every presentation page, the radio pages' way** (2026-11-11). Asked: *"Have radsvsualizato adhotkes wor o all pres templates same wa"*, read as: the Kyiv air raid picture (demo/shell/kyiv-raid.mjs, Esc hides, r simulates, ?raid=1 forces) and the keys (arrows step, Esc) work on /kit/present/ and /present/newsreels/ as on /radio1965/ and /huddersfield/.
 
 - **The reel as a presentation copy: video top right, timeline at the bottom** (2026-11-11). Asked: *"I don't want to move, I just want to copy ... take the one ... REIL ... where I had ERR archives when I put together old Chronicle videos from the archive and also sound clips, and I synced them on a timeline. ... bring the timeline and the data in, and put it to the bottom of the screen, and for this template actually move the title to the top left and description under it ... a video player on the top right, or most of the area ... Do not use regular video element UI ... Should first assess and then do."* Copy, never move: the old page stays as it is. Template kit/present stays as it is.
