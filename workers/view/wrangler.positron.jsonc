@@ -1,0 +1,10 @@
+// A second name for the same site, on workers.dev only: https://positron.kristjan-jansen.workers.dev
+// No custom domain (positron.studio stays on elektron-view) and no migrations (no Durable Object here).
+{
+  "name": "positron",
+  "workers_dev": true,
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "none" },
+  "observability": { "enabled": true }
+}
