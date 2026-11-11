@@ -296,7 +296,7 @@
   // ── the presentation layout (present-layout.mjs); no banner (the owner took the blurred film out, 2026-11-11) ──
   const lay = createPresentLayout({
     title: 'Newsreels', sub: 'ERR\'s 1965 newsreels on a line, each silent film played with that day\'s surviving radio.',
-    desc: 'err:newsreel sends video and err:radio sends audio, both as HLS over https from ERR\'s archive, into web:screen and web:speaker. web:timeline sends the picked day as a value to both. web:screen\'s clock-out drives the timeline\'s playhead and the speaker\'s sync, so the picture is the master and the radio follows it.',
+    desc: "err:newsreel and err:radio stream from ERR's archive as HLS over https. web:screen's clock is the master; the timeline and the radio follow it.",
     main: panel.el, aspect: '4 / 3', extra: '57px', line: lineHost, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
   });

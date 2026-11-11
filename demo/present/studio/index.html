@@ -197,12 +197,7 @@
 
   const lay = createPresentLayout({
     title: 'Positron Studio',
-    desc: `pi-1:camera is a USB camera on the Raspberry Pi in ${ROOM}. The camera button picks how it reaches web:studio, `
-      + `this page, through cf-relay:room, Cloudflare's relay room ${CAM_ROOM}, which opens only to the camera key. `
-      + 'Regular: pi-1:h264 encodes 1280x720 H.264 at 30 fps, about 1.5 Mbit/s, sent as binary WebSocket frames that '
-      + 'the page decodes with WebCodecs, kept alive by a cam.watching message every 10 s. Dither: pi-1:dither makes '
-      + 'each frame one bit at 128x64, 24 fps, for pi-1:screen, the OLED, and the same frames leave as 1024 byte text messages, '
-      + 'kept alive by screen.camera every 5 s. The Pi runs one of the two at a time, and off asks it for nothing.',
+    desc: "pi-1:camera reaches this page through studio-1-cam, Cloudflare's relay room that opens only to the camera key. Regular is H.264 at 1280x720; dither is one bit at 128x64, as the OLED shows it.",
     main: null, tools: [cam.el], patch: pb.el, onHow: (open) => { if (open) pb.refresh(); },
   });
 

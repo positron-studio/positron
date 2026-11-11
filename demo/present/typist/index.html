@@ -314,7 +314,7 @@
   // the panel measured at 1280 px: a 16:9 stage and 57 px under it (the footer 55, the panel border 2)
   const lay = createPresentLayout({
     title: 'Typist', sub: 'Everything you type, deletions included, is kept and played back as the page writes itself again.',
-    desc: "The keyboard's value out, carrying text, links to the paper, the recorder and the typewriter. The recorder's value out links to the paper and the typewriter on links of their own, and plays the kept changes back as the transport moves along the line. The typewriter's audio out links to the speakers, and the transport buttons' value out to the transport. Every node is in this one browser tab, so no link leaves the machine and none goes over a network transport.",
+    desc: "The keys send text to the paper, the recorder and the typewriter. The recorder plays the kept changes back along the line. All in this tab, nothing leaves it.",
     main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
   });

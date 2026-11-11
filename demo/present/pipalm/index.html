@@ -316,7 +316,7 @@
   const FOOT_PX = 105;
   const lay = createPresentLayout({
     title: 'Pi + Palm', sub: 'The Palm\'s drum grid in a tab, over the Pi\'s sound. Draw steps for the drums and play Plaits beside them from a MIDI keyboard.',
-    desc: 'web:palm sends the grid as a value through cf-relay:room, Cloudflare\'s relay room studio-1, to pi-1:sequencer, whose midi-out plays pi-1:drums. web:midi, a MIDI keyboard on this computer, sends notes to pi-1:plaits:midi-in, and three knob nodes send harmonics, timbre and morph to its value-in over the same room. Both engines feed pi-1:pwm over JACK. Listen adds their audio links to web:speaker: one summed capture, sent as sound frames over the relay. The wave is Plaits alone: the Palm\'s bridge reads pi-1:plaits:audio-out on the Pi and sends its shape to the room. Nothing reaches the relay until the first press.',
+    desc: "web:palm sends the grid through Cloudflare's relay room studio-1 to pi-1:sequencer, which plays pi-1:drums. A MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The wave is Plaits alone, sent by the Palm's bridge.",
     main: panel.el, aspect: '1 / 1', extra: `${FOOT_PX}px`, patch: pb.el, actions: [dials],
     onHow: (on) => { if (on) pb.refresh(); },
   });

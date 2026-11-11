@@ -1226,9 +1226,7 @@
   const pb = createPatchbay({ nodes: () => FNODES, ports: () => FPORTS, links: () => FLINKS }, { flowing: (l) => started && (l.id !== 'c' || playing >= 0) });
   const lay = createPresentLayout({
     title: 'Today\nat 1965', sub: '\u00a0',
-    desc: 'The ERR archive feeds the floor on two links. Thumbnails go as images over https through the Cloudflare '
-      + 'proxy on our own origin into one WebGL2 texture array. A pressed film goes as video over HLS into one video '
-      + 'element, whose frames become the floor\'s video texture.',
+    desc: "ERR thumbnails reach the WebGL2 floor as images through our Cloudflare image proxy, and a pressed film as HLS video.",
     main: null, line: startBtn, patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
   });
   // the line under the title: the playing film, else the one under the pointer, read four times a second

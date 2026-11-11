@@ -538,7 +538,7 @@
   // panel's two 1 px borders; the papers are 16:9 at the desk, as chat-ui.mjs makes a `fixed` grid.
   const lay = createPresentLayout({
     title: 'Typists', sub: 'Up to six papers typed at once from a written score, each through a typewriter of its own.',
-    desc: 'Typist k is a keys node whose value-out links to the value-in of paper k and of typewriter k, and the transport plays the score out through those keys. The typewriter samples come from R2 to every typewriter\'s file-in over https. Typewriter k\'s audio-out links to fx k\'s audio-in, and every fx box\'s audio-out links to the speaker\'s audio-in. The machines node sends paper k its machine number as a value, on its own value-out to fx k and typewriter k. Every fx box\'s audio-out also links to the audio-in of the space, a WebAudio engine with a dub delay, a long generated room and a slow bed, whose audio-out links to the speaker. The space slider is a knob node whose value-out links to the space\'s value-in, raising the send and the wet level together.',
+    desc: "Six keys nodes type the score into six papers and six typewriters, sampled from R2 over https. Each typewriter runs through its fx box to the speaker and through web:space, a dub delay, room and bed set by the space knob.",
     main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
   });
