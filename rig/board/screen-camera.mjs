@@ -53,7 +53,7 @@ export function createFrameCutter(size, onFrame) {
  * `panel()` the open panel or null; `cameraBusy()` true while camera.mjs streams the H.264 picture.
  * While it does, `side()` feeds the panel from that ffmpeg's second output instead (the tap).
  */
-export function createScreenCamera({ relay, room, key, log = () => {}, panel = () => null, cameraBusy = () => false, held = () => '',
+export function createScreenCamera({ relay, room, key, log = () => {}, panel = () => null, cameraBusy = () => false, held = () => '', quiet = () => false,
   find = findCamera, spawnImpl = spawn, WS = globalThis.WebSocket, leaseMs = LEASE_MS, now = () => Date.now() } = {}) {
   if (!key) return { enabled: false, running: () => false, status: () => ({ enabled: false }), stop() {} };
   const FROM = `board-screen-${randomBytes(3).toString('hex')}`;
@@ -74,6 +74,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
   };
 
   function onGray(gray) {
+    if (tap && quiet()) return;   // a viewer asked to keep the camera off the OLED
     const fb = ditherFrame(gray);
     frames++; recent.push(now());
     const p = panel();
@@ -196,8 +197,8 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
 
   return {
     enabled: true,
-    running: () => !!proc || tap,
-    status: () => ({ enabled: true, joined: authed, running: !!proc || tap, tap, viewers: viewers.size, frames, sent, fps: fps(),
+    running: () => !!proc || (tap && !quiet()),
+    status: () => ({ enabled: true, joined: authed, running: !!proc || (tap && !quiet()), tap, viewers: viewers.size, frames, sent, fps: fps(),
       upMs: proc || tap ? now() - startedAt : 0, source }),
     /** A second output for camera.mjs's ffmpeg, fresh for each start: its grey frames go to the panel. */
     side() {

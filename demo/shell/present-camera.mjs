@@ -24,7 +24,6 @@ const RENEW_MS = 5000;               // the board's lease is 15 s (screen-camera
 // The arrows drop the query, so a key seen once in the address is kept in this browser.
 const KEY_STORE = 'positron.present.cam';
 const W = 128, H = 64;
-const MODES = ['off', 'regular', 'dither'];
 const FACE = {
   off: ['video-off', 'camera off, press for the Pi\'s camera'],
   regular: ['video', 'the Pi\'s camera, press for the dithered camera'],
@@ -38,9 +37,11 @@ const FACE = {
  * @returns {{ el: HTMLElement, mode: () => string, nodes: object[], ports: object[], links: object[],
  *   flows: (id: string) => boolean | undefined, probe: () => object, frame: (bytes: ArrayLike<number>) => void }}
  */
-export function createPresentCamera({ room = 'studio-1', log, me = `web-studio-${randomId(6)}`, page = 'web:studio', pageLabel = 'this page', relay = 'cf-relay:room' }) {
+export function createPresentCamera({ dither = true, oled = true, room = 'studio-1', log, me = `web-studio-${randomId(6)}`, page = 'web:studio', pageLabel = 'this page', relay = 'cf-relay:room' }) {
   document.head.append(Object.assign(document.createElement('style'), { textContent: CSS }));
   const CAM_ROOM = `${room}-cam`;
+  // `dither: false` drops the dithered mode; `oled: false` asks the board to keep the camera off its OLED
+  const MODES = dither ? ['off', 'regular', 'dither'] : ['off', 'regular'];
   const ME = me;
   const q = new URLSearchParams(location.search);
   let CAM_KEY = q.get('cam') || '';
@@ -73,7 +74,7 @@ export function createPresentCamera({ room = 'studio-1', log, me = `web-studio-$
   let mode = 'off', gen = 0;
   const cam = createButtonGroup({ buttons: [{ id: 'cam', icon: 'video-off', label: FACE.off[1], onPress: () => cycle() }] });
   cam.button('cam').classList.add('pos-lg');
-  function face() { cam.setIcon('cam', ...FACE[mode]); }
+  function face() { cam.setIcon('cam', FACE[mode][0], !dither && mode === 'regular' ? 'the Pi\'s camera, press for camera off' : FACE[mode][1]); }
   function cycle() {
     if (!CAM_KEY) { log('This slide needs the camera key in its address, as ?cam=, so no camera is asked for', 'warn'); return; }
     setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
@@ -150,7 +151,7 @@ export function createPresentCamera({ room = 'studio-1', log, me = `web-studio-$
     },
     onClose: (e) => { if (mode === 'regular' && video.isOpen()) lost(e); },
   });
-  function watching() { if (rkeyed && !document.hidden) video.say({ type: 'cam.watching', from: ME }); }
+  function watching() { if (rkeyed && !document.hidden) video.say({ type: 'cam.watching', from: ME, ...(oled ? {} : { oled: false }) }); }
   async function startRegular(my) {
     if (!(await keyCheck(my))) return;
     const o = video.open(CAM_ROOM, { codec: 'avc1.42E01F', fps: 30 }, { hello: { type: 'cam.key', key: CAM_KEY, from: ME } });

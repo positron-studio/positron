@@ -36,7 +36,7 @@
   // The board's capture halves the Pi's sound (two ports, one silent), as on /devices/circuit/.
   const LIFT = 2 * 0.9;
   // the first slide's camera as this slide's ground, toggled in the header (present-camera.mjs)
-  const cam = createPresentCamera({ room: ROOM, log: (line, kind) => d.log(line, kind), page: 'web:ground', pageLabel: 'ground of this page', relay: `cf-relay:${ROOM}-cam` });
+  const cam = createPresentCamera({ dither: false, oled: false, room: ROOM, log: (line, kind) => d.log(line, kind), page: 'web:ground', pageLabel: 'ground of this page', relay: `cf-relay:${ROOM}-cam` });
 
   // ── the grid and the sequencer's state, as the Palm keeps them ──
   const grid = PD.emptyGrid();

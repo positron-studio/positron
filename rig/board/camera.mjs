@@ -271,6 +271,7 @@ export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy
   }
   const FROM = `board-cam-${randomBytes(3).toString('hex')}`;
   const viewers = new Map();       // from -> last cam.watching
+  const noOled = new Set();        // viewers that said `oled: false`: the OLED keeps its own screen (/present/pi/)
   let ws = null, authed = false, cam = null, shape = null, seq = 0, sent = 0, skipping = false, relaySkipped = 0;
   const directs = new Map();       // id -> { viewer, sink, waitKey, sent, dropped }
   // The relay carries the frames only while some keyed viewer is not on a
@@ -384,6 +385,7 @@ export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy
     if (m.type === 'cam.watching') {
       const isNew = !viewers.has(m.from);
       viewers.set(m.from, now());
+      if (m.oled === false) noOled.add(m.from); else noOled.delete(m.from);
       if (!cam) begin();
       else if (isNew) say({ type: 'cam.started', ok: true, ...shape });
     } else if (m.type === 'cam.relay') {
@@ -447,6 +449,8 @@ export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy
   return {
     enabled: true,
     running: () => !!cam,
+    /** A watching viewer asked that the camera stay off the OLED. */
+    oledOff: () => [...noOled].some((v) => viewers.has(v)),
     status: () => ({ enabled: true, joined: authed, running: !!cam, viewers: viewers.size, sent, relaySkipped, shape,
       direct: [...directs.values()].map((x) => ({ viewer: x.viewer, sent: x.sent, dropped: x.dropped })) }),
     attachDirect, detachDirect,

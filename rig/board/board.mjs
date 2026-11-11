@@ -1484,6 +1484,7 @@ const camera = (DRY || ONCE) ? null : createCameraRoom({
 const screenCam = (DRY || ONCE) ? null : createScreenCamera({
   relay: RELAY, room: `${ROOM}-cam`, key: process.env.BOARD_CAM_KEY || '',
   log: (l) => log(l), panel: () => (screenTaken() ? null : panel), cameraBusy: () => !!camera?.running(),
+  quiet: () => !!camera?.oledOff?.(),
   held: () => (hdmi.showing() === 'camera' ? 'the camera is on the Pi\'s HDMI screen (/devices/hdmi/), so the OLED waits' : ''),
 });
 
