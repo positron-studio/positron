@@ -1,5 +1,7 @@
 ## Open
 
+- **A first slide, /present/studio/: the Pi's dithered camera dimmed behind the title Positron Studio** (2026-11-11). Asked: *"make fist slide with pi dirhered camera dimmed in bg. and title positrod studio"*. The camera is /devices/camera/'s keyed room (?cam=), reached on a press.
+
 - **/present/pipalm/ (Pi + Palm): a split screen with the wave of the Pi's sound below, and Plaits on the Pi as a growl drone with harmonics, timbre and morph** (2026-11-11). Asked: *"add split screen with wave below and add some synth from pi"*, then *"plaits. growl drone. add harm timbre morph"*. Plaits and collide are separate board services (board.mjs lines 672-673), so the drone should play beside the drums: not yet tried on the Pi.
 
 - **/present/typists/: one slider that brings in echoes, dubs and ambient sonics behind the typists' rhythm** (2026-11-11). Asked: *"have a slider fx for typits that brings in echoes dubs ambient sonics to create sound landscape behing the typist rythm"*. Presentation copy only.
