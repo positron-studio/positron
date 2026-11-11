@@ -1,5 +1,7 @@
 ## Open
 
+- **A presentation layout for the existing patches, template page first** (2026-11-11). Asked: *"Figure out presentation layout for exiating patches. Pre next on top as in radios, optional bg gfx, how it works next to prev next, left from them. Title and subitle. How it works opens patcbay and fade bg, has medium sized desc on top of it. Both bottom aligned. Template page first with placeholder content"*. Prev/next as on the soundscape slides (/palm/, /radio1965/, /huddersfield/). A template page with placeholder content before any patch page moves to it.
+
 - **The Pi's drums heard in the browser** (2026-11-11). Asked: *"get the pi drums sound to browser"*, while the Palm drum page (/devices/<slug>/, Palm grid only, the owner's choice: no live pads) was being built. The sequencer's drums sound only on the Pi's PWM output now. /devices/circuit/ already hears the Pi's SuperCollider drums in a tab: reuse that path on the new page.
 
 - **Play drums live on the Palm, and a demo page with the Pi's screen emulated** (2026-11-11). Asked: *"can i actually play drums now? new demo page with pi sreen emulation?"* Context: `rig/palm/bridge.mjs --view drums` makes the Palm a 16x16 grid editing the board's sequencer (seq.pattern), sound on the Pi's PWM out; /devices/drums/ (demo/devices/pi-seq.mjs) already edits the same sequencer and emulates the OLED. Answered: the grid is enough (no live pads); the page is the Palm only, its 16 by 16 grid emulated and editable.

@@ -401,6 +401,9 @@ export const DEMOS = [
     one: 'the pieces a chat page is drawn with, a window, columns, a log, a sign and a compose box',
     tags: ['shell', 'no network'] },
   // why: lessons/manifest.md#kit-frontpage
+  { name: 'kit/present', title: 'present', group: 'kit', act: 0, created: '2026-11-11', built: true, unlisted: true,
+    one: 'a patch as a slide, its title over an optional picture and How it works beside the arrows',
+    tags: ['shell', 'no network'] },
   { name: 'kit/frontpage', title: 'frontpage', group: 'kit', act: 0, created: '2026-10-12', built: true, unlisted: true,
     one: 'the two faces this site is set in, JetBrains Mono for what names and Geist for what is read through',
     tags: ['shell', 'no network'] },

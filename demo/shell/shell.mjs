@@ -40,6 +40,8 @@ export function mount({
   index = '/archive/',
   indexLabel = 'archive',  // the word after the arrow; a concept page passes `positron`, the front page
   feedback = null,       // { context: () => string, onSent: (text) => void }: what a note carries from this page
+  // false: no back link, title or feedback button, for a page that is all its own picture (/kit/present/)
+  chrome = true,
 } = {}) {
   document.title = `POSITRON ${name}`;
   favicon();
@@ -153,7 +155,7 @@ export function mount({
   // The order is the arrangement; createStack().add skips a null, so a joined page
   // is head, controls, page, report.
   // why: lessons/kit-shell.md#column-order
-  column.add(head, report.top, cbar, body, report.foot);
+  column.add(chrome ? head : null, report.top, cbar, body, report.foot);
 
   // ── the machine contract ────────────────────────────────────────────────
   const api = {

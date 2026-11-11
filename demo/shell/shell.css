@@ -1542,6 +1542,8 @@ button.pos-pg-lab:hover { color: var(--fg); }
    Disabled look is the global `button[disabled]`. */
 /* why: lessons/css-shell.md#pos-bgroup */
 .pos-bgroup { display: inline-flex; align-items: center; gap: 8px; height: 34px; min-width: 0; }
+/* a group of large buttons is as tall as they are, or its clip cuts them to 34 px (the slide arrows) */
+.pos-bgroup:has(button.pos-lg), .pos-bgroup:has(button.pos-lg) > .pos-bgroup-row { height: var(--ctl-lg); }
 .pos-bgroup-l {
   font: 500 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
   color: var(--dim2); white-space: nowrap;
