@@ -58,13 +58,15 @@ export function draw({ rect, put }, s) {
  */
 export function drawWave(rect, x0, y0, w, h, cols) {
   const n = cols?.length >> 1, mid = y0 + (h >> 1), k = (h - 1) / 200;
-  if (!n) return rect(x0, mid, w, 1, 15);
+  // dithered: every other pixel of the trace, in a checkerboard, so a one pixel line reads lighter and thinner at 1 bit
+  const span = (x, a, b) => { for (let y = a; y <= b; y++) if (((x + y) & 1) === 0) rect(x, y, 1, 1, 15); };
+  if (!n) { for (let x = 0; x < w; x++) span(x0 + x, mid, mid); return; }
   const yOf = (v) => Math.round(mid - v * k);
   let pTop = null, pBot = null;
   for (let x = 0; x < w; x++) {
     const c = Math.min(n - 1, Math.floor(x * n / w)), top = yOf(cols[c * 2 + 1]), bot = yOf(cols[c * 2]);
     const a = pTop === null ? top : Math.min(top, pBot), b = pTop === null ? bot : Math.max(bot, pTop);
-    rect(x0 + x, a, 1, b - a + 1, 15);
+    span(x0 + x, a, b);
     pTop = top; pBot = bot;
   }
 }

@@ -28,18 +28,17 @@
   useMediumColours();
   document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
     // the screen fills the square stage at any size, pixelated, instead of a whole --pm-k scale
-    // two storeys, both 160 Palm pixels wide: the grid (160 tall) over the wave (40 tall), so the stage is 4 / 5
     + '.pos-vp-stage.pm-stage { background: #000; }'
-    + ' .pm-split { display: grid; grid-template-rows: minmax(0, 4fr) minmax(0, 1fr); width: 100%; height: 100%; aspect-ratio: 4 / 5; }'
+    + ' .pm-split { display: grid; grid-template-rows: minmax(0, 1fr); width: 100%; height: 100%; aspect-ratio: 1 / 1; }'
     + ' .pm-split > canvas { display: block; width: 100%; height: 100%; min-height: 0; image-rendering: pixelated; }'
     + ' .pm-split > canvas.palm-cv { touch-action: none; }'
     + ' .pm-foot-left, .pm-knobs { display: flex; gap: 12px; align-items: center; }'
     // a phone: the knobs take a row of their own under the buttons, centred
     + ' @media (max-width: 440px) { .pm-stage + .pos-vp-foot { grid-template-columns: 1fr auto; }'
     + ' .pm-stage + .pos-vp-foot > .pos-vp-c { grid-row: 2; grid-column: 1 / -1; justify-self: center; } }'
-    // full screen: the split takes the largest 4 / 5 box, so the grid stays square and the pen's mapping stays true
+    // full screen: the largest square, so the pen's mapping stays true
     + ' .pos-vp[data-full] .pos-vp-stage.pm-stage { container-type: size; display: grid; place-items: center; }'
-    + ' .pos-vp[data-full] .pm-split { width: min(100cqw, 100cqh * 4 / 5); height: auto; }' }));
+    + ' .pos-vp[data-full] .pm-split { width: min(100cqw, 100cqh); height: auto; }' }));
 
   const d = mount({ name: 'Pi + Palm', what: '', readout: null, showLog: false, chrome: false });
 
@@ -228,22 +227,8 @@
   // the page going away lets go of every key at once, rather than after the Pi's 15 s
   addEventListener('pagehide', () => { if (connected) for (const n of held) board.send({ type: 'note.off', node: 'plaits', note: n }); });
 
-  // ── the wave: Plaits alone, as the Palm's bridge reads it on the Pi and sends it as palm.wave ten times a second ──
-  // The same trace the Palm draws under its grid (PD.drawWave), larger; none for a second is a flat line.
-  const WAVE_W = PALM_W, WAVE_H = PALM_W / 4;
-  const waveCv = Object.assign(document.createElement('canvas'), { width: WAVE_W, height: WAVE_H, className: 'pm-wave' });
-  const waveG = waveCv.getContext('2d');
-  const waveImg = waveG.createImageData(WAVE_W, WAVE_H);
+  // the wave: Plaits alone, sent by the Palm's bridge as palm.wave; the Palm's own picture draws it under its grid
   let waveCols = null, waveAt = 0;
-  function wave(t) {
-    if (waveCols && t - waveAt > 1000) waveCols = null;
-    const px = waveImg.data;
-    px.fill(0);
-    PD.drawWave((x, y, w, h) => { for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (i >= 0 && j >= 0 && i < WAVE_W && j < WAVE_H) { const k = (j * WAVE_W + i) * 4; px[k] = px[k + 1] = px[k + 2] = waveCols ? 255 : 85; } },
-      0, 1, WAVE_W, WAVE_H - 2, waveCols);
-    for (let i = 3; i < px.length; i += 4) px[i] = 255;
-    waveG.putImageData(waveImg, 0, 0);
-  }
 
   // ── the Palm: the same picture and the same pen as the real one ──
   const pens = PD.createPen(grid, {
@@ -266,7 +251,7 @@
     frames++;
   }
   let prev = 0;
-  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; draw(); wave(t); } requestAnimationFrame(tick); })(0);
+  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; if (waveCols && t - waveAt > 1000) waveCols = null; draw(); } requestAnimationFrame(tick); })(0);
 
   // ── the patch: this tab's Palm into the Pi's sequencer, its drums out of the PWM output and, on Listen, here;
   // a MIDI keyboard and three knobs into Plaits on the Pi, beside the drums ──
@@ -301,8 +286,8 @@
   // one style in the footer: two icon buttons, play or stop the sequencer, listen here or stop
   const buttons = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
   const split = el('div', 'pm-split');
-  split.append(palm.el, waveCv);
-  const panel = createVideoPanel({ media: split, left: null, aspect: '4 / 5', fullMode: 'footer' });
+  split.append(palm.el);
+  const panel = createVideoPanel({ media: split, left: null, aspect: '1 / 1', fullMode: 'footer' });
   panel.stage.classList.add('pm-stage');
   const footLeft = el('div', 'pm-foot-left');
   footLeft.append(top.el, buttons.el);
@@ -316,7 +301,7 @@
   const lay = createPresentLayout({
     title: 'Pi + Palm', sub: 'The Palm\'s drum grid in a tab, over the Pi\'s sound. Draw steps for the drums and play Plaits beside them from a MIDI keyboard.',
     desc: 'web:palm sends the grid as a value through cf-relay:room, Cloudflare\'s relay room studio-1, to pi-1:sequencer, whose midi-out plays pi-1:drums. web:midi, a MIDI keyboard on this computer, sends notes to pi-1:plaits:midi-in, and three knob nodes send harmonics, timbre and morph to its value-in over the same room. Both engines feed pi-1:pwm over JACK. Listen adds their audio links to web:speaker: one summed capture, sent as sound frames over the relay. The wave is Plaits alone: the Palm\'s bridge reads pi-1:plaits:audio-out on the Pi and sends its shape to the room. Nothing reaches the relay until the first press.',
-    main: panel.el, aspect: '4 / 5', extra: `${FOOT_PX}px`, patch: pb.el, actions: [dials],
+    main: panel.el, aspect: '1 / 1', extra: `${FOOT_PX}px`, patch: pb.el, actions: [dials],
     onHow: (on) => { if (on) pb.refresh(); },
   });
   // the knobs make the footer taller than a button row, and how much depends on the face; read, never typed
