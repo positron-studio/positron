@@ -72,6 +72,28 @@ export function chooseLength(r, lo, hi, others, minLcmS = 300) {
 // stations in server/media/huddersfield-talk have medians 3.5 to 5.4 dB and 10th percentiles of 2.4 or more; skywave
 // noise and steady stations 0.6 to 1.8. `speechOf` maps 1.8 dB to 0 and 3.2 dB to 1.
 export const SPEECH_DB = [1.8, 3.2];
+
+// ── what a stretch sounds like: hiss or not ──
+// Spectral flatness (geometric over arithmetic mean of the power, 200 Hz to 4 kHz) of 512-sample frames: broadband hiss
+// is near 0.5, music and voices under 0.2. `noiseOfFrames` maps a median of 0.2 to 0 and 0.35 to 1.
+export const NOISE_FLAT = [0.2, 0.35];
+const NF = 512, NWIN = Float64Array.from({ length: NF }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / NF));
+function flatOf(x, sr) {
+  const re = new Float64Array(NF), im = new Float64Array(NF);
+  for (let i = 0; i < NF; i++) re[i] = (x[i] / 32768) * NWIN[i];
+  for (let i = 1, j = 0; i < NF; i++) { let b = NF >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { const t = re[i]; re[i] = re[j]; re[j] = t; } }
+  for (let len = 2; len <= NF; len <<= 1) { const a = -2 * Math.PI / len;
+    for (let i = 0; i < NF; i += len) for (let k = 0; k < len / 2; k++) { const c = Math.cos(a * k), sn = Math.sin(a * k), p = i + k, q = p + len / 2;
+      const vr = re[q] * c - im[q] * sn, vi = re[q] * sn + im[q] * c; re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi; } }
+  const k0 = Math.max(1, Math.round(200 / sr * NF)), k1 = Math.round(4000 / sr * NF);
+  let lg = 0, ar = 0; for (let k = k0; k < k1; k++) { const p = re[k] * re[k] + im[k] * im[k] + 1e-20; lg += Math.log(p); ar += p; }
+  const n = k1 - k0; return ar / n < 1e-9 ? 0 : Math.exp(lg / n) / (ar / n);
+}
+/** How hiss-like `frames` (an array of Int16Array of 512) are, 0 to 1. */
+export function noiseOfFrames(frames, sr = SR) {
+  const v = frames.map((x) => flatOf(x, sr)).sort((a, b) => a - b), m = v[v.length >> 1] ?? 0;
+  return Math.max(0, Math.min(1, (m - NOISE_FLAT[0]) / (NOISE_FLAT[1] - NOISE_FLAT[0])));
+}
 /** A band pass (RBJ biquad, constant peak gain) at f with quality q, per sample. */
 function bandpass(f, q, sr = SR) {
   const w = 2 * Math.PI * f / sr, al = Math.sin(w) / (2 * q), a0 = 1 + al, b0 = al / a0, b2 = -al / a0, a1 = -2 * Math.cos(w) / a0, a2 = (1 - al) / a0;
@@ -122,6 +144,8 @@ export class Ring {
   get from() { return Math.max(0, this.w - this.n); }
   /** Energy (mean square) of the 10 ms cells [c0, c1), cells counted from the start of the feed. */
   cellsOf(c0, c1, arr = this.cells) { const nc = arr.length, out = new Float32Array(Math.max(0, c1 - c0)); for (let c = c0; c < c1; c++) out[c - c0] = arr[c % nc]; return out; }
+  /** How hiss-like the cells [c0, c1) are, 0 to 1: a dozen frames across them. */
+  noise(c0, c1) { const g = this.grid ?? Math.round(this.sr / 100), f = []; for (let k = 0; k < 12; k++) f.push(this.mono((c0 + Math.floor((c1 - c0 - 6) * (k + 0.5) / 12)) * g, NF)); return noiseOfFrames(f, this.sr); }
   /** How speech-like the cells [c0, c1) are, 0 to 1. */
   speech(c0, c1) { return speechOfSwing(swingOf(this.cellsOf(c0, c1, this.bands))); }
   /** Frames [f0, f0 + n) summed to mono, 16-bit. */
@@ -302,13 +326,16 @@ export class Mem {
     }
     const u = Math.min(1, (t - w.t0) / w.T), e = (1 - Math.cos(Math.PI * u)) / 2, oct = (a, b) => a * (b / a) ** e;
     pl.colour = { hp: oct(w.from.hp, w.to.hp), lp: oct(w.from.lp, w.to.lp), drive: w.from.drive + (w.to.drive - w.from.drive) * e };
-    this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
+    this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', this.lpOf(pl), 'drive', pl.colour.drive, ...this.band(pl));
   }
   /**
    * A speaker's home band (preset `bands` { lo, hi, floor, rq, drift }): the places share lo..hi in octaves, low place
    * low, each centred in its own share and drifting `drift` octaves either way, a slow sine of its own; outside it the loop is
    * `floor` dB down, so noisy sources sit beside each other instead of on top. The loop alone has its whole range.
    */
+  /** The speaker's low pass: its colour, pulled down by `colour.hissLp` as far as the loop it plays is hiss. */
+  lpOf(pl) { const v = pl.voices.findLast?.((x) => !x.out) ?? pl.voices[pl.voices.length - 1], nz = v?.take?.noise ?? 0, k = this.p.colour.hissLp ?? 1;
+    return Math.min(this.top, pl.colour.lp * (1 - (1 - k) * nz)); }
   band(pl) {
     const B = this.p.bands; if (!B) return ['bf', 1];
     const home = B.lo * (B.hi / B.lo) ** ((pl.k + 0.5) / this.n), bd = (B.drift ?? 0) * Math.sin(2 * Math.PI * this.t / ((80 + 23 * pl.k) * this.sr) + pl.k);
@@ -443,7 +470,7 @@ export class Mem {
   }
   gainTarget() { return (this.p.level ?? 1) / Math.sqrt(this.n) * 2; }
   spk(pl, action = 1, target = 0) {
-    this.w.send('/s_new', 'mspk', NODE.spk + pl.i, action, target, 'inbus', 2 + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
+    this.w.send('/s_new', 'mspk', NODE.spk + pl.i, action, target, 'inbus', 2 + pl.i, 'hp', pl.colour.hp, 'lp', this.lpOf(pl), 'drive', pl.colour.drive, ...this.band(pl));
   }
 
   /** `bootSync` and `vendor` ({ wasmModule, glue }) from scsynth-sync.mjs, so the engine imports no runtime. */
@@ -485,13 +512,13 @@ export class Mem {
       const c = lo + Math.floor(r.next() * (hi - lo));
       const s = findStart(this.ring.cellsOf(c, Math.min(lastCell, c + 200 + span)), span, 200, T.gateDb);
       if (s < 0 || !free(c + s)) continue;
-      cands.push({ c: c + s, speech: this.ring.speech(c + s, c + s + span) });
+      cands.push({ c: c + s, speech: this.ring.speech(c + s, c + s + span), noise: this.ring.noise(c + s, c + s + span) });
     }
     // and the newest stretch, as before: the strongest onset in the last 10 s that leaves room for the take
     const c0 = Math.max(firstCell, lastCell - span - 1000), s = findStart(this.ring.cellsOf(c0, lastCell), span, lastCell - c0 - span, T.gateDb);
-    if (s >= 0 && free(c0 + s)) cands.push({ c: c0 + s, speech: this.ring.speech(c0 + s, c0 + s + span) });
+    if (s >= 0 && free(c0 + s)) cands.push({ c: c0 + s, speech: this.ring.speech(c0 + s, c0 + s + span), noise: this.ring.noise(c0 + s, c0 + s + span) });
     if (!cands.length) return 'no sound';
-    const wt = (x) => 1 - x.speech * (1 - (T.speech ?? 1)) + 1e-3;
+    const wt = (x) => (1 - x.speech * (1 - (T.speech ?? 1))) * (1 - (x.noise ?? 0) * (1 - (T.noise ?? 1))) + 1e-3;
     let u = r.next() * cands.reduce((a, x) => a + wt(x), 0), pick = cands[0];
     for (const x of cands) { u -= wt(x); if (u <= 0) { pick = x; break; } }
     // talk is also passed over outright at the same odds, unless nothing has been taken for a long while (a feed that
@@ -499,22 +526,31 @@ export class Mem {
     const long = (this.t - (this.lastTakeAt ?? 0)) / this.sr > (this.takes.length ? 1.5 * T.every[1] : 45);   // at the start, 45 s at most
     // an opening takes its first take, talk or not
     if (pick.speech >= 0.5 && !long && !talk && !(this.firstTake && this.p.open) && r.next() > (T.speech ?? 1)) { this.counts.passed = (this.counts.passed || 0) + 1; return 'talk'; }
+    const sounding = this.players.filter((pl) => !pl.rest && !pl.leaving && pl.voices.some((v) => !v.out)).length;
+    if ((pick.noise ?? 0) >= 0.5 && !long && sounding >= 2 && r.next() > (T.noise ?? 1)) { this.counts.hiss = (this.counts.hiss || 0) + 1; return 'talk'; }   // hiss passed over at the same odds as talk
     this.recentTakes = [...recent, [pick.c, pick.c + span]].slice(-4);
     const f0 = pick.c * this.grid, data = this.ring.mono(f0, need * this.grid + this.seam + 2);
     // ringAt: the frame of the feed it was cut at, so a host that knows what it fed can name the source
-    return this.addTake(data, need, { from: 'live', speech: pick.speech, ringAt: f0, wall: this.now() - (this.ring.w - f0) / this.sr * 1000 });
+    return this.addTake(data, need, { from: 'live', speech: pick.speech, noise: pick.noise ?? 0, ringAt: f0, wall: this.now() - (this.ring.w - f0) / this.sr * 1000 });
   }
   addTake(data, cs, meta) {
     let ss = 0; for (let i = 0; i < data.length; i++) { const v = data[i] / 32768; ss += v * v; }
     const rms = Math.sqrt(ss / data.length) + 1e-9;
     const take = { id: ++this.tid, data, cs, at: this.t / this.sr, uses: 0, gain: Math.min(2.5, 0.1 / rms), ...meta };   // at most +8 dB: a faint take of hiss or whistle is not turned up to everything else
     take.speech ??= speechOf(data, this.sr); this.lastTakeAt = this.t;
+    if (take.noise === undefined) { const fr = []; for (let k = 0; k < 12; k++) fr.push(data.subarray(Math.floor((data.length - NF) * (k + 0.5) / 12)).slice(0, NF)); take.noise = noiseOfFrames(fr, this.sr); }
+    take.gain *= 1 - (this.p.takes.hissDown ?? 0.4) * take.noise;   // hiss sits under what it plays beside, up to 4.4 dB down
     this.takes.push(take); this.counts.takes++; if (meta.from !== 'live') this.counts.past++;
     if (take.speech >= 0.5) this.counts.talk = (this.counts.talk || 0) + 1;
     // a take that is not talk: the loops of talk playing are replaced soon, one after another (when talk is weighted down)
     if (take.speech < 0.5 && (this.p.takes.speech ?? 1) < 1) {
       const talking = this.players.filter((pl) => !pl.rest && !pl.leaving && !pl.toRest && pl.voices.some((v) => !v.out && v.take.speech >= 0.5));
       talking.forEach((pl, j) => { pl.replaceAt = Math.min(pl.replaceAt, this.t + (this.r.range([5, 25]) + j * 2 * (this.p.spacing ?? 0)) * this.sr); });
+    }
+    // a take that is not hiss: the loops of hiss playing are replaced soon, one after another
+    if (take.noise < 0.5 && (this.p.takes.noise ?? 1) < 1) {
+      const hissing = this.players.filter((pl) => !pl.rest && !pl.leaving && !pl.toRest && pl.voices.some((v) => !v.out && (v.take.noise ?? 0) >= 0.5));
+      hissing.forEach((pl, j) => { pl.replaceAt = Math.min(pl.replaceAt, this.t + (this.r.range([5, 25]) + j * 2 * (this.p.spacing ?? 0)) * this.sr); });
     }
     this.onTake?.(take);
     while (this.takes.length > this.p.takes.memory) { const k = this.takes.findIndex((x) => !x.uses); if (k < 0) break; this.takes.splice(k, 1); }
@@ -611,8 +647,9 @@ export class Mem {
     // a long loop lives long enough to be heard round three times, within the preset's longest life
     const talkLife = take.speech >= 0.5 ? 0.5 + 0.5 * (T.speech ?? 1) : 1;   // talk, when it comes, does not stay long
     // a share of the loops stay long (preset `takes.stay`), the rest come and go at `life`
-    const life = slot?.life ? r.range(slot.life) : T.stay && r.chance(T.stay.p) ? r.range(T.stay.life) : r.range(T.life);
-    pl.replaceAt = this.t + Math.max(life, Math.min(3 * n / 100, T.life[1])) * this.pace * talkLife * this.sr;
+    const hiss = (take.noise ?? 0) >= 0.5 && (T.noise ?? 1) < 1;   // hiss never stays long
+    const life = slot?.life ? r.range(slot.life) : !hiss && T.stay && r.chance(T.stay.p) ? r.range(T.stay.life) : r.range(T.life);
+    pl.replaceAt = this.t + Math.max(life, Math.min(3 * n / 100, T.life[1])) * this.pace * talkLife * (hiss ? 0.5 : 1) * this.sr;
     // a freeze, now and then, partway through the take's life
     const F = this.p.process.freeze;
     if (F.p > 0 && r.chance(F.p * this.proc)) pl.freezeAt = this.t + r.range([0.25, 0.6]) * (pl.replaceAt - this.t); else pl.freezeAt = Infinity;
@@ -762,7 +799,7 @@ export class Mem {
     for (const pl of staying.slice(0, n)) {
       const c = this.colourAt(pl.k);
       pl.colour = { hp: r.range(c.hp), lp: r.range(c.lp), drive: r.range(c.drive) };
-      this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
+      this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', this.lpOf(pl), 'drive', pl.colour.drive, ...this.band(pl));
     }
     // the dry feed fades by its lag, so it is fed a little longer when the new preset has none
     if ((old.dry ?? 0) > 0) this.dryUntil = t + 6 * this.sr;
@@ -796,7 +833,7 @@ export class Mem {
       for (const pl of this.players) if (!pl.leaving) {
         const c = this.colourAt(pl.k);
         pl.colour = { hp: this.r.range(c.hp), lp: this.r.range(c.lp), drive: this.r.range(c.drive) };
-        this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', Math.min(this.top, pl.colour.lp), 'drive', pl.colour.drive, ...this.band(pl));
+        this.w?.send('/n_set', NODE.spk + pl.i, 'hp', pl.colour.hp, 'lp', this.lpOf(pl), 'drive', pl.colour.drive, ...this.band(pl));
       }
     }
     return true;

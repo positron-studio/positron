@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { rng, gcd, chooseLength, findStart, Ring, place, PRESETS, HOSTS, presetOf, GRID, speechOf, Mem, SR } from './mem.mjs';
+import { rng, gcd, chooseLength, findStart, Ring, place, PRESETS, HOSTS, presetOf, GRID, speechOf, noiseOfFrames, Mem, SR } from './mem.mjs';
 import { bootSync, glueOf } from './scsynth-sync.mjs';
 
 // the engine's earlier presets, kept here as fixtures: they drive the switch, host and count checks, and drift is the
@@ -29,6 +29,12 @@ assert.deepEqual(l2, live);
 const cells = new Float32Array(1000).fill(1e-9); for (let c = 300; c < 1000; c++) cells[c] = 0.01;
 assert.equal(findStart(cells, 400, 600, -45), 300);
 assert.equal(findStart(new Float32Array(1000).fill(1e-9), 400, 600, -45), -1, 'nothing is taken from silence');
+
+// hiss or not: white noise reads as hiss, a chord with a little noise does not
+const tone = (n, cr) => (Math.sin(2 * Math.PI * 220 * n / SR) + Math.sin(2 * Math.PI * 331 * n / SR) + Math.sin(2 * Math.PI * 523 * n / SR)) / 3 + (cr.next() * 2 - 1) * 0.03;
+{ const nr = rng(5), fr = (g) => Array.from({ length: 12 }, (_, j) => Int16Array.from({ length: 512 }, (_, i) => Math.round(g(j * 4000 + i) * 16000)));
+  const white = noiseOfFrames(fr(() => nr.next() * 2 - 1)), chord = noiseOfFrames(fr((n) => tone(n, nr)));
+  assert.ok(white > 0.9 && chord < 0.1, `noiseOfFrames: white noise ${white.toFixed(2)}, a chord ${chord.toFixed(2)}`); }
 
 // the ring keeps 16-bit stereo and the energy of each 10 ms cell
 const ring = new Ring(10), x = new Int16Array(GRID * 4 * 2).fill(16384);
@@ -172,7 +178,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
     const m = await new Mem({ preset: FIX.presets[name] ? old(name) : presetOf(name), seed: 13 }).boot(bootSync, vendor), cr = rng(17);
     const hp = new Map(), lives = [], due = new Map(), low = { rates: [], lens: [], rested: 0 }, talk = []; let quiet = 0, worstQuiet = 0; let most = 0, firstLoop = null, outside = 0;
     for (let k = 0; k < seconds * 10; k++) {
-      const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }
+      const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round(tone(k * SR / 10 + i / 2, cr) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }   // tonal: white noise is hiss, and hiss never stays
       m.ring.write(b); const o = m.render(SR / 10);
       let ss = 0; for (let i = 0; i < o.length; i++) ss += (o[i] / 32768) ** 2; const db = 10 * Math.log10(ss / o.length + 1e-12);
       if (k < 600) { if (db < -50) { quiet++; worstQuiet = Math.max(worstQuiet, quiet); } else quiet = 0; }
@@ -207,7 +213,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
 // solo passages and the reverb walk, on colours with its timings shortened: a solo leaves one loop heard and the rest
 // at 0, a different player each time, both kinds of edge; the reverb walks, dry moments included
 {
-  const q = presetOf('colours'), m = await new Mem({ preset: { ...q, name: 'colours-quick', solo: { ...q.solo, every: [10, 20], hold: [4, 8] },
+  const q = presetOf('colours'), m = await new Mem({ preset: { ...q, name: 'colours-quick', solo: { ...q.solo, every: [10, 20], hold: [4, 8], sudden: 0.4 },
     room: { ...q.room, reverb: { ...q.room.reverb, walk: { ...q.room.reverb.walk, dryP: 0.5, glide: [2, 4], hold: [3, 6], dryHold: [3, 6] } } } }, seed: 21 }).boot(bootSync, vendor);
   const cr = rng(23), soloists = [], edges = new Set(), withDrones = new Set(), noDrones = new Set(); let silentOthers = 0, heardSolo = 0, rvMin = Infinity, rvMax = -Infinity;
   for (let k = 0; k < 2400; k++) {   // 240 s
