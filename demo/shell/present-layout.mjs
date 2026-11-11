@@ -42,6 +42,7 @@ const CSS = `
   .prl-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
   .prl-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
   .prl-top button, .prl-acts button, .prl-foot > .pos-bgroup button { color: var(--fg); }
+  .prl-top .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   .prl-top svg, .prl-acts .pos-bgroup svg, .prl-foot > .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
   .prl-top button.pos-lg, .prl-acts .pos-bgroup button.pos-lg, .prl-foot > .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   /* the main picture as large as its shape (--prl-aspect) and its footer (--prl-extra) allow, at the top right */
@@ -98,7 +99,7 @@ const CSS = `
  * while `moving()` says it moves; it keeps its last frame until `blank()` says to clear it. Answers `{ root, setHow, how, keys, go }`.
  */
 export function createPresentLayout({ title, sub = '', desc = '', main, line = null, patch = null, aspect = '4 / 3', extra = '0px',
-  banner = null, moving = () => false, blank = () => false, onHow = () => {}, actions = [] }) {
+  banner = null, moving = () => false, blank = () => false, onHow = () => {}, actions = [], tools = [] }) {
   document.head.append(Object.assign(document.createElement('style'), { textContent: CSS }));
   const eye = el('div', 'pos-hero-eye prl-eye');
   eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
@@ -142,7 +143,8 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   ] });
   for (const b of arrows.el.querySelectorAll('button')) b.classList.add('pos-lg');
   const top = el('div', 'prl-top');
-  top.append(howGroup.el, arrows.el);
+  // `tools`: a page's own buttons in the top bar, left of How it works (e.g. a camera mode)
+  top.append(...tools, howGroup.el, arrows.el);
 
   const mainBox = el('div', 'prl-main');
   mainBox.style.setProperty('--prl-aspect', aspect);
