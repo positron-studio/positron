@@ -100,11 +100,11 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   let how = false;
   const howGroup = createButtonGroup({ buttons: [{ id: 'how', icon: 'info', label: 'How it works', onPress: () => setHow(!how) }] });
   howGroup.button('how').classList.add('pos-lg');
-  howGroup.button('how').setAttribute('aria-pressed', 'false');
+  howGroup.button('how').setAttribute('aria-expanded', 'false');
   function setHow(on) {
     how = !!on;
     document.body.classList.toggle('prl-open', how);
-    howGroup.button('how').setAttribute('aria-pressed', String(how));
+    howGroup.button('how').setAttribute('aria-expanded', String(how));
     howGroup.setIcon('how', how ? 'close' : 'info', how ? 'close How it works' : 'How it works');
     fitHow();
     onHow(how);

@@ -99,7 +99,7 @@
   function setHow(on) {
     how = on;
     document.body.classList.toggle('pr-open', on);
-    howBtn.setAttribute('aria-pressed', String(on));
+    howBtn.setAttribute('aria-expanded', String(on));
     howGroup.setIcon('how', on ? 'close' : 'info', on ? 'close How it works' : 'How it works');
     if (on) pb.refresh();
   }
@@ -107,7 +107,7 @@
   const howBtn = howGroup.button('how');
   howBtn.classList.add('pos-lg');
   howGroup.el.classList.add('pr-arrows');
-  howBtn.setAttribute('aria-pressed', 'false');
+  howBtn.setAttribute('aria-expanded', 'false');
   const arrows = createButtonGroup({ buttons: [
     { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => show(at - 1) },
     { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => show(at + 1) },
