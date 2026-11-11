@@ -8,7 +8,7 @@ import { createButtonGroup } from './button-group.mjs';
 import { createPresentKeys } from './present-keys.mjs';
 
 /** The presentation, in order: the arrows and the arrow keys walk it, round again at the ends. */
-export const PAGES = ['/present/studio/', '/present/typist/', '/present/typists/', '/present/okgo/', '/present/newsreels/', '/present/floor/', '/radio1965/', '/huddersfield/'];
+export const PAGES = ['/present/studio/', '/present/typist/', '/present/typists/', '/present/okgo/', '/present/newsreels/', '/present/floor/', '/present/radio/', '/huddersfield/'];
 
 const CSS = `
   :root { --pr-m: clamp(16px, 4vw, 48px); }
@@ -137,6 +137,9 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   }
   // the patch picture insets its boxes from its own edge: the words take the same inset, so they line up with the boxes
   function alignHow() {
+    // a patch wider than the room is shrunk to fit (CSS zoom) rather than scrolled or cut
+    const lv = howBox.querySelector('.lv');
+    if (lv) { lv.style.zoom = ''; const k = lv.clientWidth / lv.scrollWidth; if (k < 0.99) lv.style.zoom = String(Math.max(0.5, k)); }
     const svg = howBox.querySelector('svg'), box = svg?.querySelector('rect');
     if (!box) return;
     // from the panel's content edge: its padding is the page margin it bleeds by
