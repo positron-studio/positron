@@ -1,5 +1,7 @@
 ## Open
 
+- **/present/floor/: drag or swipe the floor to move that way, with inertia, like the VR ray drag** (2026-11-11). Asked: *"make drag / wipe the floor to "move" that diretoion with inertia like vr ray drag. work on bg on it and make it revetable"*. Built by a background agent in demo/present/floor/ only, committed on its own so one revert takes it out.
+
 - **The VR newsreel floor in the presentation, right after Newsreels** (2026-11-11). Asked: *"add vr newsreel floor after newsreels"*. Order: newsreels, floor, playback, typists, palmdrums (*"palmdrums too"*).
 
 - **Presentation copies of the typist pages, single and six** (2026-11-11). Asked: *"Brig in single typing ad 6 typist pages"*. Copy, never move, as /present/newsreels/.
