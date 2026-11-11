@@ -8,39 +8,33 @@
 <title>Palm drums</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <script type="module">
-  // The Palm's drum grid (rig/palm/bridge.mjs --view drums) in a tab: the same picture and pen
-  // (demo/shell/palm-drums.mjs), editing the Pi's own sequencer, and Listen plays the Pi's drums here.
-  // The Pi is reached on the first press, never on load.
-  // The presentation copy of /devices/palmdrums/, which stays as it was; only the layout differs.
+  // The kit's drum grid (step-grid.mjs) editing the Pi's own sequencer, which the real Palm edits too,
+  // and Listen plays the Pi's drums here. The Pi is reached on the first press, never on load.
+  // The presentation copy of /devices/palmdrums/, which stays as it was.
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
-  import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createBoard, BOARD_RATE } from '/shell/board.mjs';
   import { createBoardCollide } from '/shell/board-collide.mjs';
-  import { createPalm, PALM_CSS, PALM_W, PALM_H } from '/shell/palm-view.mjs';
+  import { createStepGrid } from '/shell/step-grid.mjs';
   import * as PD from '/shell/palm-drums.mjs';
   import { voices } from '/drums/voices.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createKnob } from '/shell/knob.mjs';
-  import { createPadGrid } from '/shell/pad.mjs';
+  import { createNoteRecorder } from '/shell/note-recorder.mjs';
   import { PATCHES as PLAITS } from '/shell/plaits-params.mjs';
   import { createPresentCamera } from '/shell/present-camera.mjs';
   useMediumColours();
-  document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
-    // the screen fills the square stage at any size, pixelated, instead of a whole --pm-k scale
-    + '.pos-vp-stage.pm-stage { background: #000; }'
-    + ' .pm-split { display: grid; grid-template-rows: minmax(0, 1fr); width: 100%; height: 100%; aspect-ratio: 1 / 1; }'
-    + ' .pm-split > canvas { display: block; width: 100%; height: 100%; min-height: 0; image-rendering: pixelated; }'
-    + ' .pm-split > canvas.palm-cv { touch-action: none; }'
-    + ' .pm-foot-left, .pm-knobs { display: flex; gap: 12px; align-items: center; }'
-    // the pads under the title: a row of their own, eight squares sharing its width
-    + ' .prl-acts > .pos-padgrid { flex-basis: 100%; max-width: 30em; overflow: visible; gap: 8px; grid-template-columns: repeat(var(--pad-cols), minmax(0, 1fr)); }'
-    + ' .prl-acts .pos-pad-wrap { width: auto; } .prl-acts .pos-pad { width: 100%; height: auto; aspect-ratio: 1 / 1; }'
-    // full screen: the largest square, so the pen's mapping stays true
-    + ' .pos-vp[data-full] .pos-vp-stage.pm-stage { container-type: size; display: grid; place-items: center; }'
-    + ' .pos-vp[data-full] .pm-split { width: min(100cqw, 100cqh); height: auto; }' }));
+  document.head.append(Object.assign(document.createElement('style'), { textContent:
+    '.pm-foot-left, .pm-knobs { display: flex; gap: 12px; align-items: center; }'
+    // the label column beside the steps; the strip is the grid's scroller and its width sizes the pads
+    // (min-width 0, or the grid item takes its content's width and the pads size themselves from it)
+    + ' .ok-grid { display: flex; align-items: flex-start; min-width: 0; }'
+    + ' .ok-grid > .pos-pg-labs { flex: none; }'
+    + ' .ok-grid > .ok-strip { flex: 1 1 0; min-width: 0; overflow-x: auto; }'
+    + ' .ok-timeline { display: flex; flex-direction: column; gap: 12px; } .ok-timeline[hidden] { display: none; }'
+    + ' @media (min-width: 761px) { .ok-grid .pos-pg-lab { font-size: 14px; } }' }));
 
   const d = mount({ name: 'OK GO', what: '', readout: null, showLog: false, chrome: false });
 
@@ -56,16 +50,16 @@
   // ── the grid and the sequencer's state, as the Palm keeps them ──
   const grid = PD.emptyGrid();
   const seq = { running: false, bpm: 120, step: -1, at: 0 };
-  let editAt = 0, editTimer = 0, starting = false, drumsUp = false, frames = 0, sentN = 0, pen = null;
+  let editAt = 0, editTimer = 0, starting = false, drumsUp = false, frames = 0, sentN = 0;
   const patternNow = () => ({ v: 1, name: 'palm', bpm: seq.bpm, steps: PD.STEPS,
     rows: VOICES.map((v, r) => ({ voice: v.key, steps: grid[r].map((x) => (x ? '1' : '0')).join(''), mute: false })) });
   const screenNow = () => ({ voices: VOICES.map((v) => PD.SHORT[v.key] || v.key.slice(0, 2).toUpperCase()), look: { empty: 'dot', head: 'frame' } });
   /** A pattern from the Pi: the rows this grid has, by voice name. */
   function adopt(p) {
-    if (!p?.rows || pens.active()) return;
+    if (!p?.rows || drawing) return;
     for (const [r, v] of VOICES.entries()) {
       const row = p.rows.find((x) => x.voice === v.key);
-      for (let c = 0; c < PD.STEPS; c++) grid[r][c] = !!row && row.steps[c] === '1';
+      for (let c = 0; c < PD.STEPS; c++) { grid[r][c] = !!row && row.steps[c] === '1'; sg.set(r, c, grid[r][c], 'quiet'); }
     }
     if (Number.isFinite(p.bpm)) seq.bpm = p.bpm;
   }
@@ -95,7 +89,6 @@
       onMessage: (msg) => {
         if (msg.type === 'seq.state') onSeqState(msg);
         else if (msg.type === 'seq.pattern' && msg.pattern) adopt(msg.pattern);
-        else if (msg.type === 'palm.wave' && Array.isArray(msg.cols)) { waveCols = msg.cols.length ? msg.cols : null; waveAt = performance.now(); }
       } });
     kit = createBoardCollide({ board, log: (line, kind) => d.log(`Pi: ${line}`, kind) });
     d.log(`reaching ${ROOM}`);
@@ -147,7 +140,14 @@
     startPlaits();
     starting = true;
     try {
-      if (seq.running) { onSeqState(await board.ask({ type: 'seq.stop' }, 'seq.state', 6000)); return; }
+      if (seq.running) {
+        // stop stops it all: Plaits too, every note whoever holds it, and the latch off
+        board.send({ type: 'palm.release' });
+        board.send({ type: 'note.panic', node: 'plaits' });
+        latched.clear(); held.clear(); setLatch(false);
+        onSeqState(await board.ask({ type: 'seq.stop' }, 'seq.state', 6000));
+        return;
+      }
       if (!await drumsOnPi()) return;
       const m = await board.ask({ type: 'seq.start', target: 'drums', pattern: patternNow(), screen: screenNow() }, 'seq.state', 6000);
       onSeqState(m);
@@ -174,16 +174,6 @@
     lift.connect(ctx.destination);
     listening = true; buttons.setIcon('listen', 'mute', 'stop listening here');
     d.log('listening to the Pi\'s drums here', 'ok');
-    pb.refresh();
-  }
-
-  // ── the pads: one per drum, a plain sc.hit with no time, which the Pi plays on arrival ──
-  let padReady = null, padAt = 0, padHits = 0;
-  async function hitPad(r) {
-    padReady ||= (async () => (await reached()) && drumsOnPi())();
-    if (!await padReady) { padReady = null; return; }
-    board.send({ type: 'sc.hit', hits: [{ name: VOICES[r].name }] });
-    padAt = performance.now(); padHits++;
     pb.refresh();
   }
 
@@ -235,13 +225,32 @@
     midiAt = performance.now();
     if (latch) {
       if (hi !== 0x90 || !d2) return;
-      if (latched.delete(d1)) board.send({ type: 'palm.release', note: d1 });
-      else { latched.add(d1); board.send({ type: 'palm.hold', note: d1, vel: d2 }); }
+      // the timeline hears what sounds: a latched note from its press to the press that lets it go
+      if (latched.delete(d1)) { board.send({ type: 'palm.release', note: d1 }); recorder.take({ d1, d2: 0 }); }
+      else { latched.add(d1); board.send({ type: 'palm.hold', note: d1, vel: d2 }); recorder.take({ d1, d2 }); }
       return;
     }
-    if (hi === 0x90 && d2) { held.add(d1); board.send({ type: 'note.on', node: 'plaits', note: d1, vel: d2 }); }
-    else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); }
+    if (hi === 0x90 && d2) { held.add(d1); board.send({ type: 'note.on', node: 'plaits', note: d1, vel: d2 }); recorder.take({ d1, d2 }); }
+    else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); recorder.take({ d1, d2: 0 }); }
   }
+
+  // ── the timeline (note-recorder.mjs): rec takes the keyboard's notes, play sends them to Plaits on the Pi at their times ──
+  const replaying = new Set();
+  let recAt = 0;
+  const recorder = createNoteRecorder({
+    send: (ev) => {
+      recAt = performance.now();
+      if (!plaitsUp || !connected) return;
+      if (ev.d2) { replaying.add(ev.d1); board.send({ type: 'note.on', node: 'plaits', note: ev.d1, vel: ev.d2 }); }
+      else { replaying.delete(ev.d1); board.send({ type: 'note.off', node: 'plaits', note: ev.d1 }); }
+    },
+    // only the notes its own playback holds, so a key held or latched by hand keeps sounding
+    onStop: () => { if (connected) for (const n of replaying) board.send({ type: 'note.off', node: 'plaits', note: n }); replaying.clear(); },
+  });
+  recorder.drawNotes();
+  const timeline = el('div', 'ok-timeline');
+  timeline.append(recorder.transport.el, recorder.table.el);
+  timeline.hidden = true;
   let midiAsked = false;
   async function askMidi() {
     if (midiAsked || !navigator.requestMIDIAccess) return;
@@ -256,104 +265,98 @@
   // the page going away lets go of every key at once, rather than after the Pi's 15 s
   addEventListener('pagehide', () => { if (connected) for (const n of held) board.send({ type: 'note.off', node: 'plaits', note: n }); });
 
-  // the wave: Plaits alone, sent by the Palm's bridge as palm.wave; the Palm's own picture draws it under its grid
-  let waveCols = null, waveAt = 0;
-
-  // ── the Palm: the same picture and the same pen as the real one ──
-  const pens = PD.createPen(grid, {
-    onFlip: () => edited(),
-    onPlay: () => transport(),
-    onClear: () => { for (const row of grid) row.fill(false); edited(); },
-  });
-  const box = el('div');
-  const palm = createPalm(box, { onPen: ({ x, y, down }) => { pen = { x, y, down }; pens.pen(x, y, down); draw(); } });
-  const ink = new Uint8Array(PALM_W * PALM_H), rgba = new Uint8ClampedArray(PALM_W * PALM_H * 4);
-  const put = (x, y, v) => { x |= 0; y |= 0; if (x >= 0 && y >= 0 && x < PALM_W && y < PALM_H && v > ink[y * PALM_W + x]) ink[y * PALM_W + x] = v; };
-  const rect = (x, y, w, h, v) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, v); };
-  function draw() {
-    ink.fill(0);
-    const now = stepNow();
-    PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow: -1, pen, wave: waveCols });
-    // white on black, as the Palm draws it
-    for (let i = 0; i < ink.length; i++) { const v = ink[i] * 17; rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = v; rgba[i * 4 + 3] = 255; }
-    palm.show(rgba);
-    frames++;
-  }
-  let prev = 0, lastStep = -1;
-  // a pad lights when it is hit, and when the Pi's sequencer plays its row
-  function lightSteps() {
+  // ── the kit's drum grid (step-grid.mjs): a press edits a step and goes to the Pi as the Palm's pen did ──
+  const gridBox = el('div', 'ok-grid');
+  const labs = el('div'), strip = el('div', 'ok-strip');
+  gridBox.append(labs, strip);
+  const sg = createStepGrid({ fixed: labs, strip, rows: VOICES.length, steps: PD.STEPS, ticks: true,
+    label: (r) => VOICES[r].label,
+    onToggle: (r, s, lit, why) => { if (why === 'quiet') return; grid[r][s] = lit; edited(); } });
+  // a stroke in progress keeps a pattern from the Pi from overwriting it
+  let drawing = false;
+  sg.rowsEl.addEventListener('pointerdown', () => { drawing = true; });
+  for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { drawing = false; });
+  // the head walks with the Pi's step; stopped, it parks on the first column as the kit's clock does
+  let lastStep = -2;
+  (function tick() {
     const s = stepNow();
-    if (s === lastStep) return;
-    lastStep = s;
-    if (s >= 0) for (const [r] of VOICES.entries()) if (grid[r][s]) pads.at(r, 0).flash(120);
-  }
-  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; if (waveCols && t - waveAt > 1000) waveCols = null; draw(); lightSteps(); } requestAnimationFrame(tick); })(0);
+    if (s !== lastStep) { lastStep = s; sg.live(s >= 0); sg.at(Math.max(0, s)); frames++; }
+    requestAnimationFrame(tick);
+  })();
 
-  // ── the patch: this tab's Palm into the Pi's sequencer, its drums out of the PWM output and, on Listen, here;
+  // ── the patch: this tab's grid into the Pi's sequencer, its drums out of the PWM output and, on Listen, here;
   // a MIDI keyboard and three knobs into Plaits on the Pi, beside the drums; the camera's two paths to the ground ──
   const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
-  const NODES = [{ id: 'web:palm', kind: 'screen', label: 'Palm in this tab' }, { id: 'pi-1:sequencer', kind: 'engine', label: 'sequencer on the Pi' },
+  const NODES = [{ id: 'web:grid', kind: 'screen', label: 'drum grid in this tab' }, { id: 'pi-1:sequencer', kind: 'engine', label: 'sequencer on the Pi' },
     { id: 'pi-1:drums', kind: 'engine', label: 'drums on the Pi' }, { id: 'pi-1:pwm', kind: 'device', label: 'PWM out' },
-    { id: 'web:midi', kind: 'device', label: 'MIDI keyboard' }, { id: 'web:pads', kind: 'person', label: 'drum pads' },
+    { id: 'web:midi', kind: 'device', label: 'MIDI keyboard' },
     ...DIALS.map(([name]) => ({ id: `web:knob-${name}`, kind: 'person', label: name })),
-    { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
+    { id: 'web:rec', kind: 'store', label: 'recorder' }, { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
     { id: 'web:speaker', kind: 'device', label: 'speaker' }, ...cam.nodes];
-  const PORTS = [port('web:palm', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
+  const PORTS = [port('web:grid', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
     port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in'),
-    port('web:midi', 'midi', 'out'), port('web:pads', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
+    port('web:midi', 'midi', 'out'), port('web:rec', 'midi', 'in'), port('web:rec', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
     port('pi-1:plaits', 'midi', 'in'), port('pi-1:plaits', 'value', 'in'), port('pi-1:plaits', 'audio', 'out'), ...cam.ports];
   const LINKS = () => [
-    { id: 'a', from: 'web:palm:value-out', to: 'pi-1:sequencer:value-in' },
+    { id: 'a', from: 'web:grid:value-out', to: 'pi-1:sequencer:value-in' },
     { id: 'b', from: 'pi-1:sequencer:midi-out', to: 'pi-1:drums:midi-in' },
     { id: 'c', from: 'pi-1:drums:audio-out', to: 'pi-1:pwm:audio-in' },
-    { id: 'p', from: 'web:pads:midi-out', to: 'pi-1:drums:midi-in' },
     ...(listening ? [{ id: 'd', from: 'pi-1:drums:audio-out', to: 'web:speaker:audio-in' }] : []),
     { id: 'e', from: 'web:midi:midi-out', to: 'pi-1:plaits:midi-in' },
+    { id: 'r', from: 'web:midi:midi-out', to: 'web:rec:midi-in' }, { id: 'q', from: 'web:rec:midi-out', to: 'pi-1:plaits:midi-in' },
     ...DIALS.map(([name]) => ({ id: `k-${name}`, from: `web:knob-${name}:value-out`, to: 'pi-1:plaits:value-in' })),
     { id: 'f', from: 'pi-1:plaits:audio-out', to: 'pi-1:pwm:audio-in' },
     ...(listening ? [{ id: 'g', from: 'pi-1:plaits:audio-out', to: 'web:speaker:audio-in' }] : []),
     ...cam.links,
   ];
-  const FLOW = { a: () => performance.now() - editAt < 400, p: () => performance.now() - padAt < 400, c: () => seq.running || performance.now() - padAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, f: () => held.size > 0, g: () => held.size > 0 };
+  const FLOW = { a: () => performance.now() - editAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, r: () => recorder.armed() && performance.now() - midiAt < 400, q: () => recorder.playing() && performance.now() - recAt < 400, f: () => held.size > 0, g: () => held.size > 0 };
   const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
     { room: ROOM, flowing: (l) => cam.flows(l.id) ?? (FLOW[l.id] ? FLOW[l.id]() : l.id.startsWith('k-') ? plaitsUp && performance.now() - turnedAt < 400 : seq.running) });
 
-  // play, Listen and the latch sit under the title with the pads and the knobs (the layout's actions)
+  // Listen, play, the latch and the timeline sit under the title with the knobs (the layout's actions)
   const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
   function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
   const buttons = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
-  const split = el('div', 'pm-split');
-  split.append(palm.el);
-  const panel = createVideoPanel({ media: split, left: null, aspect: '1 / 1', fullMode: 'footer' });
-  panel.stage.classList.add('pm-stage');
   const btnRow = el('div', 'pm-foot-left');
   const latchBtn = createButtonGroup({ buttons: [{ id: 'latch', icon: 'unlock', label: 'latch off', onPress: () => setLatch(!latch) }] });
-  btnRow.append(top.el, buttons.el, latchBtn.el);
-  // one momentary pad per drum, named as the Palm's grid names its rows
-  const pads = createPadGrid({ cols: VOICES.length, pad: (x) => ({ top: PD.SHORT[VOICES[x].key] || VOICES[x].key.slice(0, 2).toUpperCase(),
-    title: VOICES[x].name, latch: false, small: true }), onPress: (on, x) => hitPad(x) });
+  const tlBtn = createButtonGroup({ buttons: [{ id: 'timeline', icon: 'list', label: 'show the timeline', onPress: () => showTimeline(timeline.hidden) }] });
+  function showTimeline(on) {
+    timeline.hidden = !on;
+    tlBtn.setIcon('timeline', 'list', on ? 'hide the timeline' : 'show the timeline');
+    tlBtn.button('timeline').setAttribute('aria-pressed', String(on));
+  }
+  btnRow.append(buttons.el, top.el, latchBtn.el, tlBtn.el);
   // the three knobs, large, under the words (the layout's actions), each with its invisible hand
   const dials = el('div', 'pm-knobs');
   dials.append(...[...knobs.values()].map((k) => k.el));
 
-  // ── the presentation layout (present-layout.mjs); extra is the footer's height, measured below on every resize ──
-  const FOOT_PX = 105;
+  // ── the presentation layout (present-layout.mjs): the grid is 2 / 1 less what the label column and gutters cost ──
   const lay = createPresentLayout({
-    title: 'OK GO',
-    desc: "The grid and the pads drive pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The camera comes through studio-1-cam, and the wave is Plaits alone, from the Palm's bridge.",
-    main: panel.el, aspect: '1 / 1', extra: `${FOOT_PX}px`, tools: [cam.el], patch: pb.el, actions: [btnRow, pads.el, dials],
+    title: '',
+    desc: "The grid drives pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs and recorded on the timeline. The camera comes through studio-1-cam.",
+    main: gridBox, line: timeline, aspect: '2 / 1', extra: '0px', tools: [cam.el], patch: pb.el, actions: [btnRow, dials],
     onHow: (on) => { if (on) pb.refresh(); },
   });
-  // the knobs make the footer taller than a button row, and how much depends on the face; read, never typed
+  // height = ruler + 8 gaps + (width - labels - 15 gaps) / 2 at 16 square pads, so extra is the rest; labels read, never typed
   const mainBox = lay.root.querySelector('.prl-main');
-  new ResizeObserver(() => { const h = panel.foot.getBoundingClientRect().height; if (h) mainBox.style.setProperty('--prl-extra', `${Math.ceil(h)}px`); }).observe(panel.foot);
+  function fitExtra() {
+    const cs = getComputedStyle(gridBox), ruler = parseFloat(cs.getPropertyValue('--pg-ruler')) || 8, gap = parseFloat(cs.getPropertyValue('--pg-gap')) || 2;
+    const L = labs.getBoundingClientRect().width;
+    if (L) mainBox.style.setProperty('--prl-extra', `${Math.ceil(ruler + 8 * gap - (L + 15 * gap) / 2)}px`);
+  }
+  new ResizeObserver(fitExtra).observe(labs);
   window.__demo.raid = () => lay.keys.raid();
   window.__demo.how = lay.setHow;
-  window.__demo.footH = () => panel.foot.getBoundingClientRect().height;
+  window.__demo.grid = sg;
+  window.__demo.timeline = showTimeline;
+  window.__demo.shape = () => { const g = sg.el.getBoundingClientRect(), b = gridBox.getBoundingClientRect(), m = mainBox.getBoundingClientRect();
+    return { cell: parseFloat(getComputedStyle(sg.el).getPropertyValue('--pg-cell')), labels: labs.getBoundingClientRect().width,
+      grid: [Math.round(g.width), Math.round(g.height)], box: [Math.round(b.width), Math.round(b.height)], main: [Math.round(m.width), Math.round(m.height)],
+      extra: mainBox.style.getPropertyValue('--prl-extra') }; };
 
   window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
     on: grid.flat().filter(Boolean).length, plaitsUp, held: held.size, midiIns, dials: Object.fromEntries(DIALS.map(([n]) => [n, dial(n)])),
-    links: LINKS().length, board: !!board, padHits, cam: cam.probe() });
+    links: LINKS().length, board: !!board, timeline: !timeline.hidden, notes: recorder.notes.length, cam: cam.probe() });
   d.ready();
 </script>
 </html>

@@ -8,7 +8,7 @@ import { createButtonGroup } from './button-group.mjs';
 import { createPresentKeys } from './present-keys.mjs';
 
 /** The presentation, in order: the arrows and the arrow keys walk it, round again at the ends. */
-export const PAGES = ['/present/studio/', '/present/typist/', '/present/typists/', '/present/okgo/', '/present/newsreels/', '/present/floor/', '/present/radio/', '/present/huddersfield/'];
+export const PAGES = ['/present/studio/', '/present/typist/', '/present/typists/', '/present/pi/', '/present/newsreels/', '/present/floor/', '/present/radio/', '/present/huddersfield/'];
 
 const CSS = `
   :root { --pr-m: clamp(16px, 4vw, 48px); }
@@ -43,9 +43,9 @@ const CSS = `
   .prl-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
   .prl-top button, .prl-acts button, .prl-foot > .pos-bgroup button { color: var(--fg); }
   /* buttons that stand on the page's ground are see-through with a white outline, so a picture under them shows */
-  .prl-top button, .prl-acts .pos-bgroup button, .prl-foot > .pos-bgroup button {
+  .prl-top button, .prl-acts .pos-bgroup button, .prl-foot .pos-bgroup button {
     background: transparent; border: 1px solid rgba(255, 255, 255, .7); color: #fff; }
-  .prl-top button:hover, .prl-acts .pos-bgroup button:hover, .prl-foot > .pos-bgroup button:hover { background: rgba(255, 255, 255, .08); border-color: #fff; }
+  .prl-top button:hover, .prl-acts .pos-bgroup button:hover, .prl-foot .pos-bgroup button:hover { background: rgba(255, 255, 255, .08); border-color: #fff; }
   .prl-top .pos-bgroup .pos-bgroup-row, .prl-foot > .pos-bgroup .pos-bgroup-row { background: transparent; }
   .prl-top .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   .prl-top svg, .prl-acts .pos-bgroup svg, .prl-foot > .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
