@@ -777,9 +777,10 @@
   // travels the other way, as the headset's ray drag does. On release the eye coasts on the
   // release velocity, decaying exponentially. Shift+drag or a right-button drag still turns.
   // Moving only changes `eye`; pump() stays gated on `started`, rewrap() follows the eye.
-  const MOVE_DECAY = 2.5;          // 1/s: speed *= exp(-2.5 dt), half gone in 0.28 s
+  const MOVE_DECAY = 1.2;          // 1/s: speed *= exp(-1.2 dt), half gone in 0.58 s: a heavy floor coasts long
   const MOVE_STOP = 0.05;          // m/s: below this the coast ends
-  const MOVE_MAX = 12;             // m/s: a flick near the horizon is not a teleport
+  const MOVE_MAX = 4;              // m/s: heavy, so even a hard flick travels slowly
+  const MOVE_GAIN = 0.5;           // the floor travels half as far as the pointer: it is heavy under the hand
   const MOVE_STEP = 3;             // m: the most one pointer event may carry the eye
   const MOVE_HELD = 0.1;           // s: a pointer held still this long before release throws nothing
   const moveV = [0, 0];            // m/s over the floor, x and z
@@ -801,11 +802,11 @@
     const p = floorUnder(e);
     if (!p) return;
     if (!moveGrab) { moveGrab = p; return; }
-    let dx = moveGrab[0] - p[0], dz = moveGrab[1] - p[1];
+    let dx = (moveGrab[0] - p[0]) * MOVE_GAIN, dz = (moveGrab[1] - p[1]) * MOVE_GAIN;
     const L = Math.hypot(dx, dz);
     if (L > MOVE_STEP) { dx *= MOVE_STEP / L; dz *= MOVE_STEP / L; }
     eye[0] += dx; eye[2] += dz;
-    if (L > MOVE_STEP) moveGrab = floorUnder(e);
+    moveGrab = floorUnder(e) || moveGrab;
     const now = performance.now(), dt = Math.max(0.004, (now - moveLastT) / 1000);
     moveLastT = now;
     const k = Math.min(1, dt * 12);  // the release velocity is the last ~80 ms of the drag
