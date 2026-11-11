@@ -83,6 +83,7 @@ export function createPresentCamera({ room = 'studio-1', log, me = `web-studio-$
     if (mode === 'dither') stopDither(!quiet);
     if (mode === 'regular') stopRegular(!quiet);
     mode = next; gen++;
+    document.body.dataset.cam = mode;
     face();
     if (mode === 'dither') startDither(gen);
     else if (mode === 'regular') startRegular(gen);
