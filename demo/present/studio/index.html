@@ -7,20 +7,28 @@
 <meta name="theme-color" content="#000000">
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
-  /* the Pi's camera is the page's ground: one 128x64 frame covering the viewport, square pixels, dimmed under the words */
+  /* the Pi's camera is the page's ground: one picture covering the viewport, dimmed under the words */
   .st-under { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; margin: 0; z-index: 10; display: block;
     background: #000; object-fit: cover; image-rendering: pixelated; filter: brightness(.35); transition: filter 1.2s; }
+  .st-under.st-reg { image-rendering: auto; }
+  .st-under[hidden] { display: none; }
   body.prl-open .st-under { filter: brightness(.12); }
+  /* four buttons fill a phone's top row, so the overline takes its own row under them instead of being cut */
+  @media (max-width: 480px) {
+    body .prl { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto auto; grid-template-areas: "top" "eye" "head" "main" "foot"; }
+    body .prl-eye { margin-top: var(--pr-m); }
+  }
 </style>
 
 <script type="module">
-  // The first slide: the Pi's camera, dithered to one bit at 128x64 on the board (the OLED's frames), drawn dimmed
-  // under the title. The protocol is /devices/camera/'s; the key comes from ?cam= and is kept for the arrows.
+  // The first slide: the Pi's camera under the title, in one of three modes the header's camera button cycles:
+  // off, regular (the H.264 picture /remote/circuit/ shows) and dither (the OLED's one bit 128x64 frames, /devices/camera/'s).
   import { mount, el } from '/shell/shell.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
   import { createButtonGroup } from '/shell/button-group.mjs';
   import { RELAY_BASE, HTTP_BASE, randomId } from '/shell/wire.mjs';
+  import { createBoardVideo, WATCHING_MS } from '/shell/board-video.mjs';
 
   const d = mount({ name: 'Positron Studio', what: '', readout: null, showLog: false, chrome: false });
 
@@ -36,9 +44,9 @@
   // the key leaves the address once kept, so it is not left in the bar, the history or a shared screen
   if (q.has('cam')) { const u = new URL(location.href); u.searchParams.delete('cam'); history.replaceState(null, '', u); }
 
-  // ── the ground: one 1024 byte frame, page major as the SSD1306 takes it, white on black ──
+  // ── the dither ground: one 1024 byte frame, page major as the SSD1306 takes it, white on black ──
   const W = 128, H = 64;
-  const cv = Object.assign(el('canvas', 'st-under pos-out'), { width: W, height: H });
+  const cv = Object.assign(el('canvas', 'st-under pos-out'), { width: W, height: H, hidden: true });
   const g = cv.getContext('2d');
   const img = g.createImageData(W, H);
   let painted = 0;
@@ -54,34 +62,62 @@
   }
   const blank = () => { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); };
   blank();
-  document.body.append(cv);
+  // ── the regular ground: board-video.mjs decodes the H.264 frames into this canvas (WebCodecs) ──
+  const reg = Object.assign(el('canvas', 'st-under st-reg pos-out'), { width: 1280, height: 720, hidden: true });
+  document.body.append(cv, reg);
 
-  // ── the keyed camera room, as on /devices/camera/: key check, cam.key, a renewal every 5 s while visible ──
-  let ws = null, on = false, keyed = false, beat = null, lastAt = 0, frames = 0;
-  const say = (m) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ ...m, from: ME })); };
-  const renew = () => { if (keyed && !document.hidden) say({ type: 'screen.camera', on: true }); };
-
-  async function start() {
-    if (on) return;
+  // ── the mode: off, regular, dither; `gen` lets a slow key check notice it was switched away from ──
+  const MODES = ['off', 'regular', 'dither'];
+  const FACE = {
+    off: ['video-off', 'camera off, press for the Pi\'s camera'],
+    regular: ['video', 'the Pi\'s camera, press for the dithered camera'],
+    dither: ['grid', 'the dithered camera, press for camera off'],
+  };
+  let mode = 'off', gen = 0;
+  const cam = createButtonGroup({ buttons: [{ id: 'cam', icon: 'video-off', label: FACE.off[1], onPress: () => cycle() }] });
+  cam.button('cam').classList.add('pos-lg');
+  function face() { cam.setIcon('cam', ...FACE[mode]); }
+  function cycle() {
     if (!CAM_KEY) { d.log('This slide needs the camera key in its address, as ?cam=, so no camera is asked for', 'warn'); return; }
-    on = true;
-    playGroup.setIcon('play', 'stop', 'stop the camera');
+    setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
+  }
+  // the previous mode is stopped before the next one asks the Pi for anything
+  function setMode(next, quiet = false) {
+    if (mode === 'dither') stopDither(!quiet);
+    if (mode === 'regular') stopRegular(!quiet);
+    mode = next; gen++;
+    face();
+    if (mode === 'dither') startDither(gen);
+    else if (mode === 'regular') startRegular(gen);
+    else if (!quiet) d.log('Camera off');
+  }
+  async function keyCheck(my) {
     let r = null;
     try { r = await fetch(`${HTTP_BASE}/room/${CAM_ROOM}/key`, { method: 'POST', body: CAM_KEY }); } catch { /* stays null */ }
-    if (!on) return;
-    if (!r || r.status !== 204) {
-      d.log(r?.status === 403 ? 'The relay refused the camera key' : 'The relay did not answer the key check', 'warn');
-      return stop(false);
-    }
-    ws = new WebSocket(`${RELAY_BASE}/room/${CAM_ROOM}/ws`);
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'cam.key', key: CAM_KEY, from: ME }));
-    ws.onmessage = (e) => {
-      if (typeof e.data !== 'string') return;
+    if (my !== gen) return false;
+    if (r?.status === 204) return true;
+    d.log(r?.status === 403 ? 'The relay refused the camera key' : 'The relay did not answer the key check', 'warn');
+    setMode('off', true);
+    return false;
+  }
+  const lost = (e) => { d.log(e?.code === 4003 ? 'The relay closed the camera room: it did not take the key' : `The camera room closed (${e?.code ?? '?'})`, 'warn'); setMode('off', true); };
+
+  // ── dither: the keyed camera room as on /devices/camera/, `screen.camera {on}` every 5 s while visible ──
+  let ws = null, keyed = false, beat = null, lastAt = 0, frames = 0;
+  const say = (m) => { if (ws?.readyState === 1) ws.send(JSON.stringify({ ...m, from: ME })); };
+  const renew = () => { if (keyed && !document.hidden) say({ type: 'screen.camera', on: true }); };
+  async function startDither(my) {
+    cv.hidden = false;
+    if (!(await keyCheck(my))) return;
+    const sock = ws = new WebSocket(`${RELAY_BASE}/room/${CAM_ROOM}/ws`);
+    sock.onopen = () => sock.send(JSON.stringify({ type: 'cam.key', key: CAM_KEY, from: ME }));
+    sock.onmessage = (e) => {
+      if (ws !== sock || typeof e.data !== 'string') return;
       let m; try { m = JSON.parse(e.data); } catch { return; }
-      if (m.type === 'cam.key.ok') { keyed = true; renew(); clearInterval(beat); beat = setInterval(renew, RENEW_MS); d.log(`Asking the Pi for its camera in ${CAM_ROOM}`); }
-      else if (m.type === 'screen.camera.started') d.log(`The Pi's camera is on, ${m.source}, ${m.w}x${m.h} at ${m.fps} fps`, 'ok');
-      else if (m.type === 'screen.camera.refused') d.log(`The Pi did not start the camera: ${m.why}`, 'warn');
-      else if (m.type === 'screen.camera.stopped') { if (on) d.log(`The Pi's camera stopped: ${m.why}`, 'warn'); }
+      if (m.type === 'cam.key.ok') { keyed = true; renew(); clearInterval(beat); beat = setInterval(renew, RENEW_MS); d.log(`Asking the Pi for its dithered camera in ${CAM_ROOM}`); }
+      else if (m.type === 'screen.camera.started') d.log(`The Pi's dithered camera is on, ${m.source}, ${m.w}x${m.h} at ${m.fps} fps`, 'ok');
+      else if (m.type === 'screen.camera.refused') d.log(`The Pi did not start the dithered camera: ${m.why}`, 'warn');
+      else if (m.type === 'screen.camera.stopped') d.log(`The Pi's dithered camera stopped: ${m.why}`, 'warn');
       else if (m.type === 'screen.frame' && typeof m.b64 === 'string') {
         const bin = atob(m.b64);
         if (bin.length !== 1024) return;
@@ -89,55 +125,92 @@
         paint(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
       }
     };
-    ws.onclose = (e) => {
-      if (!on) return;
-      d.log(e?.code === 4003 ? 'The relay closed the camera room: it did not take the key' : `The camera room closed (${e?.code ?? '?'})`, 'warn');
-      stop(false);
-    };
+    sock.onclose = (e) => { if (ws === sock) lost(e); };
   }
-  function stop(tell = true) {
-    if (tell && keyed) say({ type: 'screen.camera', on: false });
+  function stopDither(tell) {
+    if (keyed) say({ type: 'screen.camera', on: false });
     clearInterval(beat); beat = null;
-    try { ws?.close(); } catch { /* gone */ }
-    ws = null; on = false; keyed = false;
-    playGroup.setIcon('play', 'play', 'start the camera');
-    blank();
-    if (tell) d.log('Stopped');
+    const sock = ws; ws = null; keyed = false;
+    try { sock?.close(); } catch { /* gone */ }
+    blank(); cv.hidden = true;
+    if (tell) d.log('The dithered camera is off');
   }
-  addEventListener('visibilitychange', renew);
-  addEventListener('pagehide', () => { if (on) stop(); });
 
-  const playGroup = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'start the camera', onPress: () => (on ? stop() : start()) }] });
-  playGroup.button('play').classList.add('pos-lg');
+  // ── regular: the H.264 picture as on /remote/circuit/, `cam.watching` every 10 s, `cam.bye` on the way out ──
+  let rkeyed = false, rbeat = null, rlastAt = 0;
+  const video = createBoardVideo({
+    canvas: reg,
+    onSeq: () => { rlastAt = performance.now(); },
+    onKey: () => d.log('A keyframe from the Pi camera arrived, the picture starts here', 'ok'),
+    onLost: (n) => d.log(`The relay has dropped ${n} frame${n === 1 ? '' : 's'} of the camera picture`, 'warn'),
+    onError: (line) => d.log(`Pi camera: ${line}`, 'bad'),
+    onText: (m) => {
+      if (m.type === 'cam.key.ok') { rkeyed = true; watching(); clearInterval(rbeat); rbeat = setInterval(watching, WATCHING_MS); d.log(`Asking the Pi for its camera in ${CAM_ROOM}`); }
+      else if (m.type === 'cam.started') d.log(`The Pi camera is up, ${m.camera}, ${m.w}x${m.h} at ${m.fps} fps`, 'ok');
+      else if (m.type === 'cam.refused') d.log(`The Pi did not start its camera: ${m.why}`, 'warn');
+      else if (m.type === 'cam.stopped') d.log(`The Pi camera stopped: ${m.why}`, 'warn');
+    },
+    onClose: (e) => { if (mode === 'regular' && video.isOpen()) lost(e); },
+  });
+  function watching() { if (rkeyed && !document.hidden) video.say({ type: 'cam.watching', from: ME }); }
+  async function startRegular(my) {
+    if (!(await keyCheck(my))) return;
+    const o = video.open(CAM_ROOM, { codec: 'avc1.42E01F', fps: 30 }, { hello: { type: 'cam.key', key: CAM_KEY, from: ME } });
+    if (!o.ok) { d.log(o.reason, 'warn'); setMode('off', true); return; }
+    reg.hidden = false;
+  }
+  function stopRegular(tell) {
+    clearInterval(rbeat); rbeat = null;
+    if (rkeyed) video.say({ type: 'cam.bye', from: ME });
+    rkeyed = false;
+    // the bye has to leave before the socket does
+    setTimeout(() => { if (mode !== 'regular') video.close(); }, 50);
+    reg.getContext('2d').clearRect(0, 0, reg.width, reg.height); reg.hidden = true;
+    if (tell) d.log('The camera is off');
+  }
 
-  // ── the patch as the code runs it: camera and dither on the Pi, frames through the keyed room to this page ──
+  addEventListener('visibilitychange', () => { renew(); watching(); });
+  addEventListener('pagehide', () => { if (mode !== 'off') setMode('off', true); });
+
+  // ── the patch as the code runs it: two paths from the Pi's camera through the keyed room to this page ──
   useMediumColours();
-  const port = (node, dir) => ({ id: `${node}:video-${dir}`, dir, medium: 'video' });
-  const NODES = [{ id: 'pi-1:camera', kind: 'device', label: 'USB camera' }, { id: 'pi-1:dither', kind: 'engine', label: 'one bit 128x64' },
+  const port = (node, name, dir) => ({ id: `${node}:${name}-${dir}`, dir, medium: 'video' });
+  const NODES = [{ id: 'pi-1:camera', kind: 'device', label: 'USB camera' },
+    { id: 'pi-1:h264', kind: 'engine', label: 'H.264 1280x720' }, { id: 'pi-1:dither', kind: 'engine', label: 'one bit 128x64' },
     { id: 'pi-1:screen', kind: 'device', label: 'OLED 128x64' }, { id: 'cf-relay:room', kind: 'endpoint', label: CAM_ROOM },
     { id: 'web:studio', kind: 'screen', label: 'this page' }];
-  const PORTS = [port('pi-1:camera', 'out'), port('pi-1:dither', 'in'), port('pi-1:dither', 'out'), port('pi-1:screen', 'in'),
-    port('cf-relay:room', 'in'), port('cf-relay:room', 'out'), port('web:studio', 'in')];
-  const LINKS = [{ id: 'a', from: 'pi-1:camera:video-out', to: 'pi-1:dither:video-in' }, { id: 'b', from: 'pi-1:dither:video-out', to: 'pi-1:screen:video-in' },
-    { id: 'c', from: 'pi-1:dither:video-out', to: 'cf-relay:room:video-in' }, { id: 'd', from: 'cf-relay:room:video-out', to: 'web:studio:video-in' }];
-  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: () => LINKS }, { flowing: () => on && performance.now() - lastAt < 500 });
+  const PORTS = [port('pi-1:camera', 'video', 'out'), port('pi-1:h264', 'video', 'in'), port('pi-1:h264', 'video', 'out'),
+    port('pi-1:dither', 'video', 'in'), port('pi-1:dither', 'video', 'out'), port('pi-1:screen', 'video', 'in'),
+    port('cf-relay:room', 'h264', 'in'), port('cf-relay:room', 'h264', 'out'), port('cf-relay:room', 'frames', 'in'), port('cf-relay:room', 'frames', 'out'),
+    port('web:studio', 'h264', 'in'), port('web:studio', 'frames', 'in')];
+  const LINKS = [
+    { id: 'r1', from: 'pi-1:camera:video-out', to: 'pi-1:h264:video-in' }, { id: 'r2', from: 'pi-1:h264:video-out', to: 'cf-relay:room:h264-in' },
+    { id: 'r3', from: 'cf-relay:room:h264-out', to: 'web:studio:h264-in' },
+    { id: 'd1', from: 'pi-1:camera:video-out', to: 'pi-1:dither:video-in' }, { id: 'd2', from: 'pi-1:dither:video-out', to: 'pi-1:screen:video-in' },
+    { id: 'd3', from: 'pi-1:dither:video-out', to: 'cf-relay:room:frames-in' }, { id: 'd4', from: 'cf-relay:room:frames-out', to: 'web:studio:frames-in' }];
+  const flowing = (l) => {
+    const now = performance.now();
+    return l.id[0] === 'r' ? mode === 'regular' && now - rlastAt < 500 : mode === 'dither' && now - lastAt < 500;
+  };
+  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: () => LINKS }, { flowing });
   setInterval(() => { if (lay.how()) pb.refresh?.(); }, 200);
 
   const lay = createPresentLayout({
     title: 'Positron Studio',
-    desc: `pi-1:camera, a USB camera on the Raspberry Pi in ${ROOM}, sends gray video to pi-1:dither, which makes each frame `
-      + 'one bit at 128x64 for pi-1:screen, the OLED. The same frames leave the Pi as 1024 byte text messages through '
-      + `cf-relay:room, Cloudflare's relay room ${CAM_ROOM}, which opens only to the camera key, to web:studio, this page, `
-      + 'which draws them under the title. Play asks the Pi for its camera and renews the ask every five seconds; stop or '
-      + 'leaving ends it.',
-    main: null, line: playGroup.el, patch: pb.el, onHow: (open) => { if (open) pb.refresh(); },
+    desc: `pi-1:camera is a USB camera on the Raspberry Pi in ${ROOM}. The camera button picks how it reaches web:studio, `
+      + `this page, through cf-relay:room, Cloudflare's relay room ${CAM_ROOM}, which opens only to the camera key. `
+      + 'Regular: pi-1:h264 encodes 1280x720 H.264 at 30 fps, about 1.5 Mbit/s, sent as binary WebSocket frames that '
+      + 'the page decodes with WebCodecs, kept alive by a cam.watching message every 10 s. Dither: pi-1:dither makes '
+      + 'each frame one bit at 128x64, 24 fps, for pi-1:screen, the OLED, and the same frames leave as 1024 byte text messages, '
+      + 'kept alive by screen.camera every 5 s. The Pi runs one of the two at a time, and off asks it for nothing.',
+    main: null, tools: [cam.el], patch: pb.el, onHow: (open) => { if (open) pb.refresh(); },
   });
 
   window.__demo.how = lay.setHow;
   window.__demo.raid = () => lay.keys.raid();
-  window.__demo.probe = () => ({ on, keyed, frames, painted, key: !!CAM_KEY, ws: !!ws });
+  window.__demo.probe = () => ({ mode, keyed, rkeyed, frames, painted, decoded: video.decoded(), key: !!CAM_KEY, ws: !!ws, video: video.isOpen() });
   // a test hook: paints a 1024 byte frame as if it came from the Pi, opening nothing
-  window.__demo.frame = (bytes) => paint(Uint8Array.from(bytes));
+  window.__demo.frame = (bytes) => { cv.hidden = false; paint(Uint8Array.from(bytes)); };
   d.ready();
 </script>
 </html>
