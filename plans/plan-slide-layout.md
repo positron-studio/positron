@@ -364,3 +364,47 @@ Per page, the check is the same and costs no suite:
 7. **Cost**, estimated and not measured: the shared work about an hour; typist and newsreels under
    an hour each; typists and floor a few hours each, most of it checking; radio and pi depend on the
    answers above.
+
+## The simpler design (owner, 2026-11-11 evening)
+
+Asked: *"simpler?"*, then *"can be multiple layouts in future"*, then *"also sometimes i want things change on a page
+(text slide) sometimes its a different experience. not sure how to do it to have coherent prev next"*. This supersedes
+the `page.mjs` split above: no files move, no copies.
+
+### Layouts by name
+
+- Any concept page takes `?layout=<name>`; none means the page as it is today.
+- A layout is one module, `demo/shell/layouts/<name>.mjs`, exporting `place(parts, page)`. `slide` is today's
+  `present-layout.mjs` moved behind it. Later ones (`kiosk`, `embed`, `phone`) are new files and no page changes.
+- Pages keep handing their parts to the shell (`d.stack.add(...)`). The shell gives each part a role by default
+  (picture, controls, line, patch: the patchbay block is recognised by its class); a page whose default is wrong names
+  it once, `d.role(el, 'picture')`, and every layout reads the same roles.
+- `d.layout` tells a page which layout it is in, for the rare behaviour that belongs to one (typists' 6 people).
+
+### Stops: one list, coherent prev and next
+
+- A talk is a list of STOPS in `demo/shell/decks.mjs`. A stop is page + layout + state:
+  ```
+  techtrack: [
+    { page: 'present/studio' },
+    { page: 'typist/playback', layout: 'slide' },
+    { page: 'typist/playback', layout: 'slide', state: 'how' },   // same page, How it works open
+    { text: 'lonely', step: 3 },                                  // a text slide, its third line
+    { page: 'history/newsreels', layout: 'slide' },
+  ]
+  ```
+- The address carries the position: `?deck=techtrack&at=4`, so a reload, the back button or a shared link lands on
+  the same stop.
+- An arrow goes to the next stop. Same page as now: the page changes state in place (`d.show(state)`), no reload.
+  Another page: navigate with `at`. Left from a page's first state goes to the previous page's last state, so prev and
+  next mirror each other.
+- A page only declares its states and shows the one it is given (`d.states`, `d.show(state)`): a text slide's states are
+  its lines, a demo's could be `idle`, `how`, `playing`; a page with no states is a single stop. Nothing in a page knows
+  what comes before or after it; the order lives in the deck alone.
+
+### First try
+
+The Lonely Software text slides (states inside one page) and `typist/playback` with `layout=slide` (a page in a
+layout), in one small deck, so both kinds of stop and the page to page arrows are exercised. Then the copies are
+deleted one by one as each concept page looks right in the slide layout. `pi`, `floor` and `studio` stay their own
+pages.
