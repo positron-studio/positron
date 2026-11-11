@@ -29,6 +29,8 @@ const CSS = `
   .prl-head, .prl-main { margin-top: var(--pr-m); }
   /* buttons under the words (a Play), one step under them */
   .prl-acts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  /* knobs under the words are the large ones: twice the kit's width, the dial and its hand both read --knob-w */
+  .prl-acts .pos-knob { --knob-w: calc(var(--ctl-w) * 2.2); }
   .prl-foot { margin-top: var(--pr-m); }
   .prl-head { grid-area: head; min-width: 0; }
   /* the box is the ink, so the capitals' tops meet the picture's top edge */
