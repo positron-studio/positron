@@ -1100,6 +1100,8 @@ async function handle(msg, replyVia = null) {
     // A finished 1024 byte page major frame from outside the board (rig/palm/bridge.mjs), drawn as the camera's are.
     case 'screen.raw': {
       if (!panel || screenTaken() || typeof msg.b64 !== 'string') return;
+      // the camera on the OLED (/present/studio/'s dither, /devices/camera/) keeps it: the Palm bridge's frames wait
+      if (screenCam?.running()) return;
       const b = Buffer.from(msg.b64, 'base64');
       if (b.length === 1024) { rawAt = Date.now(); panel.frame(new Uint8Array(b)); }
       return;
