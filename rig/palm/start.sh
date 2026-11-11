@@ -6,8 +6,17 @@
 cd "$(dirname "$0")"
 sleep "${PALM_BOOT_WAIT:-20}"   # on boot: let the board raise JACK first
 running() { pgrep -f "$1" > /dev/null; }
-loop() { local log=$1; shift; while true; do "$@" >> "$log" 2>&1; echo "$(date +%T) $* exited $?, again in 3 s" >> "$log"; sleep 3; done; }
+# JACK names the Fast Track's inputs system:capture_N or circuit:capture_N depending on how the board raised it,
+# so each start asks which name input N has now
+cap() { timeout 5 jack_lsp 2>/dev/null | grep -m1 -E "^(system|circuit):capture_$1\$" || echo "system:capture_$1"; }
+mic() {
+  local log=$1 n=$2; shift 2
+  while true; do
+    node mic.mjs --port "$(cap "$n")" "$@" >> "$log" 2>&1
+    echo "$(date +%T) mic.mjs input $n exited $?, again in 3 s" >> "$log"; sleep 3
+  done
+}
 running '[d]rums.sh' || setsid nohup ./drums.sh > /dev/null 2>&1 < /dev/null &
-running '[m]ic.mjs --line' || loop line.log node mic.mjs --line --port system:capture_1 --client posline &
-running '[m]ic.mjs --port system:capture_2' || loop mic.log node mic.mjs --port system:capture_2 &
+running '[m]ic.mjs .*--line' || mic line.log 1 --line --client posline &
+running '[m]ic.mjs --port [a-z]*:capture_2' || mic mic.log 2 &
 wait
