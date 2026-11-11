@@ -59,7 +59,10 @@ const CSS = `
   /* edge to edge: the panel and the patch's own scroller reach past the page margin, padded back by the same margin,
      so a wide patch scrolls from screen edge to screen edge while everything sits where it did */
   .prl-how { position: absolute; left: calc(-1 * var(--pr-m)); right: calc(-1 * var(--pr-m)); bottom: 0; padding-inline: var(--pr-m); }
-  .prl-how .lv { width: auto; margin-inline: calc(-1 * var(--pr-m)); padding-inline: var(--pr-m); }
+  /* the patch keeps the content width: it lays itself out from its own clientWidth, so padding it to the edges made
+     it lay out 2 margins wider than it had and scroll (the owner: avoid the sideways scroll); its boxes' border still
+     overshoots by 2 px, and bay-view sets overflow-x inline, so only !important clips that */
+  .prl-how .lv { overflow-x: clip !important; }
   .prl-main { transition: filter 1.2s; }
   body.prl-open .prl-main { filter: brightness(.18); }
   .prl-line { transition: opacity .6s .6s, visibility 0s; }
