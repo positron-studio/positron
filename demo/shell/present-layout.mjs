@@ -50,6 +50,9 @@ const CSS = `
   .prl-top .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   .prl-top svg, .prl-acts .pos-bgroup svg, .prl-foot > .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
   .prl-top button.pos-lg, .prl-acts .pos-bgroup button.pos-lg, .prl-foot > .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
+  /* every button under the words is the large one, like the header's, whatever size its page asked for */
+  .prl-acts .pos-bgroup, .prl-acts .pos-bgroup-row { height: var(--ctl-lg); }
+  .prl-acts .pos-bgroup button { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   /* the main picture as large as its shape (--prl-aspect) and its footer (--prl-extra) allow, at the top right */
   .prl-main { grid-area: main; min-height: 0; container-type: size; display: grid; justify-items: end; align-items: start; }
   .prl-main.prl-main > * { width: min(100cqw, calc((100cqh - var(--prl-extra, 0px)) * var(--prl-aspect, 4 / 3))); }
