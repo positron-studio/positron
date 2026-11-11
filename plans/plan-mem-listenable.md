@@ -300,3 +300,33 @@ Full file: `…/scratchpad/mem/presets.diff`.
 ```
 
 The scratch engine with both applied: `…/scratchpad/mem/eng/calm2b/server/engines/mem/`. The measuring script: `…/scratchpad/mem/measure.mjs`.
+
+## Softer, on top of calm2b (2026-11-11, second pass)
+
+Asked: *"work on it more. soften somehow?"*. Three scratch engines copied from calm2b, same renders (20 min, colours, seed 1):
+
+- **hissdark** (engine + preset): a speaker's low pass follows the loop it plays, `lp * (1 - (1 - colour.hissLp) * noise)`
+  with `hissLp` 0.4, so a hiss loop sits at 40 % of its colour's low pass (new `lpOf(pl)` in place of the four
+  `Math.min(this.top, pl.colour.lp)`); hiss gain down `takes.hissDown` 0.6 (up to 8 dB, was 0.4 fixed).
+- **soft1** (preset only): `colour.lp` 4 to 9 kHz to 2.5 to 6 (mid 2.5 to 5.5, high 4 to 7), drive 1 to 1.6 to
+  1 to 1.25 (high 1 to 1.15), reverb damp 0.55 to 0.75, `solo.sudden` 0.15 to 0. Gives back part of the kcmd brightness.
+- **soft2**: both.
+
+| engine | A hiss, harsh, centroid, LUFS | Mixed hiss, harsh, centroid | Speech harsh | Modular | jumps/min A |
+| --- | --- | --- | --- | --- | --- |
+| now | 58.3 %, 0.37, 1689 Hz, -15.7 | 64.6 %, 0.29 | 0.04 | 0 % | |
+| calm2b | 25.3 %, 0.18, 1087 Hz, -17.0 | 7.2 %, 0.11, 769 Hz | 0.033 | 0 %, silence 1.6 % | 31.9 |
+| hissdark | 20.3 %, 0.12, 877 Hz, -17.8 | 4.0 %, 0.10, 726 Hz | 0.033 | same as calm2b | 36.7 |
+| soft1 | 18.9 %, 0.14, 917 Hz, -17.2 | 0.7 %, 0.05, 528 Hz | 0.026 | 0 %, silence 0 | 36.1 |
+| **soft2** | **8.4 %, 0.07, 681 Hz, -18.3** | **0.4 %, 0.05, 516 Hz** | 0.026 | 0 %, silence 0 | 43.3 |
+
+The hardest minute (A at 120 s, the ring mostly hiss): now 75 %, calm2b 32 %, soft2 20 % hiss, harshness 0.42,
+0.26, 0.16. No gaps in any of the three.
+
+Caveats: the hiss class is flatness from 200 Hz to 4 kHz, and a low pass under 4 kHz lowers flatness by itself, so
+part of hissdark's and soft2's drop is the filter changing what the measure sees rather than hiss leaving. The hiss
+still plays, darker. Level jumps per minute on A go up (31.9 to 43.3); not listened to, and it may only be the
+louder content standing out against quieter hiss. soft1 trades back brightness that the kcmd comparison asked for.
+
+Listen: `…/scratchpad/mem/listen/ab2.html` (five columns: now, calm2b, hissdark, soft1, soft2). Engines at
+`…/scratchpad/mem/eng/{hissdark,soft1,soft2}/`.
