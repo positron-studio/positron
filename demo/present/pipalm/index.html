@@ -23,14 +23,24 @@
   import * as PD from '/shell/palm-drums.mjs';
   import { voices } from '/drums/voices.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { createIconButton } from '/shell/icon-button.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { PATCHES as PLAITS } from '/shell/plaits-params.mjs';
   useMediumColours();
   document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
     // the screen fills the square stage at any size, pixelated, instead of a whole --pm-k scale
-    + '.pos-vp-stage.pm-stage { background: #000; } .pos-vp-stage > canvas.palm-cv { width: 100%; height: 100%; touch-action: none; }'
-    + ' .pm-foot-left { display: flex; gap: 12px; align-items: center; }'
-    // full screen: the stage takes the screen's shape, so the canvas stays square and the pen's mapping stays true
+    // two storeys, both 160 Palm pixels wide: the grid (160 tall) over the wave (40 tall), so the stage is 4 / 5
+    + '.pos-vp-stage.pm-stage { background: #000; }'
+    + ' .pm-split { display: grid; grid-template-rows: minmax(0, 4fr) minmax(0, 1fr); width: 100%; height: 100%; aspect-ratio: 4 / 5; }'
+    + ' .pm-split > canvas { display: block; width: 100%; height: 100%; min-height: 0; image-rendering: pixelated; }'
+    + ' .pm-split > canvas.palm-cv { touch-action: none; }'
+    + ' .pm-foot-left, .pm-knobs { display: flex; gap: 12px; align-items: center; }'
+    // a phone: the knobs take a row of their own under the buttons, centred
+    + ' @media (max-width: 440px) { .pm-stage + .pos-vp-foot { grid-template-columns: 1fr auto; }'
+    + ' .pm-stage + .pos-vp-foot > .pos-vp-c { grid-row: 2; grid-column: 1 / -1; justify-self: center; } }'
+    // full screen: the split takes the largest 4 / 5 box, so the grid stays square and the pen's mapping stays true
     + ' .pos-vp[data-full] .pos-vp-stage.pm-stage { container-type: size; display: grid; place-items: center; }'
-    + ' .pos-vp[data-full] .pos-vp-stage > canvas.palm-cv { width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); }' }));
+    + ' .pos-vp[data-full] .pm-split { width: min(100cqw, 100cqh * 4 / 5); height: auto; }' }));
 
   const d = mount({ name: 'Pi + Palm', what: '', readout: null, showLog: false, chrome: false });
 
@@ -143,6 +153,8 @@
   async function listen() {
     if (listening) {
       try { lift?.disconnect(); } catch { /* not connected */ }
+      try { board.playout()?.disconnect(scope); } catch { /* not connected */ }
+      cols.fill(0);
       listening = false; buttons.setIcon('listen', 'headphones', 'listen here');
       d.log('not listening here; the Pi still plays out of its PWM output', 'dim');
       return pb.refresh();
@@ -155,9 +167,89 @@
     lift.gain.value = LIFT;
     board.playout().connect(lift);
     lift.connect(ctx.destination);
+    if (!scope) { scope = ctx.createAnalyser(); scope.fftSize = 4096; sbuf = new Float32Array(scope.fftSize); }
+    board.playout().connect(scope);
     listening = true; buttons.setIcon('listen', 'mute', 'stop listening here');
     d.log('listening to the Pi\'s drums here', 'ok');
     pb.refresh();
+  }
+
+  // ── the drone: Plaits on the Pi (rig/board/plaits.mjs), one held low note on its Growl drone patch ──
+  const GROWL = PLAITS.find((p) => p.name === 'Growl drone');
+  const DRONE_NOTE = 36;   // C2, 65 Hz: the waveshaper's folds put its growl in the range a small speaker plays
+  const DIALS = [['harmonics', 'harm'], ['timbre', 'timbre'], ['morph', 'morph']];
+  let droning = false, droneBusy = false, droneUp = false, keep = 0, turnedAt = 0;
+  const dial = (name) => knobs.get(name).value();
+  function setDial(name, v) {
+    turnedAt = performance.now();
+    if (droning && connected) board.send({ type: 'plaits.set', name, v });
+  }
+  const knobs = new Map(DIALS.map(([name, short]) => [name, createKnob({ label: short, title: name, min: 0, max: 1,
+    value: GROWL[name], home: GROWL[name], onInput: (v) => setDial(name, v) })]));
+  /** Plaits up on the Pi, the patch, the panel's three values, its sound to the PWM output, then the note. */
+  async function droneOn() {
+    if (!droneUp) {
+      const up = await board.ask({ type: 'audio.start', source: 'plaits' }, 'audio.started', 20000);
+      if (!up?.ok) { d.log(`the Pi did not start Plaits: ${up?.reason ?? 'no answer'}`, 'warn'); return false; }
+      const j = await board.ask({ type: 'jack.link', link: 'pi-1:plaits:audio-out -> pi-1:pwm:audio-in' }, 'jack.linked', 8000);
+      if (!j?.ok) d.log(`Plaits' sound did not reach the PWM output: ${(j?.problems || []).join(', ') || j?.hint || 'no answer'}`, 'warn');
+      droneUp = true;
+    }
+    const p = await board.ask({ type: 'plaits.patch', name: GROWL.name }, 'plaits.patch', 4000);
+    if (!p?.ok) { d.log(`the Pi did not take the ${GROWL.name} patch: ${p?.reason ?? 'no answer'}`, 'warn'); return false; }
+    // pitch is Plaits' transpose, kept on the Pi between pages; 0 so the note is the one asked for
+    board.send({ type: 'plaits.set', name: 'pitch', v: 0 });
+    for (const [name] of DIALS) board.send({ type: 'plaits.set', name, v: dial(name) });
+    const on = await board.ask({ type: 'note.on', node: 'plaits', note: DRONE_NOTE, vel: 100 }, 'note.ack', 4000);
+    if (!on?.ok) { d.log(`the Pi did not hold the drone: ${on?.reason ?? 'no answer'}`, 'warn'); return false; }
+    // the Pi releases a note whose page has said nothing for 15 s; this speaks every 5 s, hidden or not
+    clearInterval(keep); keep = setInterval(() => board.send({ type: 'plaits.stats' }), 5000);
+    return true;
+  }
+  function droneOff() {
+    clearInterval(keep); keep = 0;
+    if (connected) board.send({ type: 'note.off', node: 'plaits', note: DRONE_NOTE });
+  }
+  async function drone() {
+    if (droneBusy) return;
+    if (droning) { droneOff(); droning = false; showDrone(); d.log('the drone is released; Plaits stays up on the Pi', 'dim'); return pb.refresh(); }
+    if (!await reached()) return;
+    droneBusy = true;
+    try {
+      droning = await droneOn();
+      if (droning) d.log(`the Pi holds a drone on Plaits, ${GROWL.name}, C2`, 'ok');
+    } finally { droneBusy = false; showDrone(); pb.refresh(); }
+  }
+  // the page going away lets go at once, rather than after the Pi's 15 s
+  addEventListener('pagehide', () => { if (droning) droneOff(); });
+
+  // ── the wave: the Pi's sound as it arrives here, a column every draw, newest on the right, in Palm pixels ──
+  const WAVE_W = PALM_W, WAVE_H = PALM_W / 4, FULL = 0.5;
+  const waveCv = Object.assign(document.createElement('canvas'), { width: WAVE_W, height: WAVE_H, className: 'pm-wave' });
+  const waveG = waveCv.getContext('2d');
+  const waveImg = waveG.createImageData(WAVE_W, WAVE_H);
+  const cols = new Float32Array(WAVE_W * 2);   // [lo, hi] per column, oldest first
+  let scope = null, sbuf = null, waveAt = 0;
+  function wave(t) {
+    cols.copyWithin(0, 2);
+    let lo = 0, hi = 0;
+    if (listening && scope) {
+      scope.getFloatTimeDomainData(sbuf);
+      const n = Math.min(sbuf.length, Math.max(1, Math.round((t - waveAt) * BOARD_RATE / 1000)));
+      for (let i = sbuf.length - n; i < sbuf.length; i++) { const v = sbuf[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    }
+    waveAt = t;
+    cols[WAVE_W * 2 - 2] = Math.max(-1, lo / FULL); cols[WAVE_W * 2 - 1] = Math.min(1, hi / FULL);
+    const px = waveImg.data, mid = WAVE_H / 2;
+    px.fill(0);
+    for (let x = 0; x < WAVE_W; x++) {
+      // at least the middle row, so silence is a one pixel flat line
+      const y0 = Math.min(mid, Math.floor(mid - cols[x * 2 + 1] * mid)), y1 = Math.max(mid, Math.ceil(mid - cols[x * 2] * mid) - 1);
+      const v = cols[x * 2 + 1] - cols[x * 2] > 0.02 ? 255 : 85;
+      for (let y = Math.max(0, y0); y <= Math.min(WAVE_H - 1, y1); y++) { const i = (y * WAVE_W + x) * 4; px[i] = px[i + 1] = px[i + 2] = v; }
+    }
+    for (let i = 3; i < px.length; i += 4) px[i] = 255;
+    waveG.putImageData(waveImg, 0, 0);
   }
 
   // ── the Palm: the same picture and the same pen as the real one ──
@@ -181,48 +273,72 @@
     frames++;
   }
   let prev = 0;
-  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; draw(); } requestAnimationFrame(tick); })(0);
+  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; draw(); wave(t); } requestAnimationFrame(tick); })(0);
 
-  // ── the patch: this tab's Palm into the Pi's sequencer, its drums out of the PWM output and, on Listen, here ──
+  // ── the patch: this tab's Palm into the Pi's sequencer, its drums out of the PWM output and, on Listen, here;
+  // the drone toggle and three knobs into Plaits on the Pi, beside the drums ──
   const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
   const NODES = [{ id: 'web:palm', kind: 'screen', label: 'Palm in this tab' }, { id: 'pi-1:sequencer', kind: 'engine', label: 'sequencer on the Pi' },
     { id: 'pi-1:drums', kind: 'engine', label: 'drums on the Pi' }, { id: 'pi-1:pwm', kind: 'device', label: 'PWM out' },
+    { id: 'web:drone', kind: 'person', label: 'drone' },
+    ...DIALS.map(([name]) => ({ id: `web:knob-${name}`, kind: 'person', label: name })),
+    { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
     { id: 'web:speaker', kind: 'device', label: 'speaker' }];
   const PORTS = [port('web:palm', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
-    port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in')];
+    port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in'),
+    port('web:drone', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
+    port('pi-1:plaits', 'midi', 'in'), port('pi-1:plaits', 'value', 'in'), port('pi-1:plaits', 'audio', 'out')];
   const LINKS = () => [
     { id: 'a', from: 'web:palm:value-out', to: 'pi-1:sequencer:value-in' },
     { id: 'b', from: 'pi-1:sequencer:midi-out', to: 'pi-1:drums:midi-in' },
     { id: 'c', from: 'pi-1:drums:audio-out', to: 'pi-1:pwm:audio-in' },
     ...(listening ? [{ id: 'd', from: 'pi-1:drums:audio-out', to: 'web:speaker:audio-in' }] : []),
+    { id: 'e', from: 'web:drone:midi-out', to: 'pi-1:plaits:midi-in' },
+    ...DIALS.map(([name]) => ({ id: `k-${name}`, from: `web:knob-${name}:value-out`, to: 'pi-1:plaits:value-in' })),
+    { id: 'f', from: 'pi-1:plaits:audio-out', to: 'pi-1:pwm:audio-in' },
+    ...(listening ? [{ id: 'g', from: 'pi-1:plaits:audio-out', to: 'web:speaker:audio-in' }] : []),
   ];
+  const FLOW = { a: () => performance.now() - editAt < 400, e: () => droning, f: () => droning, g: () => droning };
   const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
-    { flowing: (l) => (l.id === 'a' ? performance.now() - editAt < 400 : seq.running) });
+    { flowing: (l) => (FLOW[l.id] ? FLOW[l.id]() : l.id.startsWith('k-') ? droning && performance.now() - turnedAt < 400 : seq.running) });
 
   // the presentation copy: play and Listen in the screen's footer, since the layout's top bar holds How it works and the arrows
   const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
   function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
   // one style in the footer: two icon buttons, play or stop the sequencer, listen here or stop
   const buttons = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
-  const panel = createVideoPanel({ media: palm.el, left: null, aspect: '1 / 1', fullMode: 'footer' });
+  // the drone's toggle lights while the Pi holds the note
+  const droneBtn = createIconButton({ icon: 'waveform', label: 'hold a drone on Plaits on the Pi', pressed: false, onPress: () => drone() });
+  function showDrone() { droneBtn.pressed(droning); droneBtn.set('waveform', droning ? 'release the drone' : 'hold a drone on Plaits on the Pi'); }
+  const split = el('div', 'pm-split');
+  split.append(palm.el, waveCv);
+  const panel = createVideoPanel({ media: split, left: null, aspect: '4 / 5', fullMode: 'footer' });
   panel.stage.classList.add('pm-stage');
   const footLeft = el('div', 'pm-foot-left');
-  footLeft.append(top.el, buttons.el);
+  footLeft.append(top.el, buttons.el, droneBtn.el);
   panel.slots.left.append(footLeft);
+  const dials = el('div', 'pm-knobs');
+  dials.append(...[...knobs.values()].map((k) => k.el));
+  panel.slots.centre.append(dials);
 
-  // ── the presentation layout (present-layout.mjs); extra is the footer's height, measured 55 px (34 px buttons, 10 px padding, a 1 px line) ──
+  // ── the presentation layout (present-layout.mjs); extra is the footer's height, measured below on every resize ──
+  const FOOT_PX = 105;
   const lay = createPresentLayout({
-    title: 'Pi + Palm', sub: 'The Palm\'s drum grid in a tab. Draw steps and the Pi\'s drums play them.',
-    desc: 'web:palm sends the grid as a value through cf-relay:room, Cloudflare\'s relay room studio-1, to pi-1:sequencer. The sequencer\'s midi-out plays pi-1:drums, whose audio-out feeds pi-1:pwm, the Pi\'s own output. Listen adds an audio link from pi-1:drums to web:speaker, its sound frames over the same relay. Nothing reaches the relay until the first press.',
-    main: panel.el, aspect: '1 / 1', extra: '55px', patch: pb.el,
+    title: 'Pi + Palm', sub: 'The Palm\'s drum grid in a tab, over the Pi\'s sound. Draw steps for the drums and hold a Plaits drone beside them.',
+    desc: 'web:palm sends the grid as a value through cf-relay:room, Cloudflare\'s relay room studio-1, to pi-1:sequencer, whose midi-out plays pi-1:drums. web:drone holds one note on pi-1:plaits:midi-in, and three knob nodes send harmonics, timbre and morph to its value-in over the same room. Both engines feed pi-1:pwm over JACK. Listen adds their audio links to web:speaker: one summed capture, sent as sound frames over the relay and drawn as the wave. Nothing reaches the relay until the first press.',
+    main: panel.el, aspect: '4 / 5', extra: `${FOOT_PX}px`, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
   });
+  // the knobs make the footer taller than a button row, and how much depends on the face; read, never typed
+  const mainBox = lay.root.querySelector('.prl-main');
+  new ResizeObserver(() => { const h = panel.foot.getBoundingClientRect().height; if (h) mainBox.style.setProperty('--prl-extra', `${Math.ceil(h)}px`); }).observe(panel.foot);
   window.__demo.raid = () => lay.keys.raid();
   window.__demo.how = lay.setHow;
   window.__demo.footH = () => panel.foot.getBoundingClientRect().height;
 
   window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
-    on: grid.flat().filter(Boolean).length });
+    on: grid.flat().filter(Boolean).length, droning, droneUp, dials: Object.fromEntries(DIALS.map(([n]) => [n, dial(n)])),
+    links: LINKS().length, board: !!board });
   d.ready();
 </script>
 </html>
