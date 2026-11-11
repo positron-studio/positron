@@ -42,7 +42,7 @@
     + ' .pos-vp[data-full] .pos-vp-stage.pm-stage { container-type: size; display: grid; place-items: center; }'
     + ' .pos-vp[data-full] .pm-split { width: min(100cqw, 100cqh); height: auto; }' }));
 
-  const d = mount({ name: 'Pi + Palm', what: '', readout: null, showLog: false, chrome: false });
+  const d = mount({ name: 'OK GO', what: '', readout: null, showLog: false, chrome: false });
 
   const q = new URLSearchParams(location.search);
   const ROOM = q.get('room') || 'studio-1';
@@ -339,7 +339,7 @@
   // ── the presentation layout (present-layout.mjs); extra is the footer's height, measured below on every resize ──
   const FOOT_PX = 105;
   const lay = createPresentLayout({
-    title: 'Pi + Palm',
+    title: 'OK GO',
     desc: "The grid and the pads drive pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The camera comes through studio-1-cam, and the wave is Plaits alone, from the Palm's bridge.",
     main: panel.el, aspect: '1 / 1', extra: `${FOOT_PX}px`, tools: [cam.el], patch: pb.el, actions: [btnRow, pads.el, dials],
     onHow: (on) => { if (on) pb.refresh(); },
