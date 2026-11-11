@@ -20,6 +20,7 @@ export function createPresentKeys({ prev = () => {}, next = () => {}, escape = (
   const kyiv = createKyivRaid();
   // over the page's own layers, which are hidden while it shows
   kyiv.el.style.zIndex = '100';
+  kyiv.el.classList.add('pos-out');
   document.body.append(kyiv.el);
   let raidOff = false;
   const simulated = () => ({ on: true, since: new Date(Date.now() - 36e5).toISOString() });

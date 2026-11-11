@@ -1210,7 +1210,7 @@
   requestAnimationFrame(frame);
 
   // The floor is the ground of the whole page, under present-layout.mjs's words and buttons.
-  wrap.classList.add('fl-under');
+  wrap.classList.add('fl-under', 'pos-out');
   document.body.append(wrap);
   // The patch as the code runs it: thumbnails from ERR through our origin's image proxy, a pressed film as HLS
   // from ERR, both into the WebGL2 floor; the projector's sound is made here
@@ -1229,7 +1229,7 @@
     desc: 'The ERR archive feeds the floor on two links. Thumbnails go as images over https through the Cloudflare '
       + 'proxy on our own origin into one WebGL2 texture array. A pressed film goes as video over HLS into one video '
       + 'element, whose frames become the floor\'s video texture.',
-    main: null, actions: [startBtn], patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
+    main: null, line: startBtn, patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
   });
   // the line under the title: the playing film, else the one under the pointer, read four times a second
   const nowEl = lay.root.querySelector('.prl-head p');

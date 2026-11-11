@@ -20,6 +20,7 @@
   /* A 309 px phone footer has no room for the space slider beside the stepper (measured 41 px left over),
      so the phone keeps the footer it had and the space stays at its value. */
   @media (max-width: 560px) { .pos-vp-l > .sld { display: none; } }
+  .sld.ty-space > .sld-head { display: none; }
 </style>
 <script type="module">
   import { mount, el } from '/shell/shell.mjs';
@@ -44,7 +45,7 @@
   import { createFx, character, nameOf, trimFor } from '/typist/machines/fx.mjs';
 
   // The presentation copy of /typist/score/, which stays as it was; only the layout and the default count differ.
-  const d = mount({ name: 'Multi typer', what: '', readout: null, showLog: false, chrome: false });
+  const d = mount({ name: 'Typists', what: '', readout: null, showLog: false, chrome: false });
 
   const MAX = 6;
   const q = new URLSearchParams(location.search);
@@ -143,7 +144,13 @@
     lfo(0.05, 0.012, bedDl.delayTime);
     room.connect(bedLp).connect(bedDl).connect(bedFb).connect(bedLp);
     bedDl.connect(bed).connect(wet);
-    wet.connect(output);
+    // moving filters on the wet: a resonant low-pass swept slowly between about 300 Hz and 2.7 kHz, and a band-pass
+    // drifting at another rate beside it, so the space breathes behind the keys
+    const sweep = f('lowpass', 1500, 6), band = f('bandpass', 900, 3);
+    lfo(0.08, 1200, sweep.frequency);
+    lfo(0.13, 600, band.frequency);
+    wet.connect(sweep).connect(output);
+    wet.connect(band).connect(g(0.6)).connect(output);
     const level = { send: 0, wet: 0, fb: 0.4, lp: 2600, bed: 0 };
     const ramp = (p, v) => { const t = ac.currentTime; p.cancelScheduledValues(t); p.setTargetAtTime(v, t, SPACE.tau); };
     return {
@@ -410,8 +417,10 @@
     if (!muted && deck.playing() && !ctx) wake();
   } });
   // Moving it opens nothing: before the first press it only sets where the space will start.
-  const spaceSlider = createSlider({ label: 'space', min: 0, max: 1, step: 0.01, value: 0,
+  // no label and no number on it: the patch names it, and the ear reads it
+  const spaceSlider = createSlider({ label: '', aria: 'space', min: 0, max: 1, step: 0.01, value: 0,
     onInput: (v) => bay.send(`${S}:knob-space:value-out`, { of: 'param', v }) });
+  spaceSlider.el.classList.add('ty-space');
   const left = document.createDocumentFragment();
   left.append(mute.el, spaceSlider.el);
 
@@ -528,7 +537,7 @@
   // `extra` measured at 1280 px: the footer is 55 px (a 34 px row, 10 px padding each side, 1 px hairline) plus the
   // panel's two 1 px borders; the papers are 16:9 at the desk, as chat-ui.mjs makes a `fixed` grid.
   const lay = createPresentLayout({
-    title: 'Multi typer', sub: 'Up to six papers typed at once from a written score, each through a typewriter of its own.',
+    title: 'Typists', sub: 'Up to six papers typed at once from a written score, each through a typewriter of its own.',
     desc: 'Typist k is a keys node whose value-out links to the value-in of paper k and of typewriter k, and the transport plays the score out through those keys. The typewriter samples come from R2 to every typewriter\'s file-in over https. Typewriter k\'s audio-out links to fx k\'s audio-in, and every fx box\'s audio-out links to the speaker\'s audio-in. The machines node sends paper k its machine number as a value, on its own value-out to fx k and typewriter k. Every fx box\'s audio-out also links to the audio-in of the space, a WebAudio engine with a dub delay, a long generated room and a slow bed, whose audio-out links to the speaker. The space slider is a knob node whose value-out links to the space\'s value-in, raising the send and the wet level together.',
     main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },

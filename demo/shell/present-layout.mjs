@@ -35,9 +35,9 @@ const CSS = `
   .prl-head h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); text-wrap: balance; text-box: trim-both cap alphabetic; white-space: pre-line; }
   .prl-head p { margin: 1em 0 0; font: 400 clamp(16px, 1.5vw, 20px)/1.45 var(--sans); color: var(--dim); text-wrap: balance; }
   .prl-top { grid-area: top; justify-self: end; display: flex; gap: 12px; align-items: center; }
-  .prl-top button, .prl-acts button { color: var(--fg); }
-  .prl-top svg, .prl-acts .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
-  .prl-top button.pos-lg, .prl-acts .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
+  .prl-top button, .prl-acts button, .prl-foot > .pos-bgroup button { color: var(--fg); }
+  .prl-top svg, .prl-acts .pos-bgroup svg, .prl-foot > .pos-bgroup svg { width: 18px; height: 18px; flex: none; }
+  .prl-top button.pos-lg, .prl-acts .pos-bgroup button.pos-lg, .prl-foot > .pos-bgroup button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
   /* the main picture as large as its shape (--prl-aspect) and its footer (--prl-extra) allow, at the top right */
   .prl-main { grid-area: main; min-height: 0; container-type: size; display: grid; justify-items: end; align-items: start; }
   .prl-main.prl-main > * { width: min(100cqw, calc((100cqh - var(--prl-extra, 0px)) * var(--prl-aspect, 4 / 3))); }
@@ -147,7 +147,7 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
   const foot = el('div', 'prl-foot');
   if (line) { line.classList.add('prl-line'); foot.append(line); }
   foot.append(howBox);
-  const root = el('div', `prl pres-ui${main ? '' : ' prl-under'}`);
+  const root = el('div', `prl pres-ui pos-out${main ? '' : ' prl-under'}`);
   root.append(eye, top, head, mainBox, foot);
 
   const parts = [root];
@@ -160,7 +160,7 @@ export function createPresentLayout({ title, sub = '', desc = '', main, line = n
 
 /** The banner: `src` redrawn at a tenth of the screen's size, ten times a second, only while `moving()`. */
 function createBanner(src, moving, blank) {
-  const cv = el('canvas', 'prl-banner');
+  const cv = el('canvas', 'prl-banner pos-out');
   const g = cv.getContext('2d');
   let at = 0, on = false;
   const size = () => (src.videoWidth ? [src.videoWidth, src.videoHeight] : [src.width, src.height]);

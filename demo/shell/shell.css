@@ -425,7 +425,8 @@ button.pos-pri[data-busy="1"] {
 /* `.pos-sec-h` is excluded too: a heading belongs to what follows, or
    `stack.titled()` would put 40 px between a label and its block. */
 /* why: lessons/css-shell.md#pos-stack-not-last-child-not-pos-head-not-pos-ho-5 */
-.pos-stack > :not(:last-child):not(.pos-head):not(.pos-how):not(.pos-sec-h) { margin-bottom: var(--pos-gap); }
+/* .pos-out: a fixed layer laid over the page (present-layout.mjs) is not in the flow, so it takes no rhythm */
+.pos-stack > :not(:last-child):not(.pos-head):not(.pos-how):not(.pos-sec-h):not(.pos-out) { margin-bottom: var(--pos-gap); }
 .pos-stack > :not(:first-child) { margin-top: 0; }
 
 /* The heading `stack.titled()` draws: 10 px under it, the distance inside one

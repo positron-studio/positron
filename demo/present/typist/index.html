@@ -39,7 +39,7 @@
   import { createPaper } from '/typist/paper.mjs';
 
   // The presentation copy of /typist/playback/, which stays as it was; only the layout differs.
-  const d = mount({ name: 'Playback', what: '', readout: null, showLog: false, chrome: false });
+  const d = mount({ name: 'Typist', what: '', readout: null, showLog: false, chrome: false });
 
   const KIND = 'text-op';
   const LEAD_MS = 250;            // position 0 sits this far before the first change
@@ -313,7 +313,7 @@
   // ── the presentation layout (present-layout.mjs) ──
   // the panel measured at 1280 px: a 16:9 stage and 57 px under it (the footer 55, the panel border 2)
   const lay = createPresentLayout({
-    title: 'Playback', sub: 'Everything you type, deletions included, is kept and played back as the page writes itself again.',
+    title: 'Typist', sub: 'Everything you type, deletions included, is kept and played back as the page writes itself again.',
     desc: "The keyboard's value out, carrying text, links to the paper, the recorder and the typewriter. The recorder's value out links to the paper and the typewriter on links of their own, and plays the kept changes back as the transport moves along the line. The typewriter's audio out links to the speakers, and the transport buttons' value out to the transport. Every node is in this one browser tab, so no link leaves the machine and none goes over a network transport.",
     main: panel.el, aspect: '16 / 9', extra: '57px', line: surface, patch: pb.el,
     onHow: (on) => { if (on) pb.refresh(); },
