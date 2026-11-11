@@ -4,7 +4,8 @@
 // why: lessons/rig-board-tests.md#camera-test-header
 import { spawnSync } from 'node:child_process';
 import { parseRpicamList, parseV4l2Devices, pickCaptureDevice, findCamera, cameraCommand,
-  createAccessUnitSplitter, createCameraRoom, framePieces, sameKey, DIRECT_PIECE } from './camera.mjs';
+  createAccessUnitSplitter, createCameraRoom, framePieces, sameKey, DIRECT_PIECE, startCamera } from './camera.mjs';
+import { grayOutputArgs, createFrameCutter } from './screen-camera.mjs';
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else fail++; console.log(`${c ? 'ok  ' : 'BAD '} ${m}`); };
@@ -217,6 +218,26 @@ room.stop();
   ok(r2.status().direct.length === 0, 'direct: a bye detaches it');
   r2.stop();
 }
+// The OLED's grey output beside the H.264, from one real ffmpeg. Negative control: rpicam-vid gets no fd 3 output.
+{
+  const [, csi] = cameraCommand({ kind: 'csi', cmd: 'rpicam-vid' }, { w: 1280, h: 720, fps: 30, bitrate: 1e6, gop: 30, side: ['-f', 'rawvideo'] });
+  ok(!csi.includes('pipe:3'), 'NEGATIVE CONTROL side: rpicam-vid has one output, no side');
+  const [, usb] = cameraCommand({ kind: 'usb', device: '/dev/video0', inputFormat: 'mjpeg' }, { w: 1280, h: 720, fps: 30, bitrate: 1e6, gop: 30, hw: true, side: grayOutputArgs() });
+  ok(usb.indexOf('pipe:3') > usb.indexOf('-') && usb.at(-1) === 'pipe:3' && usb.join(' ').includes('-f h264 - -vf fps=24,crop'), 'side: usb, the grey output follows the H.264 one, to fd 3');
+  if (!stream) console.log('skip the side output on real ffmpeg: no ffmpeg with libx264 on this machine');
+  else {
+    let units = 0, gray = 0, starts = 0, ends = 0, rest = 0;
+    const cut = createFrameCutter(8192, (g) => { gray++; if (g.length !== 8192) rest++; });
+    const h = startCamera({ kind: 'test' }, { w: 320, h: 240, fps: 30, bitrate: 500_000, gop: 30, onFrame: () => units++,
+      side: { args: grayOutputArgs(), onData: cut, start: () => starts++, end: () => ends++ } });
+    await new Promise((r) => setTimeout(r, 1500));
+    h.stop();
+    await new Promise((r) => setTimeout(r, 300));
+    ok(h.side && starts === 1 && ends === 1, `side: started once with the encoder and ended once with it (${starts}, ${ends})`);
+    ok(units >= 20 && gray >= 15 && !rest, `side: one ffmpeg, ${units} H.264 frames and ${gray} grey 128x64 frames in 1.5 s`);
+  }
+}
+
 const off = createCameraRoom({ relay: 'wss://x', room: 'r-cam', key: '', WS: FakeWS, log: () => {} });
 ok(off.enabled === false && !off.running(), 'room: no key set, nothing joined and nothing started');
 

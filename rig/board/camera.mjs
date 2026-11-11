@@ -116,8 +116,9 @@ export function findCamera({ source = process.env.BOARD_CAM_SOURCE || '', runner
   return { ok: false, reason: 'no camera on this board', detail: tried.join('; ') };
 }
 
-/** The command that makes Annex B H.264 on stdout, for each kind of source. */
-export function cameraCommand(cam, { w, h, fps, bitrate, gop, hw = existsSync('/dev/video11') } = {}) {
+/** The command that makes Annex B H.264 on stdout, for each kind of source. `side`: output
+ * arguments for a second ffmpeg output on fd 3 (the OLED's grey frames); rpicam-vid has none. */
+export function cameraCommand(cam, { w, h, fps, bitrate, gop, hw = existsSync('/dev/video11'), side = null } = {}) {
   if (cam.kind === 'csi') {
     return [cam.cmd || 'rpicam-vid', ['-t', '0', '-n', '--codec', 'h264', '--inline', '--intra', String(gop),
       '--profile', 'baseline', '--width', String(w), '--height', String(h), '--framerate', String(fps),
@@ -128,7 +129,8 @@ export function cameraCommand(cam, { w, h, fps, bitrate, gop, hw = existsSync('/
   const x264 = ['-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-profile:v', 'baseline', '-bf', '0',
     '-bsf:v', 'dump_extra=freq=keyframe'];
   const enc = hw ? ['-c:v', 'h264_v4l2m2m'] : x264;
-  const tail = ['-pix_fmt', 'yuv420p', ...enc, '-b:v', String(bitrate), '-g', String(gop), '-f', 'h264', '-'];
+  const second = side ? [...side, 'pipe:3'] : [];
+  const tail = ['-pix_fmt', 'yuv420p', ...enc, '-b:v', String(bitrate), '-g', String(gop), '-f', 'h264', '-', ...second];
   if (cam.kind === 'usb') {
     return ['ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'v4l2',
       ...(cam.inputFormat ? ['-input_format', cam.inputFormat] : []),
@@ -137,7 +139,7 @@ export function cameraCommand(cam, { w, h, fps, bitrate, gop, hw = existsSync('/
   if (cam.kind === 'test') {
     return ['ffmpeg', ['-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi',
       '-i', `testsrc2=size=${w}x${h}:rate=${fps}`, '-pix_fmt', 'yuv420p', ...x264,
-      '-b:v', String(bitrate), '-g', String(gop), '-f', 'h264', '-']];
+      '-b:v', String(bitrate), '-g', String(gop), '-f', 'h264', '-', ...second]];
   }
   throw new Error(`camera: no command for a source of kind ${cam.kind}`);
 }
@@ -200,16 +202,26 @@ export function sweepStrayCameras(onLog) {
   return pids.length;
 }
 
-/** Start the camera's encoder. `onFrame(unit, key)` per frame; `onExit(why)` if it stops on its own. */
+/** Start the camera's encoder. `onFrame(unit, key)` per frame; `onExit(why)` if it stops on its own.
+ * `side` { args, onData, start, end }: a second ffmpeg output read from fd 3, started and ended with the encoder. */
 export function startCamera(cam, { w = 1280, h = 720, fps = 30, bitrate = 1_500_000, gop = 30,
-  onFrame, onLog, onExit, spawnImpl = spawn } = {}) {
+  onFrame, onLog, onExit, side = null, spawnImpl = spawn } = {}) {
   let cmd, args;
-  try { [cmd, args] = cameraCommand(cam, { w, h, fps, bitrate, gop }); }
+  try { [cmd, args] = cameraCommand(cam, { w, h, fps, bitrate, gop, side: side?.args }); }
   catch (e) { return { ok: false, reason: e.message }; }
+  const tap = side && cmd === 'ffmpeg' ? side : null;
   let p;
-  try { p = spawnImpl(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] }); }
+  try { p = spawnImpl(cmd, args, { stdio: ['ignore', 'pipe', 'pipe', ...(tap ? ['pipe'] : [])] }); }
   catch (e) { return { ok: false, reason: `${cmd} would not start: ${e.message}` }; }
-  let frames = 0, bytes = 0, keys = 0, stopping = false;
+  let frames = 0, bytes = 0, keys = 0, stopping = false, tapOn = false;
+  const endTap = (why) => { if (!tapOn) return; tapOn = false; try { tap.end?.(why); } catch (e) { onLog?.(`the side output: ${e.message}`); } };
+  if (tap && p.stdio?.[3]) {
+    // An unread pipe would stall ffmpeg, and with it the H.264 output, so every chunk is taken.
+    p.stdio[3].on('data', (d) => { try { tap.onData(d); } catch (e) { onLog?.(`the side output: ${e.message}`); } });
+    p.stdio[3].on('error', () => { /* closes with the process */ });
+    tapOn = true;
+    try { tap.start?.(); } catch (e) { onLog?.(`the side output: ${e.message}`); }
+  }
   const split = createAccessUnitSplitter((unit, key) => {
     if (unit === null) { onLog?.('the camera encoder produced no frame boundary in 4 MB'); return; }
     frames++; bytes += unit.byteLength; if (key) keys++;
@@ -225,16 +237,18 @@ export function startCamera(cam, { w = 1280, h = 720, fps = 30, bitrate = 1_500_
       tail.push(t); if (tail.length > 6) tail.shift();
     }
   });
-  p.on('error', (e) => { if (!stopping) onExit?.(`${cmd}: ${e.message}`); });
+  p.on('error', (e) => { endTap(`${cmd}: ${e.message}`); if (!stopping) onExit?.(`${cmd}: ${e.message}`); });
   p.on('exit', (code, sig) => {
+    endTap(`${cmd} exited (${sig ?? code})`);
     if (stopping) return;
     onExit?.(`${cmd} exited (${sig ?? code})${tail.length ? `: ${tail.slice(-2).join(' / ').slice(0, 200)}` : ''}`);
   });
   return {
-    ok: true, cmd, w, h, fps, bitrate, gop,
+    ok: true, cmd, w, h, fps, bitrate, gop, side: !!tap,
     stats: () => ({ frames, bytes, keys }),
     stop() {
       stopping = true;
+      endTap('the camera stopped');
       try { p.kill('SIGTERM'); } catch { /* gone */ }
       // SIGTERM is a request; video.mjs records an encoder that ignored it and
       // held the device for minutes.
@@ -247,8 +261,9 @@ export function startCamera(cam, { w = 1280, h = 720, fps = 30, bitrate = 1_500_
 // watches. relay, room `<room>-cam`, key (empty: off), encoderBusy (the shader holds the encoder).
 // why: lessons/rig-board-io.md#camera-room
 // `held()` answers why another board user (the HDMI show, hdmi.mjs) holds the camera now, or ''.
+// `side()` a second output for each start, or null (screen-camera.mjs's, so the OLED shows the camera too).
 export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy = () => false, held = () => '',
-  find = findCamera, start = startCamera, WS = globalThis.WebSocket, idleMs = CAM_IDLE_MS,
+  side = () => null, find = findCamera, start = startCamera, WS = globalThis.WebSocket, idleMs = CAM_IDLE_MS,
   size = {}, now = () => Date.now() } = {}) {
   if (!key) {
     log('camera: BOARD_CAM_KEY is not set, so the camera room is not joined and the camera never starts');
@@ -350,7 +365,7 @@ export function createCameraRoom({ relay, room, key, log = () => {}, encoderBusy
       return;
     }
     seq = 0; sent = 0; skipping = false;
-    const r = start(found, { ...size, onFrame: sendFrame, onLog: (l) => log(`camera: ${l}`),
+    const r = start(found, { ...size, side: side(), onFrame: sendFrame, onLog: (l) => log(`camera: ${l}`),
       onExit: (why) => { if (!cam) return; log(`camera: ${why}`); const st = cam.stats(); cam = null; shape = null; clearInterval(tick); tick = null; say({ type: 'cam.stopped', why, ...st }); } });
     if (!r.ok) { log(`camera: ${r.reason}`); say({ type: 'cam.refused', why: r.reason }); return; }
     cam = r;

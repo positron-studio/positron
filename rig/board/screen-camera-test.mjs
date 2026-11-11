@@ -46,4 +46,38 @@ procs[1].emit('exit', null, 'SIGKILL'); ok(/taken/.test(sent.at(-1).why) && !sc.
 hear({ type: 'screen.camera', on: true, from: 'tab2' }); hear({ type: 'screen.camera', on: false, from: 'tab2' });
 ok(procs[2].killed.includes('SIGTERM'), 'stop on on:false');
 ok(createScreenCamera({ key: '' }).enabled === false, 'no key, nothing joined');
+
+// The tap: camera.mjs's ffmpeg feeds the OLED while the H.264 runs. Negative control: no screen.frame with no renewing viewer.
+{
+  const n0 = drawn.length, f0 = sent.filter((m) => m.type === 'screen.frame').length;
+  const frameCount = () => sent.filter((m) => m.type === 'screen.frame').length;
+  let side = sc.side();
+  ok(side.args.join(' ').startsWith('-vf fps=24,crop=iw:iw/2,scale=128:64') && side.args.includes('rawvideo'), 'tap: the same crop and scale, as a second output');
+  ok(!sc.running(), 'tap: not running before the encoder starts');
+  side.start();
+  ok(sc.running(), 'tap: running() is true while the H.264 camera feeds the OLED, so the Palm and grid rules hold');
+  side.onData(g.subarray(0, 3000)); side.onData(Buffer.concat([g.subarray(3000), g]));
+  ok(drawn.length === n0 + 2 && drawn.at(-1).length === 1024, 'tap: two grey frames dithered onto the panel');
+  ok(frameCount() === f0, 'NEGATIVE CONTROL tap: no viewer asked for the dither, so no screen.frame goes to the room');
+  busy = true; hear({ type: 'screen.camera', on: true, from: 'tab3' });
+  ok(procs.length === 3 && sent.at(-1).type === 'screen.camera.started' && /H\.264/.test(sent.at(-1).source), 'tap: a dither viewer gets started, and no second capture opens the camera');
+  side.onData(g);
+  ok(frameCount() === f0 + 1, 'tap: with a renewing viewer, the frame goes to the room too');
+  hear({ type: 'screen.camera', on: false, from: 'tab3' });
+  side.end('the camera stopped');
+  ok(!sc.running() && drawn.at(-1) === 'camera off', 'tap: the H.264 camera stops, running() is false and the screen says camera off');
+  side.onData(g);
+  ok(drawn.at(-1) === 'camera off', 'tap: a late chunk after the end is not drawn');
+  // A viewer still renewing when the H.264 stops: the screen's own capture opens the camera again after REOPEN_MS.
+  busy = false; hear({ type: 'screen.camera', on: true, from: 'tab4' });
+  const own = procs.at(-1);
+  busy = true; side = sc.side(); side.start();
+  ok(own.killed.includes('SIGKILL') && sc.running() && sc.status().tap, 'tap: the screen\'s own capture, already swept, is let go quietly and the tap takes over');
+  own.emit('exit', null, 'SIGKILL');
+  ok(!/taken/.test(sent.at(-1).why || ''), 'tap: and its exit is not reported as the camera taken');
+  const before = procs.length;
+  busy = false; side.end('the camera stopped');
+  await new Promise((r) => setTimeout(r, 1300));
+  ok(procs.length === before + 1 && sc.running(), 'tap: after the H.264 stops, the screen\'s own capture comes back for the renewing viewer');
+}
 sc.stop(); process.exit();

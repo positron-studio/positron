@@ -1468,6 +1468,8 @@ sweepStrayEncoders((l) => log('video:', l));
 const camera = (DRY || ONCE) ? null : createCameraRoom({
   relay: RELAY, room: `${ROOM}-cam`, key: process.env.BOARD_CAM_KEY || '',
   log: (l) => log(l), encoderBusy: () => !!video,
+  // a second ffmpeg output for the OLED, so the dithered camera shows there while the H.264 runs
+  side: () => screenCam?.side?.() ?? null,
   held: () => (hdmi.showing() === 'camera' ? 'the camera is on the Pi\'s HDMI screen (/devices/hdmi/), so it waits until hdmi.stop' : ''),
   size: {
     w: Math.min(Number(process.env.BOARD_CAM_W) || 1280, 1920),
@@ -1476,7 +1478,8 @@ const camera = (DRY || ONCE) ? null : createCameraRoom({
     bitrate: Math.min(Number(process.env.BOARD_CAM_BITRATE) || 1_500_000, 4_000_000),
   },
 });
-// The camera on the OLED (/devices/camera/), keyed in the same `<room>-cam` and never while the H.264 picture runs.
+// The camera on the OLED (/devices/camera/), keyed in the same `<room>-cam`. Its own capture never runs beside the
+// H.264 picture; then its frames come from camera.mjs's ffmpeg, and running() covers both.
 // why: lessons/rig-board-panel.md#screen-camera
 const screenCam = (DRY || ONCE) ? null : createScreenCamera({
   relay: RELAY, room: `${ROOM}-cam`, key: process.env.BOARD_CAM_KEY || '',

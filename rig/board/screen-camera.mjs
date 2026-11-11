@@ -13,10 +13,18 @@ export const LEASE_MS = 15_000;
 /** Frames a second asked of ffmpeg: a native C925e rate (no 25), and 41.7 ms against the panel's 35 ms a frame. */
 export const SCREEN_FPS = 24;
 const GRAY_BYTES = W * H;
+const GRAY_FILTER = `crop=iw:iw/2,scale=${W}:${H}:flags=area,format=gray`;
+/** After camera.mjs's encoder stops, this long before the screen's own capture opens the device again. */
+const REOPEN_MS = 1200;
+
+/** Output arguments for camera.mjs's second ffmpeg output: the same crop and scale from any camera size. */
+export function grayOutputArgs(fps = SCREEN_FPS) {
+  return ['-vf', `fps=${fps},${GRAY_FILTER}`, '-f', 'rawvideo', '-pix_fmt', 'gray'];
+}
 
 /** ffmpeg arguments: the camera at 320x240, a centred 2:1 crop, area scaled to 128x64, grey bytes on stdout. */
 export function screenCameraCommand(cam, { fps = SCREEN_FPS } = {}) {
-  const out = ['-vf', `crop=iw:iw/2,scale=${W}:${H}:flags=area,format=gray`, '-r', String(fps),
+  const out = ['-vf', GRAY_FILTER, '-r', String(fps),
     '-f', 'rawvideo', '-pix_fmt', 'gray', '-'];
   if (cam.kind === 'usb') {
     return ['ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'v4l2', '-video_size', '320x240',
@@ -43,6 +51,7 @@ export function createFrameCutter(size, onFrame) {
  * The board's side: joins `<room>-cam` with the key, runs the capture while some keyed viewer
  * renews `screen.camera { on: true }`, and draws every frame on the panel.
  * `panel()` the open panel or null; `cameraBusy()` true while camera.mjs streams the H.264 picture.
+ * While it does, `side()` feeds the panel from that ffmpeg's second output instead (the tap).
  */
 export function createScreenCamera({ relay, room, key, log = () => {}, panel = () => null, cameraBusy = () => false, held = () => '',
   find = findCamera, spawnImpl = spawn, WS = globalThis.WebSocket, leaseMs = LEASE_MS, now = () => Date.now() } = {}) {
@@ -53,6 +62,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
   let local = false;
   let ws = null, authed = false, closed = false, backoff = 1000;
   let proc = null, stopping = false, frames = 0, sent = 0, startedAt = 0, source = '';
+  let tap = false;               // frames come from camera.mjs's ffmpeg, beside its H.264
   const recent = [];             // frame times in the last two seconds, for the measured rate
 
   const say = (m) => { if (ws?.readyState === 1 && authed) ws.send(JSON.stringify({ ...m, from: FROM })); };
@@ -68,8 +78,8 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
     frames++; recent.push(now());
     const p = panel();
     if (p?.frame) p.frame(fb);
-    // The same 1024 bytes the panel was handed, so the page's screen is the Pi's.
-    if (ws?.readyState === 1 && authed && ws.bufferedAmount < 256 * 1024) {
+    // The same 1024 bytes the panel was handed, so the page's screen is the Pi's; from the tap only to a renewing viewer.
+    if ((!tap || viewers.size) && ws?.readyState === 1 && authed && ws.bufferedAmount < 256 * 1024) {
       say({ type: 'screen.frame', n: frames, fps: fps(), b64: Buffer.from(fb).toString('base64') });
       sent++;
     }
@@ -87,8 +97,31 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
     if (pn?.status?.().mode === 'raw') pn.text('camera off');
   }
 
+  const sayStarted = () => say({ type: 'screen.camera.started', ok: true, source, w: W, h: H, fps: SCREEN_FPS, screen: !!panel() });
+
+  function tapStart() {
+    // camera.mjs swept the screen's own ffmpeg just before; forget it quietly, the OLED goes on.
+    if (proc) { stopping = true; const p = proc; proc = null; try { p.kill('SIGKILL'); } catch { /* gone */ } }
+    tap = true; frames = 0; sent = 0; startedAt = now(); source = 'the H.264 camera';
+    log('screen camera: the OLED shows the H.264 camera, from its ffmpeg\'s grey output');
+    if (viewers.size) sayStarted();
+  }
+
+  function tapEnd(why) {
+    if (!tap) return;
+    tap = false;
+    log(`screen camera: the H.264 camera stopped (${why}), after ${frames} frames on the OLED`);
+    if (viewers.size || local) {
+      setTimeout(() => { if (!closed && !proc && !tap && (viewers.size || local)) begin(); }, REOPEN_MS).unref?.();
+      return;
+    }
+    const pn = panel();
+    if (pn?.status?.().mode === 'raw') pn.text('camera off');
+  }
+
   function begin() {
     if (proc) return;
+    if (tap) { sayStarted(); return; }
     const h = held();
     if (h) { say({ type: 'screen.camera.refused', why: h }); return; }
     if (cameraBusy()) { say({ type: 'screen.camera.refused', why: 'the camera is streaming its picture to /remote/circuit/, so the screen waits' }); return; }
@@ -115,7 +148,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
       say({ type: 'screen.camera.stopped', why, frames });
     });
     log(`screen camera: up, ${source}, ${W}x${H} one bit at ${SCREEN_FPS} fps`);
-    say({ type: 'screen.camera.started', ok: true, source, w: W, h: H, fps: SCREEN_FPS, screen: !!panel() });
+    sayStarted();
   }
 
   function heard(m) {
@@ -128,7 +161,7 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
     const isNew = !viewers.has(m.from);
     viewers.set(m.from, now());
     if (!proc) begin();
-    else if (isNew) say({ type: 'screen.camera.started', ok: true, source, w: W, h: H, fps: SCREEN_FPS, screen: !!panel() });
+    else if (isNew) sayStarted();
   }
 
   const prune = setInterval(() => {
@@ -163,15 +196,20 @@ export function createScreenCamera({ relay, room, key, log = () => {}, panel = (
 
   return {
     enabled: true,
-    running: () => !!proc,
-    status: () => ({ enabled: true, joined: authed, running: !!proc, viewers: viewers.size, frames, sent, fps: fps(),
-      upMs: proc ? now() - startedAt : 0, source }),
+    running: () => !!proc || tap,
+    status: () => ({ enabled: true, joined: authed, running: !!proc || tap, tap, viewers: viewers.size, frames, sent, fps: fps(),
+      upMs: proc || tap ? now() - startedAt : 0, source }),
+    /** A second output for camera.mjs's ffmpeg, fresh for each start: its grey frames go to the panel. */
+    side() {
+      const cut = createFrameCutter(GRAY_BYTES, (g) => { if (tap) onGray(g); });
+      return { args: grayOutputArgs(), onData: cut, start: tapStart, end: tapEnd };
+    },
     /** The board's own hold, `on` or off: the dithered camera on the OLED with no viewer renewing. */
     hold(on) {
       local = !!on;
       if (local) begin();
       else if (!viewers.size) end('the HDMI screen let it go');
-      return !!proc;
+      return !!proc || tap;
     },
     stop() { closed = true; clearInterval(prune); end('the board is stopping'); try { ws?.close(); } catch { /* gone */ } },
   };
