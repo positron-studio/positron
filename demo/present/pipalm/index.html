@@ -24,7 +24,9 @@
   import { voices } from '/drums/voices.mjs';
   import { createPresentLayout } from '/shell/present-layout.mjs';
   import { createKnob } from '/shell/knob.mjs';
+  import { createPadGrid } from '/shell/pad.mjs';
   import { PATCHES as PLAITS } from '/shell/plaits-params.mjs';
+  import { createPresentCamera } from '/shell/present-camera.mjs';
   useMediumColours();
   document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
     // the screen fills the square stage at any size, pixelated, instead of a whole --pm-k scale
@@ -33,9 +35,9 @@
     + ' .pm-split > canvas { display: block; width: 100%; height: 100%; min-height: 0; image-rendering: pixelated; }'
     + ' .pm-split > canvas.palm-cv { touch-action: none; }'
     + ' .pm-foot-left, .pm-knobs { display: flex; gap: 12px; align-items: center; }'
-    // a phone: the knobs take a row of their own under the buttons, centred
-    + ' @media (max-width: 440px) { .pm-stage + .pos-vp-foot { grid-template-columns: 1fr auto; }'
-    + ' .pm-stage + .pos-vp-foot > .pos-vp-c { grid-row: 2; grid-column: 1 / -1; justify-self: center; } }'
+    // the pads under the title: a row of their own, eight squares sharing its width
+    + ' .prl-acts > .pos-padgrid { flex-basis: 100%; max-width: 30em; overflow: visible; gap: 8px; grid-template-columns: repeat(var(--pad-cols), minmax(0, 1fr)); }'
+    + ' .prl-acts .pos-pad-wrap { width: auto; } .prl-acts .pos-pad { width: 100%; height: auto; aspect-ratio: 1 / 1; }'
     // full screen: the largest square, so the pen's mapping stays true
     + ' .pos-vp[data-full] .pos-vp-stage.pm-stage { container-type: size; display: grid; place-items: center; }'
     + ' .pos-vp[data-full] .pm-split { width: min(100cqw, 100cqh); height: auto; }' }));
@@ -48,6 +50,8 @@
   const VOICES = voices({ more: true }).slice(0, PD.ROWS);
   // The board's capture halves the Pi's sound (two ports, one silent), as on /devices/circuit/.
   const LIFT = 2 * 0.9;
+  // the first slide's camera as this slide's ground, toggled in the header (present-camera.mjs)
+  const cam = createPresentCamera({ room: ROOM, log: (line, kind) => d.log(line, kind), page: 'web:ground', pageLabel: 'ground of this page', relay: `cf-relay:${ROOM}-cam` });
 
   // ── the grid and the sequencer's state, as the Palm keeps them ──
   const grid = PD.emptyGrid();
@@ -173,6 +177,16 @@
     pb.refresh();
   }
 
+  // ── the pads: one per drum, a plain sc.hit with no time, which the Pi plays on arrival ──
+  let padReady = null, padAt = 0, padHits = 0;
+  async function hitPad(r) {
+    padReady ||= (async () => (await reached()) && drumsOnPi())();
+    if (!await padReady) { padReady = null; return; }
+    board.send({ type: 'sc.hit', hits: [{ name: VOICES[r].name }] });
+    padAt = performance.now(); padHits++;
+    pb.refresh();
+  }
+
   // ── Plaits on the Pi (rig/board/plaits.mjs), played from a MIDI keyboard here, on its Growl drone patch ──
   const GROWL = PLAITS.find((p) => p.name === 'Growl drone');
   const DIALS = [['harmonics', 'harm'], ['timbre', 'timbre'], ['morph', 'morph']];
@@ -265,49 +279,59 @@
     palm.show(rgba);
     frames++;
   }
-  let prev = 0;
-  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; if (waveCols && t - waveAt > 1000) waveCols = null; draw(); } requestAnimationFrame(tick); })(0);
+  let prev = 0, lastStep = -1;
+  // a pad lights when it is hit, and when the Pi's sequencer plays its row
+  function lightSteps() {
+    const s = stepNow();
+    if (s === lastStep) return;
+    lastStep = s;
+    if (s >= 0) for (const [r] of VOICES.entries()) if (grid[r][s]) pads.at(r, 0).flash(120);
+  }
+  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; if (waveCols && t - waveAt > 1000) waveCols = null; draw(); lightSteps(); } requestAnimationFrame(tick); })(0);
 
   // ── the patch: this tab's Palm into the Pi's sequencer, its drums out of the PWM output and, on Listen, here;
-  // a MIDI keyboard and three knobs into Plaits on the Pi, beside the drums ──
+  // a MIDI keyboard and three knobs into Plaits on the Pi, beside the drums; the camera's two paths to the ground ──
   const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
   const NODES = [{ id: 'web:palm', kind: 'screen', label: 'Palm in this tab' }, { id: 'pi-1:sequencer', kind: 'engine', label: 'sequencer on the Pi' },
     { id: 'pi-1:drums', kind: 'engine', label: 'drums on the Pi' }, { id: 'pi-1:pwm', kind: 'device', label: 'PWM out' },
-    { id: 'web:midi', kind: 'device', label: 'MIDI keyboard' },
+    { id: 'web:midi', kind: 'device', label: 'MIDI keyboard' }, { id: 'web:pads', kind: 'person', label: 'drum pads' },
     ...DIALS.map(([name]) => ({ id: `web:knob-${name}`, kind: 'person', label: name })),
     { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
-    { id: 'web:speaker', kind: 'device', label: 'speaker' }];
+    { id: 'web:speaker', kind: 'device', label: 'speaker' }, ...cam.nodes];
   const PORTS = [port('web:palm', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
     port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in'),
-    port('web:midi', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
-    port('pi-1:plaits', 'midi', 'in'), port('pi-1:plaits', 'value', 'in'), port('pi-1:plaits', 'audio', 'out')];
+    port('web:midi', 'midi', 'out'), port('web:pads', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
+    port('pi-1:plaits', 'midi', 'in'), port('pi-1:plaits', 'value', 'in'), port('pi-1:plaits', 'audio', 'out'), ...cam.ports];
   const LINKS = () => [
     { id: 'a', from: 'web:palm:value-out', to: 'pi-1:sequencer:value-in' },
     { id: 'b', from: 'pi-1:sequencer:midi-out', to: 'pi-1:drums:midi-in' },
     { id: 'c', from: 'pi-1:drums:audio-out', to: 'pi-1:pwm:audio-in' },
+    { id: 'p', from: 'web:pads:midi-out', to: 'pi-1:drums:midi-in' },
     ...(listening ? [{ id: 'd', from: 'pi-1:drums:audio-out', to: 'web:speaker:audio-in' }] : []),
     { id: 'e', from: 'web:midi:midi-out', to: 'pi-1:plaits:midi-in' },
     ...DIALS.map(([name]) => ({ id: `k-${name}`, from: `web:knob-${name}:value-out`, to: 'pi-1:plaits:value-in' })),
     { id: 'f', from: 'pi-1:plaits:audio-out', to: 'pi-1:pwm:audio-in' },
     ...(listening ? [{ id: 'g', from: 'pi-1:plaits:audio-out', to: 'web:speaker:audio-in' }] : []),
+    ...cam.links,
   ];
-  const FLOW = { a: () => performance.now() - editAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, f: () => held.size > 0, g: () => held.size > 0 };
+  const FLOW = { a: () => performance.now() - editAt < 400, p: () => performance.now() - padAt < 400, c: () => seq.running || performance.now() - padAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, f: () => held.size > 0, g: () => held.size > 0 };
   const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
-    { flowing: (l) => (FLOW[l.id] ? FLOW[l.id]() : l.id.startsWith('k-') ? plaitsUp && performance.now() - turnedAt < 400 : seq.running) });
+    { room: ROOM, flowing: (l) => cam.flows(l.id) ?? (FLOW[l.id] ? FLOW[l.id]() : l.id.startsWith('k-') ? plaitsUp && performance.now() - turnedAt < 400 : seq.running) });
 
-  // the presentation copy: play and Listen in the screen's footer, since the layout's top bar holds How it works and the arrows
+  // play, Listen and the latch sit under the title with the pads and the knobs (the layout's actions)
   const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
   function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
-  // one style in the footer: two icon buttons, play or stop the sequencer, listen here or stop
   const buttons = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
   const split = el('div', 'pm-split');
   split.append(palm.el);
   const panel = createVideoPanel({ media: split, left: null, aspect: '1 / 1', fullMode: 'footer' });
   panel.stage.classList.add('pm-stage');
-  const footLeft = el('div', 'pm-foot-left');
+  const btnRow = el('div', 'pm-foot-left');
   const latchBtn = createButtonGroup({ buttons: [{ id: 'latch', icon: 'unlock', label: 'latch off', onPress: () => setLatch(!latch) }] });
-  footLeft.append(top.el, buttons.el, latchBtn.el);
-  panel.slots.left.append(footLeft);
+  btnRow.append(top.el, buttons.el, latchBtn.el);
+  // one momentary pad per drum, named as the Palm's grid names its rows
+  const pads = createPadGrid({ cols: VOICES.length, pad: (x) => ({ top: PD.SHORT[VOICES[x].key] || VOICES[x].key.slice(0, 2).toUpperCase(),
+    title: VOICES[x].name, latch: false, small: true }), onPress: (on, x) => hitPad(x) });
   // the three knobs, large, under the words (the layout's actions), each with its invisible hand
   const dials = el('div', 'pm-knobs');
   dials.append(...[...knobs.values()].map((k) => k.el));
@@ -315,9 +339,9 @@
   // ── the presentation layout (present-layout.mjs); extra is the footer's height, measured below on every resize ──
   const FOOT_PX = 105;
   const lay = createPresentLayout({
-    title: 'Pi + Palm', sub: 'The Palm\'s drum grid in a tab, over the Pi\'s sound. Draw steps for the drums and play Plaits beside them from a MIDI keyboard.',
-    desc: "web:palm sends the grid through Cloudflare's relay room studio-1 to pi-1:sequencer, which plays pi-1:drums. A MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The wave is Plaits alone, sent by the Palm's bridge.",
-    main: panel.el, aspect: '1 / 1', extra: `${FOOT_PX}px`, patch: pb.el, actions: [dials],
+    title: 'Pi + Palm',
+    desc: "The grid and the pads drive pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The camera comes through studio-1-cam, and the wave is Plaits alone, from the Palm's bridge.",
+    main: panel.el, aspect: '1 / 1', extra: `${FOOT_PX}px`, tools: [cam.el], patch: pb.el, actions: [btnRow, pads.el, dials],
     onHow: (on) => { if (on) pb.refresh(); },
   });
   // the knobs make the footer taller than a button row, and how much depends on the face; read, never typed
@@ -329,7 +353,7 @@
 
   window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
     on: grid.flat().filter(Boolean).length, plaitsUp, held: held.size, midiIns, dials: Object.fromEntries(DIALS.map(([n]) => [n, dial(n)])),
-    links: LINKS().length, board: !!board });
+    links: LINKS().length, board: !!board, padHits, cam: cam.probe() });
   d.ready();
 </script>
 </html>
