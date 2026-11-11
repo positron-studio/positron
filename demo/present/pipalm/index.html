@@ -206,10 +206,25 @@
     return plaitsStarting;
   }
   // a MIDI keyboard on this computer (Web MIDI, asked on the first press): its notes go to Plaits on the Pi
+  // the latch: a key pressed while it is on is handed to the Palm's bridge on the Pi, which plays and holds it,
+  // so it sounds on after the key, and after this page; the same key again lets it go
+  let latch = false;
+  const latched = new Set();
+  function setLatch(on) {
+    latch = on;
+    latchBtn.setIcon('latch', on ? 'lock' : 'unlock', on ? 'latch on: released keys keep sounding' : 'latch off');
+    if (!on && latched.size && connected) { board.send({ type: 'palm.release' }); latched.clear(); }
+  }
   function midiIn(e) {
     const [st, d1, d2] = e.data, hi = st & 0xf0;
     if (!plaitsUp || !connected || (hi !== 0x90 && hi !== 0x80)) return;
     midiAt = performance.now();
+    if (latch) {
+      if (hi !== 0x90 || !d2) return;
+      if (latched.delete(d1)) board.send({ type: 'palm.release', note: d1 });
+      else { latched.add(d1); board.send({ type: 'palm.hold', note: d1, vel: d2 }); }
+      return;
+    }
     if (hi === 0x90 && d2) { held.add(d1); board.send({ type: 'note.on', node: 'plaits', note: d1, vel: d2 }); }
     else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); }
   }
@@ -290,7 +305,8 @@
   const panel = createVideoPanel({ media: split, left: null, aspect: '1 / 1', fullMode: 'footer' });
   panel.stage.classList.add('pm-stage');
   const footLeft = el('div', 'pm-foot-left');
-  footLeft.append(top.el, buttons.el);
+  const latchBtn = createButtonGroup({ buttons: [{ id: 'latch', icon: 'unlock', label: 'latch off', onPress: () => setLatch(!latch) }] });
+  footLeft.append(top.el, buttons.el, latchBtn.el);
   panel.slots.left.append(footLeft);
   // the three knobs, large, under the words (the layout's actions), each with its invisible hand
   const dials = el('div', 'pm-knobs');

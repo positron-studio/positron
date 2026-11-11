@@ -186,6 +186,20 @@ function join(room, onMsg) {
   connect();
   return st;
 }
+const latched = new Set();
+function holdNote(note, vel) {
+  if (!(note >= 0 && note <= 127)) return;
+  latched.add(note);
+  sendTo(ROOM, { type: 'note.on', node: 'plaits', note, vel: vel > 0 && vel <= 127 ? vel : 100 });
+  log(`latch: holding ${nameOf(note)} on Plaits (${latched.size} held)`);
+}
+function releaseHeld(note) {
+  for (const n of note == null ? [...latched] : [note]) {
+    if (!latched.delete(n)) continue;
+    sendTo(ROOM, { type: 'note.off', node: 'plaits', note: n });
+  }
+  log(`latch: ${note == null ? 'released all' : `released ${nameOf(note)}`} (${latched.size} held)`);
+}
 function sendTo(room, msg) {
   const st = sockets[room];
   if (!st?.open) return false;
@@ -207,6 +221,10 @@ if (!DEMO) {
     else if (m.type === 'seq.state') { answered(m); if (VIEW === 'drums') onSeqState(m); }
     else if (m.type === 'seq.pattern') { if (VIEW === 'drums' && m.pattern) { editAt = 0; adopt(m.pattern); } }
     else if (m.type === 'audio.started' || m.type === 'sc.loaded' || m.type === 'jack.linked') answered(m);
+    // the latch on /present/pipalm/: the bridge plays and holds these Plaits notes itself, so they outlive the page
+    // (the board quiet-releases a page's notes after 15 s; this process never goes quiet)
+    else if (m.type === 'palm.hold') holdNote(Number(m.note), Number(m.vel));
+    else if (m.type === 'palm.release') releaseHeld(m.note == null ? null : Number(m.note));
     else if (m.type === 'palm.cc') onCC(Number(m.cc), Number(m.v));
     else if (m.type === 'palm.bend') { vs.bend = Math.max(-1, Math.min(1, Number(m.v) / 8192 || 0)) * 200; }
     else if (m.type === 'screen.note') { if (m.panic) panic(); else if (m.on) noteOn(`screen:${m.from}`, 1, Number(m.n), 100); else noteOff(`screen:${m.from}`, 1, Number(m.n)); }
