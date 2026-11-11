@@ -8,7 +8,7 @@ import { createButtonGroup } from './button-group.mjs';
 import { createPresentKeys } from './present-keys.mjs';
 
 /** The presentation, in order: the arrows and the arrow keys walk it, round again at the ends. */
-export const PAGES = ['/present/studio/', '/present/typist/', '/present/typists/', '/present/okgo/', '/present/newsreels/', '/present/floor/', '/present/radio/', '/huddersfield/'];
+export const PAGES = ['/present/studio/', '/present/typist/', '/present/typists/', '/present/okgo/', '/present/newsreels/', '/present/floor/', '/present/radio/', '/present/huddersfield/'];
 
 const CSS = `
   :root { --pr-m: clamp(16px, 4vw, 48px); }
