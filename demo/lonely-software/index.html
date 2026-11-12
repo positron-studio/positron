@@ -43,15 +43,15 @@
 
   const PICTURES = {
     node: {
-      bay: patch([{ id: ME, kind: 'person', label: 'node' }], mine('value'), []),
+      bay: patch([{ id: ME, kind: 'person', label: '1' }], mine('value'), []),
     },
     loopback: {
-      bay: patch([{ id: ME, kind: 'person', label: 'node' }], mine('value'), [
+      bay: patch([{ id: ME, kind: 'person', label: '1' }], mine('value'), [
         { id: 'v', from: `${ME}:value-out`, to: `${ME}:value-in` },
       ]),
     },
     two: {
-      bay: patch([{ id: ME, kind: 'person', label: 'node' }, { id: YOU, kind: 'person', label: 'node2' }],
+      bay: patch([{ id: ME, kind: 'person', label: '1' }, { id: YOU, kind: 'person', label: '2' }],
         [...mine('value'), port(YOU, 'value', 'in'), port(YOU, 'value', 'out')], [
           { id: 'a', from: `${ME}:value-out`, to: `${YOU}:value-in` },
           { id: 'b', from: `${YOU}:value-out`, to: `${ME}:value-in` },
