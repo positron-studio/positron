@@ -16,8 +16,7 @@ Vibing Synth is not a sound synthesizer, not a headset product and not a shared 
 ## 2. How it is built, as far as is public
 
 - **The device itself:** no chip, OS, screen size, battery or price is published. Whether it makes any sound is not stated. "Synth patches" is the only hint, and every use case is visual. INFERRED: it is a visual synth that listens, and it does not generate audio.
-- **The engine it is built on**, the Agentic VJ System: inputs are "Live Audio Input", "Camera Input" and "User Prompt Input". It "runs fully on-device with extremely low latency" (no number given), drives stage lights over DMX, and is customised "using ComfyUI with our open-source custom nodes". READ, [vrch.io/aivj](https://www.vrch.io/aivj). A demo video is titled "real-time audio-to-diffusion visuals on local GPU + MIDI control". READ, [YouTube](https://www.youtube.com/watch?v=PJtupyq1R6g). Its SIGGRAPH Asia 2025 Real-Time Live entry, as quoted by a search engine summary, describes "a browser-based, low-latency pipeline and custom built modular hardware" with Full Auto, Semi-Auto and Manual modes ([SA2025 program](https://sa2025.conference-schedule.org/search-program/), [ACM proceedings](https://dl.acm.org/doi/proceedings/10.1145/3757375)). I could not open the abstract itself.
-- **The open part:** [VrchStudio/comfyui-web-viewer](https://github.com/VrchStudio/comfyui-web-viewer), **MIT**, **358 stars**, created 2024-10-12, last push 2026-08-07 (READ, GitHub API). Its nodes cover keyboard, OSC, gamepad, MIDI, an audio BPM detector, a "Music to Emotion" detector and a frequency band analyser ([audio_nodes.md](https://github.com/VrchStudio/comfyui-web-viewer/blob/main/docs/audio_nodes.md)), plus TensorRT loaders. Frames reach the viewer as **JPEG (default) or PNG over WebSocket**, on default port **8001**, at a default **1280x960** window ([websocket_nodes.md](https://github.com/VrchStudio/comfyui-web-viewer/blob/main/docs/websocket_nodes.md)).
+- **The bigger system it came from**, the Agentic VJ System, turns music into prompts for a diffusion image model on a backpack GPU computer. That half (music analysis, a local Qwen-family model writing prompts, ComfyUI, frames over WebSocket) moved on 2026-11-14 to Visualia: `~/personal/visualia/research/music-to-prompt.md`. What matters here: it sends pixels, and the pocket box below does not.
 - **Sound synthesis, sharing, latency:** none published. **Pricing:** none.
 
 ## 3. What it does that positron does not, and what positron already does
@@ -67,7 +66,7 @@ The main source is the GitHub org, [VrchStudio](https://github.com/VrchStudio), 
 
   Pi or Rockchip class is plausible; Jetson is unlikely (no CUDA anywhere).
 - **It renders locally, and it is not a diffusion box.** Pictures are WebGL2 fragment shaders drawn on the device's own GPU ([vrch-visuals](https://github.com/VrchStudio/vrch-visuals)). Body, hand and face tracking run on the device as MediaPipe in WebAssembly (READ, app trees). Anything heavy is sent to a computer. The VibeLive Synth app is "A Stable Audio loop synth: your MacBook renders, this device plays", over WebSocket channel 7, JSON (READ, [its app.json](https://github.com/VrchStudio/vrch-apps/blob/main/apps/vibelive-synth/src/app.json)). INFERRED: the Mac side is ComfyUI, whose viewer uses channels 1 to 8.
-- **The big system is different.** The Agentic VJ System is a backpack computer with an RTX 4080-class GPU running diffusion. A local Qwen-family model turns the audio analysis into prompts. READ, [YouTube description, 2026-01-05](https://www.youtube.com/watch?v=PJtupyq1R6g).
+- **The big system is different**: a backpack GPU computer turning music into image prompts, now in Visualia's `research/music-to-prompt.md`.
 
 ### 2. What the agent writes
 
@@ -102,3 +101,8 @@ heavy models (off the box): a Mac over WebSocket (Stable Audio, ComfyUI INFERRED
 ```
 
 **Still unknown.** The SoC and GPU, RAM, the OS image and the screen size. The device-side SDK and the Player, which live in a "Pages" repo that is not public. The latency from audio to picture. Price and ship date. How the four `simple_parameters` reach the encoders.
+
+## Two things for positron's own model
+
+- **Their binding is close to a patchbay link.** A vrch binding carries a source signal, a target parameter, `operator`, `depth`, an input range, a `curve`, `attack_ms` and `release_ms` (READ, [audio-mapping-v2.json](https://github.com/VrchStudio/vrch-visuals/blob/main/catalog/audio-mapping-v2.json)). positron's links (`demo/shell/bay.mjs`) join a port to a port by medium. INFERRED: a value link that also carries depth, curve and attack and release would let a page say how a knob or an envelope moves a uniform, in the bay's own data, instead of in each page's code. Idea 3 above is where it would be tried.
+- **Their agent drives the device over MCP.** The user's own model gets 30 tools: read the SDK, write files with a conflict check, publish, screenshot, press controls (READ, [vrch-mcp](https://github.com/VrchStudio/vrch-mcp)). Compare [research/webmcp-2026-10-14.md](webmcp-2026-10-14.md): positron pages already publish `window.__demo` for harnesses, which is most of what such tools would need. INFERRED, not tried.
