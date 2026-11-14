@@ -35,7 +35,9 @@ export function openDecoder(item, { ffmpeg = process.env.FFMPEG || 'ffmpeg', log
       if (p.stdout.isPaused() && have < (MAX_S / 2) * BYTES_PER_S) p.stdout.resume();
       return out;
     },
-    close() { closed = true; if (!exited) p.kill('SIGKILL'); },
+    // a paused stdout never ends, so its pipe would stay open and keep these chunks for ever: destroy both pipes too.
+    // why: lessons/workers-cast.md#decoder-close
+    close() { closed = true; chunks.length = 0; have = 0; tail = Buffer.alloc(0); p.stdout.destroy(); p.stderr.destroy(); if (!exited) p.kill('SIGKILL'); },
   };
   p.stdout.on('data', (b) => {
     if (tail.length) b = Buffer.concat([tail, b]);

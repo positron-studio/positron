@@ -906,3 +906,12 @@ where one call was measured stalling the write loop 350 ms. The alarm (30 s) and
 the encoder and the JACK chain share. MEASURED 2026-10-23 on radio1965 by the session's status monitor: at 09:05:46
 four probes started together (one a 622 s recording) and xruns went 10 to 18 with 1.76 s of sound lost by 09:06:40.
 Now one probe at a time under `nice -n 19`, so the sound chain is never the one that waits.
+
+## workers/cast/container/decode.mjs, close() {#decoder-close}
+
+Found 2026-11-14 through v2in, whose Waves engine runs this file: a decoder pauses ffmpeg's stdout once it holds
+MAX_S (8 s) of audio, and close() killed ffmpeg but left the paused pipe. A paused pipe never ends, so Node kept its
+handle, the data listener and the chunks for good, about 2.7 MB a closed decoder. On v2in that was 5 an hour and Waves
+grew from 123 MB to 2.3 GB over five days until the 4 GB server ran out of memory (2026-11-13, 18:11 to 20:26 UTC, nothing
+answered, not even ssh). Heap snapshots an hour apart showed 5 then 10 decoder contexts holding 13.1 then 27.1 MB.
+MEASURED locally: six full decoders closed and collected kept 17.0 MB before the fix, 0.1 MB after.
