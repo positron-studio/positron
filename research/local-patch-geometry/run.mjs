@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { WISHES } from './wishes.mjs';
 import { KINDS, parseJson, stripFences, sdfStatic } from './kinds.mjs';
 import { openGpu } from './gpu.mjs';
+import './points.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const via = arg('via', 'ollama');
@@ -66,8 +67,13 @@ async function check(kind, text) {
     const p = parseJson(text);
     if (p.err) return { error: p.err };
     const e = K.validate(p.j);
-    return e.length ? { error: e.slice(0, 6).join('; '), errors: e } : { ok: true, value: p.j };
+    if (e.length) return { error: e.slice(0, 6).join('; '), errors: e };
+    if (!K.compile) return { ok: true, value: p.j };
+    // sdf-tree: the device compiles the tree to GLSL and the same grid check applies
+    const r = await gpu.checkSdf(K.compile(p.j));
+    return r.ok ? { ok: true, value: p.j, stats: r.stats } : { error: r.error.replace(/ \(check divisions, sqrt and pow of negatives\)/, ''), stats: r.stats };
   }
+  if (K.check) return K.check(gpu, stripFences(text));
   const code = stripFences(text);
   const s = sdfStatic(code);
   if (s.length) return { error: s.join('; ') };
@@ -77,7 +83,7 @@ async function check(kind, text) {
 
 try {
   for (const kind of kinds) {
-    const list = WISHES[kind];
+    const list = WISHES[KINDS[kind].wishes || kind];
     const from = Number(arg('from', 0)), to = Number(arg('to', list.length));
     for (let i = from; i < to; i++) {
       if (done.has(`${kind}:${i}`)) continue;

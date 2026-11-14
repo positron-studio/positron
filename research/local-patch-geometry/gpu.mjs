@@ -147,13 +147,14 @@ window.renderScene = (j, inst) => {
   return c.toDataURL('image/png');
 };
 
-window.renderL = (s, angle) => {
+window.renderL = (s, angle, taper) => {
+  const tp = taper || 1; let len = 1;
   const W = 512; const c = document.createElement('canvas'); c.width = W; c.height = W; const g = c.getContext('2d');
   let x = 0, y = 0, a = Math.PI / 2; const st = []; const seg = []; const da = angle * Math.PI / 180;
   for (const ch of s) {
-    if (ch === 'F' || ch === 'G') { const nx = x + Math.cos(a), ny = y + Math.sin(a); seg.push(x, y, nx, ny); x = nx; y = ny; }
+    if (ch === 'F' || ch === 'G') { const nx = x + Math.cos(a) * len, ny = y + Math.sin(a) * len; seg.push(x, y, nx, ny); x = nx; y = ny; }
     else if (ch === '+') a += da; else if (ch === '-') a -= da;
-    else if (ch === '[') st.push([x, y, a]); else if (ch === ']') [x, y, a] = st.pop();
+    else if (ch === '[') { st.push([x, y, a, len]); len *= tp; } else if (ch === ']') [x, y, a, len] = st.pop();
   }
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (let i = 0; i < seg.length; i += 2) { x0 = Math.min(x0, seg[i]); x1 = Math.max(x1, seg[i]); y0 = Math.min(y0, seg[i + 1]); y1 = Math.max(y1, seg[i + 1]); }
@@ -199,7 +200,7 @@ export async function openGpu() {
     checkSdf: (code) => evalJs(`checkSdf(${JSON.stringify(code)})`),
     renderSdf: async (code, w = 320, a = 0.7) => { const r = await evalJs(`renderSdf(${JSON.stringify(code)}, ${w}, ${a})`); return r.png ? png(r.png) : null; },
     renderScene: async (j, inst) => png(await evalJs(`renderScene(${JSON.stringify(j)}, ${JSON.stringify(inst)})`)),
-    renderL: async (s, angle) => { const r = await evalJs(`renderL(${JSON.stringify(s)}, ${angle})`); return { png: png(r.png), segments: r.segments }; },
+    renderL: async (s, angle, taper = 1) => { const r = await evalJs(`renderL(${JSON.stringify(s)}, ${angle}, ${taper})`); return { png: png(r.png), segments: r.segments }; },
     evalJs,
     close: () => { try { ws.close(); } catch {} kill(); },
   };

@@ -90,3 +90,27 @@ export const WISHES = {
     'a skull-like shape: a big rounded head with two eye holes and a jaw',
   ],
 };
+
+// The points kind (second run, 2026-11-14 evening): animated dotted planes and point clouds. Easy first.
+WISHES.points = [
+  'a dotted plane that ripples outward on every kick',
+  'a slow galaxy of a hundred thousand stars',
+  'a sphere of points breathing with the bass',
+  'rain falling through the room',
+  'a wave of dots rolling toward you',
+  'a torus of light twisting',
+  'a flat grid of dots on the floor, still except for a gentle wave',
+  'a spiral of points slowly rotating',
+  'a cube of points, ten by ten by ten, that jitters on the high hats',
+  'snow drifting slowly down',
+  'fireflies wandering in the dark',
+  'a ring of points that pulses on every beat',
+  'a figure eight of points tracing itself',
+  'a tornado: a column of points spinning, wider at the top',
+  'a fountain of points shooting up and falling back',
+  'two interlocking rings of points',
+  'a dome of stars above you, twinkling with the high hats',
+  'a carpet of dots that rises into hills when the music is loud',
+  'a double helix of points, like DNA, turning slowly',
+  'an explosion of points outward on each onset that gathers back in between',
+];

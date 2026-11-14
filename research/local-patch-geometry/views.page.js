@@ -61,13 +61,14 @@ const PART = (() => {
   g.linkProgram(p); const u = {}; for (const k of ['T', 'H', 'D', 'S', 'N']) u[k] = g.getUniformLocation(p, k); return { p, u };
 })();
 const COMP = prog(QVS, HEAD + [
-  'uniform sampler2D scn, prev; uniform float T, FB, MIR, DISP, onMir, onDisp, onFb, onBloom, onTrails, onNoise;',
+  'uniform sampler2D scn, prev; uniform float T, FB, MIR, DISP, onMir, onDisp, onFb, onBloom, onTrails, onNoise, SAT, VAL;',
   'void main(){',
   '  vec2 p = uv * 2.0 - 1.0;',
   '  if (onMir > 0.5) { float a = atan(p.y, p.x), r = length(p); float seg = 6.2831853 / MIR; a = mod(a, seg); a = min(a, seg - a); p = r * vec2(cos(a), sin(a)); }',
   '  if (onDisp > 0.5) p += DISP * 0.06 * (vec2(vn(p * 4.0 + T), vn(p * 4.0 - T + 7.0)) - 0.5) * 2.0;',
   '  vec2 q = p * 0.5 + 0.5; vec3 c = texture(scn, q).rgb;',
   '  if (onBloom > 0.5) { vec3 b = vec3(0); for (int i = 0; i < 8; i++) { float a = float(i) * 0.785; b += texture(scn, q + vec2(cos(a), sin(a)) * 0.025).rgb; } c += max(b / 8.0 - 0.25, 0.0) * 1.5; }',
+  '  if (SAT >= 0.0) { float m = max(c.r, max(c.g, c.b)); c = mix(vec3(m), c, SAT) * (VAL / 0.75); }', // before feedback, so the gain does not compound
   '  if (onFb > 0.5) c = max(c, texture(prev, (uv - 0.5) * 0.97 + 0.5).rgb * FB);',
   '  if (onTrails > 0.5) c = max(c, texture(prev, uv).rgb * 0.9);',
   '  if (onNoise > 0.5) c += (h21(uv * 500.0 + T) - 0.5) * 0.18;',
@@ -130,7 +131,7 @@ window.playPatch = (j, label) => {
     const set = (k, v) => g.uniform1f(COMP.u[k], v);
     set('T', t); set('FB', p.feedback ?? 0); set('MIR', Math.max(2, Math.round(p.mirrorCount ?? 2))); set('DISP', p.displacement ?? 0);
     set('onMir', fx.has('mirror') ? 1 : 0); set('onDisp', fx.has('displacement') ? 1 : 0); set('onFb', fx.has('feedback') ? 1 : 0);
-    set('onBloom', fx.has('bloom') ? 1 : 0); set('onTrails', fx.has('trails') ? 1 : 0); set('onNoise', fx.has('noise') ? 1 : 0);
+    set('SAT', p.saturation ?? -1); set('VAL', p.value ?? 0.75); set('onBloom', fx.has('bloom') ? 1 : 0); set('onTrails', fx.has('trails') ? 1 : 0); set('onNoise', fx.has('noise') ? 1 : 0);
     g.bindVertexArray(vaoQ); g.drawArrays(g.TRIANGLES, 0, 3);
     if (f % 60 === 0) {
       g.bindFramebuffer(g.FRAMEBUFFER, null); g.useProgram(COPY.p); g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, cur.t); g.uniform1i(COPY.u.t, 0);
@@ -138,7 +139,7 @@ window.playPatch = (j, label) => {
       const k = f / 60; c2.drawImage(vc, k * W, 0); frames.push({ ...p });
       c2.fillStyle = '#ddd'; c2.font = '10px sans-serif';
       c2.fillText(`t=${t}s hue ${p.hue.toFixed(2)} spd ${p.speed.toFixed(2)}`, k * W + 3, W + 12);
-      c2.fillText(`disp ${p.displacement.toFixed(2)} fb ${p.feedback.toFixed(2)} mir ${Math.round(p.mirrorCount)}`, k * W + 3, W + 26);
+      c2.fillText(`disp ${p.displacement.toFixed(2)} fb ${p.feedback.toFixed(2)} mir ${Math.round(p.mirrorCount)}` + (p.saturation !== undefined ? ` s ${p.saturation.toFixed(2)} v ${p.value.toFixed(2)}` : ''), k * W + 3, W + 26);
     }
     [cur, prev] = [prev, cur];
   }
