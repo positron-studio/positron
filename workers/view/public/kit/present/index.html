@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="present">
+<meta property="og:description" content="A patch as a slide, its title over an optional picture and How it works beside the arrows">
+<meta property="og:url" content="https://positron.studio/kit/present/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>present</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* A patch as a slide: an optional picture over the whole viewport, the top bar (How it works, then previous and
+     next) and one bottom cell that holds the title or, while How it works is open, the description over the patch. */
+  :root { --pr-m: clamp(16px, 5vw, 48px); }
+  html, body { background: #000; }
+  /* the picture, or plain black, under everything; sized as on the radio pages */
+  .pr-bg { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; transition: filter 1.2s; }
+  .pr-bg.pr-art { background:
+    radial-gradient(60vmax 60vmax at 78% 18%, rgba(255, 214, 0, .16), transparent 60%),
+    radial-gradient(50vmax 50vmax at 12% 88%, rgba(110, 184, 232, .18), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .05) 0 1px, transparent 1px 32px), #000; }
+  body.pr-open .pr-bg { filter: brightness(.18); }
+  .pr-top { position: fixed; z-index: 50; display: flex; gap: 12px; align-items: center;
+    top: max(var(--pr-m), env(safe-area-inset-top)); right: max(var(--pr-m), env(safe-area-inset-right)); }
+  .pr-top button { color: var(--fg); }
+  .pr-top svg { width: 18px; height: 18px; flex: none; }
+  .pr-top .pr-arrows button.pos-lg { width: var(--ctl-lg); height: var(--ctl-lg); padding: 0; justify-content: center; }
+  /* the title and the How it works panel share one cell, so both sit on the same bottom edge */
+  .pr-foot { position: fixed; z-index: 20; display: grid; pointer-events: none;
+    left: max(var(--pr-m), env(safe-area-inset-left)); right: max(var(--pr-m), env(safe-area-inset-right));
+    bottom: max(var(--pr-m), env(safe-area-inset-bottom)); }
+  .pr-foot > * { grid-area: 1 / 1; align-self: end; min-width: 0; }
+  .pr-title h1, .pr-title p, .pr-how .pr-desc { text-wrap: balance; }
+  .pr-title h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.15 var(--mono); letter-spacing: 0; color: var(--fg); }
+  .pr-title p { margin: .6em 0 0; font: 400 clamp(16px, 1.6vw, 22px)/1.4 var(--sans); color: var(--dim); }
+  .pr-how { pointer-events: auto; max-height: calc(100dvh - 2 * var(--pr-m) - var(--ctl-lg) - 24px); overflow-y: auto; }
+  .pr-how .pr-desc { margin: 0 0 24px; font: 400 clamp(18px, 1.9vw, 24px)/1.45 var(--sans); color: var(--fg); }
+  /* the picture dims first, then the patch fades in; on close the patch goes first and the title comes back */
+  .pr-title { transition: opacity .6s .6s, visibility 0s; }
+  body.pr-open .pr-title { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
+  .pr-how { opacity: 0; visibility: hidden; transition: opacity .4s, visibility 0s .4s; }
+  body.pr-open .pr-how { opacity: 1; visibility: visible; transition: opacity .8s .8s, visibility 0s .8s; }
+  body.pr-still * { transition: none !important; }
+  @media (prefers-reduced-motion: reduce) { .pr-bg, .pr-title, .pr-how, body.pr-open .pr-title, body.pr-open .pr-how { transition: none; } }
+</style>
+<script type="module">
+  // The presentation layout for the existing patches, with placeholder slides: the arrows step through them, and
+  // How it works dims the picture and shows a description over the patch. ?bg=0 shows every slide without a picture.
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createPresentKeys } from '/shell/present-keys.mjs';
+  useMediumColours();
+
+  const d = mount({ name: 'kit/present', what: '', readout: null, showLog: false, chrome: false });
+  const NO_BG = new URLSearchParams(location.search).get('bg') === '0';
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  // placeholder slides: a picture or none, a short or a long title, a short or a long description
+  const SLIDES = [
+    { title: 'Patch title', sub: 'A subtitle, one line about what this patch does.', bg: true,
+      desc: 'A medium sized description of how the patch works, two or three sentences long. It sits over the patch and under the top bar.',
+      nodes: [['web:keys', 'person', 'keyboard'], ['web:synth', 'engine', 'synth'], ['web:speaker', 'device', 'speaker']],
+      links: [['web:keys', 'midi', 'web:synth'], ['web:synth', 'audio', 'web:speaker']] },
+    { title: 'No picture', sub: 'The same layout on a plain black ground.', bg: false,
+      desc: 'A slide may have no picture. How it works still dims the ground, which is black already.',
+      nodes: [['pi-1:camera', 'device', 'camera'], ['cf-stream:live', 'endpoint', 'stream'], ['web:screen', 'screen', 'screen']],
+      links: [['pi-1:camera', 'video', 'cf-stream:live'], ['cf-stream:live', 'video', 'web:screen']] },
+    { title: 'A much longer patch title that wraps', sub: 'A longer subtitle that runs to a second line on a phone, to see where the title block grows.', bg: true,
+      desc: 'A longer description, to see the panel grow upwards from the bottom edge while the top bar stays clear. It runs to four or five lines on a phone, and the panel scrolls if it ever reaches the top bar.',
+      nodes: [['web:palm', 'screen', 'Palm'], ['pi-1:sequencer', 'engine', 'sequencer'], ['pi-1:drums', 'engine', 'drums'], ['pi-1:pwm', 'device', 'PWM out']],
+      links: [['web:palm', 'value', 'pi-1:sequencer'], ['pi-1:sequencer', 'midi', 'pi-1:drums'], ['pi-1:drums', 'audio', 'pi-1:pwm']] },
+  ];
+  let at = 0, how = false, bay = { nodes: [], ports: [], links: [] };
+
+  // a canvas: a real slide draws its picture here, and the shell's stack hides an empty div
+  const bg = el('canvas', 'pr-bg');
+  const h = el('h1', '', ''), sub = el('p', '', '');
+  const titleBox = el('div', 'pr-title');
+  titleBox.append(h, sub);
+  const desc = el('p', 'pr-desc', '');
+  const howBox = el('div', 'pr-how');
+  const pb = createPatchbay({ nodes: () => bay.nodes, ports: () => bay.ports, links: () => bay.links }, { flowing: () => how });
+  howBox.append(desc, pb.el);
+  const foot = el('div', 'pr-foot');
+  foot.append(titleBox, howBox);
+
+  function show(i) {
+    at = (i + SLIDES.length) % SLIDES.length;
+    const s = SLIDES[at];
+    h.textContent = s.title; sub.textContent = s.sub; desc.textContent = s.desc;
+    bg.classList.toggle('pr-art', s.bg && !NO_BG);
+    const ports = [];
+    for (const [a, m, b] of s.links) ports.push(port(a, m, 'out'), port(b, m, 'in'));
+    bay = { nodes: s.nodes.map(([id, kind, label]) => ({ id, kind, label })), ports,
+      links: s.links.map(([a, m, b], k) => ({ id: `l${k}`, from: `${a}:${m}-out`, to: `${b}:${m}-in` })) };
+    pb.refresh();
+  }
+  function setHow(on) {
+    how = on;
+    document.body.classList.toggle('pr-open', on);
+    howBtn.setAttribute('aria-expanded', String(on));
+    howGroup.setIcon('how', on ? 'close' : 'info', on ? 'close How it works' : 'How it works');
+    if (on) pb.refresh();
+  }
+  const howGroup = createButtonGroup({ buttons: [{ id: 'how', icon: 'info', label: 'How it works', onPress: () => setHow(!how) }] });
+  const howBtn = howGroup.button('how');
+  howBtn.classList.add('pos-lg');
+  howGroup.el.classList.add('pr-arrows');
+  howBtn.setAttribute('aria-expanded', 'false');
+  const arrows = createButtonGroup({ buttons: [
+    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => show(at - 1) },
+    { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => show(at + 1) },
+  ] });
+  for (const b of arrows.el.querySelectorAll('button')) b.classList.add('pos-lg');
+  arrows.el.classList.add('pr-arrows');
+  const top = el('div', 'pr-top');
+  top.append(howGroup.el, arrows.el);
+  document.body.append(bg, foot, top);
+  // the arrows, Esc and the raid view, as on every presentation page
+  foot.classList.add('pres-ui'); top.classList.add('pres-ui');
+  const keys = createPresentKeys({ prev: () => show(at - 1), next: () => show(at + 1), escape: () => { if (how) setHow(false); } });
+  window.__demo.raid = () => keys.raid();
+  show(0);
+  // ?how=1 opens How it works at once, for a preview or a shot
+  if (new URLSearchParams(location.search).get('how') === '1') { document.body.classList.add('pr-still'); setHow(true); requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('pr-still'))); }
+
+  window.__demo.probe = () => ({ at, how, bg: bg.classList.contains('pr-art') });
+  window.__demo.how = setHow;
+  window.__demo.show = show;
+  if (SELFCHECK) {
+    {
+      const r = (x) => x.getBoundingClientRect();
+      d.assert('How it works sits in the top bar, left of previous and next',
+        r(howBtn).right <= r(arrows.el).left && Math.abs((r(howBtn).top + r(howBtn).bottom) - (r(arrows.el).top + r(arrows.el).bottom)) < 4,
+        `right ${r(howBtn).right} left ${r(arrows.el).left}, heights ${r(howBtn).height} ${r(arrows.el).height}`);
+      setHow(true);
+      d.assert('the title and the How it works panel end on the same bottom edge',
+        Math.abs(r(titleBox).bottom - r(howBox).bottom) < 1, `${r(titleBox).bottom} ${r(howBox).bottom}`);
+      d.assert('the description sits over the patch', r(desc).bottom <= r(pb.el).top + 1, `${r(desc).bottom} ${r(pb.el).top}`);
+      d.assert('the panel stays under the top bar', r(howBox).top >= r(top).bottom, `${r(howBox).top} ${r(top).bottom}`);
+      setHow(false);
+    }
+  }
+  d.ready();
+</script>
+</html>

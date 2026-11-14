@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Palm">
+<meta property="og:url" content="https://positron.studio/devices/palm/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Palm</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<script type="module">
+  import { mount, el } from '/shell/shell.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { loadPanelUi } from '/shell/panel-screen.mjs';
+  import { OLED_LIT, OLED_DARK } from '/shell/oled-view.mjs';
+  import { pixel, blit } from '../split/split-oled.mjs';
+  import { SCREENS, createScreens } from '../control/screens.mjs';
+  import { createPalm, PALM_CSS, PALM_W, PALM_H } from '/shell/palm-view.mjs';
+  useMediumColours();
+  document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
+    + '.pm-media { display: flex; justify-content: center; align-items: center; padding: 24px 16px; height: calc(160px * var(--pm-k, 2) + 48px); background: #07090d; overflow-x: auto; } .pm-frame { padding: 8px; border: 1px solid var(--line); border-radius: 2px; line-height: 0; background: #000; } .pm-say { font-size: 12px; color: var(--dim); } .pm-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; }' }));
+
+  // The Pi's OLED screens (/devices/control/) shown 1:1 on a simulated Palm Z22, or the stylus drawing.
+  // full: one 128x64 screen centred; split: three half screens (128x32) in three lines.
+  const d = mount({ name: 'Palm', what: '', readout: { 'screen': '', 'pen': '' }, index: '/', indexLabel: 'positron' });
+
+  const N = SCREENS.length;
+  let mode = 'full', at = 0, last = null, hue = 0, frames = 0, screens = null, loading = null;
+
+  const box = el('div', 'pm-frame');
+  const palm = createPalm(box, {
+    onPen: ({ x, y, down }) => {
+      d.set('pen', `${x}, ${y}${down ? '' : ' up'}`);
+      if (mode !== 'draw') {
+        return;
+      }
+      if (!down) { last = null; hue = (hue + 47) % 360; return; }
+      palm.paint((c) => {
+        c.strokeStyle = `hsl(${hue} 80% 45%)`; c.lineWidth = 3; c.lineCap = 'round';
+        c.beginPath(); c.moveTo((last || { x }).x, (last || { y }).y); c.lineTo(x, y); c.stroke();
+      });
+      last = { x, y };
+      pb.pulse('pi-1:stylus:value-out', 'web:ink:value-in');
+    },
+  });
+
+  // Frames are composed here at 160x160 (OLED bits as cyan on near black, the strip as text), then
+  // handed to palm.show so the Z22's 12 bit quantise applies.
+  const comp = Object.assign(document.createElement('canvas'), { width: PALM_W, height: PALM_H }).getContext('2d', { willReadFrequently: true });
+  function oled(img, f, ox, oy, rows = 64) {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < 128; x++) {
+      const c = pixel(f, x, y) ? OLED_LIT : OLED_DARK, i = ((oy + y) * PALM_W + ox + x) * 4;
+      img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255;
+    }
+  }
+  function compose(t) {
+    comp.fillStyle = '#000'; comp.fillRect(0, 0, PALM_W, PALM_H);
+    const img = comp.getImageData(0, 0, PALM_W, PALM_H);
+    if (mode === 'full') oled(img, screens.frame(SCREENS[at].key, t), 16, 48);
+    // split: three half screens (128x32) in three lines, 16 px between them
+    else for (let k = 0; k < 3; k++) { const f = new Uint8Array(1024); blit(f, screens.half(SCREENS[(at + k) % N].key, t), 0, 0); oled(img, f, 16, 16 + k * 48, 32); }
+    palm.show(img.data);
+    frames++;
+  }
+
+  // about 15 fps, and only while the tab is visible and an OLED mode is on
+  let raf = 0, prev = 0;
+  function tick(now) {
+    raf = 0;
+    if (mode === 'draw' || document.hidden || !screens) return;
+    if (now - prev >= 66) { prev = now; compose(now); }
+    raf = requestAnimationFrame(tick);
+  }
+  const run = () => { if (!raf && mode !== 'draw' && !document.hidden && screens) raf = requestAnimationFrame(tick); };
+  document.addEventListener('visibilitychange', run);
+
+  async function ensure() {
+    if (screens) return;
+    loading ||= (async () => { screens = createScreens(await loadPanelUi(await (await fetch('/resources/pico/oled-ui.wasm')).arrayBuffer())); })();
+    await loading;
+  }
+  function label() {
+    d.set('screen', mode === 'draw' ? '' : mode === 'full' ? `${SCREENS[at].key}, ${at + 1} of ${N}` : [0, 1, 2].map((k) => SCREENS[(at + k) % N].key).join(', '));
+  }
+  function move(dir) { at = (at + dir + N) % N; label(); if (screens && mode !== 'draw') compose(performance.now()); }
+  async function setMode(m) {
+    mode = m; pick.set(['full', 'split', 'draw'].indexOf(m), true); keys.el.hidden = m === 'draw'; clear.hidden = m !== 'draw';
+    label();
+    if (m === 'draw') {
+      palm.paint((c) => { c.fillStyle = '#fff'; c.fillRect(0, 0, PALM_W, PALM_H); c.fillStyle = '#000'; c.font = '10px monospace'; c.fillText('draw here', 52, 84); });
+    } else { await ensure(); if (mode === m) { compose(performance.now()); run(); } }
+    pb.refresh();
+  }
+
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const NODES = [{ id: 'pi-1:stylus', kind: 'device', label: 'Palm stylus' }, { id: 'pi-1:screens', kind: 'engine', label: 'OLED screens' },
+    { id: 'web:ink', kind: 'engine', label: 'ink' }, { id: 'pi-1:palm', kind: 'screen', label: 'Palm screen 160x160' }];
+  const PORTS = [port('pi-1:stylus', 'value', 'out'), port('pi-1:screens', 'value', 'in'), port('pi-1:screens', 'video', 'out'),
+    port('web:ink', 'value', 'in'), port('web:ink', 'video', 'out'), port('pi-1:palm', 'video', 'in')];
+  const LINKS = () => (mode === 'draw'
+    ? [{ id: 'a', from: 'pi-1:stylus:value-out', to: 'web:ink:value-in' }, { id: 'b', from: 'web:ink:video-out', to: 'pi-1:palm:video-in' }]
+    : [{ id: 'c', from: 'pi-1:stylus:value-out', to: 'pi-1:screens:value-in' }, { id: 'd', from: 'pi-1:screens:video-out', to: 'pi-1:palm:video-in' }]);
+  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS }, { flowing: () => (mode === 'draw' ? last !== null : true) });
+
+  const pick = createChoice({ label: 'mode', options: [['full', 'full'], ['split', 'split'], ['draw', 'draw']], at: 0,
+    title: (v) => ({ full: 'one OLED screen, 128x64 at 1:1', split: 'three OLED screens, half size, in three lines', draw: 'the stylus draws' })[v],
+    onPick: (v) => setMode(v) });
+  const keys = createButtonGroup({ buttons: [
+    { id: 'up', icon: 'chevron-up', label: 'up, the previous screen', onPress: () => move(-1) },
+    { id: 'down', icon: 'chevron-down', label: 'down, the next screen', onPress: () => move(1) },
+  ] });
+  const clear = el('button', 'pos-btn', 'Clear');
+  clear.type = 'button'; clear.hidden = true;
+  clear.addEventListener('click', () => palm.paint((c) => { c.fillStyle = '#fff'; c.fillRect(0, 0, PALM_W, PALM_H); }));
+  const row = el('div', 'pm-row');
+  row.append(pick.el, keys.el, clear);
+  const media = el('div', 'pm-media');
+  media.append(box);
+  const ZOOMS = [1, 2, 3];
+  let zi = 1;
+  const scale = el('span', 'pm-say', '');
+  const zoomBtns = createButtonGroup({ buttons: [
+    { id: 'out', icon: 'zoom-out', label: 'zoom out', onPress: () => setZoom(zi - 1) },
+    { id: 'in', icon: 'zoom-in', label: 'zoom in', onPress: () => setZoom(zi + 1) },
+  ] });
+  function setZoom(i) {
+    zi = Math.max(0, Math.min(ZOOMS.length - 1, i));
+    media.style.setProperty('--pm-k', String(ZOOMS[zi]));
+    scale.textContent = `160×160 at ${ZOOMS[zi]}x`;
+    zoomBtns.enable('out', zi > 0, 'smallest');
+    zoomBtns.enable('in', zi < ZOOMS.length - 1, 'largest');
+  }
+  setZoom(zi);
+  const panel = createVideoPanel({ media, left: scale, right: zoomBtns.el, aspect: 'auto' });
+  d.stack.add(panel.el, row, pb.el);
+
+  window.__demo.probe = () => ({ mode, at, frames, screen: SCREENS[at].key });
+  window.__demo.mode = setMode;
+  await setMode('full');
+  d.ready();
+</script>
+</html>

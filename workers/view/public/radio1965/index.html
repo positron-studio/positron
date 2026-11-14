@@ -19,7 +19,7 @@
 <meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0e14">
-<title>Radio 1965</title>
+<title>Soundscape</title>
 <link rel="stylesheet" href="/shell/shell.css">
 <style>
   /* The picture is the page: over everything, the whole viewport, nothing to press. */
@@ -28,51 +28,110 @@
     object-fit: cover; background: #000; }
   /* The title over the picture, top left; taps go through it to the picture. */
   .r65-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
-    top: max(24px, env(safe-area-inset-top)); left: max(24px, env(safe-area-inset-left)); }
-  .r65-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.05 var(--mono); letter-spacing: 0; }
-  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); 
-    max-width: min(24em, calc(100vw - 48px)); font-variant-numeric: tabular-nums; }
+    top: max(48px, env(safe-area-inset-top)); left: max(48px, env(safe-area-inset-left)); }
+  .r65-t .pos-hero-eye { margin: 0 0 12px; }
+  .r65-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.2 var(--mono); letter-spacing: 0; }
+  /* four lines high whatever it says, so the button under it never moves */
+  .r65-t .r65-at { margin: 0; height: auto; color: var(--fg); font: 600 clamp(34px, 4.4vw, 56px)/1.2 var(--mono); }
+  .r65-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 5.6em; overflow: hidden;
+    max-width: min(24em, calc(100vw - 64px)); font-variant-numeric: tabular-nums; }
+  .r65-t p b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .r65-btns { display: flex; gap: 12px; margin-top: 24px; }
+  .r65-t .pos-lg { pointer-events: auto; }
+  /* How it works: the landscape dims to 12% over 2.5 s and the patch sits straight on it. */
+  /* brightness, not opacity: a see-through canvas shows the shell's header behind it */
+  .r65 { transition: filter 2.5s; }
+  body.r65-how .r65 { filter: brightness(.12); }
+  /* under the buttons in the title block's column, which scrolls when the patch is taller than the screen */
+  body.r65-how .r65-t { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  /* the patch sits on the bottom edge with the same 48 px margin as the title */
+  .r65-how-box { pointer-events: auto; position: fixed; left: max(48px, env(safe-area-inset-left)); bottom: max(48px, env(safe-area-inset-bottom)); width: calc(100vw - 96px); box-sizing: border-box; }
+  /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
+  .r65-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
+  body.r65-how .r65-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
+  /* During an air raid in Kyiv the hours of the war cover the picture in black on white, and the words go gray on it */
+  .r65-t, .r65-t h1, .r65-t .r65-at, .r65-t p, .r65-t p b, .r65-t .pos-hero-eye, .r65-t .pos-hero-eye b { transition: color 1s; }
+  body.raid .r65-t, body.raid .r65-t h1, body.raid .r65-t .r65-at, body.raid .r65-t p, body.raid .r65-t p b,
+  body.raid .r65-t .pos-hero-eye, body.raid .r65-t .pos-hero-eye b { color: rgba(0, 0, 0, .45);
+    text-shadow: 0 0 6px #fff, 0 0 2px #fff; }
+  /* during a raid only the hours show: no title, no buttons, no arrows */
+  body.raid .r65-t, body.raid .sl-nav { opacity: 0; visibility: hidden; transition: opacity 1s, visibility 0s 1s; }
 </style>
 <script type="module">
-  // The scan landscape (/shader/landscape/'s picture), moved by our radio1965 cast's /state. The broadcast ended in
-  // Oct 2026, so the page plays nothing and only shows the closing line. plans/plan-radio1965-landscape.md
+  // The scan landscape (/shader/landscape/'s picture), moved by the sound of the v2in radio1965 channel after Play,
+  // analysed as /radio/edgecast/ does. Nothing is fetched or opened until Play. plans/plan-radio1965-landscape.md
   // why: lessons/page-radio1965.md#header
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
   import { createBay } from '/shell/bay.mjs';
-  import { LAYOUT_VERSION } from '/shell/radio-gran.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, LANES, createFeatures } from '/shell/radio-gran.mjs';
+  import { createEnvFollower } from '/shell/pappus-mod.mjs';
+  import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { createKyivRaid, kyivClock } from '/shell/kyiv-raid.mjs';
   import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
 
-  const CAST = new URLSearchParams(location.search).get('cast') || 'https://cast.positron.studio';
+  const V2IN = new URLSearchParams(location.search).get('v2in') || 'https://v2in.stream';
   const STATION = 'radio1965';
   const S = 'web';
-  const d = mount({ name: 'Radio 1965', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
+  // the lines under the title: the one line to change
+  const AT = ['at Üle Heli', 'festival'];
+  const d = mount({ name: 'Soundscape', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
 
   const LOOK = LOOKS[DEFAULT_LOOK];
   const OPEN = { ...LOOK, ...EXTRA, fade: 1.6 };
   // The six knobs of /shader/landscape/, each driven by one thing the stream says (plan section 4).
   const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
   const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
-  const HEAVE = { speech: 0.2, field: 0.5, music: 0.8 };
-  const WAVES = { speech: 1, field: 2, music: 3 };
   // The look's other numbers at rest, where they sat with no sound.
   const REST = { travel: 0, valley: 0.3, halo: 0, ampB: 0.05, sway: 0, glow: 0.62 };
 
-  // ── the bay: our state into the picture ─────────────────
+  // ── the bay: v2in's chain as its code has it (v2in server/config/channels.json, liquidsoap/radio.liq, engines/waves) ──
   const bay = createBay();
+  const V = { place: 'v2in', net: 'v2in' };
   const node = (id, kind, label, extra = {}) => bay.addNode({ id, kind, label, ...extra });
-  node('cf-cast:state', 'store', 'state', { place: 'cloudflare', net: 'cloudflare' });
-  node(`${S}:landscape`, 'engine', 'landscape');
-  node(`${S}:screen`, 'screen', 'screen');
-  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, transports, ...extra });
-  // The state is a small JSON document read every 10 s, so its link is a file read over https.
-  port('cf-cast:state:file-out', 'out', 'file', '/state', ['https']);
-  port(`${S}:landscape:file-in`, 'in', 'file', 'scene, listeners', ['https'], { deliver: (ev) => stateIn(ev) });
-  port(`${S}:landscape:video-out`, 'out', 'video', 'picture', ['page']);
-  port(`${S}:screen:video-in`, 'in', 'video', 'picture', ['page']);
-  const hold = (a, b, via) => { const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
-  hold('cf-cast:state:file-out', `${S}:landscape:file-in`);
-  hold(`${S}:landscape:video-out`, `${S}:screen:video-in`);
+  node('v2in:files', 'store', 'radio1965 recordings', V);
+  node('v2in:show', 'person', 'live show', V);
+  node('v2in:gate', 'engine', 'gate, Kyiv air raids', V);
+  node('v2in:waves', 'engine', 'waves, wasm scsynth', V);
+  node('v2in:liquidsoap', 'engine', 'Liquidsoap switch', V);
+  node('v2in:icecast', 'endpoint', 'Icecast, Caddy https', V);
+  node(`${S}:audio`, 'engine', 'audio element, analyser');
+  node(`${S}:picture`, 'screen', 'landscape');
+  node(`${S}:speaker`, 'device', 'speakers');
+  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, ...(transports ? { transports } : {}), ...extra });
+  port('v2in:files:file-out', 'out', 'file', 'MP3 files');
+  port('v2in:show:audio-out', 'out', 'audio', 'Icecast or RTMP');
+  port('v2in:gate:state-out', 'out', 'state', 'raid, switches, keys');
+  port('v2in:gate:state-out-2', 'out', 'state', '/api/now', ['https']);
+  port('v2in:waves:file-in', 'in', 'file', 'shuffled queue');
+  port('v2in:waves:state-in', 'in', 'state', 'switch waves');
+  port('v2in:waves:audio-out', 'out', 'audio', 'MP3 to harbor');
+  port('v2in:liquidsoap:audio-in', 'in', 'audio', 'live, engine');
+  port('v2in:liquidsoap:file-in', 'in', 'file', 'playlist');
+  port('v2in:liquidsoap:state-in', 'in', 'state', 'raid silence');
+  port('v2in:liquidsoap:audio-out', 'out', 'audio', 'MP3 128');
+  port('v2in:icecast:audio-in', 'in', 'audio', 'mount radio1965');
+  port('v2in:icecast:audio-out', 'out', 'audio', '/stream/radio1965', ['https']);
+  port(`${S}:audio:audio-in`, 'in', 'audio', 'stream', ['https']);
+  port(`${S}:audio:audio-out`, 'out', 'audio', 'sound');
+  port(`${S}:picture:audio-in`, 'in', 'audio', 'onsets, level');
+  port(`${S}:picture:state-in`, 'in', 'state', 'title line', ['https'], { deliver: (ev) => nowIn(ev) });
+  port(`${S}:speaker:audio-in`, 'in', 'audio', 'volume');
+  // each link's place along the chain, for the idle wave in How it works
+  const STAGE = new Map();
+  const hold = (a, b, stage, via) => { STAGE.set(`${a} -> ${b}`, stage); const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  hold('v2in:files:file-out', 'v2in:waves:file-in', 0);
+  hold('v2in:gate:state-out', 'v2in:waves:state-in', 0);
+  hold('v2in:files:file-out', 'v2in:liquidsoap:file-in', 1);
+  hold('v2in:show:audio-out', 'v2in:liquidsoap:audio-in', 1);
+  hold('v2in:waves:audio-out', 'v2in:liquidsoap:audio-in', 1);
+  hold('v2in:gate:state-out', 'v2in:liquidsoap:state-in', 1);
+  hold('v2in:liquidsoap:audio-out', 'v2in:icecast:audio-in', 2);
+  hold('v2in:icecast:audio-out', `${S}:audio:audio-in`, 3, 'https');
+  hold('v2in:gate:state-out-2', `${S}:picture:state-in`, 3, 'https');
+  hold(`${S}:audio:audio-out`, `${S}:picture:audio-in`, 4);
+  hold(`${S}:audio:audio-out`, `${S}:speaker:audio-in`, 4);
 
   // ── the picture ─────────────────────────────────────────────────────────
   const canvas = el('canvas', 'r65');
@@ -97,35 +156,126 @@
     addEventListener('resize', () => { const tall = innerHeight > innerWidth; if (tall !== wasTall) { wasTall = tall; makeField(); } });
   } else d.log('this browser has no WebGL2, so there is no picture', 'bad');
 
-  // ── the state: scene numbers and listeners, glided over the scene's own blend ──
+  // ── the channel: title and listeners from /api/now every 15 s, only while playing ──
   const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
   const now = { ...target };
-  const scene = { waves: OPEN.waves }, sceneNow = { ...scene };
-  let glideS = 8, state = null, stateAt = 0;
-  function stateIn(ev) {
-    if (ev?.of !== 'state') return;
-    state = ev.s; stateAt = performance.now();
-    const n = (state.listeners?.now ?? 0) + (state.ears ?? 0);
-    // a full landscape with nobody listening, denser with each listener
-    target.rows = clamp('rows', 40 + 8 * n);
-    // a dry scene still a landscape: height 2.5 at dry, 8 at the wettest (0.5 squeezed the lines into a band)
-    if (Number.isFinite(state.wet)) target.ampM = clamp('ampM', 2.5 + 5.5 * (state.wet / 0.95));
-    target.swellY = clamp('swellY', 0.05 * Math.min(1, (state.droneLevel ?? 0) / 0.5));
-    if (Number.isFinite(state.density)) target.bucket = clamp('bucket', 0.35 * state.density);
-    if (HEAVE[state.kind] != null) target.heave = HEAVE[state.kind];
-    if (Number.isFinite(state.blend)) glideS = Math.max(2, state.blend);
-    if (WAVES[state.kind]) scene.waves = WAVES[state.kind];
+  let state = null, pollT = 0;
+  function nowIn(ev) {
+    if (ev?.of !== 'now') return;
+    state = ev.s; drawLine();
   }
-  async function readState() {
+  async function readNow() {
+    if (!playing) return;
     try {
-      const s = await fetch(`${CAST}/state/${STATION}`, { cache: 'no-store' }).then((r) => r.json());
-      if (s && s.station) bay.send('cf-cast:state:file-out', { of: 'state', s });
+      const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
+      const ch = (j?.channels || []).find((c) => c.id === STATION);
+      if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
+      if (playing && !FORCE_RAID) setRaid(j?.raid ?? ch?.raid);
     } catch { /* next time */ }
+    if (playing) pollT = setTimeout(readNow, 15_000);
   }
-  readState();
-  setInterval(readState, 10_000);
 
-  // ── the data texture: only the drift ─
+  // ── listening: one <audio> through an analyser, made on the first press ──
+  let ctx = null, audio = null, an = null, vol = null, how = false, playing = false, feats = null, follow = null, heard = 0;
+  // Play fades in and Stop fades out over FADE s, a gain in series after How it works' volume
+  const FADE = 1.5;
+  let fade = null, stopT = 0;
+  function fadeTo(v) { const t = ctx.currentTime; fade.gain.cancelScheduledValues(t); fade.gain.setValueAtTime(fade.gain.value, t); fade.gain.linearRampToValueAtTime(v, t + FADE); }
+  async function play() {
+    ctx ??= new AudioContext();
+    // pressed again while fading out: the stream is still open, so only the fade turns round
+    const warm = !!stopT && !audio.paused;
+    clearTimeout(stopT); stopT = 0;
+    if (!audio) {
+      audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
+      an = ctx.createAnalyser(); an.fftSize = 2048;
+      ctx.createMediaElementSource(audio).connect(an);
+      // the analyser before the volume, so the picture hears the sound at full level while How it works turns it down
+      vol = ctx.createGain(); vol.gain.value = how ? QUIET : 1;
+      fade = ctx.createGain(); fade.gain.value = 0;
+      an.connect(vol).connect(fade).connect(ctx.destination);
+      audio.addEventListener('playing', () => { delete btn.dataset.busy; });
+      // the stream ends when the channel restarts: while we are playing it comes back by itself
+      audio.addEventListener('error', () => { if (playing) setTimeout(() => { if (playing) { audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`; audio.play().catch(() => {}); } }, 2000); });
+    }
+    ctx.resume().catch(() => {});
+    if (!warm) {
+      btn.dataset.busy = '';
+      fade.gain.cancelScheduledValues(ctx.currentTime); fade.gain.setValueAtTime(0, ctx.currentTime);
+      audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`;
+      try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
+    }
+    fadeTo(1);
+    playing = true; face(); readNow();
+  }
+  function stop() {
+    playing = false; clearTimeout(pollT); state = null;
+    if (!FORCE_RAID) kyiv.set(null);
+    delete btn.dataset.busy;
+    face();
+    if (!audio || !fade) return;
+    fadeTo(0);
+    clearTimeout(stopT);
+    stopT = setTimeout(() => { stopT = 0; audio.pause(); audio.removeAttribute('src'); audio.load(); }, FADE * 1000);
+  }
+
+  // ── onsets: spectral flux over an adaptive threshold, each one a deposit of grains in row 0 ──
+  // An isolated onset is a burst spread round its tone; three or more evenly spaced ones are steps,
+  // one narrow mark each, walking across the field. Capped at MAX_ONSETS a second.
+  const FLUX_N = 45, REFRACT = 0.09, MAX_ONSETS = 10, sizeLane = LANES.size;
+  const fluxHist = new Float32Array(FLUX_N);
+  let fluxI = 0, fluxFill = 0, lastOnset = -1, onsets = 0, deposits = 0, bursts = 0, steps = 0, pulse = 0;
+  const onsetTimes = [], pending = [];
+  let stepX = 0, stepG = 0;
+  function detect(flux, t) {
+    let m = 0, v = 0;
+    for (let i = 0; i < fluxFill; i++) m += fluxHist[i];
+    m /= Math.max(1, fluxFill);
+    for (let i = 0; i < fluxFill; i++) v += (fluxHist[i] - m) ** 2;
+    const thr = m + 1.6 * Math.sqrt(v / Math.max(1, fluxFill)) + 1e-5;
+    fluxHist[fluxI] = flux; fluxI = (fluxI + 1) % FLUX_N; fluxFill = Math.min(FLUX_N, fluxFill + 1);
+    if (fluxFill < 15 || flux <= thr || t - lastOnset < REFRACT) return 0;
+    while (onsetTimes.length && t - onsetTimes[0] > 1) onsetTimes.shift();
+    if (onsetTimes.length >= MAX_ONSETS) return 0;
+    lastOnset = t; onsetTimes.push(t); onsets++;
+    return Math.min(1, (flux - thr) / thr);
+  }
+  let recent = [];
+  function deposit(strength, tone, t) {
+    recent.push(t); if (recent.length > 4) recent.shift();
+    const iv = recent.slice(1).map((x, i) => x - recent[i]);
+    const even = iv.length >= 2 && iv.every((x) => x < 0.7 && Math.abs(x - iv[0]) < 0.2 * iv[0]);
+    const xc = Math.round(4 + tone * (DATA_W - 9));
+    if (even) {
+      // a step: one column, the next one along, a little higher each time
+      if (iv.length === 2) { stepX = xc; stepG = 0.08; }
+      stepX = (stepX + 3) % DATA_W; stepG = Math.min(0.7, stepG + 0.06);
+      pending.push({ x: stepX, w: 0, g: stepG, n: 2 + Math.round(strength * 3), f: 3 });
+      steps++;
+    } else {
+      // a burst: many grains round the tone's column, longer the harder the attack
+      pending.push({ x: xc, w: 3 + Math.round(strength * 4), g: 0.1 + 0.5 * strength, n: 6 + Math.round(strength * 18), f: 5 });
+      bursts++;
+    }
+  }
+  function drain() {
+    let got = 0;
+    for (let j = pending.length - 1; j >= 0; j--) {
+      const p = pending[j], per = Math.ceil(p.n / p.f);
+      for (let k = 0; k < per && p.n > 0; k++, p.n--) {
+        const x = Math.max(0, Math.min(DATA_W - 1, p.x + Math.round((Math.random() * 2 - 1) * p.w)));
+        const i = at(x, 0);
+        data[i] = Math.min(255, data[i] + 1);
+        data[i + 1] = u8(sizeLane.unmap(Math.max(0, p.g + (Math.random() - 0.5) * 0.08)));
+        got++;
+      }
+      if (--p.f <= 0 || p.n <= 0) pending.splice(j, 1);
+    }
+    deposits += got;
+    return got;
+  }
+
+  // ── the data texture: the drift, and while playing the followers in row 3 and onsets in row 0 ──
   const data = new Uint8Array(DATA_W * DATA_H * 4);
   let last = 0, drift = 0, frames = 0;
   function tick(t) {
@@ -133,12 +283,35 @@
     const dt = last ? Math.min(0.25, (t - last) / 1000) : 1 / 60;
     last = t;
     drift = (drift + dt * 0.06) % 1;
-    // every knob eases toward its target over the scene's blend, so nothing jumps
-    const k = 1 - Math.exp(-dt / glideS);
-    for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
-    for (const n of Object.keys(scene)) { sceneNow[n] += (scene[n] - sceneNow[n]) * k; field.set(n, sceneNow[n]); }
-    for (const [n, v] of Object.entries(REST)) field.set(n, v);
     data.fill(0);
+    // Safari may hand a cross-origin stream's analyser silence: the sound plays on and the picture drifts at rest
+    const live = playing && an;
+    if (live) {
+      feats ||= createFeatures(an, ctx.sampleRate);
+      follow ||= Object.fromEntries(FOLLOWER_NAMES.map((k) => [k, createEnvFollower(MOD_FOLLOWERS[k])]));
+      const f = feats.read();
+      if ((f.rms ?? 0) > 0) heard++;
+      FOLLOWER_NAMES.forEach((n, i) => { follow[n].push(f[n] ?? 0, dt); data[at(i, 3)] = u8(follow[n].value()); });
+      const v = (n) => follow[n].value();
+      // a full landscape with nobody listening, denser with each listener; the rest from the sound itself
+      target.rows = clamp('rows', 40 + 8 * (state?.listeners ?? 0));
+      target.ampM = clamp('ampM', 2.5 + 5.5 * v('rms'));
+      target.swellY = clamp('swellY', 0.05 * v('low'));
+      target.bucket = clamp('bucket', 0.35 * v('flux'));
+      target.heave = clamp('heave', 0.2 + 0.6 * v('tone'));
+      const s = detect(f.flux ?? 0, t / 1000);
+      if (s > 0) deposit(s, f.tone ?? 0, t / 1000);
+      const got = drain();
+      data[at(6, 3)] = 255;
+      data[at(7, 3)] = Math.min(255, got);
+      data[at(16, 3)] = u8(Math.exp(-dt / OPEN.fade));
+      pulse = (pulse + got * 0.045) % 1;
+      data[at(19, 3)] = u8(0.5 - 0.5 * Math.cos(pulse * Math.PI * 2));
+    } else for (const n of Object.keys(RANGE)) target[n] = OPEN[n];
+    // faster while it hears, slow back to rest
+    const k = 1 - Math.exp(-dt / (live ? 1.5 : 6));
+    for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
+    for (const [n, v] of Object.entries(REST)) field.set(n, v);
     data[at(21, 3)] = u8(drift);
     data[at(63, 3)] = LAYOUT_VERSION;
     field.step(data); frames++;
@@ -146,23 +319,111 @@
   function frame(t) { tick(t); requestAnimationFrame(frame); }
   if (field) requestAnimationFrame(frame);
 
+  // ?raid=1 shows the raid view with no network, for the harness and a preview
+  const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
+  // a raid cuts the sound at once (the context suspended), back when it ends if playing, as the slides do
+  const kyiv = createKyivRaid({ onChange: (r) => { drawLine(); if (ctx) { if (r?.on) ctx.suspend().catch(() => {}); else if (playing) ctx.resume().catch(() => {}); } } });
+  // Esc hides this raid until the all clear; r shows a simulated one or takes it away
+  let raidOff = false;
+  const setRaid = (r) => { if (!r?.on) raidOff = false; if (!raidOff) kyiv.set(r); };
+  addEventListener('keydown', (e) => {
+    if (e.target.closest?.('input, textarea')) return;
+    if (e.key === 'Escape' && kyiv.raid().on) { raidOff = true; kyiv.set(null); }
+    if (e.key === 'r' || e.key === 'R') { raidOff = false; kyiv.set(kyiv.raid().on ? null : { on: true, since: new Date(Date.now() - 36e5).toISOString() }); }
+  });
   const titleBox = el('div', 'r65-t');
-  const h = el('h1');
-  h.append('Radio1965', el('br'), '@ Üle Heli', el('br'), 'festival');
-  const line = el('p', '', 'Sound archives were processed, mixed and visualized in Oct 2026. See you in next installations.');
-  titleBox.append(h, line);
-  document.body.append(canvas, titleBox);
+  const eye = el('div', 'pos-hero-eye');
+  eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
+  const h = el('h1', '', 'Soundscape');
+  const atLine = el('p', 'r65-at');
+  AT.forEach((t, i) => atLine.append(...(i ? [el('br')] : []), t));
+  const ABOUT = 'Sound archives were processed, mixed and visualized in Oct 2026.';
+  const line = el('p');
+  // At rest the closing line; while playing, the channel's title in bold and who made it.
+  function drawLine() {
+    if (kyiv.raid().on) { const t = kyiv.raid().since ? kyivClock(Date.parse(kyiv.raid().since)) : ''; line.replaceChildren(el('b', '', `Air raid in Kyiv${t ? ` since ${t}` : ''}`), 'v2in is silent until the all clear.'); return; }
+    if (!playing) { line.replaceChildren(ABOUT); return; }
+    if (!state?.title) { line.replaceChildren(el('b', '', 'radio1965 on v2in'), 'Tuning in.'); return; }
+    line.replaceChildren(el('b', '', state.title), state.by ? `${state.by}.` : '');
+  }
+  // Under the line: Play (Stop while playing), and How it works.
+  const btn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => (playing ? stop() : play()) });
+  const face = () => { setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' }); drawLine(); };
+  const btns = el('div', 'r65-btns');
+  // How it works: the patch over the dimmed landscape, the sound ramped down to QUIET over 2.5 s and back, as the picture dims.
+  const QUIET = 0.08, RAMP = 2.5;
+  const pb = createPatchbay(bay, { title: 'how it works', flowing: (l) => playing || STAGE.get(`${l.from} -> ${l.to}`) === wave });
+  // At rest a slow wave walks the chain one stage at a time, so the patch reads as alive; while playing every link flows.
+  const STAGES = Math.max(...STAGE.values()) + 2;
+  let wave = -1, waveT = 0;
+  const walk = () => { wave = (wave + 1) % STAGES; waveT = setTimeout(walk, 900); };
+  const howBox = el('div', 'r65-how-box');
+  howBox.append(pb.el);
+  function setHow(on) {
+    how = on;
+    document.body.classList.toggle('r65-how', on);
+    howBtn.setAttribute('aria-pressed', String(on)); setButtonFace(howBtn, { icon: on ? 'close' : 'info', label: 'How it works' });
+    clearTimeout(waveT); wave = -1;
+    if (on) { pb.refresh(); walk(); }
+    if (vol) { const t = ctx.currentTime; vol.gain.cancelScheduledValues(t); vol.gain.setValueAtTime(vol.gain.value, t); vol.gain.linearRampToValueAtTime(on ? QUIET : 1, t + RAMP); }
+  }
+  const howBtn = barButton({ icon: 'info', label: 'How it works', word: true, size: 'lg', onPress: () => setHow(!how) });
+  howBtn.setAttribute('aria-pressed', 'false');
+  btns.append(btn, howBtn);
+  titleBox.append(eye, h, atLine, line, btns, howBox);
+  face();
+  if (FORCE_RAID) kyiv.set({ on: true, since: new Date(Date.now() - 36e5).toISOString() });
+  document.body.append(canvas, kyiv.el, titleBox);
 
-  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }) };
+  // Leaving by the slide arrows: the sound and the page fade to black over LEAVE s, then the arrow module navigates.
+  const LEAVE = 1;
+  let leaving = null, veil = null;
+  window.soundscapeLeave = () => leaving ??= new Promise((done) => {
+    if (playing && fade) { const t = ctx.currentTime; fade.gain.cancelScheduledValues(t); fade.gain.setValueAtTime(fade.gain.value, t); fade.gain.linearRampToValueAtTime(0, t + LEAVE); }
+    veil = el('div', 'ss-veil'); document.body.append(veil);
+    requestAnimationFrame(() => requestAnimationFrame(() => veil?.classList.add('on')));
+    setTimeout(done, LEAVE * 1000);
+  });
+  // back from the bfcache: the page is shown again, so the veil goes and the sound comes back up
+  addEventListener('pageshow', (e) => { if (!e.persisted || !leaving) return; veil?.remove(); veil = null; leaving = null; if (playing && fade) fadeTo(1); });
+
+  window.__demo.radio1965 = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, raid: () => kyiv.raid(), how: () => how, setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, heard: () => heard, onsets: () => ({ onsets, bursts, steps, deposits }), play, stop };
 
   async function check() {
-    d.assert('nothing to press on the page', !document.querySelector('.r65-t button'));
+    d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
+    d.assert('Play and How it works under the line', document.querySelectorAll('.r65-btns button').length === 2);
     d.assert('the picture compiled', !!field);
     await new Promise((r) => setTimeout(r, 1500));
     d.assert('the picture draws', frames > 20, `${frames} frames`);
-    d.assert('the station\'s state arrived over its link', !!state, state ? `${state.title || 'no title'}, ${state.kind || 'no kind'}` : 'none yet');
   }
   if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
   d.ready();
+</script>
+<style>
+  .sl-nav { position: fixed; top: max(48px, env(safe-area-inset-top)); right: max(48px, env(safe-area-inset-right)); z-index: 50; }
+  .sl-nav button { color: var(--fg); }
+  .sl-nav svg { width: 18px; height: 18px; flex: none; }
+  .sl-nav button.pos-lg { width: var(--ctl-lg); padding: 0; justify-content: center; }
+  .ss-veil { position: fixed; inset: 0; z-index: 1000; background: #000; opacity: 0; transition: opacity 1s linear; }
+  .ss-veil.on { opacity: 1; }
+  body::after { content: ''; position: fixed; inset: 0; z-index: 1000; background: #000; pointer-events: none; animation: ss-in .6s ease-out forwards; }
+  @keyframes ss-in { to { opacity: 0; } }
+</style>
+<script type="module">
+  // These pages are shown as slides: /mic/, /radio1965/, /huddersfield/ and round again. The arrow buttons and keys step.
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  // the page fades out first (soundscapeLeave in the module above); presses during the fade are ignored
+  let going = false;
+  const PREV = '/present/floor/', NEXT = '/huddersfield/';
+  const go = async (to) => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = to; };
+  addEventListener('pageshow', (e) => { if (e.persisted) going = false; });
+  const nav = createButtonGroup({ buttons: [
+    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => go(PREV) },
+    { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => go(NEXT) },
+  ] });
+  for (const b of nav.el.querySelectorAll('button')) b.classList.add('pos-lg');
+  nav.el.classList.add('sl-nav');
+  document.body.append(nav.el);
+  addEventListener('keydown', (e) => { if (e.target.closest?.('input, textarea')) return; if (e.key === 'ArrowLeft') go(PREV); if (e.key === 'ArrowRight') go(NEXT); });
 </script>
 </html>

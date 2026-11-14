@@ -522,6 +522,7 @@
         analyser.fftSize = 2048;
         buf = new Float32Array(analyser.fftSize);
         pl.connect(analyser);
+        wave.listen(analyser);
         requestAnimationFrame(frame);
         requestAnimationFrame(lagFrame);
       }

@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Soundscape">
+<meta property="og:url" content="https://positron.studio/present/radio/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Soundscape</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* the landscape is the page's ground: the whole viewport, under the layout, dimmed while How it works is open */
+  .r65 { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; margin: 0;
+    object-fit: cover; background: #000; transition: filter 1.2s; }
+  body.prl-open .r65 { filter: brightness(.12); }
+  /* the line under the title is three lines high whatever it says, so nothing under it moves */
+  .prl-head p.r65-now { height: 4.35em; overflow: hidden; max-width: 24em; font-variant-numeric: tabular-nums; }
+  .r65-now b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+<script type="module">
+  // The presentation copy of /radio1965/: the scan landscape moved by the v2in radio1965 channel after Play.
+  // Nothing is fetched or opened until Play. why: lessons/page-radio1965.md#header
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, LANES, createFeatures } from '/shell/radio-gran.mjs';
+  import { createEnvFollower } from '/shell/pappus-mod.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { kyivClock } from '/shell/kyiv-raid.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
+
+  const V2IN = new URLSearchParams(location.search).get('v2in') || 'https://v2in.stream';
+  const STATION = 'radio1965';
+  const S = 'web';
+  // the lines under the title: the one line to change
+  const AT = ['at\u00a0Üle\u00a0Heli', 'festival'];
+  const d = mount({ name: 'Soundscape', what: '', readout: null, showLog: false, chrome: false });
+
+  const LOOK = LOOKS[DEFAULT_LOOK];
+  const OPEN = { ...LOOK, ...EXTRA, fade: 1.6 };
+  // The six knobs of /shader/landscape/, each driven by one thing the stream says (plan section 4).
+  const RANGE = { rows: [8, 132], ampM: [0.5, 8], ampL: [0, 0.5], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
+  const clamp = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
+  // The look's other numbers at rest, where they sat with no sound.
+  const REST = { travel: 0, valley: 0.3, halo: 0, ampB: 0.05, sway: 0, glow: 0.62 };
+
+  // ── the bay: v2in's chain as its code has it (v2in server/config/channels.json, liquidsoap/radio.liq, engines/waves) ──
+  const bay = createBay();
+  const V = { place: 'v2in', net: 'v2in' };
+  const node = (id, kind, label, extra = {}) => bay.addNode({ id, kind, label, ...extra });
+  node('v2in:files', 'store', 'radio1965 recordings', V);
+  node('v2in:show', 'person', 'live show', V);
+  node('v2in:gate', 'engine', 'gate, Kyiv air raids', V);
+  node('v2in:waves', 'engine', 'waves, wasm scsynth', V);
+  node('v2in:liquidsoap', 'engine', 'Liquidsoap switch', V);
+  node('v2in:icecast', 'endpoint', 'Icecast, Caddy https', V);
+  node(`${S}:audio`, 'engine', 'audio element, analyser');
+  node(`${S}:picture`, 'screen', 'landscape');
+  node(`${S}:speaker`, 'device', 'speakers');
+  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, ...(transports ? { transports } : {}), ...extra });
+  port('v2in:files:file-out', 'out', 'file', 'MP3 files');
+  port('v2in:show:audio-out', 'out', 'audio', 'Icecast or RTMP');
+  port('v2in:gate:state-out', 'out', 'state', 'raid, switches, keys');
+  port('v2in:gate:state-out-2', 'out', 'state', '/api/now', ['https']);
+  port('v2in:waves:file-in', 'in', 'file', 'shuffled queue');
+  port('v2in:waves:state-in', 'in', 'state', 'switch waves');
+  port('v2in:waves:audio-out', 'out', 'audio', 'MP3 to harbor');
+  port('v2in:liquidsoap:audio-in', 'in', 'audio', 'live, engine');
+  port('v2in:liquidsoap:file-in', 'in', 'file', 'playlist');
+  port('v2in:liquidsoap:state-in', 'in', 'state', 'raid silence');
+  port('v2in:liquidsoap:audio-out', 'out', 'audio', 'MP3 128');
+  port('v2in:icecast:audio-in', 'in', 'audio', 'mount radio1965');
+  port('v2in:icecast:audio-out', 'out', 'audio', '/stream/radio1965', ['https']);
+  port(`${S}:audio:audio-in`, 'in', 'audio', 'stream', ['https']);
+  port(`${S}:audio:audio-out`, 'out', 'audio', 'sound');
+  port(`${S}:picture:audio-in`, 'in', 'audio', 'onsets, level');
+  port(`${S}:picture:state-in`, 'in', 'state', 'title line', ['https'], { deliver: (ev) => nowIn(ev) });
+  port(`${S}:speaker:audio-in`, 'in', 'audio', 'volume');
+  // each link's place along the chain, for the idle wave in How it works
+  const STAGE = new Map();
+  const hold = (a, b, stage, via) => { STAGE.set(`${a} -> ${b}`, stage); const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  hold('v2in:files:file-out', 'v2in:waves:file-in', 0);
+  hold('v2in:gate:state-out', 'v2in:waves:state-in', 0);
+  hold('v2in:files:file-out', 'v2in:liquidsoap:file-in', 1);
+  hold('v2in:show:audio-out', 'v2in:liquidsoap:audio-in', 1);
+  hold('v2in:waves:audio-out', 'v2in:liquidsoap:audio-in', 1);
+  hold('v2in:gate:state-out', 'v2in:liquidsoap:state-in', 1);
+  hold('v2in:liquidsoap:audio-out', 'v2in:icecast:audio-in', 2);
+  hold('v2in:icecast:audio-out', `${S}:audio:audio-in`, 3, 'https');
+  hold('v2in:gate:state-out-2', `${S}:picture:state-in`, 3, 'https');
+  hold(`${S}:audio:audio-out`, `${S}:picture:audio-in`, 4);
+  hold(`${S}:audio:audio-out`, `${S}:speaker:audio-in`, 4);
+
+  // ── the picture ─────────────────────────────────────────────────────────
+  const canvas = el('canvas', 'r65');
+  canvas.setAttribute('aria-hidden', 'true');
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
+  let field = null;
+  const LINES = { chroma: 0, gain: 2.0, gamma: 1.15 };
+  function makeField() {
+    const a = Math.max(0.3, Math.min(3.5, innerWidth / Math.max(1, innerHeight))), budget = FIELD_W * FIELD_H;
+    const w = Math.round(Math.sqrt(budget * a)), h = Math.round(Math.sqrt(budget / a));
+    canvas.width = w; canvas.height = h;
+    // a little whiter than the look's own lines (chroma 1 is its full tint)
+    // grey lines, brighter and harder than the look's own; the rows keep the look's own spread
+    try { field = createScanField(gl, { look: LOOK, live: true, canvas, w, h }); for (const [k, v] of Object.entries(LINES)) field.set(k, v); }
+    catch (e) { field = null; d.log(`the picture did not compile: ${e.message}`, 'bad'); }
+  }
+  if (gl) {
+    makeField();
+    // Drawn at the screen's own shape, the same pixel budget as the 960 by 540 field, so a phone held upright loses
+    // nothing at the sides; made again when the screen turns between upright and wide.
+    let wasTall = innerHeight > innerWidth;
+    addEventListener('resize', () => { const tall = innerHeight > innerWidth; if (tall !== wasTall) { wasTall = tall; makeField(); } });
+  } else d.log('this browser has no WebGL2, so there is no picture', 'bad');
+
+
+  // ── the channel: title, listeners and the raid gate from /api/now every 15 s, only while playing ──
+  const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
+  const now = { ...target };
+  let state = null, pollT = 0;
+  function nowIn(ev) {
+    if (ev?.of !== 'now') return;
+    state = ev.s; drawLine();
+  }
+  // v2in's raid goes to the layout's one raid view only when it changes, so r's simulated raid is not undone by a poll
+  let realRaid = '';
+  function feedRaid(r) {
+    const k = r?.on ? `on ${r.since ?? ''}` : '';
+    if (k === realRaid || FORCE_RAID) return;
+    realRaid = k; lay.keys.setRaid(r?.on ? r : null);
+  }
+  async function readNow() {
+    if (!playing) return;
+    try {
+      const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
+      const ch = (j?.channels || []).find((c) => c.id === STATION);
+      if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
+      if (playing) feedRaid(j?.raid ?? ch?.raid);
+    } catch { /* next time */ }
+    if (playing) pollT = setTimeout(readNow, 15_000);
+  }
+
+  // ── listening: one <audio> through an analyser, made on the first press ──
+  let ctx = null, audio = null, an = null, vol = null, how = false, playing = false, feats = null, follow = null, heard = 0;
+  // Play fades in and Stop fades out over FADE s, a gain in series after How it works' volume
+  const FADE = 1.5;
+  let fade = null, stopT = 0;
+  function fadeTo(v) { const t = ctx.currentTime; fade.gain.cancelScheduledValues(t); fade.gain.setValueAtTime(fade.gain.value, t); fade.gain.linearRampToValueAtTime(v, t + FADE); }
+  async function play() {
+    ctx ??= new AudioContext();
+    // pressed again while fading out: the stream is still open, so only the fade turns round
+    const warm = !!stopT && !audio.paused;
+    clearTimeout(stopT); stopT = 0;
+    if (!audio) {
+      audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
+      an = ctx.createAnalyser(); an.fftSize = 2048;
+      ctx.createMediaElementSource(audio).connect(an);
+      // the analyser before the volume, so the picture hears the sound at full level while How it works turns it down
+      vol = ctx.createGain(); vol.gain.value = how ? QUIET : 1;
+      fade = ctx.createGain(); fade.gain.value = 0;
+      an.connect(vol).connect(fade).connect(ctx.destination);
+      audio.addEventListener('playing', () => { delete btn.dataset.busy; });
+      // the stream ends when the channel restarts: while we are playing it comes back by itself
+      audio.addEventListener('error', () => { if (playing) setTimeout(() => { if (playing) { audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`; audio.play().catch(() => {}); } }, 2000); });
+    }
+    ctx.resume().catch(() => {});
+    if (!warm) {
+      btn.dataset.busy = '';
+      fade.gain.cancelScheduledValues(ctx.currentTime); fade.gain.setValueAtTime(0, ctx.currentTime);
+      audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`;
+      try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
+    }
+    fadeTo(1);
+    playing = true; face(); readNow();
+  }
+  function stop() {
+    playing = false; clearTimeout(pollT); state = null;
+    // the real raid ends with the listening; a simulated one stays until r or Esc
+    if (realRaid) { realRaid = ''; lay.keys.setRaid(null); }
+    delete btn.dataset.busy;
+    face();
+    if (!audio || !fade) return;
+    fadeTo(0);
+    clearTimeout(stopT);
+    stopT = setTimeout(() => { stopT = 0; audio.pause(); audio.removeAttribute('src'); audio.load(); }, FADE * 1000);
+  }
+
+
+  // ── onsets: spectral flux over an adaptive threshold, each one a deposit of grains in row 0 ──
+  // An isolated onset is a burst spread round its tone; three or more evenly spaced ones are steps,
+  // one narrow mark each, walking across the field. Capped at MAX_ONSETS a second.
+  const FLUX_N = 45, REFRACT = 0.09, MAX_ONSETS = 10, sizeLane = LANES.size;
+  const fluxHist = new Float32Array(FLUX_N);
+  let fluxI = 0, fluxFill = 0, lastOnset = -1, onsets = 0, deposits = 0, bursts = 0, steps = 0, pulse = 0;
+  const onsetTimes = [], pending = [];
+  let stepX = 0, stepG = 0;
+  function detect(flux, t) {
+    let m = 0, v = 0;
+    for (let i = 0; i < fluxFill; i++) m += fluxHist[i];
+    m /= Math.max(1, fluxFill);
+    for (let i = 0; i < fluxFill; i++) v += (fluxHist[i] - m) ** 2;
+    const thr = m + 1.6 * Math.sqrt(v / Math.max(1, fluxFill)) + 1e-5;
+    fluxHist[fluxI] = flux; fluxI = (fluxI + 1) % FLUX_N; fluxFill = Math.min(FLUX_N, fluxFill + 1);
+    if (fluxFill < 15 || flux <= thr || t - lastOnset < REFRACT) return 0;
+    while (onsetTimes.length && t - onsetTimes[0] > 1) onsetTimes.shift();
+    if (onsetTimes.length >= MAX_ONSETS) return 0;
+    lastOnset = t; onsetTimes.push(t); onsets++;
+    return Math.min(1, (flux - thr) / thr);
+  }
+  let recent = [];
+  function deposit(strength, tone, t) {
+    recent.push(t); if (recent.length > 4) recent.shift();
+    const iv = recent.slice(1).map((x, i) => x - recent[i]);
+    const even = iv.length >= 2 && iv.every((x) => x < 0.7 && Math.abs(x - iv[0]) < 0.2 * iv[0]);
+    const xc = Math.round(4 + tone * (DATA_W - 9));
+    if (even) {
+      // a step: one column, the next one along, a little higher each time
+      if (iv.length === 2) { stepX = xc; stepG = 0.08; }
+      stepX = (stepX + 3) % DATA_W; stepG = Math.min(0.7, stepG + 0.06);
+      pending.push({ x: stepX, w: 0, g: stepG, n: 2 + Math.round(strength * 3), f: 3 });
+      steps++;
+    } else {
+      // a burst: many grains round the tone's column, longer the harder the attack
+      pending.push({ x: xc, w: 3 + Math.round(strength * 4), g: 0.1 + 0.5 * strength, n: 6 + Math.round(strength * 18), f: 5 });
+      bursts++;
+    }
+  }
+  function drain() {
+    let got = 0;
+    for (let j = pending.length - 1; j >= 0; j--) {
+      const p = pending[j], per = Math.ceil(p.n / p.f);
+      for (let k = 0; k < per && p.n > 0; k++, p.n--) {
+        const x = Math.max(0, Math.min(DATA_W - 1, p.x + Math.round((Math.random() * 2 - 1) * p.w)));
+        const i = at(x, 0);
+        data[i] = Math.min(255, data[i] + 1);
+        data[i + 1] = u8(sizeLane.unmap(Math.max(0, p.g + (Math.random() - 0.5) * 0.08)));
+        got++;
+      }
+      if (--p.f <= 0 || p.n <= 0) pending.splice(j, 1);
+    }
+    deposits += got;
+    return got;
+  }
+
+  // ── the data texture: the drift, and while playing the followers in row 3 and onsets in row 0 ──
+  const data = new Uint8Array(DATA_W * DATA_H * 4);
+  let last = 0, drift = 0, frames = 0;
+  function tick(t) {
+    if (!field) return;
+    const dt = last ? Math.min(0.25, (t - last) / 1000) : 1 / 60;
+    last = t;
+    drift = (drift + dt * 0.06) % 1;
+    data.fill(0);
+    // Safari may hand a cross-origin stream's analyser silence: the sound plays on and the picture drifts at rest
+    const live = playing && an;
+    if (live) {
+      feats ||= createFeatures(an, ctx.sampleRate);
+      follow ||= Object.fromEntries(FOLLOWER_NAMES.map((k) => [k, createEnvFollower(MOD_FOLLOWERS[k])]));
+      const f = feats.read();
+      if ((f.rms ?? 0) > 0) heard++;
+      FOLLOWER_NAMES.forEach((n, i) => { follow[n].push(f[n] ?? 0, dt); data[at(i, 3)] = u8(follow[n].value()); });
+      const v = (n) => follow[n].value();
+      // a full landscape with nobody listening, denser with each listener; the rest from the sound itself
+      target.rows = clamp('rows', 40 + 8 * (state?.listeners ?? 0));
+      target.ampM = clamp('ampM', 2.5 + 5.5 * v('rms'));
+      target.swellY = clamp('swellY', 0.05 * v('low'));
+      target.bucket = clamp('bucket', 0.35 * v('flux'));
+      target.heave = clamp('heave', 0.2 + 0.6 * v('tone'));
+      const s = detect(f.flux ?? 0, t / 1000);
+      if (s > 0) deposit(s, f.tone ?? 0, t / 1000);
+      const got = drain();
+      data[at(6, 3)] = 255;
+      data[at(7, 3)] = Math.min(255, got);
+      data[at(16, 3)] = u8(Math.exp(-dt / OPEN.fade));
+      pulse = (pulse + got * 0.045) % 1;
+      data[at(19, 3)] = u8(0.5 - 0.5 * Math.cos(pulse * Math.PI * 2));
+    } else for (const n of Object.keys(RANGE)) target[n] = OPEN[n];
+    // faster while it hears, slow back to rest
+    const k = 1 - Math.exp(-dt / (live ? 1.5 : 6));
+    for (const n of Object.keys(RANGE)) { now[n] += (target[n] - now[n]) * k; field.set(n, now[n]); }
+    for (const [n, v] of Object.entries(REST)) field.set(n, v);
+    data[at(21, 3)] = u8(drift);
+    data[at(63, 3)] = LAYOUT_VERSION;
+    field.step(data); frames++;
+  }
+  function frame(t) { tick(t); requestAnimationFrame(frame); }
+  if (field) requestAnimationFrame(frame);
+
+
+  // ?raid=1 shows the layout's raid view with no network; then v2in's answers do not touch it
+  const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
+  const ABOUT = 'Sound archives were processed, mixed and visualized in Oct 2026.';
+  // At rest the closing line; while playing, the channel's title in bold and who made it.
+  function drawLine() {
+    if (!line) return;
+    const r = lay.keys.raid();
+    if (r.on) { const t = r.since ? kyivClock(Date.parse(r.since)) : ''; line.replaceChildren(el('b', '', `Air raid in Kyiv${t ? ` since ${t}` : ''}`), 'v2in is silent until the all clear.'); return; }
+    if (!playing) { line.replaceChildren(ABOUT); return; }
+    if (!state?.title) { line.replaceChildren(el('b', '', 'radio1965 on v2in'), 'Tuning in.'); return; }
+    line.replaceChildren(el('b', '', state.title), state.by ? `${state.by}.` : '');
+  }
+  // Play (Stop while playing), one icon in the bottom row
+  const playGroup = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'Play', onPress: () => { if (playing) stop(); else play(); } }] });
+  const btn = playGroup.button('play');
+  btn.classList.add('pos-lg');
+  const face = () => { playGroup.setIcon('play', playing ? 'stop' : 'play', playing ? 'Stop' : 'Play'); drawLine(); };
+  // How it works: the sound ramps down to QUIET over RAMP s and back while the landscape dims.
+  const QUIET = 0.08, RAMP = 2.5;
+  const pb = createPatchbay(bay, { title: 'how it works', flowing: (l) => playing || STAGE.get(`${l.from} -> ${l.to}`) === wave });
+  // At rest a slow wave walks the chain one stage at a time, so the patch reads as alive; while playing every link flows.
+  const STAGES = Math.max(...STAGE.values()) + 2;
+  let wave = -1, waveT = 0;
+  const walk = () => { wave = (wave + 1) % STAGES; waveT = setTimeout(walk, 900); };
+  function onHow(on) {
+    how = on;
+    clearTimeout(waveT); wave = -1;
+    if (on) { pb.refresh(); walk(); }
+    if (vol) { const t = ctx.currentTime; vol.gain.cancelScheduledValues(t); vol.gain.setValueAtTime(vol.gain.value, t); vol.gain.linearRampToValueAtTime(on ? QUIET : 1, t + RAMP); }
+  }
+
+  canvas.classList.add('pos-out');
+  document.body.append(canvas);
+  let line = null;
+  const lay = createPresentLayout({
+    // a raid (from v2in or by r) cuts the sound at once: the context is suspended, and resumed when it ends if playing
+    onRaid: (on) => { if (!ctx) return; if (on) ctx.suspend().catch(() => {}); else if (playing) ctx.resume().catch(() => {}); },
+    title: ['Soundscape', ...AT].join('\n'), sub: ' ',
+    desc: 'The radio1965 channel comes from v2in as MP3 over HTTPS, and an analyser turns its sound into the WebGL2 landscape. /api/now brings its title and the Kyiv air raid gate.',
+    main: null, line: playGroup.el, patch: pb.el, onHow,
+  });
+  line = lay.root.querySelector('.prl-head p');
+  line.classList.add('r65-now');
+  // the raid view is the layout's (r, Esc, ?raid=1): its class on the body redraws the line
+  new MutationObserver(drawLine).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  face();
+
+  window.__demo.radio = { field: () => field, frames: () => frames, state: () => state, knobs: () => ({ ...now }), playing: () => playing, raid: () => lay.keys.raid(), how: () => how, setHow: lay.setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, heard: () => heard, onsets: () => ({ onsets, bursts, steps, deposits }), play, stop };
+
+  async function check() {
+    d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
+    d.assert('Play is the one button in the bottom row', document.querySelectorAll('.prl-foot > .pos-bgroup button').length === 1);
+    d.assert('one raid view on the page', document.querySelectorAll('canvas.kyiv-raid').length === 1);
+    d.assert('the picture compiled', !!field);
+    await new Promise((r) => setTimeout(r, 1500));
+    d.assert('the picture draws', frames > 20, `${frames} frames`);
+  }
+  if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
+  d.ready();
+</script>
+</html>

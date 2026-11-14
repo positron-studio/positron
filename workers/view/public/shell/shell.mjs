@@ -1,7 +1,7 @@
 // Which build is this? workers/view/build.mjs replaces it in the deployed copy only,
 // so a fix that did not work can be told from a fix that was never loaded.
 // why: lessons/kit-shell.md#build-stamp
-export const BUILD = 'caa09e17-144843-545b';
+export const BUILD = 'a23ddd99-190737-0bfe';
 // demo/shell/shell.mjs: the page frame and the __demo contract. mount() builds the chrome
 // and publishes on window.__demo everything it shows a human, for a CDP script.
 //   const d = mount({ name:'transport', what:'...', readout:{drift:'ms'} }); d.set('drift', 0.4);
@@ -40,6 +40,8 @@ export function mount({
   index = '/archive/',
   indexLabel = 'archive',  // the word after the arrow; a concept page passes `positron`, the front page
   feedback = null,       // { context: () => string, onSent: (text) => void }: what a note carries from this page
+  // false: no back link, title or feedback button, for a page that is all its own picture (/kit/present/)
+  chrome = true,
 } = {}) {
   document.title = `POSITRON ${name}`;
   favicon();
@@ -153,7 +155,7 @@ export function mount({
   // The order is the arrangement; createStack().add skips a null, so a joined page
   // is head, controls, page, report.
   // why: lessons/kit-shell.md#column-order
-  column.add(head, report.top, cbar, body, report.foot);
+  column.add(chrome ? head : null, report.top, cbar, body, report.foot);
 
   // ── the machine contract ────────────────────────────────────────────────
   const api = {

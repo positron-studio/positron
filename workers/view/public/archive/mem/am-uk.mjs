@@ -1,4 +1,4 @@
-// demo/radio/mem/am-uk.mjs: v2in's 36 UK KiwiSDR recordings of 2026-11-07 (Manchester M7GMG and Southport), copied to
+// demo/archive/mem/am-uk.mjs: v2in's 36 UK KiwiSDR recordings of 2026-11-07 (Manchester M7GMG and Southport), copied to
 // R2 at positron-station am/uk-2026-11-07/ on 2026-11-09. Titles from their sidecars. Fetched one at a time, on a press.
 // kind: noise (a harsh tone: high, pulsing, warbling or whistling; the low hum at 162 kHz and the steady 829 Hz tone at
 // 129.1 kHz are radio, gentle enough, measured 2026-11-09), talk (MEM's speech measure 40 per cent or more, or a talk station by its

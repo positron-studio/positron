@@ -425,7 +425,8 @@ button.pos-pri[data-busy="1"] {
 /* `.pos-sec-h` is excluded too: a heading belongs to what follows, or
    `stack.titled()` would put 40 px between a label and its block. */
 /* why: lessons/css-shell.md#pos-stack-not-last-child-not-pos-head-not-pos-ho-5 */
-.pos-stack > :not(:last-child):not(.pos-head):not(.pos-how):not(.pos-sec-h) { margin-bottom: var(--pos-gap); }
+/* .pos-out: a fixed layer laid over the page (present-layout.mjs) is not in the flow, so it takes no rhythm */
+.pos-stack > :not(:last-child):not(.pos-head):not(.pos-how):not(.pos-sec-h):not(.pos-out) { margin-bottom: var(--pos-gap); }
 .pos-stack > :not(:first-child) { margin-top: 0; }
 
 /* The heading `stack.titled()` draws: 10 px under it, the distance inside one
@@ -1542,6 +1543,10 @@ button.pos-pg-lab:hover { color: var(--fg); }
    Disabled look is the global `button[disabled]`. */
 /* why: lessons/css-shell.md#pos-bgroup */
 .pos-bgroup { display: inline-flex; align-items: center; gap: 8px; height: 34px; min-width: 0; }
+/* a group of large buttons is as tall as they are, or its clip cuts them to 34 px (the slide arrows) */
+.pos-bgroup:has(button.pos-lg), .pos-bgroup:has(button.pos-lg) > .pos-bgroup-row { height: var(--ctl-lg); }
+/* and keeps its own width on a phone, where a labelled group goes full width */
+.pos-bgroup:has(button.pos-lg) { display: inline-flex; width: auto; }
 .pos-bgroup-l {
   font: 500 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
   color: var(--dim2); white-space: nowrap;

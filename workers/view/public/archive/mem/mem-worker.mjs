@@ -1,4 +1,4 @@
-// demo/radio/mem/mem-worker.mjs: one MEM engine in a module Web Worker, live (the page pulls chunks to play) or as an
+// demo/archive/mem/mem-worker.mjs: one MEM engine in a module Web Worker, live (the page pulls chunks to play) or as an
 // offline render (as fast as it goes, then a report). The page decodes the source files and hands them over at the
 // host's rate; the ring takes exactly the frames each chunk renders, so a render with a seed repeats. Or, live only,
 // the page hands over an audio input at the host's rate as it is captured.

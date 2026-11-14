@@ -1,0 +1,1587 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="positron">
+<meta property="og:url" content="https://positron.studio/present/floor/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/shell/shell.css">
+<script src="/proto/remixer/hls.min.js"></script>
+<style>
+  /* The picture is the page. It keeps a fixed aspect so nothing below it moves
+     as the window changes — shell.css owns the gap around it. */
+  .fl { position: relative; width: 100%; aspect-ratio: 16 / 9; min-height: 280px;
+        background: #07090d; border: 1px solid var(--line); border-radius: 4px;
+        overflow: hidden; touch-action: none; cursor: grab; }
+  .fl:active { cursor: grabbing; }
+  /* Fullscreen must drop .fl's 16:9 box: .fl.pos-full is (0,2,0) and beats .fl on specificity.
+     Never .fl:fullscreen in the same list: an unknown pseudo-class discards the whole list.
+     See lessons/page-floor.md#floor-3 */
+  .fl.pos-full { aspect-ratio: auto; width: 100%; height: 100%;
+                 border: 0; border-radius: 0; min-height: 0; }
+  /* .fl's aspect-ratio, min-height and position: relative give the canvas its height; without
+     them the box is 0 px tall and a click finds no tile, while every other assert still passes.
+     See lessons/page-floor.md#floor-4 */
+  .fl canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* The title under the pointer, at the top of the picture in a fixed box, since it is written
+     every frame the gaze moves. The scrim runs dark at the top, under the words. Full width:
+     the exit button .pos-fsx sits bottom right, and the box is never shorter than 280 px.
+     See lessons/page-floor.md#floor-5 */
+  .fl-name { position: absolute; left: 0; right: 0; top: 0; height: 46px;
+             display: flex; align-items: center; gap: 10px; padding: 0 12px;
+             background: linear-gradient(rgba(7, 9, 13, .92) 45%, transparent);
+             font: 500 12px/1.3 var(--mono); color: var(--fg);
+             white-space: nowrap; overflow: hidden; }
+  /* The title takes the room left and the date keeps its own, so a long title never
+     pushes the date off the end of the box.
+     See lessons/page-floor.md#floor-6 */
+  .fl-name span, .fl-name i { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .fl-name i { color: var(--dim2); font-style: normal; }
+  /* The date is not an accent: --hi is spent on what is chosen or live.
+     See lessons/page-floor.md#floor-7 */
+  .fl-name b { color: var(--dim); font-weight: 500; flex: none; }
+  /* The way out is on the screen it fills: an iPhone has no element Fullscreen API and no
+     Escape key, so createFullscreenExit (fullscreen.mjs) puts a real button here, styled
+     .pos-fsx, pointer-events: none while faded.
+     See lessons/page-floor.md#floor-8 */
+  /* The presentation copy: one press (Play under the words) opens anything; until then the floor is dark. */
+  /* the floor is the page's ground: the whole viewport, under the layout, dimmed while How it works is open */
+  .fl.fl-under { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; aspect-ratio: auto; min-height: 0;
+    z-index: 10; margin: 0; border: 0; border-radius: 0; transition: filter 1.2s; }
+  body.prl-open .fl.fl-under { filter: brightness(.18); }
+  /* The line under the title: empty until a film plays, then that film's title, series and date. Three lines high
+     whatever it says, so Play under it never moves. */
+  .prl-head p.fl-now { height: 4.35em; overflow: hidden; }
+  /* the floor's own name strip is not drawn: the line under the title says it */
+  .fl.fl-under .fl-name { display: none; }
+  .fl-now b { display: block; color: var(--fg); font-weight: 600; }
+</style>
+
+<script type="module">
+  import { mount, guard, el } from '/shell/shell.mjs';
+  import { mul, perspective } from '/shell/xr-room.mjs';
+  import { createXRRay, rayCheck, MONO_AIM, MONO_HELD } from '/shell/xr-ray.mjs';
+  import { createXRControllers } from '/shell/xr-controller.mjs';
+  import { createProjector, VOICES } from '/shell/projector.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { sentenceCase } from '/shell/reel-line.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+
+
+  // The field. The tile is 4:3, the thumbnail's own shape, so the grid tiles exactly with no gap.
+  // See lessons/page-floor.md#floor-9
+  const TILE_W = 1.68;          // 3x the first pass — a frame you read, not a thumbnail
+  // The block repeats forever: each tile moves to its copy nearest the eye (rewrap). The period
+  // is square, 35.28 m, so a tile wraps at 17.6 m, past the 14 m where it has faded out.
+  // 588 slots for 298 films. Full history: lessons/page-floor.md#floor-10.
+  // See lessons/page-floor.md#floor-113
+  const COLS = 21, ROWS = 28;
+  const TILE_H = TILE_W * 0.75;
+  const TEX_W = 256, TEX_H = 192;
+  // Every tile in one TEXTURE_2D_ARRAY and one instanced draw; a tile with no layer is not drawn.
+  // 320 layers of 256x192 RGBA (63 MB, unmeasured on a headset) cover the ~291 tiles in the
+  // load disc, and are also the LRU's capacity. Sized from LOAD_RADIUS.
+  // See lessons/page-floor.md#floor-11
+  const LAYERS = 320;
+  // Tiles are requested out to LOAD_RADIUS and faded from FADE_FROM, so the loader's ragged edge
+  // is transparent. Both in metres, inside the 35.28 m period, and the texture pool must cover
+  // the load disc (an assert holds them together). FLOOR_RGB hides the 3 m fade band.
+  // See lessons/page-floor.md#floor-12
+  const LOAD_RADIUS = 14;       // metres — beyond this nothing is even requested
+  const FADE_FROM = 11;         // and from here it is already on its way out
+  const CONCURRENT = 8;         // image fetches in flight
+  // One colour for the floor: tiles fade to it and the background is cleared to it, so the
+  // fade leaves no rim. Darker than the page, so the tiles recede into a room.
+  // See lessons/page-floor.md#floor-13
+  const FLOOR_RGB = [0.018, 0.022, 0.030];
+
+  // The presentation copy of /floor/, which stays as it was. Three differences: nothing reaches ERR
+  // until the Play press (the thumbnails come through /err-img, which asks arhiiv-img.err.ee on a
+  // cache miss), a film plays on a click only (no dwell), and left and right arrows step the
+  // presentation, so walking is up and down. No VR entry: the copy is the window only, and the
+  // floor is the ground of the whole page, under the layout.
+  const d = mount({ name: 'Floor', what: '', readout: null, showLog: false, chrome: false });
+  guard(d);
+
+  const wrap = el('div', 'fl');
+  const canvas = el('canvas');
+  const nameEl = el('div', 'fl-name');
+  wrap.append(canvas, nameEl);
+  // Until Play is pressed the floor is dark and nothing is asked of anybody's server.
+  let started = false;
+  // Play sits under the words, outside the picture, whose pointer handlers take every press there for walking
+  // one icon: play starts the floor, then stop stops the playing film and play plays the one nearest the view's centre
+  const playGroup = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play', onPress: () => playStop() }] });
+  playGroup.button('play').classList.add('pos-lg');
+  const startBtn = playGroup.el;
+
+  const gl = canvas.getContext('webgl2', { antialias: true, alpha: true, xrCompatible: true });
+  if (!gl) { d.fail(new Error('this browser draws no 3-D')); throw new Error('no webgl2'); }
+
+  // The page always says which renderer it got; verify-gl.mjs checks it agrees with its own reading.
+  // See lessons/page-floor.md#floor-18
+  {
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    // The renderer alone, no vendor prefix: verify-gl.mjs compares this string to its own reading.
+    // See lessons/page-floor.md#floor-19
+    const rendererName = dbg
+      ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+    window.__demo.gl = { renderer: rendererName, ok: !!gl };
+    d.log(`renderer: ${rendererName}`);
+  }
+
+  // ── the catalogue ───────────────────────────────────────────────────────
+  let tiles = [];
+  const state = [];             // per tile: {x, z, layer, a, v, want, img, loading}
+
+  // ── the texture array, and the slots it hands out ───────────────────────
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, TEX_W, TEX_H, LAYERS);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  // Evict by distance from the eye, not by age (the tile behind you was used a moment ago)
+  // and not from the gaze (turning your head would churn the pool). The gaze still decides
+  // what is fetched first.
+  // See lessons/page-floor.md#floor-20
+  const freeLayers = Array.from({ length: LAYERS }, (_, i) => i);
+  const usedLayers = new Map();          // layer -> tile index
+
+  function takeLayer(ti, dist) {
+    if (freeLayers.length) { const L = freeLayers.pop(); usedLayers.set(L, ti); return L; }
+    let worst = -1, worstD = dist;
+    for (const [L, owner] of usedLayers) {
+      if (state[owner].v > 0.01) continue;      // never evict what is playing
+      const dd = distEye(owner);
+      if (dd > worstD) { worstD = dd; worst = L; }
+    }
+    if (worst < 0) return -1;                   // nothing further away than us
+    const prev = usedLayers.get(worst);
+    // A tile is faded before its layer is taken: a candidate still inside LOAD_RADIUS gets
+    // img = false and keeps its layer until the next pump. The radius test matches the shader's
+    // smoothstep, which is exactly 0 at LOAD_RADIUS.
+    // See lessons/page-floor.md#floor-21
+    if (state[prev].a > 0.002 && distEye(prev) < LOAD_RADIUS) {
+      state[prev].img = false;
+      return -1;
+    }
+    state[prev].layer = -1; state[prev].a = 0; state[prev].want = false;
+    usedLayers.set(worst, ti);
+    return worst;
+  }
+
+  // ── one program, one instanced draw ─────────────────────────────────────
+  const VS = `#version 300 es
+  layout(location=0) in vec2 quad;      // -0.5..0.5
+  layout(location=1) in vec4 inst;      // x, z, layer, imageAlpha
+  layout(location=2) in vec3 aVF;       // video alpha, aim, chosen — all 0..1
+  uniform mat4 uVP;
+  uniform vec2 uTile;     // width, depth — the picture's own shape, in metres
+  uniform vec2 uEye;      // where YOU are on the floor — see the LRU, above
+  uniform vec2 uFade;     // from, to — metres
+  out vec2 vUV; flat out float vLayer; out float vA; out float vV; out float vF; out float vC;
+  void main(){
+    vec3 p = vec3(inst.x + quad.x * uTile.x, 0.0, inst.y + quad.y * uTile.y);
+    gl_Position = uVP * vec4(p, 1.0);
+    // 🔴 THE TOP OF THE PICTURE IS THE FAR EDGE, AND THE SIGN HERE WAS WRONG.
+    // \`quad.y\` runs along +Z, which is TOWARD a viewer looking down the floor,
+    // so \`quad.y = +0.5\` is the NEAR edge. With \`UNPACK_FLIP_Y_WEBGL\` false,
+    // texture V=0 is the first row of the JPEG — the top of the image. Mapping
+    // the near edge to V=0 therefore put the top of every picture nearest the
+    // viewer, which reads as upside down when you look ACROSS the floor, which
+    // is the only way anyone looks at it. The near edge takes V=1 instead.
+    vUV = vec2(quad.x + 0.5, quad.y + 0.5);
+    // the wide fade: 1 inside uFade.x, 0 by uFade.y, smooth between, so the
+    // outer ring dissolves into the floor instead of stopping.
+    // WARNING: no backticks in here — this is inside a JS template literal and
+    // one of them ends the shader mid-sentence. It did, and the page threw
+    // before a single assert ran.
+    float far = distance(vec2(inst.x, inst.y), uEye);
+    vLayer = inst.z;
+    vA = inst.w * (1.0 - smoothstep(uFade.x, uFade.y, far));
+    vV = aVF.x; vF = aVF.y; vC = aVF.z;
+  }`;
+  const FS = `#version 300 es
+  precision highp float; precision highp sampler2DArray;
+  in vec2 vUV; flat in float vLayer; in float vA; in float vV; in float vF; in float vC;
+  uniform sampler2DArray uTex;
+  uniform sampler2D uVid;
+  uniform vec2 uTile;     // the same width/depth the vertex stage lays out with
+  uniform vec4 uCrop;     // still inset x,y then video inset x,y — 0..0.5
+  uniform float uDim;     // 0..1 — how much the floor has stood down
+  uniform vec3 uFloor;    // what an empty floor is, and what a tile fades INTO
+  // how dark "all the way down" is. The stages on the way there are uDim's job,
+  // in the page, where the dwell that drives them lives.
+  const float DIM_FLOOR = 0.24;
+  // 🔴 A SMALL LIFT ON WHATEVER THE RAY IS ON, AND IT IS BACK FOR A REASON THE
+  // OPPOSITE OF WHY IT WENT. It was removed when LOOKING was the input: a head
+  // never stops moving, so lighting whatever happened to be in front of you lit
+  // the whole floor in turn and meant nothing. A RAY is aimed. Pointing at
+  // something is a thing you did on purpose, so it should answer.
+  // ⚠️ SUBTLE ON PURPOSE — 18%, where the old lamp was 55%. It says "this one",
+  // not "this is happening"; the happening is the rest of the floor going down.
+  const float AIM_LIFT = 0.18;
+  // 🔴 AND WHILE A FILM RUNS, THE RAY LIFTS A TILE OUT OF THE DIM RATHER THAN
+  // BRIGHTENING IT. A multiplier on an already-dark tile buys almost nothing —
+  // MEASURED: 18% of a tile at a quarter brightness is **+2 of 255**, which is
+  // not a highlight, it is a rounding error. Partial exemption from the dim is
+  // the same idea applied to the thing that actually made it dark: the tile the
+  // ray is on comes 35% of the way back up, which reads as +45 against the
+  // floor's 31 and still sits well below the 128 of the film that is playing.
+  // ⚠️ So it stays subordinate BY CONSTRUCTION. It cannot out-shout the chosen
+  // tile however the constants move, because the chosen tile is fully exempt
+  // and this one never is.
+  // ⚠️ 0.18, DOWN FROM 0.35. At 0.35 the aimed tile read +45 over the dimmed
+  // floor, which is findable and also loud enough to compete with the film for
+  // attention — and the film is the thing you came for. 0.18 is +26: still the
+  // brightest thing that is not playing, and clearly not playing.
+  const float AIM_EXEMPT = 0.18;
+  out vec4 frag;
+  // 🔴 CROP THE BANDS OFF RATHER THAN SHOW THEM. The scans and the masters both
+  // carry black down the sides — real, in the material, and not something a
+  // floor of pictures should be a grid of. Sampling a window of the texture
+  // instead of all of it costs nothing and loses only the black.
+  // ⚠️ Two insets, not one: the still is already a 4:3 thumbnail with a thin
+  // edge, and the video is a WIDE master with a 4:3 picture inside it, so one
+  // number would either leave the master pillarboxed or eat the still.
+  vec2 inset(vec2 uv, vec2 m){ return m + uv * (1.0 - 2.0 * m); }
+  void main(){
+    vec3 still = texture(uTex, vec3(inset(vUV, uCrop.xy), vLayer)).rgb;
+    vec3 moving = texture(uVid, inset(vUV, uCrop.zw)).rgb;
+    // 🔴 THE FADE IS A MIX OF TWO PICTURES, NOT A FADE TO BLACK AND BACK. Going
+    // out through black is two transitions where there should be one, and on a
+    // floor of stills the hole reads as a tile that broke.
+    vec3 c = mix(still, moving, clamp(vV, 0.0, 1.0));
+    // 🔴 NOTHING HAPPENS TO THE TILE YOU ARE LOOKING AT. Not a lift, not a
+    // border, not a ring — two versions of this page drew something ON the tile
+    // (a lamp-then-shutter sequence, then a line closing round its edge) and
+    // both were a page pointing at itself. A glance costs nothing at all; what
+    // a held look does is take THE REST OF THE FLOOR DOWN, in two stages, and
+    // the tile you are on is simply the one that did not move. vF is the
+    // exemption and nothing else: 1 for the tile under your look, 0 everywhere.
+    float f = clamp(vF, 0.0, 1.0);        // the ray is on this one
+    float chosen = clamp(vC, 0.0, 1.0);   // and this is the one you picked
+    c *= 1.0 + AIM_LIFT * f;
+    // 🔴 ONE GREY, AND IT IS NOT A STYLE CHOICE. These are 1965 newsreels: the
+    // film is black and white and the scans are not — they carry the colour cast
+    // of whatever telecine and JPEG they went through, so a floor of them is a
+    // patchwork of slightly different browns and blues that reads as damage.
+    // Rec. 601 luma, because it is the coefficients the material was broadcast
+    // under. Applied AFTER the video mix, so a film fading in over its own still
+    // does not change colour space halfway.
+    c = vec3(dot(c, vec3(0.299, 0.587, 0.114)));
+    // 🔴 WHEN ONE FILM IS PLAYING THE REST OF THE FLOOR STANDS DOWN. A moving
+    // picture in a field of 190 still ones loses to the field — there is more
+    // of it, and motion in the corner of an eye is not enough on its own. So
+    // everything that is not playing dims, SLOWLY: fast would read as a flash,
+    // and this is the floor getting out of the way rather than an event.
+    // WARNING: no backticks in this file's shader strings — they are inside a
+    // JS template literal and one ends the shader mid-sentence. Done twice now.
+    // 🔴 THE EXEMPTION IS THE TILE YOU CHOSE, NOT THE ONE THE RAY IS ON — AND
+    // THAT DISTINCTION IS A BUG THIS PAGE SHIPPED. It was max(vV, f): the
+    // video crossing in, or the aim. The moment you clicked, the tile stopped
+    // being merely aimed at and became the PLAYING one, f fell to zero in
+    // about 140 ms — and vV does not start rising until the archive has
+    // answered and a frame has decoded, a second or more later. In that gap the
+    // tile you had just chosen was exempt from nothing, so it dimmed with the
+    // rest of the floor and then lit again when its film arrived. Reported as
+    // "lightens but then darkens again before the video lightens it up".
+    // chosen is true from the click, so the gap has nothing in it.
+    float exempt = max(max(vV, chosen), f * AIM_EXEMPT);
+    c *= mix(1.0, DIM_FLOOR, uDim * (1.0 - clamp(exempt, 0.0, 1.0)));
+    // the still fades UP from the floor's own colour as it arrives
+    frag = vec4(mix(uFloor, c, clamp(vA, 0.0, 1.0)), 1.0);
+  }`;
+  function shader(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+  // Before linkProgram: bindAttribLocation only takes effect at the next link.
+  // See lessons/page-floor.md#floor-22
+  gl.bindAttribLocation(prog, 0, 'quad');
+  gl.bindAttribLocation(prog, 1, 'inst');
+  gl.bindAttribLocation(prog, 2, 'aVF');
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const uVP = gl.getUniformLocation(prog, 'uVP');
+  const uTile = gl.getUniformLocation(prog, 'uTile');
+  const uEye = gl.getUniformLocation(prog, 'uEye');
+  const uFade = gl.getUniformLocation(prog, 'uFade');
+  const uCrop = gl.getUniformLocation(prog, 'uCrop');
+  const uDim = gl.getUniformLocation(prog, 'uDim');
+  const uFloor = gl.getUniformLocation(prog, 'uFloor');
+  const uTexL = gl.getUniformLocation(prog, 'uTex');
+  const uVidL = gl.getUniformLocation(prog, 'uVid');
+
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const quadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const instBuf = gl.createBuffer(), vidBuf = gl.createBuffer();
+  let instData = new Float32Array(0), vidData = new Float32Array(0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(1, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vidBuf);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(2, 1);
+  gl.bindVertexArray(null);
+
+  // The still's own edge: a few per cent, enough to lose a scan border, judged by eye.
+  // See lessons/page-floor.md#floor-23
+  const STILL_CROP = [0.035, 0.02];
+  // The video's crop is derived from videoWidth/videoHeight when each film starts: a 16:9
+  // master with a 4:3 picture needs 12.5% off each side, a 4:3 master none.
+  // See lessons/page-floor.md#floor-24
+  let vidCrop = [0, 0];
+  function measureVideoCrop() {
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) { vidCrop = [0, 0]; return; }
+    const a = w / h, want = 4 / 3;
+    vidCrop = a > want + 0.01
+      ? [(1 - want / a) / 2, 0]        // pillarboxed: take it off the sides
+      : a < want - 0.01
+        ? [0, (1 - a / want) / 2]      // letterboxed: take it off top and bottom
+        : [0, 0];
+  }
+
+  const vidTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, vidTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+    new Uint8Array([14, 17, 22, 255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  // The pointer from the kit, one ribbon drawn once per eye, compiled at load so the first
+  // immersive frame compiles nothing.
+  // See lessons/page-floor.md#floor-25
+  const xrRay = createXRRay(gl);
+  // your actual controllers, greyed and see-through — the page is monochrome and
+  // your hands are part of the picture
+  const xrCons = createXRControllers(gl, { log: (m, k) => d.log(m, k), say: (m) => d.log(m) });
+
+  // ── where you are ───────────────────────────────────────────────────────
+  const eye = [0, 1.65, 5.0];   // back a little, because the tiles got bigger
+  let yaw = 0, pitch = -0.62;
+  // where the pointer has asked the camera to be; `yaw`/`pitch` follow it
+  let yawT = 0, pitchT = -0.62;
+  const LOOK_RATE = 9;          // ~110 ms to settle — a follow, not a lag
+  const look = () => [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
+
+  /** Where the gaze meets the floor — the centre the loading spreads from. */
+  let gaze = [0, 0];
+  function gazePoint() {
+    const dvec = look();
+    if (dvec[1] >= -0.02) return [eye[0] + dvec[0] * 8, eye[2] + dvec[2] * 8];
+    const t = -eye[1] / dvec[1];
+    return [eye[0] + dvec[0] * t, eye[2] + dvec[2] * t];
+  }
+  // distEye answers everything spatial (visible, worth keeping, nearest copy); distGaze only
+  // what to fetch first. The gaze point can slide 6 m in a frame; the eye cannot.
+  // See lessons/page-floor.md#floor-26
+  const distEye = (i) => Math.hypot(state[i].x - eye[0], state[i].z - eye[2]);
+  const distGaze = (i) => Math.hypot(state[i].x - gaze[0], state[i].z - gaze[1]);
+
+  // Loading: nearest the current gaze first, re-sorted every time a slot frees.
+  // See lessons/page-floor.md#floor-27
+  let inflight = 0, loadedCount = 0, reach = 0, dimAmt = 0;
+  /**
+   * Says once, when the floor stops filling in, how many pictures it holds and how far out.
+   * The latch is the count, not a flag, so walking into unloaded floor says it again.
+   * See lessons/page-floor.md#floor-28
+   */
+  let saidFilled = -1;
+  function sayFilled() {
+    if (inflight || saidFilled === usedLayers.size) return;
+    saidFilled = usedLayers.size;
+    d.log(`${usedLayers.size} pictures on the floor, out to ${reach.toFixed(1)} m`);
+  }
+  function pump() {
+    if (!started || !tiles.length) return;
+    while (inflight < CONCURRENT) {
+      let best = -1, bestD = Infinity;
+      for (let i = 0; i < state.length; i++) {
+        const s = state[i];
+        if (s.want || s.layer >= 0 || !tiles[state[i].film].photo) continue;
+        if (distEye(i) >= LOAD_RADIUS) continue;   // nobody could see it anyway
+        const dd = distGaze(i);
+        if (dd < bestD) { bestD = dd; best = i; }
+      }
+      // nothing left within reach to ask for: if nothing is in flight either,
+      // the floor has finished filling in and the log says where it got to
+      if (best < 0) { sayFilled(); return; }
+      const s = state[best];
+      const dEye = distEye(best);
+      const L = takeLayer(best, dEye);
+      if (L < 0) return;                 // every slot is nearer than this tile
+      s.want = true; s.layer = L; s.a = 0;
+      inflight++;
+      loadOne(best, L, dEye);
+    }
+  }
+
+  function loadOne(i, L, dd) {
+    const img = new Image();
+    // Same origin through /err-img: the archive's image hosts send no CORS header, so
+    // texSubImage3D could not read their pixels.
+    // See lessons/page-floor.md#floor-29
+    img.decoding = 'async';
+    img.src = `/err-img?f=${encodeURIComponent(tiles[state[i].film].photo)}&w=${TEX_W}&h=${TEX_H}`;
+    // decode(), not onload: with decoding async the pixels may not exist yet at onload, and
+    // texSubImage3D uploads whatever is in the buffer (flat green tiles).
+    // See lessons/page-floor.md#floor-30
+    img.decode().then(() => {
+      inflight--;
+      // the tile may have lost its slot to something nearer while this was in
+      // flight — uploading then would paint the wrong picture into somebody
+      // else's layer, which is the worst available bug because it looks right
+      if (state[i].layer !== L || usedLayers.get(L) !== i) { pump(); return; }
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, L, TEX_W, TEX_H, 1,
+        gl.RGBA, gl.UNSIGNED_BYTE, img);
+      state[i].img = true;
+      loadedCount = Math.min(LAYERS, loadedCount + 1);
+      reach = Math.max(reach, dd);
+      pump();
+    }).catch(() => {
+      inflight--;
+      // a miss is remembered: `photo` is cleared so the queue stops offering it
+      tiles[state[i].film].photo = null;
+      state[i].want = false;
+      if (state[i].layer === L) { state[i].layer = -1; usedLayers.delete(L); freeLayers.push(L); }
+      pump();
+    });
+  }
+
+  // The projector starts on a decoded frame, not on the request, so it is heard only when a film
+  // plays. HRTF from the playing tile's position. Gain ramps are set once per state change on
+  // the audio clock, slow up and quick down, so a hidden tab cannot freeze them.
+  // See lessons/page-floor.md#floor-31
+  const PROJ_GAIN = 0.042, PROJ_UP = 1.2, PROJ_DOWN = 0.25;
+  let actx = null, projector = null, panner = null, soundOn = false;
+  /** Built on a real gesture. An AudioContext made at load starts suspended and
+   *  `resume()` in a real browser neither resolves NOR rejects until somebody has
+   *  touched the page — awaiting one is a hang, not an error. */
+  function soundWake() {
+    if (actx) return;
+    try {
+      actx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+      panner = actx.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'inverse';
+      // Reference distance in metres, like the floor; the default 1 makes a projector two tiles
+      // away nearly inaudible.
+      // See lessons/page-floor.md#floor-32
+      panner.refDistance = 1.8;
+      panner.rolloffFactor = 0.7;
+      panner.maxDistance = 40;
+      panner.connect(actx.destination);
+      projector = createProjector(actx);
+      projector.node.connect(panner);
+    } catch { actx = null; return; }
+    actx.resume().catch(() => {});         // NOT awaited — see above
+  }
+  /** On when a frame has decoded, off when the film stops. Nothing else. */
+  function sound(on) {
+    if (on === soundOn) return;
+    soundOn = on;
+    if (!actx) { if (!on) return; soundWake(); }
+    if (!actx || !projector) return;
+    if (on) {
+      if (actx.state === 'suspended') actx.resume().catch(() => {});
+      // The machine is taken from the film's index, so a film always has the same projector.
+      // See lessons/page-floor.md#floor-33
+      projector.setVoice(tiles[state[playing].film] ? state[playing].film : 0);
+      projector.start();
+      projector.setGain(PROJ_GAIN, PROJ_UP);
+    } else {
+      // Three levels, because any one alone leaves something running: gain, scheduler, context.
+      // See lessons/page-floor.md#floor-34
+      projector.setGain(0, PROJ_DOWN);
+      setTimeout(() => {
+        if (soundOn) return;                 // it started again while we were waiting
+        projector.stop();
+        if (actx.state === 'running') actx.suspend().catch(() => {});
+      }, PROJ_DOWN * 1000 + 60);
+    }
+  }
+  /**
+   * Put the listener where the camera is and the machine where the film is. Called every
+   * frame: a position may follow the render loop, a fade must never depend on drawing.
+   * See lessons/page-floor.md#floor-35
+   */
+  function placeSound() {
+    if (!actx || !panner) return;
+    const f = look();
+    const L = actx.listener;
+    // positionX and friends are AudioParams; Firefox ships only the deprecated setter. Both,
+    // with the AudioParam preferred.
+    // See lessons/page-floor.md#floor-36
+    if (L.positionX) {
+      L.positionX.value = eye[0]; L.positionY.value = eye[1]; L.positionZ.value = eye[2];
+      L.forwardX.value = f[0]; L.forwardY.value = f[1]; L.forwardZ.value = f[2];
+      L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
+    } else if (L.setPosition) {
+      L.setPosition(eye[0], eye[1], eye[2]);
+      L.setOrientation(f[0], f[1], f[2], 0, 1, 0);
+    }
+    if (playing < 0) return;
+    const x = state[playing].x, z = state[playing].z;
+    if (panner.positionX) {
+      panner.positionX.value = x; panner.positionY.value = 0; panner.positionZ.value = z;
+    } else if (panner.setPosition) panner.setPosition(x, 0, z);
+  }
+
+  // ── the one video ───────────────────────────────────────────────────────
+  const video = el('video');
+  video.playsInline = true; video.muted = true; video.loop = true;
+  video.crossOrigin = 'anonymous';      // vod.err.ee sends ACAO:* — measured
+  // In the document, off screen at 2 px, not detached and not display: none: either of
+  // those can have its decode dropped. Some decoders refuse a 1 px box.
+  // See lessons/page-floor.md#floor-37
+  video.style.cssText = 'position:absolute;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+  wrap.append(video);
+  let hls = null, playing = -1, vidReady = false;
+
+  /** Take the film off the tile we are leaving, at once and not over a second.
+   *  Pure and separate so the rule can be graded with no network, no video and
+   *  no headset — see the check that runs a switch frame by frame. */
+  function leaveTile(states, from, to) {
+    if (from >= 0 && from !== to) states[from].v = 0;
+  }
+
+  async function playTile(i) {
+    // state.length, not tiles.length: i is a slot on the floor (588 slots for 298 films),
+    // and guarding it against the catalogue's length kills every slot past 297.
+    // See lessons/page-floor.md#floor-38
+    if (i < 0 || i >= state.length) return;
+    // a second hold on what is already running is how a headset says stop; on a
+    // screen this is unreachable, because the dwell refuses the playing tile
+    if (playing === i) { d.log('stopped', 'hi'); stopVideo(true); return; }
+    const film = tiles[state[i].film];
+    // One video texture shared by every tile, so the outgoing tile drops straight back to its
+    // still: a cross-fade would sample the film just started.
+    // See lessons/page-floor.md#floor-39
+    leaveTile(state, playing, i);
+    stopVideo(false);
+    playing = i;
+    try {
+      const r = await fetch(`https://arhiiv.err.ee/api/v1/content/video/${encodeURIComponent(film.slug)}`);
+      const j = await r.json();
+      const raw = (j?.data?.media || j?.media)?.src?.hls;
+      if (!raw) { d.log(`${film.slug}: the archive offers no stream`, 'bad'); stopVideo(true); return; }
+      // ERR returns a protocol-relative url; pin it to https. A slower fetch can land after a newer
+      // click, so playing !== i drops it (loadOne guards images the same way).
+      // See lessons/page-floor.md#floor-40
+      if (playing !== i) return;
+      const src = raw.startsWith('//') ? `https:${raw}` : raw;
+      // ManagedMediaSource, not canPlayType: canPlayType answers "maybe" for HLS in Chrome and
+      // headless Chrome. MMS is WebKit-only, so it is a capability test.
+      // See lessons/page-floor.md#floor-41
+      if ('ManagedMediaSource' in window) {
+        video.disableRemotePlayback = true;
+        video.src = src;
+      } else if (window.Hls?.isSupported()) {
+        hls = new window.Hls({ capLevelToPlayerSize: true, maxBufferLength: 12 });
+        hls.loadSource(src); hls.attachMedia(video);
+      } else { d.log('no HLS path in this browser', 'bad'); stopVideo(true); return; }
+      // NOT awaited: play() waits on a user gesture and does not reject, so
+      // awaiting it is a hang rather than an error.
+      video.play().catch(() => {});
+      d.log(`playing ${film.title}`, 'hi');
+    } catch (e) {
+      d.log(`could not ask the archive: ${e.message}`, 'bad');
+      stopVideo(true);
+    }
+  }
+
+  function stopVideo(clear = true) {
+    if (hls) { hls.destroy(); hls = null; }
+    try { video.pause(); } catch { /* nothing loaded */ }
+    video.removeAttribute('src'); video.load();
+    vidReady = false;
+    sound(false);
+    if (clear) playing = -1;
+  }
+
+  // Picking: one function for mouse and controller, a ray and the tile it lands on. Not
+  // xr-pick.mjs: the floor is one plane at y=0, so it is a division and a lookup.
+  // See lessons/page-floor.md#floor-42
+  function pickFloor(o, dir) {
+    if (dir[1] >= -1e-4) return -1;
+    const t = -o[1] / dir[1];
+    const px = o[0] + dir[0] * t, pz = o[2] + dir[2] * t;
+    // The tile is 4:3, so each axis has its own half-extent.
+    // See lessons/page-floor.md#floor-43
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < state.length; i++) {
+      if (state[i].layer < 0 || state[i].a < 0.05) continue;   // nothing invisible
+      const dx = Math.abs(state[i].x - px) / (TILE_W / 2);
+      const dz = Math.abs(state[i].z - pz) / (TILE_H / 2);
+      const dd = Math.max(dx, dz);
+      if (dd <= 1 && dd < bestD) { bestD = dd; best = i; }
+    }
+    return best;
+  }
+
+  // One slow tempo for everything that moves. These are rates, not durations: 1 / RATE is
+  // roughly the seconds to settle. Kept together so "slower" is one edit.
+  // See lessons/page-floor.md#floor-44
+  const FADE_RATE = 1.1;        // a still arriving           ~0.9 s
+  // A film arrives slowly and leaves quickly: a look that has left has left.
+  // See lessons/page-floor.md#floor-45
+  const VIDEO_IN = 2.2;         // a film crossing its still  ~0.45 s
+  const VIDEO_OUT = 4.0;        // and going back to it       ~0.25 s
+  // Fast where the others are slow: what it drives is already timed by the dwell (1.8 s).
+  // See lessons/page-floor.md#floor-46
+  const FOCUS_RATE = 7;         // follows the dwell rather than softening it
+  // The floor stands down in two stages and back up in one: a held look takes it DIM_HOLD of
+  // the way, following the dwell, and a film the rest. Letting go is fast. 0.7, because less
+  // leaves the rest of a dark floor too bright to see the change.
+  // See lessons/page-floor.md#floor-47
+  const DIM_HOLD = 0.7;         // how far down a held look alone takes it
+  const DIM_IN = 2.6;           // the floor standing down    ~0.4 s
+  const DIM_OUT = 7.0;          // and coming back up         ~0.14 s
+  // Nothing stops a film except asking: a film runs until another starts or playTile sees a
+  // second ask on the same tile. A look-away timer cancels films on the smallest twitch,
+  // since the tiles meet with no gap.
+  // See lessons/page-floor.md#floor-48
+  const DWELL_MS = 1800;
+  let hover = -1, dwell = 0;
+
+  // A click plays; dragging and the arrow keys travel. In a headset the trigger grabs the floor
+  // and drags it: the world moves by a shift subtracted from the head pose. The drag writes an
+  // absolute target the floor follows with a time constant (tremor never arrives), then throws.
+  // See lessons/page-floor.md#floor-49
+  const shift = [0, 0];            // where the floor IS
+  const shiftT = [0, 0];           // where the hand has asked it to be
+  const shiftV = [0, 0];           // metres a second, and what the throw carries
+  // 1.6 settles in about 630 ms and a flick coasts nearly three seconds: heavy enough to
+  // swallow hand tremor; much slower and the hand stops feeling connected to the picture.
+  // See lessons/page-floor.md#floor-50
+  const DRAG_FOLLOW = 1.6;         // ~630 ms — the weight of the floor
+  const THROW_DECAY = 0.8;         // a flick coasts for nearly three seconds
+  const THROW_MAX = 8;             // m/s, so a jerk at 12 m is not a teleport
+  let grab = null;                 // {x, z} — the floor point under the ray
+  /** Where a controller's ray meets the floor, in the WORLD the headset reports
+   *  — no shift applied. The drag works in this frame because it has to be
+   *  immune to how far behind the floor currently is. */
+  const rayWorld = (m) => {
+    const o = [m[12], m[13], m[14]], dir = norm([-m[8], -m[9], -m[10]]);
+    if (dir[1] >= -1e-4) return null;
+    const t = -o[1] / dir[1];
+    return { x: o[0] + dir[0] * t, z: o[2] + dir[2] * t };
+  };
+  /** ...and the same point in FLOOR coordinates, which is what picking wants:
+   *  a pick has to agree with where the tiles are drawn, lag and all. */
+  const rayFloor = (m) => {
+    const w = rayWorld(m);
+    return w && { x: w.x - shift[0], z: w.z - shift[1] };
+  };
+
+  /** How far the floor has travelled from where it was taken hold of. Pure, and
+   *  separate, so the thing that decides pan-or-choose can be graded. */
+  const slipped = (now, from) => Math.hypot(now[0] - from[0], now[1] - from[1]);
+
+  /**
+   * Move the floor one frame: coast if nothing is held, then follow the target. The throw is
+   * taken from what the floor did, not the raw target, which carries all the tremor.
+   * See lessons/page-floor.md#floor-51
+   */
+  function settleFloor(dt) {
+    if (!dt) return;
+    if (!grab) {
+      shiftT[0] += shiftV[0] * dt; shiftT[1] += shiftV[1] * dt;
+      const k = Math.exp(-THROW_DECAY * dt);
+      shiftV[0] *= k; shiftV[1] *= k;
+    }
+    const kf = 1 - Math.exp(-DRAG_FOLLOW * dt);
+    const dx = (shiftT[0] - shift[0]) * kf, dz = (shiftT[1] - shift[1]) * kf;
+    shift[0] += dx; shift[1] += dz;
+    if (!grab) return;
+    const kv = Math.min(1, dt * 6);
+    shiftV[0] += (dx / dt - shiftV[0]) * kv;
+    shiftV[1] += (dz / dt - shiftV[1]) * kv;
+    const sp = Math.hypot(shiftV[0], shiftV[1]);
+    if (sp > THROW_MAX) { shiftV[0] *= THROW_MAX / sp; shiftV[1] *= THROW_MAX / sp; }
+  }
+  function setHover(i) {
+    if (i === hover) return;
+    hover = i;
+    if (i < 0) { nameEl.innerHTML = ''; return; }
+    nameEl.innerHTML = '';
+    const t = tiles[state[i].film];
+    // Title, then series, then date: the title reads first, the constant reads last.
+    // See lessons/page-floor.md#floor-52
+    nameEl.append(el('span', '', t.title), el('i', '', t.series || ''), el('b', '', t.date));
+  }
+
+  // ── the desktop camera ──────────────────────────────────────────────────
+  let dragging = false, lastX = 0, lastY = 0, moved = 0;
+  const keys = new Set();
+  wrap.addEventListener('pointerdown', (e) => {
+    soundWake();                     // a gesture, taken where somebody makes one
+    dragging = true; moved = 0; lastX = e.clientX; lastY = e.clientY;
+    // pointerdown picks too: a finger has no hover, so pointermove alone would leave a phone
+    // unable to play anything.
+    // See lessons/page-floor.md#floor-53
+    setHover(pickFloor(eye, rayThrough(...ndcOf(e))));
+    moveDown(e);                     // drag to move (2026-11-11)
+    wrap.setPointerCapture(e.pointerId);
+  });
+  /** A pointer event as normalised device coordinates. Was inline in
+   *  `pointermove` and is now wanted by `pointerdown` too. */
+  function ndcOf(e) {
+    const r = wrap.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * 2 - 1,
+      1 - ((e.clientY - r.top) / r.height) * 2];
+  }
+  wrap.addEventListener('pointermove', (e) => {
+    setHover(pickFloor(eye, rayThrough(...ndcOf(e))));
+    if (!dragging) return;
+    moved += Math.abs(e.clientX - lastX) + Math.abs(e.clientY - lastY);
+    if (!moveTurn) { moveDrag(e); lastX = e.clientX; lastY = e.clientY; return; }   // drag to move (2026-11-11)
+    // Drag the floor, not the camera: drag right and the view turns left. The pointer moves
+    // a target (0.0021 rad/px) and the camera eases toward it, which smooths pointer noise.
+    // See lessons/page-floor.md#floor-54
+    yawT -= (e.clientX - lastX) * 0.0021;
+    pitchT = Math.max(-1.45, Math.min(0.5, pitchT + (e.clientY - lastY) * 0.0021));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  wrap.addEventListener('pointerup', (e) => {
+    dragging = false;
+    moveUp(moved);                   // drag to move (2026-11-11)
+    // A click plays the tile; under 6 px of travel is a click, more is a drag.
+    // See lessons/page-floor.md#floor-55
+    if (moved < 6 && hover >= 0) playTile(hover);
+    try { wrap.releasePointerCapture(e.pointerId); } catch { /* gone */ }
+  });
+
+  // ── drag to move, with inertia (2026-11-11) ──
+  // A drag grabs the floor point under the pointer and keeps it under the pointer, so the eye
+  // travels the other way, as the headset's ray drag does. On release the eye coasts on the
+  // release velocity, decaying exponentially. Shift+drag or a right-button drag still turns.
+  // Moving only changes `eye`; pump() stays gated on `started`, rewrap() follows the eye.
+  const MOVE_DECAY = 1.2;          // 1/s: speed *= exp(-1.2 dt), half gone in 0.58 s: a heavy floor coasts long
+  const MOVE_STOP = 0.05;          // m/s: below this the coast ends
+  const MOVE_MAX = 4;              // m/s: heavy, so even a hard flick travels slowly
+  const MOVE_GAIN = 0.5;           // the floor travels half as far as the pointer: it is heavy under the hand
+  const MOVE_STEP = 3;             // m: the most one pointer event may carry the eye
+  const MOVE_HELD = 0.1;           // s: a pointer held still this long before release throws nothing
+  const moveV = [0, 0];            // m/s over the floor, x and z
+  let moveGrab = null, moveTurn = false, moveLastT = 0;
+  /** The floor point under a pointer event, or null at or above the horizon. */
+  function floorUnder(e) {
+    const dir = rayThrough(...ndcOf(e));
+    if (dir[1] > -0.05) return null;
+    const t = -eye[1] / dir[1];
+    return [eye[0] + dir[0] * t, eye[2] + dir[2] * t];
+  }
+  function moveDown(e) {
+    moveTurn = e.shiftKey || e.button === 2;
+    moveV[0] = moveV[1] = 0;        // a press catches a coasting floor
+    moveGrab = moveTurn ? null : floorUnder(e);
+    moveLastT = performance.now();
+  }
+  function moveDrag(e) {
+    const p = floorUnder(e);
+    if (!p) return;
+    if (!moveGrab) { moveGrab = p; return; }
+    let dx = (moveGrab[0] - p[0]) * MOVE_GAIN, dz = (moveGrab[1] - p[1]) * MOVE_GAIN;
+    const L = Math.hypot(dx, dz);
+    if (L > MOVE_STEP) { dx *= MOVE_STEP / L; dz *= MOVE_STEP / L; }
+    eye[0] += dx; eye[2] += dz;
+    moveGrab = floorUnder(e) || moveGrab;
+    const now = performance.now(), dt = Math.max(0.004, (now - moveLastT) / 1000);
+    moveLastT = now;
+    const k = Math.min(1, dt * 12);  // the release velocity is the last ~80 ms of the drag
+    moveV[0] += (dx / dt - moveV[0]) * k;
+    moveV[1] += (dz / dt - moveV[1]) * k;
+  }
+  function moveUp(travel) {
+    moveGrab = null;
+    if (moveTurn || travel < 6 || (performance.now() - moveLastT) / 1000 > MOVE_HELD) {
+      moveV[0] = moveV[1] = 0;
+      return;
+    }
+    const sp = Math.hypot(moveV[0], moveV[1]);
+    if (sp > MOVE_MAX) { moveV[0] *= MOVE_MAX / sp; moveV[1] *= MOVE_MAX / sp; }
+  }
+  /** One frame of coasting; called from step() before rewrap(). */
+  function moveCoast(dt) {
+    if (dragging || !(moveV[0] || moveV[1])) return;
+    eye[0] += moveV[0] * dt; eye[2] += moveV[1] * dt;
+    const k = Math.exp(-MOVE_DECAY * dt);
+    moveV[0] *= k; moveV[1] *= k;
+    if (Math.hypot(moveV[0], moveV[1]) < MOVE_STOP) moveV[0] = moveV[1] = 0;
+  }
+  wrap.addEventListener('contextmenu', (e) => e.preventDefault());   // the right button turns
+  window.__demo.eye = () => [eye[0], eye[2]];
+  window.__demo.moveV = () => [moveV[0], moveV[1]];
+  // ── end drag to move, with inertia ──
+  // Arrow keys must not also scroll the page.
+  // See lessons/page-floor.md#floor-56
+  addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k.startsWith('arrow')) e.preventDefault();
+    keys.add(k);
+  }, { passive: false });
+  addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+  let projM = perspective(1.05, 16 / 9, 0.05, 60);
+  function rayThrough(ndx, ndy) {
+    const f = Math.tan(1.05 / 2);
+    const asp = canvas.width / Math.max(1, canvas.height);
+    const cx = ndx * f * asp, cy = ndy * f;
+    const fwd = look();
+    const upW = [0, 1, 0];
+    const right = norm(cross(fwd, upW));
+    const up = cross(right, fwd);
+    return norm([fwd[0] + right[0] * cx + up[0] * cy,
+      fwd[1] + right[1] * cx + up[1] * cy,
+      fwd[2] + right[2] * cx + up[2] * cy]);
+  }
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (v) => { const L = Math.hypot(...v) || 1; return [v[0] / L, v[1] / L, v[2] / L]; };
+  function viewM() {
+    const f = look(), r = norm(cross(f, [0, 1, 0])), u = cross(r, f);
+    return new Float32Array([
+      r[0], u[0], -f[0], 0, r[1], u[1], -f[1], 0, r[2], u[2], -f[2], 0,
+      -(r[0] * eye[0] + r[1] * eye[1] + r[2] * eye[2]),
+      -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
+      (f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2]), 1]);
+  }
+
+  // ── the frame ───────────────────────────────────────────────────────────
+  let lastT = performance.now(), frames = 0;
+  function step(dt) {
+    // Walking: arrow keys only, since they are printed on the keys.
+    // See lessons/page-floor.md#floor-57
+    const sp = 2.6 * dt;
+    const f = look(), r = norm(cross(f, [0, 1, 0]));
+    if (keys.has('arrowup')) { eye[0] += f[0] * sp; eye[2] += f[2] * sp; }
+    if (keys.has('arrowdown')) { eye[0] -= f[0] * sp; eye[2] -= f[2] * sp; }
+    // the camera follows where the pointer asked it to be
+    {
+      const kk = Math.min(1, dt * LOOK_RATE);
+      yaw += (yawT - yaw) * kk;
+      pitch += (pitchT - pitch) * kk;
+    }
+    moveCoast(dt);                   // drag to move (2026-11-11)
+    gaze = gazePoint();
+    rewrap();
+    placeSound();
+    pump();
+
+    // The dwell, window only: rest the pointer on a tile for DWELL_MS and it plays, a click is
+    // an impatient dwell. Not on the playing tile, or it would fire on the film you watch.
+    // A headset has a trigger instead.
+    // See lessons/page-floor.md#floor-58
+    // The copy has no dwell: resting the pointer would ask ERR for a film with nobody pressing.
+    const canDwell = false;
+    if (canDwell) dwell = Math.min(DWELL_MS, dwell + dt * 1000);
+    else dwell = Math.max(0, dwell - dt * 1100);
+    if (dwell >= DWELL_MS && canDwell) { dwell = 0; playTile(hover); }
+
+    // The fades, per tile, every frame, through one readable ease().
+    // See lessons/page-floor.md#floor-59
+    const ease = (cur, target, rate) => cur + (target - cur) * Math.min(1, dt * rate);
+    // The dim checks playing >= 0 before vidReady: between ask and first frame, playTile has
+    // zeroed the dwell, and without this the floor would stand back up and drop again.
+    // See lessons/page-floor.md#floor-60
+    const dimWant = playing >= 0
+      ? (vidReady ? 1 : DIM_HOLD)
+      // Only the window's dwell fills this; in a headset the floor dims once you click.
+      // See lessons/page-floor.md#floor-61
+      : (hover >= 0 && dwell > 0 ? DIM_HOLD * (dwell / DWELL_MS) : 0);
+    dimAmt = ease(dimAmt, dimWant, dimWant > dimAmt ? DIM_IN : DIM_OUT);
+    for (let i = 0; i < state.length; i++) {
+      const s = state[i];
+      s.a = ease(s.a, (s.img && s.layer >= 0) ? 1 : 0, FADE_RATE);
+      // The film crosses slower than the still arrives: a dissolve as fast as a fade-in reads as a cut.
+      // See lessons/page-floor.md#floor-62
+      const vWant = (i === playing && vidReady) ? 1 : 0;
+      s.v = ease(s.v, vWant, vWant > s.v ? VIDEO_IN : VIDEO_OUT);
+      // Two values: f is the lift for "the ray is on this", c exempts the chosen tile from the dim.
+      // See lessons/page-floor.md#floor-63
+      s.f = ease(s.f, (i === hover) ? 1 : 0, FOCUS_RATE);
+      s.c = ease(s.c, (i === playing) ? 1 : 0, FOCUS_RATE);
+      if (s.c < 0.002) s.c = 0;
+      if (s.f < 0.002) s.f = 0;
+      if (s.v < 0.002) s.v = 0;
+      if (s.a < 0.002) s.a = 0;
+      if (s.a > 0.998) s.a = 1;
+    }
+  }
+
+  function upload() {
+    const n = state.length;
+    if (instData.length !== n * 4) { instData = new Float32Array(n * 4); vidData = new Float32Array(n * 3); }
+    let drawn = 0;
+    for (let i = 0; i < n; i++) {
+      const s = state[i];
+      if (s.layer < 0 || s.a < 0.002) continue;
+      const o = drawn * 4;
+      instData[o] = s.x; instData[o + 1] = s.z; instData[o + 2] = s.layer; instData[o + 3] = s.a;
+      vidData[drawn * 3] = s.v; vidData[drawn * 3 + 1] = s.f; vidData[drawn * 3 + 2] = s.c;
+      drawn++;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, instData.subarray(0, drawn * 4), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vidBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, vidData.subarray(0, drawn * 3), gl.DYNAMIC_DRAW);
+    return drawn;
+  }
+
+  function draw(vp, w, h) {
+    const drawn = upload();
+    gl.viewport(0, 0, w, h);
+    gl.enable(gl.DEPTH_TEST);
+    gl.clearColor(FLOOR_RGB[0], FLOOR_RGB[1], FLOOR_RGB[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (!drawn) return;
+    if (playing >= 0 && video.readyState >= 2 && video.videoWidth) {
+      gl.bindTexture(gl.TEXTURE_2D, vidTex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+      if (!vidReady) { measureVideoCrop(); sound(true); }
+      vidReady = true;
+    }
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(uVP, false, vp);
+    gl.uniform2f(uTile, TILE_W, TILE_H);
+    gl.uniform2f(uEye, eye[0], eye[2]);
+    gl.uniform2f(uFade, FADE_FROM, LOAD_RADIUS);
+    gl.uniform4f(uCrop, STILL_CROP[0], STILL_CROP[1], vidCrop[0], vidCrop[1]);
+    gl.uniform1f(uDim, dimAmt);
+    gl.uniform3f(uFloor, FLOOR_RGB[0], FLOOR_RGB[1], FLOOR_RGB[2]);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex); gl.uniform1i(uTexL, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, vidTex); gl.uniform1i(uVidL, 1);
+    gl.bindVertexArray(vao);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, drawn);
+    gl.bindVertexArray(null);
+  }
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+    frames++;
+    step(dt);
+    const r = wrap.getBoundingClientRect();
+    const W = Math.max(2, Math.round(r.width * devicePixelRatio));
+    const H = Math.max(2, Math.round(r.height * devicePixelRatio));
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    projM = perspective(1.05, W / H, 0.05, 60);
+    draw(mul(projM, viewM()), W, H);
+    if (!xrSession) requestAnimationFrame(frame);
+  }
+
+  // ── VR ──────────────────────────────────────────────────────────────────
+  // No VR entry in the copy: xrSession stays null and the headset code below is never reached.
+  let xrSession = null, xrRefSpace = null, xrFrames = 0;
+
+  // The way out: hold any button and one ring fills dead centre about 1.6 m out, depth test off.
+  // The trigger also drags, so the ring shows from the first millisecond and drops on release
+  // (see xr-quit.mjs). Nothing is drawn until something is held.
+  // See lessons/page-floor.md#floor-73
+  const xrQuit = null;
+
+  let dragSource = null;
+  // where the floor was when the trigger went down, and whether it has stayed
+  // there. See onSelect.
+  let grabAt = [0, 0], holdStill = false;
+  // Pan or choose is measured on shift, where the floor is, not shiftT, the raw ray hit whose
+  // tremor would read every hold as a pan.
+  // See lessons/page-floor.md#floor-74
+  const HOLD_SLIP = 0.15;         // metres of floor travel that makes it a pan
+  function onSelect(ev) {
+    const pose = xrFramePose && ev.frame?.getPose(ev.inputSource.targetRaySpace, xrRefSpace);
+    if (!pose) return;
+    soundWake();                     // a trigger pull is a gesture too
+    const m = pose.transform.matrix;
+    const hit = rayWorld(m);
+    if (!hit) return;
+    // The floor point under the ray, against the target, so grabbing mid-glide does not jump.
+    // Taking hold zeroes the throw so the floor stops where it is.
+    // See lessons/page-floor.md#floor-75
+    shiftT[0] = shift[0]; shiftT[1] = shift[1];
+    shiftV[0] = shiftV[1] = 0;            // taking hold ends any throw
+    grab = { x: hit.x - shiftT[0], z: hit.z - shiftT[1] };
+    dragSource = ev.inputSource;
+    // One trigger, two verbs: hold still and the grabbed tile is chosen; move past HOLD_SLIP and
+    // it is a pan, latched so a wobble at the end cannot turn it back into a choice.
+    // See lessons/page-floor.md#floor-76
+    grabAt = [shift[0], shift[1]];
+    holdStill = true;
+  }
+
+  /** Keep the grabbed floor point under the ray. Called every XR frame the
+   *  trigger is held. */
+  function dragFloor(xframe) {
+    if (!grab || !dragSource) return;
+    const pose = xframe.getPose(dragSource.targetRaySpace, xrRefSpace);
+    if (!pose) return;
+    const hit = rayWorld(pose.transform.matrix);
+    if (!hit) return;
+    // absolute: the grabbed floor point belongs under the ray, so this is where
+    // the floor has to end up. `settleFloor` decides how fast it gets there.
+    shiftT[0] = hit.x - grab.x;
+    shiftT[1] = hit.z - grab.z;
+    // moving the floor makes this press a pan, and a pan is not a choice.
+    // Latched, so a wobble at the end of a long drag cannot turn it back into one.
+    if (holdStill && slipped(shift, grabAt) > HOLD_SLIP) holdStill = false;
+  }
+
+  let xrFramePose = null;
+  const hands = [];               // rebuilt every XR frame; see the loop
+  function xrFrame(now, xframe) {
+    const session = xframe.session;
+    session.requestAnimationFrame(xrFrame);
+    const pose = xframe.getViewerPose(xrRefSpace);
+    xrFramePose = pose;
+    if (!pose) return;
+    // baseLayer is null until the next frame: updateRenderState queues, so reading it at once throws.
+    // See lessons/page-floor.md#floor-77
+    const layer = session.renderState.baseLayer;
+    if (!layer) return;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+    xrFrames++;
+    dragFloor(xframe);              // writes the target
+    settleFloor(dt);                // and the floor moves toward it
+    // Poses are read once per frame, not per eye, so both eyes draw one ray. Both hands work the
+    // same way. A hand is drawn only if the runtime answered for it this frame.
+    // See lessons/page-floor.md#floor-78
+    hands.length = 0;
+    for (const src of session.inputSources) {
+      const t = src.targetRaySpace && xframe.getPose(src.targetRaySpace, xrRefSpace);
+      const g = src.gripSpace && xframe.getPose(src.gripSpace, xrRefSpace);
+      if (!t && !g) continue;
+      const pose = t ? t.transform.matrix : null;
+      let len = 2.4;
+      if (pose) {
+        const hit = rayWorld(pose);
+        // to the floor if it is on the floor, else a fixed reach. Capped: a ray
+        // a degree off the horizon meets the floor a hundred metres out, and a
+        // ribbon that long has faded to nothing before anything you can see.
+        if (hit) len = Math.min(18, Math.hypot(hit.x - pose[12], pose[13], hit.z - pose[14]));
+      }
+      hands.push({
+        pose, len, grip: g ? g.transform.matrix : null,
+        profile: src.profiles?.[0] || '', hand: src.handedness || 'none',
+        held: dragSource === src,
+      });
+      if (src.profiles?.[0] && g) xrCons.want(src.profiles[0], src.handedness);
+    }
+    const head = pose.transform.matrix;
+    // the wearer's own head, less whatever the floor has been dragged by
+    eye[0] = head[12] - shift[0]; eye[1] = head[13]; eye[2] = head[14] - shift[1];
+    // the gaze in a headset is where the HEAD points, which is the thing the
+    // loading order is supposed to follow
+    const hd = norm([-head[8], -head[9], -head[10]]);
+    // In a headset the head pose is used as is: smoothing it lags the world behind the neck.
+    // See lessons/page-floor.md#floor-79
+    yaw = yawT = Math.atan2(hd[0], -hd[2]);
+    pitch = pitchT = Math.asin(Math.max(-1, Math.min(1, hd[1])));
+    // The ray chooses every frame whether or not the trigger is down; the trigger decides.
+    // See lessons/page-floor.md#floor-80
+    {
+      const aim = hands.find((h) => h.held && h.pose) || hands.find((h) => h.pose);
+      setHover(aim
+        ? pickFloor([aim.pose[12] - shift[0], aim.pose[13], aim.pose[14] - shift[1]],
+          norm([-aim.pose[8], -aim.pose[9], -aim.pose[10]]))
+        : -1);
+    }
+    // The gaze chooses nothing in a headset (a head never stops moving); the trigger does.
+    // It still orders fetching through distGaze.
+    // See lessons/page-floor.md#floor-81
+    step(dt);
+    frames++;
+    let first = true;
+    for (const view of pose.views) {
+      const vp = layer.getViewport(view);
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      if (first) {
+        // gl.clear ignores the viewport and both eyes share a framebuffer: only the first eye clears
+        // colour, the second clears depth inside a scissor.
+        // See lessons/page-floor.md#floor-82
+        gl.clearColor(FLOOR_RGB[0], FLOOR_RGB[1], FLOOR_RGB[2], 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        first = false;
+      } else {
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(vp.x, vp.y, vp.width, vp.height);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.disable(gl.SCISSOR_TEST);
+      }
+      // The shift goes into the view matrix, not every tile's position, so picking stays in floor
+      // coordinates. Computed before the empty-floor early exit, which still draws the way out.
+      // See lessons/page-floor.md#floor-83
+      const vm = new Float32Array(view.transform.inverse.matrix);
+      vm[12] += vm[0] * shift[0] + vm[8] * shift[1];
+      vm[13] += vm[1] * shift[0] + vm[9] * shift[1];
+      vm[14] += vm[2] * shift[0] + vm[10] * shift[1];
+      const viewVP = mul(view.projectionMatrix, vm);
+      const drawn = upload();
+      if (!drawn) { xrQuit?.draw(viewVP, vm); continue; }
+      if (playing >= 0 && video.readyState >= 2 && video.videoWidth) {
+        gl.bindTexture(gl.TEXTURE_2D, vidTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+        if (!vidReady) { measureVideoCrop(); sound(true); }
+        vidReady = true;
+      }
+      gl.useProgram(prog);
+      gl.uniformMatrix4fv(uVP, false, viewVP);
+      gl.uniform2f(uTile, TILE_W, TILE_H);
+      gl.uniform2f(uEye, eye[0], eye[2]);
+      gl.uniform2f(uFade, FADE_FROM, LOAD_RADIUS);
+      gl.uniform4f(uCrop, STILL_CROP[0], STILL_CROP[1], vidCrop[0], vidCrop[1]);
+      gl.uniform1f(uDim, dimAmt);
+      gl.uniform3f(uFloor, FLOOR_RGB[0], FLOOR_RGB[1], FLOOR_RGB[2]);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex); gl.uniform1i(uTexL, 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, vidTex); gl.uniform1i(uVidL, 1);
+      gl.bindVertexArray(vao);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, drawn);
+      gl.bindVertexArray(null);
+      // Poses arrive in headset space; the floor has moved by shift, which vm already holds, so each
+      // pose is shifted into floor coordinates before drawing with this VP.
+      // See lessons/page-floor.md#floor-84
+      for (const h of hands) {
+        // No controller model is drawn; xrCons.want() still loads it, so xrCons.draw with the grip
+        // (shifted like the pose) brings it back. The way out does not hang off a grip.
+        // See lessons/page-floor.md#floor-85
+        if (!h.pose) continue;
+        const pf = new Float32Array(h.pose);
+        pf[12] -= shift[0]; pf[14] -= shift[1];
+        // view: vm already holds the shift, and the ribbon takes its eye from it. No colour is
+        // passed: the ray is grey and weight lightens it (see AIM_RGB in xr-ray.mjs).
+        // See lessons/page-floor.md#floor-86
+        xrRay.draw({ vp: viewVP, view: vm, pose: pf, len: h.len, held: h.held });
+      }
+      // Last in the eye: the head-locked ring draws with the depth test off, so nothing hides it.
+      // See lessons/page-floor.md#floor-87
+      xrQuit?.draw(viewVP, vm);
+    }
+  }
+
+  // ── go ──────────────────────────────────────────────────────────────────
+  const doc = await (await fetch('/floor/tiles.json')).json();
+  tiles = doc.tiles;
+  // ── the block that tiles ────────────────────────────────────────────────
+  const SLOTS = COLS * ROWS;
+  const PERIOD_X = COLS * TILE_W, PERIOD_Z = ROWS * TILE_H;
+  for (let i = 0; i < SLOTS; i++) {
+    const c = i % COLS, r = Math.floor(i / COLS);
+    state.push({
+      // the tile's home square in the block; `x`/`z` are the WRAPPED position
+      // and are rewritten every frame
+      bx: (c - (COLS - 1) / 2) * TILE_W,
+      bz: (r - (ROWS - 1) / 2) * TILE_H,
+      x: 0, z: 0,
+      film: i % tiles.length,
+      layer: -1, a: 0, v: 0, f: 0, c: 0, want: false, img: false,
+    });
+  }
+  /**
+   * Move every tile to the copy of itself nearest the eye, the same centre as the fade. Cheap
+   * (two rounds per tile), so it runs every frame and no row lags in an old copy.
+   * See lessons/page-floor.md#floor-88
+   */
+  function rewrap() {
+    for (const t of state) {
+      t.x = t.bx + PERIOD_X * Math.round((eye[0] - t.bx) / PERIOD_X);
+      t.z = t.bz + PERIOD_Z * Math.round((eye[2] - t.bz) / PERIOD_Z);
+    }
+  }
+  rewrap();
+  requestAnimationFrame(frame);
+
+  // The floor is the ground of the whole page, under present-layout.mjs's words and buttons.
+  wrap.classList.add('fl-under', 'pos-out');
+  document.body.append(wrap);
+  // The patch as the code runs it: thumbnails from ERR through our origin's image proxy, a pressed film as HLS
+  // from ERR, both into the WebGL2 floor; the projector's sound is made here
+  useMediumColours();
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const FNODES = [{ id: 'err:thumbnails', kind: 'external', label: 'ERR thumbnails' }, { id: 'cf:err-img', kind: 'endpoint', label: 'image proxy' },
+    { id: 'err:film', kind: 'external', label: 'ERR film, HLS' }, { id: 'web:floor', kind: 'screen', label: 'WebGL2 floor' },
+    { id: 'web:projector', kind: 'engine', label: 'projector sound' }, { id: 'web:speaker', kind: 'device', label: 'speakers' }];
+  const FPORTS = [port('err:thumbnails', 'file', 'out'), port('cf:err-img', 'file', 'in'), port('cf:err-img', 'file', 'out'), port('web:floor', 'file', 'in'),
+    port('err:film', 'video', 'out'), port('web:floor', 'video', 'in'), port('web:projector', 'audio', 'out'), port('web:speaker', 'audio', 'in')];
+  const FLINKS = [{ id: 'a', from: 'err:thumbnails:file-out', to: 'cf:err-img:file-in' }, { id: 'b', from: 'cf:err-img:file-out', to: 'web:floor:file-in' },
+    { id: 'c', from: 'err:film:video-out', to: 'web:floor:video-in' }, { id: 'd', from: 'web:projector:audio-out', to: 'web:speaker:audio-in' }];
+  const pb = createPatchbay({ nodes: () => FNODES, ports: () => FPORTS, links: () => FLINKS }, { flowing: (l) => started && (l.id !== 'c' || playing >= 0) });
+  const lay = createPresentLayout({
+    title: 'Today\nat 1965', sub: '\u00a0',
+    desc: "ERR thumbnails reach the WebGL2 floor as images through our Cloudflare image proxy, and a pressed film as HLS video.",
+    main: null, line: startBtn, patch: pb.el, onHow: (on) => { if (on) pb.refresh(); },
+  });
+  // the line under the title: the playing film, else the one under the pointer, read four times a second
+  const nowEl = lay.root.querySelector('.prl-head p');
+  nowEl.classList.add('fl-now');
+  let nowShown = '';
+  setInterval(() => {
+    const shown = playing >= 0 ? playing : hover;
+    if (`${playing} ${shown}` === nowShown) return;
+    nowShown = `${playing} ${shown}`;
+    playGroup.setIcon('play', playing >= 0 ? 'stop' : 'play', playing >= 0 ? 'stop the film' : 'play');
+    if (shown < 0) { nowEl.textContent = '\u00a0'; return; }
+    const t = tiles[state[shown].film];
+    nowEl.replaceChildren(el('b', '', sentenceCase(t.title)), `${t.series ? `${t.series}, ` : ''}${t.date}`);
+  }, 250);
+  window.__demo.how = lay.setHow;
+  window.__demo.raid = () => lay.keys.raid();
+  function playStop() {
+    if (!started) return start();
+    if (playing >= 0) { stopVideo(true); return; }
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < state.length; i++) { if (state[i].layer < 0) continue; const dd = distGaze(i); if (dd < bestD) { bestD = dd; best = i; } }
+    if (best >= 0) playTile(best);
+  }
+  function start() {
+    if (started) return;
+    started = true;
+    soundWake();
+    pump();
+    d.log('started: the floor asks for its pictures', 'hi');
+  }
+  window.__demo.started = () => started;
+  d.assert('the whole 1965 film catalogue is on the floor', tiles.length === 298,
+    `${tiles.length} tiles`);
+  d.assert('every tile has a picture to ask for', tiles.every((t) => t.photo),
+    `${tiles.filter((t) => t.photo).length} of ${tiles.length}`);
+  d.assert('the floor has no two tiles in one place',
+    new Set(state.map((s) => `${s.x.toFixed(3)},${s.z.toFixed(3)}`)).size === state.length,
+    `${new Set(state.map((s) => `${s.x.toFixed(3)},${s.z.toFixed(3)}`)).size} distinct places`);
+  d.assert('nothing is drawn before it has a picture', state.every((s) => s.layer < 0),
+    `${state.filter((s) => s.layer >= 0).length} claimed a slot at load`);
+  {
+    // the loading order, graded rather than described: the first tiles asked
+    // for must be the ones nearest where the camera is looking
+    // The copy's gate, graded: nothing is asked for before the press.
+    pump();
+    d.assert('nothing is asked of the archive before the Start press',
+      !started && inflight === 0 && state.every((s) => !s.want),
+      `${inflight} in flight, ${state.filter((s) => s.want).length} asked`);
+  }
+  // A tile wraps at half the period from the eye; that must lie past LOAD_RADIUS, where it is
+  // invisible. Guards TILE_W, COLS, ROWS and LOAD_RADIUS together.
+  // See lessons/page-floor.md#floor-93
+  {
+    const half = Math.min(PERIOD_X, PERIOD_Z) / 2;
+    d.assert('a tile only changes copy where nothing can see it', half > LOAD_RADIUS,
+      `wraps at ${half.toFixed(1)} m, invisible from ${LOAD_RADIUS} m`);
+  }
+  d.assert('the whole floor is one draw call', true,
+    `1 instanced draw of up to ${LAYERS} tiles`);
+
+  // The texture pool must cover the load disc, or the LRU takes pictures off visible tiles.
+  // Guards LAYERS, the tile size and LOAD_RADIUS together.
+  // See lessons/page-floor.md#floor-94
+  {
+    const pool = Math.sqrt(LAYERS * TILE_W * TILE_H / Math.PI);
+    d.assert('the floor can keep every picture it is showing', pool >= LOAD_RADIUS,
+      `${LAYERS} layers hold a disc of ${pool.toFixed(1)} m, fading out by ${LOAD_RADIUS} m`);
+  }
+
+  // Highlight and dim graded by rendering two grey tiles into a small framebuffer at each stage
+  // and comparing readings of the same run, never a stored image: aimed lifts a little, the
+  // rest dims, and the chosen tile never darkens.
+  // See lessons/page-floor.md#floor-95
+  if (!SELFCHECK) {
+    d.log('the checks that paint over a tile, run the floor forward and start a film '
+        + 'are for the harness. The rest ran');
+  }
+
+  // Behind SELFCHECK: it fills layer 0, a visible tile, with flat grey and nothing restores it.
+  // See lessons/page-floor.md#floor-96
+  if (SELFCHECK) {
+    const N = 64;
+    const grey = new Uint8Array(TEX_W * TEX_H * 4).fill(128);
+    for (let i = 3; i < grey.length; i += 4) grey[i] = 255;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, TEX_W, TEX_H, 1,
+      gl.RGBA, gl.UNSIGNED_BYTE, grey);
+
+    const fbTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, fbTex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, N, N);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fbTex, 0);
+
+    // one tile filling the frame: (x,z) straight to NDC, no camera at all — a
+    // projection with a viewpoint in it would make this a test of the camera
+    // too, and then a failure would have two places to be
+    const VP = new Float32Array([2 / TILE_W, 0, 0, 0, 0, 0, 0, 0,
+      0, 2 / TILE_H, 0, 0, 0, 0, 0, 1]);
+    const px = new Uint8Array(N * N * 4);
+    function shot(dim, aim, chosen) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.viewport(0, 0, N, N);
+      gl.disable(gl.DEPTH_TEST);            // one quad, and no depth buffer here
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(prog);
+      gl.uniformMatrix4fv(uVP, false, VP);
+      gl.uniform2f(uTile, TILE_W, TILE_H);
+      gl.uniform2f(uEye, 0, 0);             // on top of it, so the far fade is 1
+      gl.uniform2f(uFade, FADE_FROM, LOAD_RADIUS);
+      gl.uniform4f(uCrop, 0, 0, 0, 0);      // the whole grey, uncropped
+      gl.uniform1f(uDim, dim);
+      gl.uniform3f(uFloor, FLOOR_RGB[0], FLOOR_RGB[1], FLOOR_RGB[2]);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex); gl.uniform1i(uTexL, 0);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, vidTex); gl.uniform1i(uVidL, 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 0, 1]), gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vidBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, aim, chosen]), gl.DYNAMIC_DRAW);
+      gl.bindVertexArray(vao);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, 1);
+      gl.bindVertexArray(null);
+      gl.readPixels(0, 0, N, N, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return px[((N >> 1) * N + (N >> 1)) * 4];     // one channel — the page is grey
+    }
+
+    const rest = [0, DIM_HOLD, 1].map((v) => shot(v, 0, 0));   // an ordinary tile
+    const look = [0, DIM_HOLD, 1].map((v) => shot(v, 0, 1));   // the one you chose
+    const aimed = [0, 1].map((v) => shot(v, 1, 0));            // one under the ray
+    gl.deleteFramebuffer(fb); gl.deleteTexture(fbTex);
+    gl.enable(gl.DEPTH_TEST);
+
+    // The tile under the ray lightens a little: the ray is aimed, so it answers.
+    // See lessons/page-floor.md#floor-97
+    d.assert('the tile the ray is on lightens a little',
+      aimed[0] > rest[0] + 8 && aimed[0] < rest[0] * 1.35,
+      `${aimed[0]} against ${rest[0]} of 255`);
+    d.assert('...and choosing one takes the rest of the floor down',
+      rest[1] < rest[0] - 8 && rest[2] < rest[1] - 8,
+      `the rest of the floor ${rest.join(' \u2192 ')} of 255 at rest, part way, and with a film`);
+    // The chosen tile stays bright from the click to the picture, while there is no video alpha yet.
+    // See lessons/page-floor.md#floor-98
+    d.assert('...and the one you chose never darkens, film or no film',
+      look.every((v) => v === look[0]),
+      `the chosen tile ${look.join(' \u2192 ')} of 255 as the floor goes down, unmoved`);
+
+    // "Subtler" as two comparisons: findable against the dimmed floor, and plainly below the film.
+    // See lessons/page-floor.md#floor-99
+    const liftBusy = aimed[1] - rest[2];
+    d.assert('the ray still lightens what it is on while a film plays, without competing',
+      liftBusy > 8 && aimed[1] < look[2] - 20,
+      `+${liftBusy} of 255 over the dimmed floor, and ${aimed[1]} against the film's ${look[2]}`);
+  }
+
+  // Drives the dwell through step() at a fixed 1/60, no frame loop. 100 steps is 1667 ms, short
+  // of the 1800 that would call playTile and fetch. Under SELFCHECK, since it runs the page's
+  // fades forward; dwell, dim and playing are restored afterwards.
+  // See lessons/page-floor.md#floor-100
+  if (SELFCHECK) {
+    const keep = { hover, dwell, dimAmt, playing };
+    const lit = state.findIndex((t) => t.layer >= 0);
+    hover = lit >= 0 ? lit : 0;
+    dwell = 0; dimAmt = 0; playing = -1;
+    for (let n = 0; n < 100; n++) step(1 / 60);
+    const grew = dwell, dimmed = dimAmt;
+    ({ hover, dwell, dimAmt, playing } = keep);
+
+    d.assert('resting on a tile fills a dwell',
+      grew > 1600 && grew < DWELL_MS,
+      `${Math.round(grew)} ms of the ${DWELL_MS} ms it takes, after 100 frames`);
+    // The floor standing down is the highlight. It lags its rising target, so 0.7 of DIM_HOLD
+    // is the threshold.
+    // See lessons/page-floor.md#floor-101
+    d.assert('...and the rest of the floor is already standing down',
+      dimmed > DIM_HOLD * 0.7,
+      `dim ${dimmed.toFixed(3)} of the ${DIM_HOLD} a held look reaches`);
+  }
+
+  // A held hand is not a pan, graded by running settleFloor itself. Deterministic sine noise of
+  // 0.15 m per axis puts the raw signal past HOLD_SLIP (212 mm), so the old bug would fail;
+  // the filtered floor stays in millimetres.
+  // See lessons/page-floor.md#floor-102
+  {
+    const keep = [shift[0], shift[1], shiftT[0], shiftT[1], shiftV[0], shiftV[1], grab];
+    grab = { x: 0, z: 0 };            // held, so settleFloor follows rather than coasts
+    shift[0] = shift[1] = shiftT[0] = shiftT[1] = shiftV[0] = shiftV[1] = 0;
+    const from = [0, 0];
+    let worst = 0;
+    for (let n = 1; n <= 90; n++) {   // a second and a half of shaking
+      shiftT[0] = 0.15 * Math.sin(n * 1.2993);
+      shiftT[1] = 0.15 * Math.cos(n * 0.7211);
+      settleFloor(1 / 60);
+      worst = Math.max(worst, slipped(shift, from));
+    }
+    const stillHolds = worst < HOLD_SLIP;
+
+    // ...and a deliberate push, which must be told apart from it quickly
+    shift[0] = shift[1] = shiftT[0] = shiftT[1] = shiftV[0] = shiftV[1] = 0;
+    let frames = 0;
+    for (let n = 1; n <= 120; n++) {
+      shiftT[0] = n / 60;             // a metre a second, straight
+      settleFloor(1 / 60);
+      if (slipped(shift, from) > HOLD_SLIP) { frames = n; break; }
+    }
+    [shift[0], shift[1], shiftT[0], shiftT[1], shiftV[0], shiftV[1], grab] = keep;
+
+    d.assert('a shaking hand is not a pan', stillHolds,
+      `0.15 m of tremor moves the floor ${(worst * 1000).toFixed(0)} mm, `
+      + `against ${(HOLD_SLIP * 1000).toFixed(0)} mm to count as a push`);
+    d.assert('...and a push is one within half a second', frames > 0 && frames <= 30,
+      frames ? `told apart after ${Math.round(frames * 1000 / 60)} ms` : 'never told apart');
+  }
+
+  // One film at a time: sixty frames of a real switch, counting frames where two tiles would
+  // sample the one video texture. The defect is in the middle, not the end state.
+  // See lessons/page-floor.md#floor-103
+  {
+    const sim = [{ v: 1 }, { v: 0 }];
+    let who = 0;
+    leaveTile(sim, who, 1); who = 1;
+    let both = 0;
+    for (let n = 0; n < 60; n++) {
+      for (let i = 0; i < 2; i++) {
+        const want = i === who ? 1 : 0;
+        sim[i].v += (want - sim[i].v) * Math.min(1, (want > sim[i].v ? VIDEO_IN : VIDEO_OUT) / 60);
+      }
+      if (sim[0].v > 0.002 && sim[1].v > 0.002) both++;
+    }
+    d.assert('one film at a time, because there is one video texture', both === 0,
+      `${both} of 60 frames with two tiles reading the one texture`);
+  }
+
+  // The pointer, graded by rendering it twice: from its own eye, and from one turned 90 degrees
+  // round the ray. A ribbon facing its eye goes nearly edge-on the second time.
+  // See lessons/page-floor.md#floor-104
+  {
+    const r = rayCheck(gl);
+    d.assert('the eye a billboard turns against comes out of its own view matrix',
+      r.backErr < 1e-5, `round trip off by ${r.backErr.toExponential(1)} m`);
+    d.assert('the pointer is drawn, and it turns to face the eye it is given',
+      r.facing > 2000 && r.facing > r.edgeOn * 3,
+      `${r.facing} of ink face on against ${r.edgeOn} edge on`);
+    d.assert('...and it fades out at the hand and into the distance',
+      r.ends[1] > r.ends[0] * 3 && r.ends[1] > r.ends[2] * 3,
+      `down the ribbon: ${r.ends[0]} at the hand, ${r.ends[1]} in the middle, ${r.ends[2]} at the far end`);
+  }
+
+  // The release is faster than the take, run through the page's easing at a fixed 1/60 s rather
+  // than read off DIM_OUT > DIM_IN.
+  // See lessons/page-floor.md#floor-105
+  {
+    const ease = (cur, target, rate) => cur + (target - cur) * Math.min(1, rate / 60);
+    const ms = (from, to, rate) => {
+      let v = from, n = 0;
+      while (Math.abs(v - to) > Math.abs(from - to) * 0.1 && n < 600) { v = ease(v, to, rate); n++; }
+      return Math.round(n * 1000 / 60);
+    };
+    const down = ms(0, 1, DIM_IN), up = ms(1, 0, DIM_OUT);
+    d.assert('the floor stands back up faster than it stood down', up < down,
+      `down in ${down} ms, back up in ${up} ms`);
+  }
+
+  // /floor/'s end-to-end film check reaches ERR, so the copy leaves it to /floor/.
+
+  // The projector graded offline with OfflineAudioContext: the film's frame rate, and that all
+  // eight voices differ, since seven are only reached by other films.
+  // See lessons/page-floor.md#floor-108
+  try {
+    const SR = 48000, SECS = 0.24;
+    const renders = [];
+    for (let v = 0; v < VOICES.length; v++) {
+      const oc = new OfflineAudioContext(1, Math.floor(SR * SECS), SR);
+      const pj = createProjector(oc, { voice: v });
+      pj.node.connect(oc.destination);
+      pj.start(); pj.setGain(1, 0.001);
+      renders.push((await oc.startRendering()).getChannelData(0));
+    }
+    // Autocorrelation, not a threshold: the clatter's amplitude is random over a constant noise
+    // bed, so a threshold off the loudest sample counts bed peaks.
+    // See lessons/page-floor.md#floor-109
+    const periodOf = (ch) => {
+      const win = Math.floor(SR * 0.002), env = [];
+      for (let i = 0; i < ch.length; i += win) {
+        let mx = 0;
+        for (let j = i; j < Math.min(i + win, ch.length); j++) mx = Math.max(mx, Math.abs(ch[j]));
+        env.push(mx);
+      }
+      const mean0 = env.reduce((x, y) => x + y, 0) / env.length;
+      const z = env.map((v) => v - mean0);
+      const lagOf = (ms) => Math.round((ms / 1000) * SR / win);
+      let bestLag = 0, best = -Infinity;
+      for (let lag = lagOf(20); lag <= lagOf(80); lag++) {
+        let acc = 0;
+        for (let i = 0; i + lag < z.length; i++) acc += z[i] * z[i + lag];
+        const sc = acc / (z.length - lag);
+        if (sc > best) { best = sc; bestLag = lag; }
+      }
+      return (bestLag * win / SR) * 1000;
+    };
+    const periods = renders.map(periodOf);
+    const worst = Math.max(...periods.map((ms) => Math.abs(ms - 1000 / 24)));
+    d.assert('every projector makes a sound', renders.every((ch) => {
+      let p = 0; for (let i = 0; i < ch.length; i++) p = Math.max(p, Math.abs(ch[i]));
+      return p > 0.05;
+    }), `${VOICES.length} voices, all audible`);
+    // 3 ms tolerance: each clatter is a few per cent off the grid, and the envelope is 2 ms.
+    // See lessons/page-floor.md#floor-110
+    d.assert('...and every one of them runs at the film\u2019s frame rate',
+      worst < 3, `worst of ${VOICES.length} is ${worst.toFixed(1)} ms from ${(1000 / 24).toFixed(1)}`);
+
+    // The voices differ, measured by zero crossings. Weaker than it looks: the bed filter and hum
+    // also vary per voice, so it does not prove the clatter is what differs.
+    // See lessons/page-floor.md#floor-111
+    const zx = (ch) => {
+      let n = 0;
+      for (let i = 1; i < ch.length; i++) if ((ch[i - 1] < 0) !== (ch[i] < 0)) n++;
+      return Math.round(n / (ch.length / SR));
+    };
+    const lo = zx(renders[0]), hi = zx(renders[VOICES.length - 1]);
+    d.assert('...and the smallest machine is brighter than the biggest',
+      hi > lo * 1.15, `${lo} zero crossings a second against ${hi}`);
+  } catch (e) {
+    d.assert('every projector makes a sound', false, `offline render failed: ${e.message}`);
+  }
+
+  // Leaving fires different events (hidden, pagehide for bfcache and mobile Safari); all of
+  // them stop decoding the film.
+  // See lessons/page-floor.md#floor-112
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { stopVideo(true); d.log('hidden, so the film stopped', 'hi'); }
+  });
+  addEventListener('pagehide', () => stopVideo(true));
+
+  // Two lines, not one with glue in it: what is here, and what to do with it.
+  d.log(`${tiles.length} films on the floor`, 'hi');
+  d.log('press Start, then drag to look, up and down arrows to walk, click a film to play it');
+  d.ready();
+</script>
+</html>

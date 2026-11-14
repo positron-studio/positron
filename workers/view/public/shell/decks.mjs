@@ -8,6 +8,7 @@ import { createCodeBox } from './code-box.mjs';
 import { SYNTH_STEPS } from './synth-steps.mjs';
 import { synthSlot } from './slide-synth.mjs';
 import { deckFrameHTML } from '../manifest.mjs';
+import { patchSlot } from './deck-patch.mjs';
 
 /**
  * Synths in code: an intro set as two `lines` at step 6, then splits with the words left and one
@@ -133,6 +134,72 @@ const POSITRON_WORDS = [
 const POSITRON = POSITRON_WORDS.map((sl) => (sl.title ? sl : { ...sl, sayStep: 3 }));
 
 /**
+ * Lonely Software, for TechTrack Lab II: the owner's essay (demo/lonely-software/index.html), its
+ * sentences verbatim, its three patch pictures as slots, and a placeholder where the live feedback
+ * demo runs (plans/plan-feedback-demo.md). What a slide cuts from the essay is in its `notes`.
+ */
+const LONELY = [
+  { name: 'title', title: 'Lonely Software', by: 'When everyone can create anything, what makes someone else care?' },
+  { name: '1988', say: 'I\'ve been writing software since 1988', sayStep: 3,
+    text: 'For the first ten years, much of it existed only in A4 notebooks. I wrote code on the left side and drew the worlds it might create on the right, putting it all together in my head.',
+    notes: 'Today, one person can create entire worlds inside worlds of software.' },
+  { name: 'craft', say: 'We\'re returning, in a way, to an older tradition of craftsmanship', sayStep: 2,
+    list: ['Blacksmiths made their own tools.', 'Photographers built their own pinhole cameras.',
+      'Musicians created their own worlds of sound by inventing new instruments.'] },
+  { name: 'today', lines: [
+    [3, 'Today, people are making their smart homes finally smart, creating the games they dreamt of as children, and inventing new musical instruments again.'],
+  ] },
+  { name: 'alone', lines: [
+    [3, 'We\'re now generating thousands of thousands of lines of code. Software that makes software.'],
+    [4, 'And we\'re doing it increasingly alone.'],
+  ] },
+  { name: 'question', lines: [
+    [3, 'The question is no longer how did you make it?'],
+    [4, 'It\'s *does it have to be for anyone but me?*'],
+  ] },
+  { name: 'node', layout: 'split', side: 'right', say: 'Imagine a node in a network',
+    text: 'It has inputs and outputs, countless possibilities, but no connections. It can send signals, but there\'s nobody on the other end.',
+    slot: patchSlot('node'),
+    notes: 'Maybe we\'re becoming these lonely nodes, building increasingly elaborate systems of our own, without reaching into other people\'s worlds.' },
+  { name: 'loopback', layout: 'split', side: 'right', say: 'Connect its output back to its own input',
+    text: '*A feedback loop doesn\'t necessarily repeat itself. It can produce something that wasn\'t there before.*',
+    slot: patchSlot('loopback'),
+    notes: 'But there\'s something we can do with a lonely node. Connect its output back to its own input. '
+      + 'In engineering, this is called a loopback. Normally, it\'s a way of testing a system. Send something out, receive it back, see whether the connection works. '
+      + 'In art, the same gesture can produce something entirely different. '
+      + 'Point a camera at its own monitor. The image appears inside the image. Patterns emerge and transform. '
+      + 'Feed a sound back into its own input and you get resonance, distortion, oscillation. Add delay and the sound returns with a memory of itself. '
+      + 'We can make something simply to see what happens next.' },
+  // A placeholder: the live demo runs off the deck, on the pages the plan names.
+  { name: 'feedback demo', say: 'Feedback demo',
+    text: 'Placeholder. The live demo runs here.',
+    list: ['The Pi\'s camera at its own monitor', 'The drone into its own echoes', 'The keyboard as the hand'],
+    notes: 'plans/plan-feedback-demo.md. The camera loop: https://positron.studio/devices/hdmi/ . The sound loop: https://positron.studio/ambient/drone/ with the microphone open. Then the keyboard, played and handed over.' },
+  { name: 'world', say: 'Creating a world',
+    text: 'I could imagine a jungle, an elephant, a whirlpool of sound moving around us, and we could listen to it almost immediately. *His ears, hands on the keyboard and ears created that world.*',
+    notes: 'Years ago, working on an art project at ZKM, the Center for Art and Media in Karlsruhe, Germany, we had a spherical loudspeaker system and a talented programmer creating sounds in real time using SuperCollider. '
+      + 'Today, AI-assisted programming gives me something of that immediacy. I can experiment with ideas that would previously have required a programmer, a team or weeks of work.' },
+  { name: 'workshop',
+    text: 'positron.studio grew out of this practice. It\'s my own workshop of experiments, instruments, connections and discoveries. *There doesn\'t have to be a destination. The output can become the next input.*',
+    notes: 'I start with one idea. Halfway through building it, I discover something else. Something I hadn\'t thought of, or didn\'t even know was possible. So I follow that instead. Sometimes I forget what I was originally trying to make.' },
+  { name: 'the other end', layout: 'split', side: 'right', say: 'But who is listening?',
+    text: 'If everybody can make their own tools, what are we actually selling? Artists have been dealing with these questions for a long time.',
+    slot: patchSlot('two'),
+    notes: 'AI agents have made it possible to generate almost endless outputs. Software, applications, instruments, entire systems. More tools. More software. More systems inside systems. '
+      + 'But a listener, a collaborator, somebody who cares, isn\'t something we can generate so easily. '
+      + 'What does this mean for the software industry? If everybody can make their own tools, what are we actually selling? The code? The knowledge? The method? The one between the keyboard and the chair? '
+      + 'But are we actually making more things together? Artists have been dealing with these questions for a long time. '
+      + 'Commissions, workshops, performances, residencies, publicly supported experiments. Ways of sustaining creative work without turning every invention into a scalable product. '
+      + 'Perhaps we\'re all becoming artists now. I don\'t know. '
+      + 'positron.studio is a workshop I keep building for myself. I\'m not here to sell it, and I\'m not proposing it as a solution. '
+      + 'I keep making things because I can. I can make them before I\'ve even decided whether I should. '
+      + 'But sometimes somebody discovers one of these experiments. They try it, change it, take it somewhere I hadn\'t imagined.' },
+  { name: 'next', lines: [[4, 'Just the possibility to see what happens next.']],
+    notes: 'I think that\'s what I\'m looking for. Not necessarily a product, or a business, or even somebody on the other end. Just the possibility to see what happens next.' },
+];
+
+
+/**
  * The decks. `title` is the name a half width player shows in its footer; a deck page has no
  * sentence under its heading.
  * why: lessons/kit-decks.md#decks
@@ -142,6 +209,7 @@ export const DECKS = [
   // its manifest row and demo/slides/positron/ out of git (last at e403b38).
   // why: lessons/kit-decks.md#parked
   { name: 'synths', title: 'Synths in code', slides: SYNTHS },
+  { name: 'lonely', title: 'Lonely Software', slides: LONELY },
 ];
 
 /** Where a deck's own page is: `/slides/<name>/`. */

@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Soundscape">
+<meta property="og:description" content="The v2in mem channel as a full page spectrogram">
+<meta property="og:url" content="https://positron.studio/huddersfield/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Soundscape</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* The picture is the page: over everything, the whole viewport, nothing to press. */
+  html, body { background: #000; }
+  .hud { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 10; display: block; background: #000; touch-action: none; cursor: ew-resize; }
+  /* the fixed playhead while dragging: the picture moves under it */
+  .hud-head { position: fixed; top: 0; bottom: 0; width: 1px; z-index: 10; pointer-events: none; background: rgba(255, 255, 255, .75); display: none; }
+  .hud-head.on { display: block; }
+  /* The title over the picture, top left; taps go through it to the picture. */
+  .hud-t { position: fixed; z-index: 11; pointer-events: none; color: var(--fg);
+    top: max(48px, env(safe-area-inset-top)); left: max(48px, env(safe-area-inset-left)); }
+  .hud-t .pos-hero-eye { margin: 0 0 12px; }
+  .hud-t h1 { margin: 0; font: 600 clamp(34px, 4.4vw, 56px)/1.2 var(--mono); letter-spacing: 0; }
+  .hud-t .hud-at { margin: 0; height: auto; color: var(--fg); font: 600 clamp(34px, 4.4vw, 56px)/1.2 var(--mono); }
+  /* the line keeps its height whatever it says, so the buttons under it never move */
+  .hud-t p { margin: 0.9em 0 0; font: 400 clamp(14px, 1.4vw, 18px)/1.4 var(--sans); color: var(--dim); height: 5.6em; overflow: hidden;
+    max-width: min(24em, calc(100vw - 64px)); font-variant-numeric: tabular-nums; }
+  .hud-t p b { display: block; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hud-btns { display: flex; gap: 12px; margin-top: 24px; }
+  .hud-t .pos-lg { pointer-events: auto; }
+  /* brightness, not opacity: a see-through canvas shows the shell's header behind it */
+  .hud { transition: filter 2.5s; }
+  body.hud-how .hud { filter: brightness(.12); }
+  body.hud-how .hud-t { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  /* the patch sits on the bottom edge with the same 48 px margin as the title */
+  .hud-how-box { pointer-events: auto; position: fixed; left: max(48px, env(safe-area-inset-left)); bottom: max(48px, env(safe-area-inset-bottom)); width: calc(100vw - 96px); box-sizing: border-box; }
+  /* the picture dims over 2.5 s first, then the patch fades in; on Off the patch goes first */
+  .hud-how-box { opacity: 0; visibility: hidden; transition: opacity .6s, visibility 0s .6s; }
+  body.hud-how .hud-how-box { opacity: 1; visibility: visible; transition: opacity 1.2s 2.5s, visibility 0s 2.5s; }
+  /* During an air raid in Kyiv the hours of the war cover the picture in black on white, and the words go gray on it */
+  .hud-t, .hud-t h1, .hud-t .hud-at, .hud-t p, .hud-t p b, .hud-t .pos-hero-eye, .hud-t .pos-hero-eye b { transition: color 1s; }
+  body.raid .hud-t, body.raid .hud-t h1, body.raid .hud-t .hud-at, body.raid .hud-t p, body.raid .hud-t p b,
+  body.raid .hud-t .pos-hero-eye, body.raid .hud-t .pos-hero-eye b { color: rgba(0, 0, 0, .45);
+    text-shadow: 0 0 6px #fff, 0 0 2px #fff; }
+  /* during a raid only the hours show: no title, no buttons, no arrows */
+  body.raid .hud-t, body.raid .sl-nav { opacity: 0; visibility: hidden; transition: opacity 1s, visibility 0s 1s; }
+</style>
+<script type="module">
+  // /radio1965/ playing the v2in mem channel, its picture a full page monochrome spectrogram scrolling in from the right
+  // (the spectrum of demo/shell/synth-view.mjs, copied). Nothing is fetched or opened until Play.
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createBay } from '/shell/bay.mjs';
+  import { createPatchbay } from '/shell/patchbay.mjs';
+  import { barButton, setButtonFace } from '/shell/bar.mjs';
+  import { createKyivRaid, kyivClock } from '/shell/kyiv-raid.mjs';
+
+  const V2IN = new URLSearchParams(location.search).get('v2in') || 'https://v2in.stream';
+  const STATION = 'mem';
+  const S = 'web';
+  // the lines under the title: the one line to change
+  const AT = ['at Huddersfield', 'Contemporary', 'Music Festival, UK'];
+  const d = mount({ name: 'Soundscape', what: '', readout: null, showLog: false, index: '/', indexLabel: 'positron' });
+
+  // ── the bay: v2in's chain as its code has it (v2in server/config/channels.json, liquidsoap/radio.liq, engines/mem) ──
+  const bay = createBay();
+  const V = { place: 'v2in', net: 'v2in' };
+  const node = (id, kind, label, extra = {}) => bay.addNode({ id, kind, label, ...extra });
+  node('v2in:live', 'engine', 'channel live: shows, playlist', V);
+  node('v2in:recordings', 'store', 'live recordings', V);
+  node('v2in:gate', 'engine', 'gate, Kyiv air raids', V);
+  node('v2in:mem', 'engine', 'MEM, wasm scsynth', V);
+  node('v2in:liquidsoap', 'engine', 'Liquidsoap, channel mem', V);
+  node('v2in:icecast', 'endpoint', 'Icecast, Caddy https', V);
+  node(`${S}:audio`, 'engine', 'audio element, analyser');
+  node(`${S}:spectrogram`, 'screen', 'spectrogram');
+  node(`${S}:speaker`, 'device', 'speakers');
+  const port = (id, dir, medium, label, transports, extra = {}) => bay.addPort({ id, dir, medium, label, ...(transports ? { transports } : {}), ...extra });
+  port('v2in:live:file-out', 'out', 'file', 'each session');
+  port('v2in:live:audio-out', 'out', 'audio', 'from sum, MP3 320');
+  port('v2in:recordings:file-in', 'in', 'file', 'live-*.mp3');
+  port('v2in:recordings:file-out', 'out', 'file', 'earlier takes');
+  port('v2in:gate:state-out', 'out', 'state', 'raid, switches, keys');
+  port('v2in:gate:state-out-2', 'out', 'state', '/api/now', ['https']);
+  port('v2in:mem:audio-in', 'in', 'audio', 'last 5 minutes');
+  port('v2in:mem:file-in', 'in', 'file', 'recordings');
+  port('v2in:mem:state-in', 'in', 'state', 'switch mem');
+  port('v2in:mem:audio-out', 'out', 'audio', 'loops in a room');
+  port('v2in:liquidsoap:audio-in', 'in', 'audio', 'engine, from');
+  port('v2in:liquidsoap:state-in', 'in', 'state', 'raid silence');
+  port('v2in:liquidsoap:audio-out', 'out', 'audio', 'MP3 128');
+  port('v2in:icecast:audio-in', 'in', 'audio', 'mount mem');
+  port('v2in:icecast:audio-out', 'out', 'audio', '/stream/mem', ['https']);
+  port(`${S}:audio:audio-in`, 'in', 'audio', 'stream', ['https']);
+  port(`${S}:audio:audio-out`, 'out', 'audio', 'sound');
+  port(`${S}:spectrogram:audio-in`, 'in', 'audio', 'spectrum');
+  port(`${S}:spectrogram:state-in`, 'in', 'state', 'title line', ['https'], { deliver: (ev) => nowIn(ev) });
+  port(`${S}:speaker:audio-in`, 'in', 'audio', 'volume');
+  // each link's place along the chain, for the idle wave in How it works
+  const STAGE = new Map();
+  const hold = (a, b, stage, via) => { STAGE.set(`${a} -> ${b}`, stage); const r = bay.link(a, b, [], { site: S, ...(via ? { via } : {}) }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
+  hold('v2in:live:file-out', 'v2in:recordings:file-in', 1);
+  hold('v2in:live:audio-out', 'v2in:mem:audio-in', 1);
+  hold('v2in:gate:state-out', 'v2in:mem:state-in', 1);
+  hold('v2in:recordings:file-out', 'v2in:mem:file-in', 2);
+  hold('v2in:mem:audio-out', 'v2in:liquidsoap:audio-in', 2);
+  hold('v2in:live:audio-out', 'v2in:liquidsoap:audio-in', 2);
+  hold('v2in:gate:state-out', 'v2in:liquidsoap:state-in', 2);
+  hold('v2in:liquidsoap:audio-out', 'v2in:icecast:audio-in', 3);
+  hold('v2in:icecast:audio-out', `${S}:audio:audio-in`, 4, 'https');
+  hold('v2in:gate:state-out-2', `${S}:spectrogram:state-in`, 4, 'https');
+  hold(`${S}:audio:audio-out`, `${S}:spectrogram:audio-in`, 5);
+  hold(`${S}:audio:audio-out`, `${S}:speaker:audio-in`, 5);
+
+  // ── the picture: one column a frame, rows log-spaced 60 Hz to 12 kHz, ink over 60 dB under the recent loudest bin ──
+  const SG_N = 1024, SG_LO = 60, SG_HI = 12000, SG_RANGE = 60, SG_FALL = 3, SG_CEIL = -20, SG_FLOOR = -90, STEP = 2;
+  // the brightest ink, a share of white
+  const INK = 0.6;
+  const HANN = Float32Array.from({ length: SG_N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / SG_N));
+  function fft(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= n; len <<= 1) {
+      const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let j = 0; j < len / 2; j++) {
+          const p = i + j, q = p + len / 2, vr = re[q] * cr - im[q] * ci, vi = re[q] * ci + im[q] * cr;
+          re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+  }
+  const canvas = el('canvas', 'hud');
+  canvas.setAttribute('aria-hidden', 'true');
+  const headLine = el('div', 'hud-head');
+  // opaque, drawn at CSS pixels and stretched: at most the screen's width a frame, whatever the pixel ratio
+  const g = canvas.getContext('2d', { alpha: false });
+  const re = new Float32Array(SG_N), im = new Float32Array(SG_N);
+  let col = null, bins = null, buf = null, top = null, at = 0, frames = 0, inked = 0;
+  // The history: a ring of columns on an offscreen canvas, each with its context time, newest at head, long enough
+  // for the kept buffer at 60 fps and capped at 12 M pixels. The screen is drawn from it, `view` px back from newest.
+  const BUF_S = 90;
+  const hist = document.createElement('canvas'), hg = hist.getContext('2d', { alpha: false });
+  let colT = new Float64Array(1), head = 0, cols = 0, view = 0;
+  function size() {
+    const w = Math.max(1, innerWidth), h = Math.max(1, Math.min(innerHeight, 1440));
+    if (canvas.width === w && canvas.height === h) return;
+    canvas.width = w; canvas.height = h;
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+    col = g.createImageData(STEP, h); bins = null;
+    const n = Math.max(Math.ceil(w / STEP) + 1, Math.floor(Math.min(BUF_S * 60 * STEP, 12e6 / h) / STEP));
+    hist.width = n * STEP; hist.height = h; hg.fillStyle = '#000'; hg.fillRect(0, 0, hist.width, h);
+    colT = new Float64Array(n); head = 0; cols = 0; view = 0;
+  }
+  // the screen from the ring, its right edge `view` px older than the newest column
+  function paint() {
+    const w = canvas.width, h = canvas.height, W = hist.width;
+    const e = ((((head + 1) * STEP - Math.round(view)) % W) + W) % W, a = e - w;
+    if (a >= 0) g.drawImage(hist, a, 0, w, h, 0, 0, w, h);
+    else { g.drawImage(hist, W + a, 0, -a, h, 0, 0, -a, h); if (e > 0) g.drawImage(hist, 0, 0, e, h, -a, 0, e, h); }
+  }
+  // how far back the picture may go: the oldest kept column under a playhead at x
+  const viewMax = (x = 0) => Math.max(0, Math.min(cols, colT.length) * STEP - (canvas.width - x));
+  size();
+  addEventListener('resize', size);
+  function column() {
+    const w = canvas.width, h = canvas.height, sr = ctx.sampleRate, hi = Math.min(SG_HI, sr / 2);
+    // the FFT bin of each row, once per size
+    bins ??= Int32Array.from({ length: h }, (_, y) => Math.min(SG_N / 2 - 1, Math.max(1, Math.round(SG_LO * (hi / SG_LO) ** (1 - y / h) / sr * SG_N))));
+    buf ??= new Float32Array(an.fftSize);
+    an.getFloatTimeDomainData(buf);
+    const t = performance.now(), dt = Math.min(0.1, at ? (t - at) / 1000 : 1 / 60);
+    at = t;
+    const off = buf.length - SG_N;
+    for (let i = 0; i < SG_N; i++) { re[i] = buf[off + i] * HANN[i]; im[i] = 0; }
+    fft(re, im);
+    const dbs = new Float32Array(h);
+    let peak = -Infinity;
+    for (let y = 0; y < h; y++) { const k = bins[y]; dbs[y] = 20 * Math.log10(Math.hypot(re[k], im[k]) / (SG_N / 4) + 1e-9); if (dbs[y] > peak) peak = dbs[y]; }
+    // the floor keeps silence black: with no sound every bin would be the loudest one
+    top = Math.max(SG_FLOOR, peak, Math.min(SG_CEIL, (top ?? peak) - (SG_RANGE / SG_FALL) * dt));
+    const p = col.data;
+    let lit = 0;
+    for (let y = 0; y < h; y++) {
+      const v = Math.round(255 * INK * Math.max(0, Math.min(1, (dbs[y] - (top - SG_RANGE)) / SG_RANGE)) ** 1.5);
+      if (v > 8) lit++;
+      for (let x = 0; x < STEP; x++) { const o = (y * STEP + x) * 4; p[o] = p[o + 1] = p[o + 2] = v; p[o + 3] = 255; }
+    }
+    head = (head + 1) % colT.length; colT[head] = ctx.currentTime - SG_N / 2 / sr; cols = Math.min(cols + 1, colT.length);
+    hg.putImageData(col, head * STEP, 0);
+    // a held picture stays where it is while new columns arrive
+    if (scrub) view += STEP;
+    frames++; if (lit) inked++;
+  }
+  function timeAt(x) {
+    if (!cols) return null;
+    const k = Math.max(0, Math.min(cols - 1, Math.floor((canvas.width - 1 - x + view) / STEP)));
+    return colT[(head - k + colT.length) % colT.length];
+  }
+  let raf = 0;
+  function frame() { raf = 0; if (!playing) return; column(); slideStep(); midiStep(); paint(); raf = requestAnimationFrame(frame); }
+  // on release the picture slides back to now over SLIDE s
+  const SLIDE = 0.4;
+  let slide = null;
+  function slideStep() {
+    if (!slide || scrub) return;
+    const p = Math.min(1, (performance.now() - slide.at) / (SLIDE * 1000));
+    view = slide.from * (1 - p) ** 3;
+    if (p >= 1) { view = 0; slide = null; }
+  }
+
+  // ── the channel: title from /api/now every 15 s, only while playing ──
+  let state = null, pollT = 0;
+  function nowIn(ev) {
+    if (ev?.of !== 'now') return;
+    state = ev.s; drawLine();
+  }
+  async function readNow() {
+    if (!playing) return;
+    try {
+      const j = await fetch(`${V2IN}/api/now`, { cache: 'no-store' }).then((r) => r.json());
+      const ch = (j?.channels || []).find((c) => c.id === STATION);
+      if (ch && playing) bay.send('v2in:gate:state-out-2', { of: 'now', s: ch });
+      if (playing && !FORCE_RAID) setRaid(j?.raid ?? ch?.raid);
+    } catch { /* next time */ }
+    if (playing) pollT = setTimeout(readNow, 15_000);
+  }
+
+  // ── listening: one <audio> through an analyser, made on the first press ──
+  let ctx = null, audio = null, an = null, vol = null, how = false, playing = false;
+  let rec = null, duck = null, fx = null, held = 0, dubMax = 0, rateV = 0, maxRate = 0, scrubs = 0, errors = 0;
+  // The tap: records the stream into a ring of BUF_S seconds, stereo, indexed by context frame, and while scrubbing
+  // plays the ring back from a read head that chases the dragged time, so its speed is the drag's speed (varispeed).
+  const REC = `class Rec extends AudioWorkletProcessor {
+    constructor(o) { super(); const n = o.processorOptions.frames; this.n = n; this.L = new Float32Array(n); this.R = new Float32Array(n);
+      this.on = false; this.r = 0; this.to = 0; this.v = 0; this.amp = 0; this.k = 0; this.held = 0;
+      this.port.onmessage = (e) => { const m = e.data; if (m.to != null) this.to = m.to; if (m.on === true) { this.on = true; this.r = this.to; this.v = 0; } if (m.on === false) this.on = false; }; }
+    process(ins, outs) {
+      const i = ins[0], o = outs[0], n = this.n, f0 = currentFrame, len = o[0].length;
+      if (i && i.length) { const l = i[0], r = i[1] || i[0]; for (let k = 0; k < l.length; k++) { const p = (f0 + k) % n; this.L[p] = l[k]; this.R[p] = r[k]; } this.held = Math.min(n, this.held + l.length); }
+      const loud = this.on || this.amp > 1e-4;
+      if (++this.k % (loud ? 8 : 32) === 0) this.port.postMessage({ v: this.v, held: this.held / sampleRate });
+      if (!loud) { for (const c of o) c.fill(0); return true; }
+      const lo = f0 - this.held + 256, hi = f0 - 1, to = Math.max(lo, Math.min(hi, this.to));
+      const want = Math.max(-16, Math.min(16, (to - this.r) / (sampleRate * 0.05)));
+      const ol = o[0], or = o[1] || o[0];
+      for (let k = 0; k < len; k++) {
+        this.v += (want - this.v) * 0.004;
+        this.r = Math.max(lo, Math.min(hi, this.r + this.v));
+        this.amp += ((this.on ? Math.min(1, Math.abs(this.v) * 1.5) : 0) - this.amp) * 0.003;
+        const x = Math.floor(this.r), fr = this.r - x, a = ((x % n) + n) % n, b = (a + 1) % n;
+        ol[k] = (this.L[a] + (this.L[b] - this.L[a]) * fr) * this.amp;
+        or[k] = (this.R[a] + (this.R[b] - this.R[a]) * fr) * this.amp;
+      }
+      return true;
+    }
+  }
+  registerProcessor('hud-rec', Rec);`;
+  // pinkNoise of demo/shell/tuner-mix.mjs, copied
+  function pinkNoise(seconds = 4) {
+    const n = ctx.sampleRate * seconds, b = ctx.createBuffer(1, n, ctx.sampleRate), a = b.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.random() * 2 - 1;
+      b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913;
+      a[i] = (b0 + b1 + b2 + w * 0.1848) * 0.12;
+    }
+    return b;
+  }
+  // a stereo room: decaying noise, a little darker as it fades
+  function impulse(seconds) {
+    const n = Math.round(ctx.sampleRate * seconds), b = ctx.createBuffer(2, n, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) { const a = b.getChannelData(c); let lp = 0; for (let i = 0; i < n; i++) { const k = i / n; lp += ((Math.random() * 2 - 1) - lp) * (0.9 - 0.7 * k); a[i] = lp * (1 - k) ** 3 * 0.5; } }
+    return b;
+  }
+  // sparse clicks with a few samples of ring, the dial's crackle
+  function crackle(seconds = 3) {
+    const n = ctx.sampleRate * seconds, b = ctx.createBuffer(1, n, ctx.sampleRate), a = b.getChannelData(0);
+    for (let i = 0; i < n; i++) if (Math.random() < 0.0006) { const amp = (Math.random() * 2 - 1) * (0.3 + Math.random() * 0.7); for (let j = 0; j < 24 && i + j < n; j++) a[i + j] += amp * Math.exp(-j / 4) * (j % 2 ? -1 : 1); }
+    return b;
+  }
+  // The tuning: the scrub through a band-pass that sweeps with the dragged time, under band-passed pink noise and
+  // crackle, every level following the drag's speed. Made on the first drag.
+  function makeFx() {
+    const bus = ctx.createGain(); bus.gain.value = 0; bus.connect(vol);
+    const dry = ctx.createGain(), bp = ctx.createBiquadFilter(), wet = ctx.createGain();
+    bp.type = 'bandpass'; bp.Q.value = 1.4; wet.gain.value = 0;
+    rec.connect(dry).connect(bus); rec.connect(bp).connect(wet).connect(bus);
+    const noise = Object.assign(ctx.createBufferSource(), { buffer: pinkNoise(), loop: true });
+    const nbp = ctx.createBiquadFilter(); nbp.type = 'bandpass'; nbp.Q.value = 3;
+    const nGain = ctx.createGain(); nGain.gain.value = 0;
+    noise.connect(nbp).connect(nGain).connect(bus);
+    const cr = Object.assign(ctx.createBufferSource(), { buffer: crackle(), loop: true });
+    const chp = ctx.createBiquadFilter(); chp.type = 'highpass'; chp.frequency.value = 1200;
+    const cGain = ctx.createGain(); cGain.gain.value = 0;
+    cr.connect(chp).connect(cGain).connect(bus);
+    noise.start(); cr.start();
+    // The dub send, set by dragging up: a free time echo with a low pass in its loop and a generated room, into a limiter.
+    // The loop and the room keep ringing after release, when the bus goes quiet.
+    const send = ctx.createGain(); send.gain.value = 0; bus.connect(send);
+    const echo = ctx.createDelay(1); echo.delayTime.value = 0.38;
+    const loopLp = ctx.createBiquadFilter(); loopLp.type = 'lowpass'; loopLp.frequency.value = 1800;
+    const loopHp = ctx.createBiquadFilter(); loopHp.type = 'highpass'; loopHp.frequency.value = 120;
+    const fb = ctx.createGain(); fb.gain.value = 0.4;
+    send.connect(echo).connect(loopLp).connect(loopHp).connect(fb).connect(echo);
+    const room = ctx.createConvolver(); room.buffer = impulse(3.2);
+    const roomIn = ctx.createGain(); roomIn.gain.value = 0.6;
+    send.connect(roomIn).connect(room); loopHp.connect(room);
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.003; lim.release.value = 0.25;
+    loopHp.connect(lim); room.connect(lim); lim.connect(vol);
+    return { bus, dry, bp, wet, nbp, nGain, cGain, send, echo, fb };
+  }
+  // Play fades in and Stop fades out over FADE s, a gain in series after How it works' volume
+  const FADE = 1.5;
+  let fade = null, stopT = 0;
+  function fadeTo(v) { const t = ctx.currentTime; fade.gain.cancelScheduledValues(t); fade.gain.setValueAtTime(fade.gain.value, t); fade.gain.linearRampToValueAtTime(v, t + FADE); }
+  async function play() {
+    midiStart();
+    ctx ??= new AudioContext();
+    // pressed again while fading out: the stream is still open, so only the fade turns round
+    const warm = !!stopT && !audio.paused;
+    clearTimeout(stopT); stopT = 0;
+    if (!audio) {
+      audio = Object.assign(document.createElement('audio'), { preload: 'none', crossOrigin: 'anonymous' });
+      an = ctx.createAnalyser(); an.fftSize = 2048;
+      const src = ctx.createMediaElementSource(audio);
+      src.connect(an);
+      try {
+        const url = URL.createObjectURL(new Blob([REC], { type: 'text/javascript' }));
+        await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+        rec = new AudioWorkletNode(ctx, 'hud-rec', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { frames: Math.round(BUF_S * ctx.sampleRate) } });
+        rec.port.onmessage = (e) => { held = e.data.held; rateV = e.data.v; if (Math.abs(rateV) > Math.abs(maxRate)) maxRate = rateV; };
+        rec.onprocessorerror = () => { errors++; d.log('the scrub tap stopped', 'warn'); };
+        src.connect(rec);
+      } catch (e) { rec = null; d.log(`no scrub tap: ${e.message}`, 'warn'); }
+      // the analyser before the volume, so the picture sees the sound at full level while How it works turns it down
+      vol = ctx.createGain(); vol.gain.value = how ? QUIET : 1;
+      duck = ctx.createGain();
+      fade = ctx.createGain(); fade.gain.value = 0;
+      an.connect(duck).connect(vol).connect(fade).connect(ctx.destination);
+      audio.addEventListener('playing', () => { delete btn.dataset.busy; });
+      // the stream ends when the channel restarts: while we are playing it comes back by itself
+      audio.addEventListener('error', () => { if (playing) setTimeout(() => { if (playing) { audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`; audio.play().catch(() => {}); } }, 2000); });
+    }
+    ctx.resume().catch(() => {});
+    if (!warm) {
+      btn.dataset.busy = '';
+      fade.gain.cancelScheduledValues(ctx.currentTime); fade.gain.setValueAtTime(0, ctx.currentTime);
+      audio.src = `${V2IN}/stream/${STATION}?t=${Date.now()}`;
+      try { await audio.play(); } catch (e) { delete btn.dataset.busy; d.log(`the stream did not start: ${e.message}`, 'warn'); return; }
+    }
+    fadeTo(1);
+    playing = true; face(); readNow();
+    raf ||= requestAnimationFrame(frame);
+  }
+  function stop() {
+    playing = false; clearTimeout(pollT); state = null;
+    if (!FORCE_RAID) kyiv.set(null);
+    delete btn.dataset.busy;
+    face();
+    if (!audio || !fade) return;
+    fadeTo(0);
+    clearTimeout(stopT);
+    stopT = setTimeout(() => { stopT = 0; audio.pause(); audio.removeAttribute('src'); audio.load(); }, FADE * 1000);
+  }
+
+  // ?raid=1 shows the raid view with no network, for the harness and a preview
+  const FORCE_RAID = new URLSearchParams(location.search).get('raid') === '1';
+  // a raid cuts the sound at once (the context suspended), back when it ends if playing, as the slides do
+  const kyiv = createKyivRaid({ onChange: (r) => { drawLine(); if (ctx) { if (r?.on) ctx.suspend().catch(() => {}); else if (playing) ctx.resume().catch(() => {}); } } });
+  // Esc hides this raid until the all clear; r shows a simulated one or takes it away
+  let raidOff = false;
+  const setRaid = (r) => { if (!r?.on) raidOff = false; if (!raidOff) kyiv.set(r); };
+  addEventListener('keydown', (e) => {
+    if (e.target.closest?.('input, textarea')) return;
+    if (e.key === 'Escape' && kyiv.raid().on) { raidOff = true; kyiv.set(null); }
+    if (e.key === 'r' || e.key === 'R') { raidOff = false; kyiv.set(kyiv.raid().on ? null : { on: true, since: new Date(Date.now() - 36e5).toISOString() }); }
+  });
+  const titleBox = el('div', 'hud-t');
+  const eye = el('div', 'pos-hero-eye');
+  eye.append('POSITRON', el('b', '', '.'), 'STUDIO');
+  const h = el('h1', '', 'Soundscape');
+  const atLine = el('p', 'hud-at');
+  AT.forEach((t, i) => atLine.append(...(i ? [el('br')] : []), t));
+  const ABOUT = 'Sound archives were processed, mixed and visualized in Oct 2026.';
+  const line = el('p');
+  // At rest the closing line; while playing, the channel's title in bold and who made it.
+  function drawLine() {
+    if (kyiv.raid().on) { const t = kyiv.raid().since ? kyivClock(Date.parse(kyiv.raid().since)) : ''; line.replaceChildren(el('b', '', `Air raid in Kyiv${t ? ` since ${t}` : ''}`), 'v2in is silent until the all clear.'); return; }
+    if (!playing) { line.replaceChildren(ABOUT); return; }
+    if (!state?.title) { line.replaceChildren(el('b', '', 'Huddersfield MEM on v2in'), 'Tuning in.'); return; }
+    line.replaceChildren(el('b', '', state.title), state.by ? `${state.by}.` : '');
+  }
+  const btn = barButton({ icon: 'play', label: 'Play', word: true, size: 'lg', onPress: () => (playing ? stop() : play()) });
+  const face = () => { setButtonFace(btn, playing ? { icon: 'stop', label: 'Stop' } : { icon: 'play', label: 'Play' }); drawLine(); };
+  const btns = el('div', 'hud-btns');
+  // How it works: the patch over the dimmed spectrogram, the sound ramped down to QUIET over 2.5 s and back, as the picture dims.
+  const QUIET = 0.08, RAMP = 2.5;
+  const pb = createPatchbay(bay, { title: 'how it works', flowing: (l) => playing || STAGE.get(`${l.from} -> ${l.to}`) === wave });
+  // At rest a slow wave walks the chain one stage at a time, so the patch reads as alive; while playing every link flows.
+  const STAGES = Math.max(...STAGE.values()) + 2;
+  let wave = -1, waveT = 0;
+  const walk = () => { wave = (wave + 1) % STAGES; waveT = setTimeout(walk, 900); };
+  const howBox = el('div', 'hud-how-box');
+  howBox.append(pb.el);
+  function setHow(on) {
+    how = on;
+    document.body.classList.toggle('hud-how', on);
+    howBtn.setAttribute('aria-pressed', String(on)); setButtonFace(howBtn, { icon: on ? 'close' : 'info', label: 'How it works' });
+    clearTimeout(waveT); wave = -1;
+    if (on) { pb.refresh(); walk(); }
+    if (vol) { const t = ctx.currentTime; vol.gain.cancelScheduledValues(t); vol.gain.setValueAtTime(vol.gain.value, t); vol.gain.linearRampToValueAtTime(on ? QUIET : 1, t + RAMP); }
+  }
+  const howBtn = barButton({ icon: 'info', label: 'How it works', word: true, size: 'lg', onPress: () => setHow(!how) });
+  howBtn.setAttribute('aria-pressed', 'false');
+  btns.append(btn, howBtn);
+  titleBox.append(eye, h, atLine, line, btns, howBox);
+  face();
+  if (FORCE_RAID) kyiv.set({ on: true, since: new Date(Date.now() - 36e5).toISOString() });
+  document.body.append(canvas, kyiv.el, headLine, titleBox);
+
+  // ── scrubbing: a drag pulls the picture under a playhead fixed where the pointer went down, like tape under a head;
+  // the time under the playhead is a time in the ring and its speed the playback rate ──
+  let scrub = null, scrubRaf = 0, viewMoved = 0;
+  const glide = (p, v, tc = 0.03) => p.setTargetAtTime(v, ctx.currentTime, tc);
+  function scrubFrame() {
+    scrubRaf = 0;
+    if (!scrub) return;
+    const now = performance.now(), dt = Math.max(1e-3, (now - scrub.at) / 1000);
+    scrub.rate += (((scrub.t - scrub.lastT) / dt) - scrub.rate) * 0.25;
+    scrub.lastT = scrub.t; scrub.at = now;
+    const s = Math.min(1, Math.abs(scrub.rate) / 4), f = 300 * 2 ** (4 * (0.5 + 0.5 * Math.sin(scrub.t * 2.1)));
+    glide(fx.wet.gain, 0.8 * s); glide(fx.dry.gain, 1 - 0.6 * s);
+    glide(fx.bp.frequency, f); glide(fx.nbp.frequency, f * 1.3);
+    glide(fx.nGain.gain, 0.02 + 0.3 * s); glide(fx.cGain.gain, 0.6 * s);
+    // up is wet: the send, the echo's feedback (to 0.7) and its time (0.3 to 0.6 s, slewed, so it bends like tape)
+    const dub = Math.max(scrub.dub, midiMod); dubMax = Math.max(dubMax, dub);
+    glide(fx.send.gain, dub); glide(fx.fb.gain, 0.35 + 0.35 * dub, 0.1); glide(fx.echo.delayTime, 0.3 + 0.3 * dub, 0.4);
+    if (!playing) { midiStep(); paint(); }
+    scrubRaf = requestAnimationFrame(scrubFrame);
+  }
+  // pixel for pixel: dragging right pulls older sound under the playhead, left brings it back toward now
+  function scrubTo(x, y) {
+    if (y != null) scrub.dub = Math.max(0, Math.min(1, (scrub.y0 - y) / (0.4 * canvas.height)));
+    if (x != null) { view = Math.max(0, Math.min(viewMax(scrub.x0), view + x - scrub.x)); scrub.x = x; viewMoved = Math.max(viewMoved, view); }
+    const t = timeAt(scrub.x0);
+    if (t == null) return;
+    scrub.t = t; rec.port.postMessage({ to: t * ctx.sampleRate });
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    if (kyiv.raid().on) return;   // no scrub during a raid
+    if (!rec || !cols || (scrub && scrub.id !== 'midi')) return;   // a pointer takes over a bend
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    fx ??= makeFx();
+    slide = null;
+    const t = timeAt(e.clientX);
+    scrub = { id: e.pointerId, t, lastT: t, at: performance.now(), rate: 0, x0: e.clientX, x: e.clientX, y0: e.clientY, dub: 0 };
+    rec.port.postMessage({ to: t * ctx.sampleRate, on: true });
+    scrubTo(e.clientX, e.clientY);
+    headLine.style.left = `${e.clientX}px`;
+    glide(duck.gain, 0, 0.03); glide(fx.bus.gain, 1, 0.02);
+    headLine.classList.add('on'); scrubs++;
+    scrubRaf ||= requestAnimationFrame(scrubFrame);
+  });
+  canvas.addEventListener('pointermove', (e) => { if (scrub?.id === e.pointerId) { scrubTo(e.clientX, e.clientY); dubMax = Math.max(dubMax, scrub.dub); } });
+  function release(e) {
+    if (scrub?.id !== e.pointerId) return;
+    scrub = null;
+    rec.port.postMessage({ on: false });
+    glide(duck.gain, 1, 0.08); glide(fx.bus.gain, 0, 0.08); glide(fx.nGain.gain, 0); glide(fx.cGain.gain, 0);
+    headLine.classList.remove('on');
+    slide = view > 0 ? { at: performance.now(), from: view } : null;
+    if (!playing) { const s = () => { slideStep(); paint(); if (slide) requestAnimationFrame(s); }; s(); }
+  }
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+
+  // ── a MIDI keyboard: pitch bend scrubs at up to 8x either way from a playhead at the right edge, the mod wheel is
+  // the dub send. Asked for on Play, so the permission prompt comes from a press. ──
+  const BEND_DZ = 0.04, BEND_MAX = 8;
+  let midiAsked = false, midiInputs = [], midiBend = 8192, midiMod = 0, midiRate = 0;
+  function midiStart() {
+    if (midiAsked || !navigator.requestMIDIAccess) return;
+    midiAsked = true;
+    navigator.requestMIDIAccess({ sysex: false }).then((acc) => {
+      const hook = () => { midiInputs = [...acc.inputs.values()]; for (const i of midiInputs) i.onmidimessage = (e) => midiIn(e.data); };
+      hook(); acc.onstatechange = hook;
+      d.log(`MIDI inputs: ${midiInputs.map((i) => i.name).join(', ') || 'none'}`);
+    }).catch((e) => d.log(`no MIDI: ${e.message}`, 'warn'));
+  }
+  function midiIn(m) {
+    const st = m[0] & 0xf0;
+    if (st === 0xb0 && m[1] === 1) midiMod = m[2] / 127;
+    if (st !== 0xe0) return;
+    midiBend = m[1] | (m[2] << 7);
+    const v = (midiBend - 8192) / 8192, a = Math.abs(v);
+    midiRate = a < BEND_DZ ? 0 : Math.sign(v) * BEND_MAX * (a - BEND_DZ) / (1 - BEND_DZ);
+    if (!midiRate) { if (scrub?.id === 'midi') release({ pointerId: 'midi' }); return; }
+    if (scrub || kyiv.raid().on || !rec || !cols) return;
+    fx ??= makeFx();
+    slide = null;
+    const x0 = canvas.width - 2, t = timeAt(x0);
+    scrub = { id: 'midi', t, lastT: t, at: performance.now(), mAt: performance.now(), tm: t, rate: 0, x0, x: x0, y0: 0, dub: 0 };
+    rec.port.postMessage({ to: t * ctx.sampleRate, on: true });
+    headLine.style.left = `${x0}px`;
+    glide(duck.gain, 0, 0.03); glide(fx.bus.gain, 1, 0.02);
+    headLine.classList.add('on'); scrubs++;
+    scrubRaf ||= requestAnimationFrame(scrubFrame);
+  }
+  // the bent time moves at midiRate, clamped to the kept columns, and the picture follows it under the playhead
+  function midiStep() {
+    if (scrub?.id !== 'midi') return;
+    const now = performance.now(), dt = Math.min(0.1, (now - scrub.mAt) / 1000), L = colT.length, n = Math.min(cols, L);
+    scrub.mAt = now;
+    const newest = colT[head], oldest = colT[(head - n + 1 + L) % L];
+    scrub.tm = Math.max(oldest, Math.min(newest, scrub.tm + midiRate * dt));
+    let k = 0;
+    while (k < n - 1 && colT[(head - k + L) % L] > scrub.tm) k++;
+    view = Math.max(0, Math.min(viewMax(scrub.x0), k * STEP - (canvas.width - 1 - scrub.x0)));
+    viewMoved = Math.max(viewMoved, view);
+    scrub.t = scrub.tm; rec.port.postMessage({ to: scrub.tm * ctx.sampleRate });
+  }
+
+  // Leaving by the slide arrows: the sound and the page fade to black over LEAVE s, then the arrow module navigates.
+  const LEAVE = 1;
+  let leaving = null, veil = null;
+  window.soundscapeLeave = () => leaving ??= new Promise((done) => {
+    if (playing && fade) { const t = ctx.currentTime; fade.gain.cancelScheduledValues(t); fade.gain.setValueAtTime(fade.gain.value, t); fade.gain.linearRampToValueAtTime(0, t + LEAVE); }
+    veil = el('div', 'ss-veil'); document.body.append(veil);
+    requestAnimationFrame(() => requestAnimationFrame(() => veil?.classList.add('on')));
+    setTimeout(done, LEAVE * 1000);
+  });
+  // back from the bfcache: the page is shown again, so the veil goes and the sound comes back up
+  addEventListener('pageshow', (e) => { if (!e.persisted || !leaving) return; veil?.remove(); veil = null; leaving = null; if (playing && fade) fadeTo(1); });
+
+  window.__demo.huddersfield = { frames: () => frames, inked: () => inked, state: () => state, playing: () => playing, raid: () => kyiv.raid(), how: () => how, setHow, volume: () => vol?.gain.value ?? null, context: () => ctx, play, stop,
+    held: () => held, rate: () => rateV, maxRate: () => maxRate, scrubs: () => scrubs, scrubbing: () => !!scrub, errors: () => errors, dub: () => dubMax, timeAt,
+    view: () => view, viewMax, viewMoved: () => viewMoved,
+    midi: () => ({ inputs: midiInputs.map((i) => i.name), bend: midiBend, mod: midiMod }), midiIn, midiRate: () => midiRate };
+
+  async function check() {
+    d.assert('a visit opened no audio context and no stream', ctx === null && audio === null);
+    d.assert('Play and How it works under the line', document.querySelectorAll('.hud-btns button').length === 2);
+    d.assert('nothing is drawn before Play', frames === 0);
+  }
+  if (SELFCHECK) { try { await check(); } catch (e) { d.assert('the self check ran to the end', false, String(e?.stack || e)); } }
+  d.ready();
+</script>
+<style>
+  .sl-nav { position: fixed; top: max(48px, env(safe-area-inset-top)); right: max(48px, env(safe-area-inset-right)); z-index: 50; }
+  .sl-nav button { color: var(--fg); }
+  .sl-nav svg { width: 18px; height: 18px; flex: none; }
+  .sl-nav button.pos-lg { width: var(--ctl-lg); padding: 0; justify-content: center; }
+  .ss-veil { position: fixed; inset: 0; z-index: 1000; background: #000; opacity: 0; transition: opacity 1s linear; }
+  .ss-veil.on { opacity: 1; }
+  body::after { content: ''; position: fixed; inset: 0; z-index: 1000; background: #000; pointer-events: none; animation: ss-in .6s ease-out forwards; }
+  @keyframes ss-in { to { opacity: 0; } }
+</style>
+<script type="module">
+  // These pages are shown as slides: /mic/, /radio1965/, /huddersfield/ and round again. The arrow buttons and keys step.
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  // the page fades out first (soundscapeLeave in the module above); presses during the fade are ignored
+  let going = false;
+  const PREV = '/radio1965/', NEXT = '/present/studio/';
+  const go = async (to) => { if (going) return; going = true; await (window.soundscapeLeave?.() ?? Promise.resolve()); location.href = to; };
+  addEventListener('pageshow', (e) => { if (e.persisted) going = false; });
+  const nav = createButtonGroup({ buttons: [
+    { id: 'prev', icon: 'arrow-left', label: 'previous', onPress: () => go(PREV) },
+    { id: 'next', icon: 'arrow-right', label: 'next', onPress: () => go(NEXT) },
+  ] });
+  for (const b of nav.el.querySelectorAll('button')) b.classList.add('pos-lg');
+  nav.el.classList.add('sl-nav');
+  document.body.append(nav.el);
+  addEventListener('keydown', (e) => { if (e.target.closest?.('input, textarea')) return; if (e.key === 'ArrowLeft') go(PREV); if (e.key === 'ArrowRight') go(NEXT); });
+</script>
+</html>

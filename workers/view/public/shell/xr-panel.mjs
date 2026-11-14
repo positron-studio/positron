@@ -266,6 +266,11 @@ export function createXRPanels({
    * why: lessons/kit-xr-panel.md#surface
    */
   surface = null,
+  /**
+   * The layer's framebufferScaleFactor, a number or a function read at entry; null asks for none.
+   * `setScale()` swaps the layer mid-session. A render scale control for a benchmark (/kit/points/).
+   */
+  scale = null,
 } = {}) {
   // What `surface` started as, and what is left of it. A surface that threw is
   // set to null here and SAID SO in `state`, because a page whose floor quietly
@@ -778,7 +783,7 @@ export function createXRPanels({
         beacon('ok  the context was already made for a headset · makeXRCompatible not needed');
       }
       beacon('… XRWebGLLayer');
-      session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+      session.updateRenderState({ baseLayer: makeLayer(session) });
       beacon('ok  XRWebGLLayer');
       space = await step('requestReferenceSpace local-floor', session.requestReferenceSpace('local-floor'));
     } catch (e) {
@@ -1010,6 +1015,23 @@ export function createXRPanels({
     // why: lessons/kit-xr-panel.md#draw-eye-quit
     ensureQuit(session)?.draw(mul(proj, viewM), viewM);
     gl.bindVertexArray(null);
+  }
+
+  function scaleNow() {
+    const f = typeof scale === 'function' ? scale() : scale;
+    return Number.isFinite(f) && f > 0 ? f : null;
+  }
+  function makeLayer(s) {
+    const f = scaleNow();
+    return f ? new XRWebGLLayer(s, gl, { framebufferScaleFactor: f }) : new XRWebGLLayer(s, gl);
+  }
+  // A new layer arrives on the next frame, so its size is read there, as the first frame's is.
+  let reread = false;
+  function setScale(f) {
+    scale = f;
+    if (!session || !gl) return false;
+    try { session.updateRenderState({ baseLayer: makeLayer(session) }); reread = true; return true; }
+    catch (e) { log(`the headset refused a render scale of ${f}: ${e.message}`, 'warn'); return false; }
   }
 
   function onXR(now, frame) {
@@ -1244,6 +1266,12 @@ export function createXRPanels({
       eye++;
     }
 
+    if (reread) {
+      reread = false;
+      const v0 = layer.getViewport(pose.views[0]);
+      state.fb = { w: layer.framebufferWidth, h: layer.framebufferHeight };
+      state.eye = { w: v0.width, h: v0.height };
+    }
     if (state.frames === 1) {
       const vp0 = layer.getViewport(pose.views[0]);
       state.fb = { w: layer.framebufferWidth, h: layer.framebufferHeight };
@@ -1474,6 +1502,7 @@ export function createXRPanels({
     isLive: () => liveOn,
     preview,
     end: async () => { try { await session?.end(); } catch { /* already gone */ } },
+    setScale,
     state,
   };
 }

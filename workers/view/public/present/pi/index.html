@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Palm drums">
+<meta property="og:url" content="https://positron.studio/present/pi/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>Palm drums</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<script type="module">
+  // The kit's drum grid (step-grid.mjs) editing the Pi's own sequencer, which the real Palm edits too,
+  // and Listen plays the Pi's drums here. The Pi is reached on the first press, never on load.
+  // The presentation copy of /devices/palmdrums/, which stays as it was.
+  import { mount, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createBoard, BOARD_RATE } from '/shell/board.mjs';
+  import { createBoardCollide } from '/shell/board-collide.mjs';
+  import { createStepGrid, PAD_GAP, PAD_MIN } from '/shell/step-grid.mjs';
+  import { createInstrumentPanel } from '/shell/instrument-panel.mjs';
+  import * as PD from '/shell/palm-drums.mjs';
+  import { voices } from '/drums/voices.mjs';
+  import { createPresentLayout } from '/shell/present-layout.mjs';
+  import { createKnob } from '/shell/knob.mjs';
+  import { QWERTY_CHROMATIC } from '/shell/keyboard.mjs';
+  import { PATCHES as PLAITS } from '/shell/plaits-params.mjs';
+  import { createPresentCamera } from '/shell/present-camera.mjs';
+  useMediumColours();
+
+  const d = mount({ name: 'OK GO', what: '', readout: null, showLog: false, chrome: false });
+
+  const q = new URLSearchParams(location.search);
+  const ROOM = q.get('room') || 'studio-1';
+  const MAY_SEND = !SELFCHECK || q.get('board') === '1';
+  const VOICES = voices({ more: true }).slice(0, PD.ROWS);
+  // The board's capture halves the Pi's sound (two ports, one silent), as on /devices/circuit/.
+  const LIFT = 2 * 0.9;
+  // the first slide's camera as this slide's ground, toggled in the header (present-camera.mjs)
+  const cam = createPresentCamera({ dither: false, oled: false, room: ROOM, log: (line, kind) => d.log(line, kind), page: 'web:ground', pageLabel: 'ground of this page', relay: `cf-relay:${ROOM}-cam` });
+
+  // ── the grid and the sequencer's state, as the Palm keeps them ──
+  const grid = PD.emptyGrid();
+  const seq = { running: false, bpm: 120, step: -1, at: 0 };
+  let editAt = 0, editTimer = 0, starting = false, drumsUp = false, frames = 0, sentN = 0;
+  const patternNow = () => ({ v: 1, name: 'palm', bpm: seq.bpm, steps: PD.STEPS,
+    rows: VOICES.map((v, r) => ({ voice: v.key, steps: grid[r].map((x) => (x ? '1' : '0')).join(''), mute: false })) });
+  const screenNow = () => ({ voices: VOICES.map((v) => PD.SHORT[v.key] || v.key.slice(0, 2).toUpperCase()), look: { empty: 'dot', head: 'frame' } });
+  /** A pattern from the Pi: the rows this grid has, by voice name. */
+  function adopt(p) {
+    if (!p?.rows || drawing) return;
+    for (const [r, v] of VOICES.entries()) {
+      const row = p.rows.find((x) => x.voice === v.key);
+      for (let c = 0; c < PD.STEPS; c++) { grid[r][c] = !!row && row.steps[c] === '1'; sg.set(r, c, grid[r][c], 'quiet'); }
+    }
+    if (Number.isFinite(p.bpm)) seq.bpm = p.bpm;
+  }
+  function onSeqState(m) {
+    if (!m?.ok) { if (m?.why) d.log(`the Pi's sequencer: ${m.why}`, 'warn'); return; }
+    seq.running = !!m.running;
+    showPlaying();
+    if (Number.isFinite(m.bpm)) seq.bpm = m.bpm;
+    seq.step = Number.isInteger(m.step) ? m.step : -1; seq.at = performance.now();
+    // its own edit still on its way, or not landed until the next bar: the board's copy is the older one
+    if (m.pattern && !m.pending && performance.now() - editAt > 3000) adopt(m.pattern);
+  }
+  const stepNow = (t = performance.now()) => (seq.running && seq.step >= 0
+    ? (seq.step + Math.floor((t - seq.at) / (60000 / (seq.bpm * 4)))) % PD.STEPS : -1);
+
+  // ── the board, reached on the first press ──
+  let board = null, kit = null, ctx = null, lift = null, connected = false, opened = null, listening = false, poll = 0;
+  function connect() {
+    if (board || !MAY_SEND) return opened;
+    let open;
+    opened = new Promise((r) => { open = r; });
+    ctx ??= new AudioContext({ sampleRate: BOARD_RATE, latencyHint: 'interactive' });
+    board = createBoard({ room: ROOM, of: 'Raspberry Pi', showName: false, audioContext: ctx, toDestination: false,
+      log: (line, kind) => d.log(`Pi: ${line}`, kind),
+      onOpen: () => { connected = true; open(true); },
+      // the Palm and other tabs edit the same sequencer; their patterns come back here
+      onMessage: (msg) => {
+        if (msg.type === 'seq.state') onSeqState(msg);
+        else if (msg.type === 'seq.pattern' && msg.pattern) adopt(msg.pattern);
+      } });
+    kit = createBoardCollide({ board, log: (line, kind) => d.log(`Pi: ${line}`, kind) });
+    d.log(`reaching ${ROOM}`);
+    opened.then(async (ok) => {
+      if (!ok) return;
+      const m = await board.ask({ type: 'seq.status' }, 'seq.state', 4000);
+      // a square drawn before the Pi answered goes to it; otherwise this grid takes the Pi's
+      if (m) { if (editAt) { onSeqState({ ...m, pattern: null }); tell(); } else onSeqState(m); }
+      d.log(m?.ok ? `the Pi's sequencer: ${m.running ? `running at ${m.bpm} bpm` : 'stopped'}, ${m.pattern ? 'its pattern taken' : 'no pattern yet'}` : 'the Pi did not say what its sequencer holds', m?.ok ? 'ok' : 'warn');
+      poll = setInterval(async () => { if (!document.hidden) { const s = await board.ask({ type: 'seq.status' }, 'seq.state', 3000); if (s) onSeqState(s); } }, 2000);
+    });
+    return opened;
+  }
+  async function reached() {
+    connect();
+    if (!MAY_SEND) { d.log('this run may not drive the board, add board=1 to the address', 'dim'); return false; }
+    const ok = await Promise.race([opened, new Promise((r) => setTimeout(() => r(false), 6000))]);
+    if (!ok) d.log('the Pi did not answer', 'warn');
+    return ok;
+  }
+  function tell() {
+    if (!connected) return;
+    sentN++;
+    board.ask({ type: 'seq.pattern', pattern: patternNow(), screen: screenNow() }, 'seq.state', 4000).then((m) => m && onSeqState(m));
+  }
+  function edited() {
+    editAt = performance.now();
+    if (!connected) { reached(); return; }
+    clearTimeout(editTimer);
+    editTimer = setTimeout(tell, 60);
+  }
+  /** The sixteen drums compiled on the Pi's SuperCollider, as the Palm's first play does. */
+  async function drumsOnPi() {
+    if (drumsUp) return true;
+    const up = await kit.start();
+    if (!up?.ok) { d.log(`the Pi did not start its drums: ${up?.reason ?? 'no answer'}`, 'warn'); return false; }
+    for (const v of VOICES) {
+      const r = await kit.load(v.name, v.program);
+      if (!r?.ok) { d.log(`the Pi did not take ${v.name}: ${r?.reason ?? 'no answer'}`, 'warn'); return false; }
+    }
+    const j = await board.ask({ type: 'jack.link', link: 'pi-1:drums:audio-out -> pi-1:pwm:audio-in' }, 'jack.linked', 8000);
+    if (!j?.ok) d.log(`the drums' sound did not reach the PWM output: ${(j?.problems || []).join(', ') || j?.hint || 'no answer'}`, 'warn');
+    d.log(`the Pi compiled ${VOICES.length} drums`, 'ok');
+    return (drumsUp = true);
+  }
+  async function transport() {
+    askMidi();
+    if (starting || !await reached()) return;
+    startPlaits();
+    starting = true;
+    try {
+      if (seq.running) {
+        // stop stops it all: Plaits too, every note whoever holds it, and the latch off
+        board.send({ type: 'palm.release' });
+        board.send({ type: 'note.panic', node: 'plaits' });
+        latched.clear(); held.clear(); setLatch(false);
+        onSeqState(await board.ask({ type: 'seq.stop' }, 'seq.state', 6000));
+        return;
+      }
+      if (!await drumsOnPi()) return;
+      const m = await board.ask({ type: 'seq.start', target: 'drums', pattern: patternNow(), screen: screenNow() }, 'seq.state', 6000);
+      onSeqState(m);
+      d.log(`the Pi's sequencer: ${m?.ok ? `running at ${m.bpm} bpm` : `refused: ${m?.why ?? 'no answer'}`}`, m?.ok ? 'ok' : 'warn');
+    } finally { starting = false; showPlaying(); pb.refresh(); }
+  }
+  /** Listen: the drums on the Pi, and their sound here over the relay. One press, a browser needs one. */
+  async function listen() {
+    askMidi();
+    if (await reached()) startPlaits();
+    if (listening) {
+      try { lift?.disconnect(); } catch { /* not connected */ }
+      listening = false; listenBtn.setIcon('listen', 'headphones', 'listen here');
+      d.log('not listening here; the Pi still plays out of its PWM output', 'dim');
+      return pb.refresh();
+    }
+    if (!await reached()) return;
+    ctx.resume().catch(() => {});
+    if (!await drumsOnPi()) return;
+    if (!await board.startAudio()) { d.log('the Pi\'s sound cannot be played in this page', 'warn'); return; }
+    lift ??= ctx.createGain();
+    lift.gain.value = LIFT;
+    board.playout().connect(lift);
+    lift.connect(ctx.destination);
+    listening = true; listenBtn.setIcon('listen', 'mute', 'stop listening here');
+    d.log('listening to the Pi\'s drums here', 'ok');
+    pb.refresh();
+  }
+
+  // ── Plaits on the Pi (rig/board/plaits.mjs), played from a MIDI keyboard here, on its Growl drone patch ──
+  const GROWL = PLAITS.find((p) => p.name === 'Growl drone');
+  const DIALS = [['harmonics', 'harm'], ['timbre', 'timbre'], ['morph', 'morph']];
+  let plaitsUp = false, plaitsStarting = null, keep = 0, turnedAt = 0, midiAt = 0, midiIns = 0;
+  const held = new Set();
+  const dial = (name) => knobs.get(name).value();
+  function setDial(name, v) {
+    turnedAt = performance.now();
+    if (plaitsUp && connected) board.send({ type: 'plaits.set', name, v });
+  }
+  const knobs = new Map(DIALS.map(([name, short]) => [name, createKnob({ label: short, title: name, min: 0, max: 1,
+    value: GROWL[name], home: GROWL[name], hand: true, onInput: (v) => setDial(name, v) })]));
+  /** Plaits up on the Pi, its sound to the PWM output, the patch and the three knobs: once, on the first press. */
+  function startPlaits() {
+    plaitsStarting ||= (async () => {
+      const up = await board.ask({ type: 'audio.start', source: 'plaits' }, 'audio.started', 20000);
+      if (!up?.ok) { d.log(`the Pi did not start Plaits: ${up?.reason ?? 'no answer'}`, 'warn'); plaitsStarting = null; return false; }
+      const j = await board.ask({ type: 'jack.link', link: 'pi-1:plaits:audio-out -> pi-1:pwm:audio-in' }, 'jack.linked', 8000);
+      if (!j?.ok) d.log(`Plaits' sound did not reach the PWM output: ${(j?.problems || []).join(', ') || j?.hint || 'no answer'}`, 'warn');
+      const p = await board.ask({ type: 'plaits.patch', name: GROWL.name }, 'plaits.patch', 4000);
+      if (!p?.ok) d.log(`the Pi did not take the ${GROWL.name} patch: ${p?.reason ?? 'no answer'}`, 'warn');
+      // pitch is Plaits' transpose, kept on the Pi between pages; 0 so a key plays its own note
+      board.send({ type: 'plaits.set', name: 'pitch', v: 0 });
+      for (const [name] of DIALS) board.send({ type: 'plaits.set', name, v: dial(name) });
+      // the Pi releases a held note when its page has said nothing for 15 s; this speaks every 5 s
+      clearInterval(keep); keep = setInterval(() => { if (held.size) board.send({ type: 'plaits.stats' }); }, 5000);
+      plaitsUp = true;
+      d.log(`Plaits is up on the Pi on ${GROWL.name}; play it from a MIDI keyboard`, 'ok');
+      return true;
+    })();
+    return plaitsStarting;
+  }
+  // a MIDI keyboard on this computer (Web MIDI, asked on the first press): its notes go to Plaits on the Pi
+  // the latch: a key pressed while it is on is handed to the Palm's bridge on the Pi, which plays and holds it,
+  // so it sounds on after the key, and after this page; the same key again lets it go
+  let latch = false;
+  const latched = new Set();
+  function setLatch(on) {
+    latch = on;
+    latchBtn.setIcon('latch', on ? 'lock' : 'unlock', on ? 'latch on: released keys keep sounding' : 'latch off');
+    if (!on && latched.size && connected) { board.send({ type: 'palm.release' }); latched.clear(); }
+  }
+  function midiIn(e) {
+    const [st, d1, d2] = e.data, hi = st & 0xf0;
+    if (!plaitsUp || !connected || (hi !== 0x90 && hi !== 0x80)) return;
+    midiAt = performance.now();
+    if (latch) {
+      if (hi !== 0x90 || !d2) return;
+      if (latched.delete(d1)) board.send({ type: 'palm.release', note: d1 });
+      else { latched.add(d1); board.send({ type: 'palm.hold', note: d1, vel: d2 }); }
+      return;
+    }
+    if (hi === 0x90 && d2) { held.add(d1); board.send({ type: 'note.on', node: 'plaits', note: d1, vel: d2 }); }
+    else { held.delete(d1); board.send({ type: 'note.off', node: 'plaits', note: d1 }); }
+  }
+
+  // a s d f ... plays Plaits as a MIDI key would (keyboard.mjs's QWERTY_CHROMATIC), z and x move the octave;
+  // the first key brings Plaits up on the Pi
+  let qwOct = 48;
+  const qwDown = new Map();
+  addEventListener('keydown', (e) => {
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea, select')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' || k === 'x') { qwOct = Math.max(24, Math.min(84, qwOct + (k === 'z' ? -12 : 12))); return; }
+    if (!(k in QWERTY_CHROMATIC) || qwDown.has(k)) return;
+    if (!plaitsUp) { reached().then((ok) => ok && startPlaits()); return; }
+    const n = qwOct + QWERTY_CHROMATIC[k];
+    qwDown.set(k, n);
+    midiIn({ data: [0x90, n, 100] });
+  });
+  addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase(), n = qwDown.get(k);
+    if (n === undefined) return;
+    qwDown.delete(k);
+    midiIn({ data: [0x80, n, 0] });
+  });
+  addEventListener('blur', () => { for (const n of qwDown.values()) midiIn({ data: [0x80, n, 0] }); qwDown.clear(); });
+  let midiAsked = false;
+  async function askMidi() {
+    if (midiAsked || !navigator.requestMIDIAccess) return;
+    midiAsked = true;
+    try {
+      const access = await navigator.requestMIDIAccess();
+      const hook = () => { midiIns = 0; for (const input of access.inputs.values()) { input.onmidimessage = midiIn; midiIns++; } };
+      hook(); access.onstatechange = hook;
+      d.log(midiIns ? `${midiIns} MIDI keyboard${midiIns > 1 ? 's' : ''} found` : 'no MIDI keyboard yet: plug one in', midiIns ? 'ok' : 'dim');
+    } catch (e) { d.log(`no MIDI here: ${e.message}`, 'warn'); }
+  }
+  // the page going away lets go of every key at once, rather than after the Pi's 15 s
+  addEventListener('pagehide', () => { if (connected) for (const n of held) board.send({ type: 'note.off', node: 'plaits', note: n }); });
+
+  // ── the kit's drum grid (step-grid.mjs): a press edits a step and goes to the Pi as the Palm's pen did ──
+  // no label column: each pad's hover and accessible name carry its drum
+  const strip = el('div', 'ok-strip');
+  const sg = createStepGrid({ strip, rows: VOICES.length, steps: PD.STEPS,
+    label: (r) => VOICES[r].label,
+    onToggle: (r, s, lit, why) => { if (why === 'quiet') return; grid[r][s] = lit; edited(); } });
+  // a stroke in progress keeps a pattern from the Pi from overwriting it
+  let drawing = false;
+  sg.rowsEl.addEventListener('pointerdown', () => { drawing = true; });
+  for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => { drawing = false; });
+  // the head walks with the Pi's step; stopped, it parks on the first column as the kit's clock does
+  let lastStep = -2;
+  (function tick() {
+    const s = stepNow();
+    if (s !== lastStep) { lastStep = s; sg.live(s >= 0); sg.at(Math.max(0, s)); frames++; }
+    requestAnimationFrame(tick);
+  })();
+
+  // ── the patch: this tab's grid into the Pi's sequencer, its drums out of the PWM output and, on Listen, here;
+  // a MIDI keyboard and three knobs into Plaits on the Pi, beside the drums; the camera's two paths to the ground ──
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const NODES = [{ id: 'web:grid', kind: 'screen', label: 'drum grid in this tab' }, { id: 'pi-1:sequencer', kind: 'engine', label: 'sequencer on the Pi' },
+    { id: 'pi-1:drums', kind: 'engine', label: 'drums on the Pi' }, { id: 'pi-1:pwm', kind: 'device', label: 'PWM out' },
+    { id: 'web:midi', kind: 'device', label: 'MIDI keyboard' },
+    ...DIALS.map(([name]) => ({ id: `web:knob-${name}`, kind: 'person', label: name })),
+    { id: 'pi-1:plaits', kind: 'engine', label: 'Plaits on the Pi' },
+    { id: 'web:speaker', kind: 'device', label: 'speaker' }, ...cam.nodes];
+  const PORTS = [port('web:grid', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
+    port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in'),
+    port('web:midi', 'midi', 'out'), ...DIALS.map(([name]) => port(`web:knob-${name}`, 'value', 'out')),
+    port('pi-1:plaits', 'midi', 'in'), port('pi-1:plaits', 'value', 'in'), port('pi-1:plaits', 'audio', 'out'), ...cam.ports];
+  const LINKS = () => [
+    { id: 'a', from: 'web:grid:value-out', to: 'pi-1:sequencer:value-in' },
+    { id: 'b', from: 'pi-1:sequencer:midi-out', to: 'pi-1:drums:midi-in' },
+    { id: 'c', from: 'pi-1:drums:audio-out', to: 'pi-1:pwm:audio-in' },
+    ...(listening ? [{ id: 'd', from: 'pi-1:drums:audio-out', to: 'web:speaker:audio-in' }] : []),
+    { id: 'e', from: 'web:midi:midi-out', to: 'pi-1:plaits:midi-in' },
+    ...DIALS.map(([name]) => ({ id: `k-${name}`, from: `web:knob-${name}:value-out`, to: 'pi-1:plaits:value-in' })),
+    { id: 'f', from: 'pi-1:plaits:audio-out', to: 'pi-1:pwm:audio-in' },
+    ...(listening ? [{ id: 'g', from: 'pi-1:plaits:audio-out', to: 'web:speaker:audio-in' }] : []),
+    ...cam.links,
+  ];
+  const FLOW = { a: () => performance.now() - editAt < 400, e: () => performance.now() - midiAt < 400 || held.size > 0, f: () => held.size > 0, g: () => held.size > 0 };
+  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
+    { room: ROOM, flowing: (l) => cam.flows(l.id) ?? (FLOW[l.id] ? FLOW[l.id]() : l.id.startsWith('k-') ? plaitsUp && performance.now() - turnedAt < 400 : seq.running) });
+
+  // ── the instrument: one glued panel (instrument-panel.mjs), the large buttons left and the knobs right over the pads ──
+  const listenBtn = createButtonGroup({ buttons: [{ id: 'listen', icon: 'headphones', label: 'listen here', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
+  const play = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', onPress: () => transport() }] });
+  const latchBtn = createButtonGroup({ buttons: [{ id: 'latch', icon: 'unlock', label: 'latch off', onPress: () => setLatch(!latch) }] });
+  function showPlaying() { play?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
+  for (const g of [listenBtn, play, latchBtn]) g.buttons[0].classList.add('pos-lg');
+  const btns = el('div', 'pi-cluster pi-btns'), dials = el('div', 'pi-cluster');
+  btns.append(listenBtn.el, play.el, latchBtn.el);
+  dials.append(...[...knobs.values()].map((k) => k.el));
+  const inst = createInstrumentPanel({
+    rows: [[[btns, dials], { align: 'between' }], [strip]],
+    full: true, cls: 'pi-inst',
+  });
+
+  // ── the presentation layout (present-layout.mjs): the instrument as the main picture, no title, no line ──
+  const lay = createPresentLayout({
+    title: '',
+    desc: "The grid drives pi-1:drums through Cloudflare's relay room studio-1; a MIDI keyboard here plays pi-1:plaits, shaped by three knobs. The camera comes through studio-1-cam.",
+    main: inst.el, tools: [cam.el], patch: pb.el,
+    onHow: (on) => { if (on) pb.refresh(); },
+  });
+  // After the layout's sheet, so equal weight wins on order: the instrument spans both columns, centred both ways,
+  // at the width fit() measures; its one track is minmax(0, 1fr), or the pads' min-content widens it past a phone.
+  // The strip's width sizes the pads. A large icon button is square, as the layout's top bar draws it.
+  document.head.append(Object.assign(document.createElement('style'), { textContent: `
+    .ok-strip { min-width: 0; overflow-x: auto; }
+    .pi-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ctl-gap); }
+    .pi-cluster.pi-btns { align-self: flex-start; }
+    .ok-strip .pos-pg-ruler { display: none; }
+    .pi-inst { transform-origin: 50% 100%; transition: transform .3s; }
+    body[data-cam="regular"] .pi-inst, body[data-cam="dither"] .pi-inst { transform: scale(.5); }
+    .pi-inst .pos-knob { --knob-w: calc(var(--ctl-w) * 1.6); --knob-num-h: 18px; }
+    .pi-inst .pos-knob-v { font-size: 14px; line-height: var(--knob-num-h); }
+    .pi-inst .pos-knob-lab { font-size: 13px; }
+    .pi-inst .pos-knob-hand { width: 28px; min-width: 28px; height: 28px; font-size: 16px; }
+    button.pos-lg[data-glyph="1"] { width: var(--ctl-lg); padding: 0; justify-content: center; }
+    button.pos-lg[data-glyph="1"] > svg { width: 18px; height: 18px; }
+    .prl-main { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); justify-items: center; }
+    .prl-main.prl-main > * { width: var(--pi-w, 100%); }
+    @media (min-width: 761px) {
+      .prl-main { align-items: center; }
+    }` }));
+  // A pad is the large button's size (--ctl-lg), smaller where the room is short: all but the pads is measured
+  // (C across, F down), never typed, and the width is set whole so sixteen pads fill the strip with no slack.
+  const mainBox = lay.root.querySelector('.prl-main');
+  function fit() {
+    const c = parseFloat(getComputedStyle(sg.el).getPropertyValue('--pg-cell')), r = inst.el.getBoundingClientRect();
+    if (!c || !r.width) return;
+    const C = r.width - strip.clientWidth, F = r.height - (PD.ROWS * c + (PD.ROWS - 1) * PAD_GAP), cross = (PD.STEPS - 1) * PAD_GAP;
+    // the room's height bounds the pads only where the layout fixes it (a phone scrolls)
+    const tall = getComputedStyle(mainBox).containerType === 'size';
+    const lg = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ctl-lg')) || Infinity;
+    const cell = Math.max(PAD_MIN, Math.floor(Math.min(lg, (mainBox.clientWidth - C - cross) / PD.STEPS, tall ? (mainBox.clientHeight - F - (PD.ROWS - 1) * PAD_GAP) / PD.ROWS : Infinity)));
+    const w = `${Math.round(C + cross + PD.STEPS * cell)}px`;
+    if (mainBox.style.getPropertyValue('--pi-w') !== w) mainBox.style.setProperty('--pi-w', w);
+  }
+  const fitRo = new ResizeObserver(() => fit());
+  fitRo.observe(mainBox); fitRo.observe(inst.el);
+  window.__demo.raid = () => lay.keys.raid();
+  window.__demo.how = lay.setHow;
+  window.__demo.grid = sg;
+  window.__demo.shape = () => { const g = sg.el.getBoundingClientRect(), b = strip.getBoundingClientRect(), m = mainBox.getBoundingClientRect();
+    return { cell: parseFloat(getComputedStyle(sg.el).getPropertyValue('--pg-cell')),
+      grid: [Math.round(g.width), Math.round(g.height)], box: [Math.round(b.width), Math.round(b.height)], main: [Math.round(m.width), Math.round(m.height)],
+      inst: [Math.round(inst.el.getBoundingClientRect().width), Math.round(inst.el.getBoundingClientRect().height)], rows: inst.shape() }; };
+
+  window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
+    on: grid.flat().filter(Boolean).length, plaitsUp, held: held.size, midiIns, dials: Object.fromEntries(DIALS.map(([n]) => [n, dial(n)])),
+    links: LINKS().length, board: !!board, cam: cam.probe() });
+  d.ready();
+</script>
+</html>

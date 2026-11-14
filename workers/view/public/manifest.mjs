@@ -295,6 +295,12 @@ export const DEMOS = [
   // demo/patch/vendor/ holds the vendored engine other pages use; the row went, the files stay.
   // why: lessons/manifest.md#patch
 
+  // /techtrack/: the TechTrack Lab II page, a Pi connect button and a debug log, copied as it is, no card.
+  { name: 'techtrack', title: 'TechTrack', group: 'kit', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/techtrack/index.html', page: '/techtrack/',
+    one: 'Reach the Pi through the relay and log every step.',
+    tags: ['shell'] },
+
   // /lonely-software/: the owner's essay with three patch pictures, copied as it is, a card under about.
   { name: 'lonely-software', title: 'Lonely Software', group: 'kit', act: 0, created: '2026-11-10', built: false,
     src: 'demo/lonely-software/index.html', page: '/lonely-software/',
@@ -330,6 +336,16 @@ export const DEMOS = [
   { name: 'social/scroll', title: 'scroll', group: 'kit', act: 0, created: '2026-10-15', built: true, unlisted: true,
     one: 'a concept page’s patch scrolling up a story frame at a size a phone can read, recorded to a file',
     tags: ['shell', 'MediaRecorder'] },
+  // /mic/: the SM57 on the Pi (rig/palm/mic.mjs) over the relay, dry or through /ambient/drone/'s chain. The first slide.
+  { name: 'palm', title: 'Palm', group: 'radio', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/palm/index.html', page: '/palm/',
+    one: 'the microphone in studio 1, dry or through echoes and a room',
+    tags: ['WebAudio', 'relay'] },
+  // /huddersfield/: /radio1965/ playing v2in's mem channel over a full page spectrogram.
+  { name: 'huddersfield', title: 'Soundscape', group: 'radio', act: 0, created: '2026-11-10', built: false, unlisted: true,
+    src: 'demo/huddersfield/index.html', page: '/huddersfield/',
+    one: 'the v2in mem channel as a full page spectrogram',
+    tags: ['WebAudio'] },
   // why: lessons/page-radio1965.md#header
   { name: 'radio1965', title: 'Radio1965', group: 'radio', act: 0, created: '2026-10-23', built: true,
     one: 'the scan landscape, full screen, after the radio1965 broadcast',
@@ -385,6 +401,15 @@ export const DEMOS = [
     one: 'the pieces a chat page is drawn with, a window, columns, a log, a sign and a compose box',
     tags: ['shell', 'no network'] },
   // why: lessons/manifest.md#kit-frontpage
+  { name: 'kit/present', title: 'present', group: 'kit', act: 0, created: '2026-11-11', built: true, unlisted: true,
+    one: 'a patch as a slide, its title over an optional picture and How it works beside the arrows',
+    tags: ['shell', 'no network'] },
+  // `gl: true` for verify-gl.mjs. settleMs covers the page's own checks, which step the count
+  // before the harness's later presses can move it.
+  { name: 'kit/points', title: 'points', group: 'kit', act: 0, created: '2026-11-14', built: true, unlisted: true,
+    gl: true, xr: true, settleMs: 9000,
+    one: 'a dotted scene moved by sound, drawn on the graphics card, with its frame rate measured from 10,000 to 200,000 points',
+    tags: ['WebGL2', 'no network'] },
   { name: 'kit/frontpage', title: 'frontpage', group: 'kit', act: 0, created: '2026-10-12', built: true, unlisted: true,
     one: 'the two faces this site is set in, JetBrains Mono for what names and Geist for what is read through',
     tags: ['shell', 'no network'] },
@@ -403,6 +428,9 @@ export const DEMOS = [
   // why: lessons/manifest.md#slides-pages
   { name: 'slides/synths', title: 'synths', group: 'slides', act: 0, created: '2026-10-06', built: true, unlisted: true,
     one: 'A slide deck that turns a few lines of Faust into a sound in this page.',
+    tags: ['shell', 'no network'] },
+  { name: 'slides/lonely', title: 'lonely', group: 'slides', act: 0, created: '2026-11-10', built: true, unlisted: true,
+    one: 'The Lonely Software essay as a talk, with its three patch pictures.',
     tags: ['shell', 'no network'] },
 
   // `unlisted`: deployed and graded, not advertised; byGroup() drops it. Unlisted is not secret.

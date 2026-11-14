@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta property="og:site_name" content="positron.studio">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Palm drums">
+<meta property="og:description" content="The Palm&apos;s drum grid in a tab. Draw steps and the Pi&apos;s drums play them.">
+<meta property="og:url" content="https://positron.studio/devices/palmdrums/">
+<meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="positron.studio: Connect anything to everything. Create live, interactive experiences, from the web up to the cloud and down to microcontrollers.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-3c00f93a.png">
+<link rel="manifest" href="/icons/manifest-1f3e8adf.webmanifest">
+<meta name="ps-artwork" content="/icons/artwork-800ba60e.png">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>Palm drums</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<script type="module">
+  // The Palm's drum grid (rig/palm/bridge.mjs --view drums) in a tab: the same picture and pen
+  // (demo/shell/palm-drums.mjs), editing the Pi's own sequencer, and Listen plays the Pi's drums here.
+  // The Pi is reached on the first press, never on load.
+  import { mount, el } from '/shell/shell.mjs';
+  import { conceptNav } from '/shell/concept-nav.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createPatchbay, useMediumColours } from '/shell/patchbay.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createVideoPanel } from '/shell/video-panel.mjs';
+  import { createBoard, BOARD_RATE } from '/shell/board.mjs';
+  import { createBoardCollide } from '/shell/board-collide.mjs';
+  import { createPalm, PALM_CSS, PALM_W, PALM_H } from '/shell/palm-view.mjs';
+  import * as PD from '/shell/palm-drums.mjs';
+  import { voices } from '/drums/voices.mjs';
+  useMediumColours();
+  document.head.append(Object.assign(document.createElement('style'), { textContent: PALM_CSS
+    + '.pm-media { display: flex; justify-content: center; align-items: center; padding: 24px 16px; height: calc(160px * var(--pm-k, 2) + 48px); background: #07090d; overflow-x: auto; } .pm-frame { padding: 8px; border: 1px solid var(--line); border-radius: 2px; line-height: 0; background: #000; } .pm-say { font-size: 12px; color: var(--dim); } .pm-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; } .palm-cv { touch-action: none; }' }));
+
+  const d = mount({ name: 'Palm drums', what: '', readout: null, index: '/', indexLabel: 'positron' });
+  conceptNav('devices/palmdrums');
+
+  const q = new URLSearchParams(location.search);
+  const ROOM = q.get('room') || 'studio-1';
+  const MAY_SEND = !SELFCHECK || q.get('board') === '1';
+  const VOICES = voices({ more: true }).slice(0, PD.ROWS);
+  // The board's capture halves the Pi's sound (two ports, one silent), as on /devices/circuit/.
+  const LIFT = 2 * 0.9;
+
+  // ── the grid and the sequencer's state, as the Palm keeps them ──
+  const grid = PD.emptyGrid();
+  const seq = { running: false, bpm: 120, step: -1, at: 0 };
+  let editAt = 0, editTimer = 0, starting = false, drumsUp = false, frames = 0, sentN = 0, pen = null;
+  const patternNow = () => ({ v: 1, name: 'palm', bpm: seq.bpm, steps: PD.STEPS,
+    rows: VOICES.map((v, r) => ({ voice: v.key, steps: grid[r].map((x) => (x ? '1' : '0')).join(''), mute: false })) });
+  const screenNow = () => ({ voices: VOICES.map((v) => PD.SHORT[v.key] || v.key.slice(0, 2).toUpperCase()), look: { empty: 'dot', head: 'frame' } });
+  /** A pattern from the Pi: the rows this grid has, by voice name. */
+  function adopt(p) {
+    if (!p?.rows || pens.active()) return;
+    for (const [r, v] of VOICES.entries()) {
+      const row = p.rows.find((x) => x.voice === v.key);
+      for (let c = 0; c < PD.STEPS; c++) grid[r][c] = !!row && row.steps[c] === '1';
+    }
+    if (Number.isFinite(p.bpm)) seq.bpm = p.bpm;
+  }
+  function onSeqState(m) {
+    if (!m?.ok) { if (m?.why) d.log(`the Pi's sequencer: ${m.why}`, 'warn'); return; }
+    seq.running = !!m.running;
+    showPlaying();
+    if (Number.isFinite(m.bpm)) seq.bpm = m.bpm;
+    seq.step = Number.isInteger(m.step) ? m.step : -1; seq.at = performance.now();
+    // its own edit still on its way, or not landed until the next bar: the board's copy is the older one
+    if (m.pattern && !m.pending && performance.now() - editAt > 3000) adopt(m.pattern);
+  }
+  const stepNow = (t = performance.now()) => (seq.running && seq.step >= 0
+    ? (seq.step + Math.floor((t - seq.at) / (60000 / (seq.bpm * 4)))) % PD.STEPS : -1);
+
+  // ── the board, reached on the first press ──
+  let board = null, kit = null, ctx = null, lift = null, connected = false, opened = null, listening = false, poll = 0;
+  function connect() {
+    if (board || !MAY_SEND) return opened;
+    let open;
+    opened = new Promise((r) => { open = r; });
+    ctx ??= new AudioContext({ sampleRate: BOARD_RATE, latencyHint: 'interactive' });
+    board = createBoard({ room: ROOM, of: 'Raspberry Pi', showName: false, audioContext: ctx, toDestination: false,
+      log: (line, kind) => d.log(`Pi: ${line}`, kind),
+      onOpen: () => { connected = true; open(true); },
+      // the Palm and other tabs edit the same sequencer; their patterns come back here
+      onMessage: (msg) => {
+        if (msg.type === 'seq.state') onSeqState(msg);
+        else if (msg.type === 'seq.pattern' && msg.pattern) adopt(msg.pattern);
+      } });
+    kit = createBoardCollide({ board, log: (line, kind) => d.log(`Pi: ${line}`, kind) });
+    d.log(`reaching ${ROOM}`);
+    opened.then(async (ok) => {
+      if (!ok) return;
+      const m = await board.ask({ type: 'seq.status' }, 'seq.state', 4000);
+      // a square drawn before the Pi answered goes to it; otherwise this grid takes the Pi's
+      if (m) { if (editAt) { onSeqState({ ...m, pattern: null }); tell(); } else onSeqState(m); }
+      d.log(m?.ok ? `the Pi's sequencer: ${m.running ? `running at ${m.bpm} bpm` : 'stopped'}, ${m.pattern ? 'its pattern taken' : 'no pattern yet'}` : 'the Pi did not say what its sequencer holds', m?.ok ? 'ok' : 'warn');
+      poll = setInterval(async () => { if (!document.hidden) { const s = await board.ask({ type: 'seq.status' }, 'seq.state', 3000); if (s) onSeqState(s); } }, 2000);
+    });
+    return opened;
+  }
+  async function reached() {
+    connect();
+    if (!MAY_SEND) { d.log('this run may not drive the board, add board=1 to the address', 'dim'); return false; }
+    const ok = await Promise.race([opened, new Promise((r) => setTimeout(() => r(false), 6000))]);
+    if (!ok) d.log('the Pi did not answer', 'warn');
+    return ok;
+  }
+  function tell() {
+    if (!connected) return;
+    sentN++;
+    board.ask({ type: 'seq.pattern', pattern: patternNow(), screen: screenNow() }, 'seq.state', 4000).then((m) => m && onSeqState(m));
+  }
+  function edited() {
+    editAt = performance.now();
+    if (!connected) { reached(); return; }
+    clearTimeout(editTimer);
+    editTimer = setTimeout(tell, 60);
+  }
+  /** The sixteen drums compiled on the Pi's SuperCollider, as the Palm's first play does. */
+  async function drumsOnPi() {
+    if (drumsUp) return true;
+    const up = await kit.start();
+    if (!up?.ok) { d.log(`the Pi did not start its drums: ${up?.reason ?? 'no answer'}`, 'warn'); return false; }
+    for (const v of VOICES) {
+      const r = await kit.load(v.name, v.program);
+      if (!r?.ok) { d.log(`the Pi did not take ${v.name}: ${r?.reason ?? 'no answer'}`, 'warn'); return false; }
+    }
+    const j = await board.ask({ type: 'jack.link', link: 'pi-1:drums:audio-out -> pi-1:pwm:audio-in' }, 'jack.linked', 8000);
+    if (!j?.ok) d.log(`the drums' sound did not reach the PWM output: ${(j?.problems || []).join(', ') || j?.hint || 'no answer'}`, 'warn');
+    d.log(`the Pi compiled ${VOICES.length} drums`, 'ok');
+    return (drumsUp = true);
+  }
+  async function transport() {
+    if (starting || !await reached()) return;
+    starting = true;
+    try {
+      if (seq.running) { onSeqState(await board.ask({ type: 'seq.stop' }, 'seq.state', 6000)); return; }
+      if (!await drumsOnPi()) return;
+      const m = await board.ask({ type: 'seq.start', target: 'drums', pattern: patternNow(), screen: screenNow() }, 'seq.state', 6000);
+      onSeqState(m);
+      d.log(`the Pi's sequencer: ${m?.ok ? `running at ${m.bpm} bpm` : `refused: ${m?.why ?? 'no answer'}`}`, m?.ok ? 'ok' : 'warn');
+    } finally { starting = false; showPlaying(); pb.refresh(); }
+  }
+  /** Listen: the drums on the Pi, and their sound here over the relay. One press, a browser needs one. */
+  async function listen() {
+    if (listening) {
+      try { lift?.disconnect(); } catch { /* not connected */ }
+      listening = false; buttons.button('listen').textContent = 'Listen';
+      d.log('not listening here; the Pi still plays out of its PWM output', 'dim');
+      return pb.refresh();
+    }
+    if (!await reached()) return;
+    ctx.resume().catch(() => {});
+    if (!await drumsOnPi()) return;
+    if (!await board.startAudio()) { d.log('the Pi\'s sound cannot be played in this page', 'warn'); return; }
+    lift ??= ctx.createGain();
+    lift.gain.value = LIFT;
+    board.playout().connect(lift);
+    lift.connect(ctx.destination);
+    listening = true; buttons.button('listen').textContent = 'Stop';
+    d.log('listening to the Pi\'s drums here', 'ok');
+    pb.refresh();
+  }
+
+  // ── the Palm: the same picture and the same pen as the real one ──
+  const pens = PD.createPen(grid, {
+    onFlip: () => edited(),
+    onPlay: () => transport(),
+    onClear: () => { for (const row of grid) row.fill(false); edited(); },
+  });
+  const box = el('div', 'pm-frame');
+  const palm = createPalm(box, { onPen: ({ x, y, down }) => { pen = { x, y, down }; pens.pen(x, y, down); draw(); } });
+  const ink = new Uint8Array(PALM_W * PALM_H), rgba = new Uint8ClampedArray(PALM_W * PALM_H * 4);
+  const put = (x, y, v) => { x |= 0; y |= 0; if (x >= 0 && y >= 0 && x < PALM_W && y < PALM_H && v > ink[y * PALM_W + x]) ink[y * PALM_W + x] = v; };
+  const rect = (x, y, w, h, v) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, v); };
+  function draw() {
+    ink.fill(0);
+    const now = stepNow();
+    PD.draw({ rect, put }, { grid, step: now, running: now >= 0, starting, selRow: -1, pen });
+    // white on black, as the Palm draws it
+    for (let i = 0; i < ink.length; i++) { const v = ink[i] * 17; rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = v; rgba[i * 4 + 3] = 255; }
+    palm.show(rgba);
+    frames++;
+  }
+  let prev = 0;
+  (function tick(t) { if (!document.hidden && t - prev >= 66) { prev = t; draw(); } requestAnimationFrame(tick); })(0);
+
+  // ── the patch: this tab's Palm into the Pi's sequencer, its drums out of the PWM output and, on Listen, here ──
+  const port = (node, medium, dir) => ({ id: `${node}:${medium}-${dir}`, dir, medium });
+  const NODES = [{ id: 'web:palm', kind: 'screen', label: 'Palm in this tab' }, { id: 'pi-1:sequencer', kind: 'engine', label: 'sequencer on the Pi' },
+    { id: 'pi-1:drums', kind: 'engine', label: 'drums on the Pi' }, { id: 'pi-1:pwm', kind: 'device', label: 'PWM out' },
+    { id: 'web:speaker', kind: 'device', label: 'speaker' }];
+  const PORTS = [port('web:palm', 'value', 'out'), port('pi-1:sequencer', 'value', 'in'), port('pi-1:sequencer', 'midi', 'out'),
+    port('pi-1:drums', 'midi', 'in'), port('pi-1:drums', 'audio', 'out'), port('pi-1:pwm', 'audio', 'in'), port('web:speaker', 'audio', 'in')];
+  const LINKS = () => [
+    { id: 'a', from: 'web:palm:value-out', to: 'pi-1:sequencer:value-in' },
+    { id: 'b', from: 'pi-1:sequencer:midi-out', to: 'pi-1:drums:midi-in' },
+    { id: 'c', from: 'pi-1:drums:audio-out', to: 'pi-1:pwm:audio-in' },
+    ...(listening ? [{ id: 'd', from: 'pi-1:drums:audio-out', to: 'web:speaker:audio-in' }] : []),
+  ];
+  const pb = createPatchbay({ nodes: () => NODES, ports: () => PORTS, links: LINKS },
+    { flowing: (l) => (l.id === 'a' ? performance.now() - editAt < 400 : seq.running) });
+
+  // play and stop on top, the same press as the Palm's play in its lane; Listen under the screen
+  const top = createButtonGroup({ buttons: [{ id: 'play', icon: 'play', label: 'play the Pi\'s sequencer', primary: true, onPress: () => transport() }] });
+  function showPlaying() { top?.setIcon('play', seq.running ? 'stop' : 'play', seq.running ? 'stop the Pi\'s sequencer' : 'play the Pi\'s sequencer'); }
+  const buttons = createButtonGroup({ buttons: [{ id: 'listen', label: 'Listen', title: 'start the drums on the Pi and hear them here', onPress: () => listen() }] });
+  const topRow = el('div', 'pm-row');
+  topRow.append(top.el);
+  const row = el('div', 'pm-row');
+  row.append(buttons.el);
+  const media = el('div', 'pm-media');
+  media.append(box);
+  const ZOOMS = [1, 2, 3];
+  let zi = 2;
+  const scale = el('span', 'pm-say', '');
+  const zoomBtns = createButtonGroup({ buttons: [
+    { id: 'out', icon: 'zoom-out', label: 'zoom out', onPress: () => setZoom(zi - 1) },
+    { id: 'in', icon: 'zoom-in', label: 'zoom in', onPress: () => setZoom(zi + 1) },
+  ] });
+  function setZoom(i) {
+    zi = Math.max(0, Math.min(ZOOMS.length - 1, i));
+    media.style.setProperty('--pm-k', String(ZOOMS[zi]));
+    scale.textContent = `160×160 at ${ZOOMS[zi]}x`;
+    zoomBtns.enable('out', zi > 0, 'smallest');
+    zoomBtns.enable('in', zi < ZOOMS.length - 1, 'largest');
+  }
+  setZoom(innerWidth < 560 ? 1 : zi);
+  const panel = createVideoPanel({ media, left: scale, right: zoomBtns.el, aspect: 'auto' });
+  d.stack.add(topRow, panel.el, row, pb.el);
+
+  window.__demo.probe = () => ({ connected, running: seq.running, bpm: seq.bpm, step: stepNow(), listening, frames, sent: sentN,
+    on: grid.flat().filter(Boolean).length });
+  d.ready();
+</script>
+</html>

@@ -6,7 +6,7 @@
 <meta property="og:site_name" content="positron.studio">
 <meta property="og:type" content="website">
 <meta property="og:title" content="MEM">
-<meta property="og:url" content="https://positron.studio/radio/mem/">
+<meta property="og:url" content="https://positron.studio/archive/mem/">
 <meta property="og:image" content="https://positron.studio/og/site-d57a2c73.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -80,7 +80,7 @@
 
   const d = mount({ name: 'MEM', what: '', joined: false, index: '/', indexLabel: 'positron',
     readout: { time: 's', players: '', mood: '', room: '', takes: '', talk: '%', loudness: 'LUFS', memory: 'MB' } });
-  conceptNav('radio/mem');
+  conceptNav('archive/mem');
 
   const hold = (a, b) => { const r = bay.link(a, b, [], { site: S }); if (!r.ok) d.log(`${a} -> ${b} refused: ${r.why}`, 'warn'); };
   const holds = (a, b) => bay.links().some((l) => l.from === a && l.to === b);

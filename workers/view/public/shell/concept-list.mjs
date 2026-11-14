@@ -35,6 +35,7 @@ export const CONCEPTS = [
   { id: 'devices/dots', title: 'Dots on Pi screen', say: 'A short score plays as rings of dots on the Pi\'s small screen, the dot piano of the Pico.' },
   { id: 'devices/patches', title: 'Patches on Pi screen', say: 'Small patches drawn as the Pi\'s screen shows them. Send one to the Pi to check it.' },
   { id: 'devices/drums', title: 'Drums on Pi', say: 'The Pi\'s sequencer plays its own drums out of its PWM output. Its keys edit the steps.' },
+  { id: 'devices/palmdrums', title: 'Palm drums', say: 'The Palm\'s drum grid in a tab. Draw steps and the Pi\'s drums play them.' },
   { id: 'devices/beat', title: 'Circuit drums from Pi', say: 'The Pi\'s sequencer plays the Circuit\'s drums. Its keys edit the steps.' },
   { id: 'devices/camera', title: 'Camera on Pi screen', say: 'The Pi\'s camera plays in one bit dots on its small screen and here. It needs the camera key.' },
   { id: 'devices/keys', title: 'Keyboard to Circuit on Pi', say: 'The keyboard on the Pi plays the Circuit\'s synth 1 or 2. The Pi keeps the link when the tab closes.' },
@@ -105,7 +106,7 @@ export const CONCEPTS = [
 // The folders under demo/ that hold concept pages, the first URL segment. workers/view/build.mjs
 // refuses a build where one is also a demo slug or a listed file, or a row names a folder not here.
 // why: lessons/kit-concept-list.md#concept-dirs
-export const CONCEPT_DIRS = ['synth', 'code', 'granulator', 'remote', 'devices', 'radio', 'video', 'shader', 'room', 'typist', 'drums', 'history', 'ambient'];
+export const CONCEPT_DIRS = ['synth', 'code', 'granulator', 'remote', 'devices', 'radio', 'video', 'shader', 'room', 'typist', 'drums', 'history', 'ambient', 'present'];
 
 // The demos on the front page: every listed, built manifest row once, under a group. A concept group
 // draws it as a demo card, CASE_GROUPS as a use case card. Kept out of CONCEPTS so the pager skips it.

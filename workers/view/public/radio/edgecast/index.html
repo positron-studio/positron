@@ -28,6 +28,11 @@
   /* inside the panel the scope gives up its page margin and its own border: the panel's edge is the edge */
   .ec-scope .pos-scope { margin: 0; }
   .ec-scope .pos-scope-c { border: 0; display: block; }
+  /* the landscape is the main picture; a press on it, or on the label at the right, shows the wave instead */
+  .ec-vis { position: relative; cursor: pointer; }
+  .ec-land { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  .ec-vis[data-view="land"] .ec-scope, .ec-vis[data-view="wave"] .ec-land { display: none; }
+  .ec-view { position: absolute; top: 8px; right: 10px; font: 11px var(--mono); color: var(--dim); text-transform: uppercase; pointer-events: none; }
   .pos-vp-foot:has(.ec-line) { padding: 12px; display: block; }
   .pos-vp-foot:has(.ec-line) .pos-vp-c { justify-content: flex-start; }
   /* one height whatever the line says: two lines at the desk, four on a phone */
@@ -49,8 +54,8 @@
 <script type="module">
   // radio1965's cast played by edgecast (workers/edgecast/station.mjs), one Durable Object on Cloudflare with the
   // cast's engine in wasm: GET /listen is its MP3, GET /status what it is doing. This page plays the stream in an
-  // <audio>, draws its wave and says what is going on. Nothing opens on a visit: no fetch, no stream and no poll until
-  // a press. Start and Stop show only with ?key= (the cast's key).
+  // <audio>, draws it as radio1965's landscape (its wave a press away) and says what is going on. Nothing opens on
+  // a visit: no fetch, no stream and no poll until a press. Start and Stop show only with ?key= (the cast's key).
   import { conceptNav } from '/shell/concept-nav.mjs';
   import { mount, el } from '/shell/shell.mjs';
   import { SELFCHECK } from '/shell/selfcheck.mjs';
@@ -61,6 +66,9 @@
   import { createVideoPanel } from '/shell/video-panel.mjs';
   import { createGlueRows } from '/shell/glue.mjs';
   import { createChoice } from '/shell/choice.mjs';
+  import { createScanField, LOOKS, DEFAULT_LOOK, EXTRA, FIELD_W, FIELD_H, DATA_W, DATA_H, at, u8 } from '/shell/scan-field.mjs';
+  import { LAYOUT_VERSION, MOD_FOLLOWERS, FOLLOWER_NAMES, createFeatures } from '/shell/radio-gran.mjs';
+  import { createEnvFollower } from '/shell/pappus-mod.mjs';
   useMediumColours();
 
   const q = new URLSearchParams(location.search);
@@ -168,7 +176,72 @@
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const scope = createGrainScope(scopeHost, { seconds: 10, height: 120, visitor: { colour: MEDIUM_COLOURS.program } });
   const line = el('span', 'ec-line', 'radio1965 on edgecast: nothing playing here');
-  const panel = createVideoPanel({ media: scopeHost, left: false, right: false, centre: line, aspect: 'auto', fullMode: 'bare' });
+  // ── the landscape: radio1965's scan field, moved by what this page hears (the analyser) and /status ──
+  const vis = el('div', 'ec-vis');
+  const land = el('canvas', 'ec-land');
+  land.setAttribute('aria-hidden', 'true');
+  const viewLabel = el('span', 'ec-view', '');
+  vis.append(land, scopeHost, viewLabel);
+  let view = 'land';
+  try { if (localStorage.getItem('edgecast-view') === 'wave') view = 'wave'; } catch { /* the default */ }
+  const setView = (v) => {
+    view = v; vis.dataset.view = v;
+    viewLabel.textContent = v === 'land' ? 'landscape' : 'wave';
+    vis.setAttribute('aria-label', `showing the ${viewLabel.textContent}, press for the ${v === 'land' ? 'wave' : 'landscape'}`);
+    try { localStorage.setItem('edgecast-view', v); } catch { /* not kept */ }
+  };
+  vis.setAttribute('role', 'button'); vis.tabIndex = 0;
+  vis.addEventListener('click', () => setView(view === 'land' ? 'wave' : 'land'));
+  vis.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setView(view === 'land' ? 'wave' : 'land'); } });
+  setView(view);
+  const LOOK = LOOKS[DEFAULT_LOOK];
+  const OPEN = { ...LOOK, ...EXTRA };
+  // radio1965's six knobs (plans/plan-radio1965-landscape.md section 4), here from the analysis and /status
+  const RANGE = { rows: [8, 132], ampM: [0.5, 8], swellY: [0, 0.05], bucket: [0, 1], heave: [0, 1] };
+  const REST = { travel: 0, valley: 0.3, halo: 0, ampB: 0.05, sway: 0, glow: 0.62 };
+  const clampK = (n, v) => Math.min(RANGE[n][1], Math.max(RANGE[n][0], v));
+  const gl = land.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
+  let field = null, feats = null, follow = null, landFrames = 0;
+  land.width = FIELD_W; land.height = FIELD_H;
+  if (gl) {
+    try { field = createScanField(gl, { look: LOOK, live: true, canvas: land, w: FIELD_W, h: FIELD_H }); for (const [k, v] of Object.entries({ chroma: 0, gain: 2.0, gamma: 1.15 })) field.set(k, v); }
+    catch (e) { field = null; d.log(`the landscape did not compile: ${e.message}`, 'bad'); }
+  } else d.log('this browser has no WebGL2, so there is no landscape', 'warn');
+  const target = Object.fromEntries(Object.keys(RANGE).map((n) => [n, OPEN[n]]));
+  const knob = { ...target };
+  const data = new Uint8Array(DATA_W * DATA_H * 4);
+  let landLast = 0, drift = 0;
+  function landTick(t) {
+    const dt = landLast ? Math.min(0.25, (t - landLast) / 1000) : 1 / 60;
+    landLast = t;
+    drift = (drift + dt * 0.06) % 1;
+    data.fill(0);
+    const live = listening && player && !player.tap;
+    if (live) {
+      feats ||= createFeatures(player.an, player.ctx.sampleRate);
+      follow ||= Object.fromEntries(FOLLOWER_NAMES.map((k) => [k, createEnvFollower(MOD_FOLLOWERS[k])]));
+      const f = feats.read();
+      FOLLOWER_NAMES.forEach((n, i) => { follow[n].push(f[n] ?? 0, dt); data[at(i, 3)] = u8(follow[n].value()); });
+      const v = (n) => follow[n].value();
+      // a full landscape with nobody listening, denser with each listener; the rest from the sound itself
+      target.rows = clampK('rows', 40 + 8 * (st?.listeners ?? 0));
+      target.ampM = clampK('ampM', 2.5 + 5.5 * v('rms'));
+      target.swellY = clampK('swellY', 0.05 * v('low'));
+      target.bucket = clampK('bucket', 0.35 * v('flux'));
+      target.heave = clampK('heave', 0.2 + 0.6 * v('tone'));
+    } else for (const n of Object.keys(RANGE)) target[n] = OPEN[n];
+    // faster while it hears, slow back to rest
+    const k = 1 - Math.exp(-dt / (live ? 1.5 : 6));
+    for (const n of Object.keys(RANGE)) { knob[n] += (target[n] - knob[n]) * k; field.set(n, knob[n]); }
+    for (const [n, x] of Object.entries(REST)) field.set(n, x);
+    data[at(21, 3)] = u8(drift);
+    data[at(63, 3)] = LAYOUT_VERSION;
+    field.step(data); landFrames++;
+  }
+  // only drawn while it is the picture shown; no sound and no network, the idle field until Play
+  const landFrame = (t) => { if (view === 'land' && !document.hidden) landTick(t); requestAnimationFrame(landFrame); };
+  if (field) requestAnimationFrame(landFrame);
+  const panel = createVideoPanel({ media: vis, left: false, right: false, centre: line, aspect: 'auto', fullMode: 'bare' });
   const mark = (c) => { if (listening) scope.wrap({ colour: css(c), short: false }); };
 
   // ── reading /status ──
@@ -510,6 +583,7 @@
 
   window.__demo.bay = bay;
   window.__demo.edgecast = { edge: EDGE, play, stopListening, poll, status: () => st,
+    landscape: () => ({ field: !!field, frames: landFrames, view, knobs: { ...knob } }), view: (v) => setView(v),
     probe: () => ({ fetches, polling, listening, player: !!player, keyed: !!KEY, rows: !rows.el.hidden, radio: !!radio, hearing, airPolling }) };
 
   // ── the self-check, only under ?selfcheck=1: everything it grades is in this tab, nothing reaches edgecast ──
