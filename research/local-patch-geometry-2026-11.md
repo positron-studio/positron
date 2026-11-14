@@ -5,7 +5,7 @@ description that a device builds itself, against the hosted model positron uses 
 (wish.positron.studio /wish/code)?
 
 Everything here is MEASURED on 2026-11-14 unless it says INFERRED. Scripts, raw results (one JSON line per
-wish per model, every try with its text and error) and 12 example pictures are in
+wish per model, every try with its text and error) and the renders (344 PNGs) are in
 `research/local-patch-geometry/`.
 
 ## Verdict
@@ -100,6 +100,69 @@ What the pictures show:
   holes). Nobody wrote a trefoil knot or a wine glass that looks like one; "a twisted torus with holes" came
   back as a plain torus from four of five models.
 
+## The renders, and which sheets to look at first
+
+Every passing answer of every model is rendered from the results above, with no new model calls:
+`renders/<kind>-<model>-<NN>.png` per wish (NN is the wish number in `wishes.mjs`), and one contact sheet
+`renders/sheet-<kind>-<model>.png` per kind and model, with the wish captioned under each picture.
+Models are named `hosted-coder32b`, `hosted-qwen38-27b`, `local-qwen35-4b`, `local-qwen35-9b` and `local-coder7b`.
+
+- **patch**: a WebGL2 player (`views.page.js`) runs each patch for 6 s of an 8 s made-up signal track at
+  30 fps and keeps the frames at 0, 2, 4 and 6 s as one strip. The current value of every parameter is
+  printed under each frame.
+  - Signal track: the envelope rises and falls once over 8 s. An onset arrives every 2 s, at 1.8, 3.8 and
+    5.8 s, so the frames at 2, 4 and 6 s fall 0.2 s after a hit. The clock runs at 60 BPM with a 4 s bar.
+    The hands follow slow sines.
+  - Bindings: each binding follows its signal through its attack and release times.
+  - Generators: particles are points; field, tunnel and grid are simple shaders.
+  - Effects: mirror, displacement, feedback, trails, bloom and noise are each one cheap pass.
+- **scene**: rasterised in 3D with instancing, from above and at eye height (1.7 m, looking in from
+  the +z wall).
+- **lsystem**: the 2D turtle drawing.
+- **sdf**: ray marched from two angles.
+
+**Do the bindings move? MEASURED from the per-frame parameter values (`results/patch-motion.json`):**
+- Every bound parameter changed by more than 2 percent of its range across the four frames in 83 of the 84
+  patches that have bindings. The one exception is the 4B's wish 10, which binds feedback to the range
+  [0.97, 0.98]. The binding is there, but nobody would see it.
+- Patches with no bindings at all:
+
+  | model | patches with no bindings |
+  | --- | --- |
+  | coder 7B | 6 |
+  | 9B | 6 |
+  | coder-32b | 2 |
+  | qwen3.8 | 2 |
+  | 4B | 0 |
+
+- Three strips are still, meaning the largest mean pixel change between frames is under 2 of 255:
+  - coder-32b wish 02, "a calm blue field that barely moves", and coder 7B wish 02, the same wish. Both
+    are right to be still.
+  - coder-32b wish 11, the "minimal white grid". It has speed 0, no bindings and hue 0, which is red. The
+    vocabulary has no saturation, so "white" cannot be said at all.
+
+**Sheets to look at first:**
+1. `sheet-patch-local-qwen35-4b.png`: the 4B's patches move, and visibly more than anyone's (median frame
+   change 65, against 47 to 56 for the others). It binds something in every patch, and the beat hits are
+   visible in the 2, 4 and 6 s frames. What the strips show is that it moves but does not listen to the
+   wish's colour: "slow dark water" comes out yellow-green, and "a calm blue field" comes out purple and
+   moving. Compare it with `sheet-patch-hosted-qwen38-27b.png`, where the colours match the wishes.
+2. `sheet-scene-hosted-qwen38-27b.png`: most hosted scenes read as the wish. There is the ring of pillars
+   around a pool, a line of lamps, three stacked rings, the pyramid of spheres, a forest of thin cylinders,
+   a field of 400 cubes and Stonehenge with lintels.
+   - Where it misses, the eye height view shows how:
+     - "a city seen from above" is one flat slab.
+     - The upright torus portal is huge and right in front of the camera.
+     - The hedge maze is a block of boxes.
+   - Then look at `sheet-scene-local-qwen35-4b.png` to see one object where the wish asks for many.
+3. `sheet-sdf-hosted-qwen38-27b.png` beside `sheet-sdf-local-qwen35-4b.png`: composition (a gear, cuts, a
+   coral, a mushroom) against primitives.
+
+The L-system sheets (`sheet-lsystem-*`) show the copied example plant in every local model.
+
+Size: 344 PNGs, 51 MB, of which the 20 sheets are 25 MB. If that is too much for the repository, the
+sheets alone carry everything.
+
 ## Failure patterns
 
 Across all refused tries (`results/summary.md` has the census per model):
@@ -163,4 +226,5 @@ the worker's 1000 token cap (or send the JSON kinds without the `{"code": ...}` 
 - `research/local-patch-geometry/summary.mjs`, `render.mjs`: the table, and per wish PNGs plus contact sheets.
 - `research/local-patch-geometry/run-local.sh`, `run-hosted.sh`, `mem.sh`: the runs as made (local reached the M1 through `ssh -L 11435:localhost:11434 mbp`).
 - `research/local-patch-geometry/results/`: the raw JSONL per model, `summary.md`, `mem.txt`.
-- `research/local-patch-geometry/renders/`: 12 pictures (scene, lsystem, sdf, good and bad).
+- `research/local-patch-geometry/render-all.mjs`, `views.page.js`: the patch player, the 3D scene view and the contact sheets.
+- `research/local-patch-geometry/renders/`: 324 per-wish pictures and 20 contact sheets (see the renders section).

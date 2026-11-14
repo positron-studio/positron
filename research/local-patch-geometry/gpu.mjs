@@ -93,13 +93,13 @@ window.checkSdf = (code) => {
   return { ok: !error, error, stats };
 };
 
-window.renderSdf = (code, W) => {
+window.renderSdf = (code, W, A) => {
   const fs = head + code + ['',
   'vec3 nrm(vec3 p){ vec2 e = vec2(0.002, 0.0); return normalize(vec3(sdf(p+e.xyy)-sdf(p-e.xyy), sdf(p+e.yxy)-sdf(p-e.yxy), sdf(p+e.yyx)-sdf(p-e.yyx))); }',
-  'uniform vec2 R;',
+  'uniform vec2 R; uniform float A;',
   'void main(){',
   '  vec2 uv = (gl_FragCoord.xy * 2.0 - R) / R.y;',
-  '  vec3 ro = vec3(2.2 * sin(0.7), 1.3, 2.2 * cos(0.7));',
+  '  vec3 ro = vec3(2.3 * sin(A), 1.2, 2.3 * cos(A));',
   '  vec3 fw = normalize(-ro), rt = normalize(cross(fw, vec3(0.0, 1.0, 0.0))), up = cross(rt, fw);',
   '  vec3 rd = normalize(fw * 1.6 + uv.x * rt + uv.y * up);',
   '  float t = 0.0; bool hit = false;',
@@ -113,7 +113,7 @@ window.renderSdf = (code, W) => {
   const r = program(fs, headLines);
   if (r.error) return { error: r.error };
   cv.width = W; cv.height = W;
-  gl.useProgram(r.p); gl.uniform2f(gl.getUniformLocation(r.p, 'R'), W, W);
+  gl.useProgram(r.p); gl.uniform2f(gl.getUniformLocation(r.p, 'R'), W, W); gl.uniform1f(gl.getUniformLocation(r.p, 'A'), A === undefined ? 0.7 : A);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   draw(r.p, W, W);
   return { png: cv.toDataURL('image/png') };
@@ -197,7 +197,7 @@ export async function openGpu() {
   return {
     info: () => evalJs('info()'),
     checkSdf: (code) => evalJs(`checkSdf(${JSON.stringify(code)})`),
-    renderSdf: async (code, w = 320) => { const r = await evalJs(`renderSdf(${JSON.stringify(code)}, ${w})`); return r.png ? png(r.png) : null; },
+    renderSdf: async (code, w = 320, a = 0.7) => { const r = await evalJs(`renderSdf(${JSON.stringify(code)}, ${w}, ${a})`); return r.png ? png(r.png) : null; },
     renderScene: async (j, inst) => png(await evalJs(`renderScene(${JSON.stringify(j)}, ${JSON.stringify(inst)})`)),
     renderL: async (s, angle) => { const r = await evalJs(`renderL(${JSON.stringify(s)}, ${angle})`); return { png: png(r.png), segments: r.segments }; },
     evalJs,
