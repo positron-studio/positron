@@ -1,5 +1,7 @@
 ## Open
 
+- ~~**MutualGPU and similar compute-sharing projects**~~ DONE 2026-11-14, visualia research/compute-pools.md (2026-11-14). Asked: *"Look for more mutual GPU and similar projects out there."* After the TripoSplat page (triposplat-webgpu.vercel.app/e2e-web) offered MutualGPU, a community GPU pool. A background agent, web only, to visualia research/compute-pools.md, compared with visualia plans/pool.md.
+
 - ~~**v2in: a dropdown in the channel settings for where a channel takes its input**~~ DONE 2026-11-14 (v2in 8ff78c7, run 43592459810), https://v2in.stream/admin/ Config, Inputs (2026-11-14). Asked: *"in bg add dropdown to channel settings where from to take input (mem from live etc). for v2in"*. The channel field is `from` (a list of other channels, plans/plan-huddersfield.md, "/admin: the Inputs control"); the admin page is web/admin/. A background agent builds it, the session commits and deploys.
 
 - **glsl-wish.mjs has no loop limits or frame-budget check** (2026-11-14, found by the geometry and VFX research). plans/plan-visuals.md section 1.2 asks for no `while`, bounded `for`, a compile timeout and a frame-budget check before a model-written shader is promoted; glsl-wish.mjs checks only that it compiles and is not flat or still. Needed before any model-written shader runs in a headset. Files: demo/shell/glsl-wish.mjs, the wish pages; positron-verify for the asserts.
