@@ -1,7 +1,7 @@
 # positron
 
-Live at **https://positron.studio**. R&D, not a product. 56 demo rows of which
-55 are built (counted 2026-10-14), a Raspberry Pi at a second site, a Novation Circuit on the
+Live at **https://positron.studio**. R&D, not a product. 72 demo rows of which
+67 are built (counted 2026-11-12), a Raspberry Pi at a second site, a Novation Circuit on the
 desk, and a pile of measurements about streaming.
 
 ⚠️ **COUNT THE DEMOS, NEVER REMEMBER THEM.** This line said `47 of 49` one
@@ -39,6 +39,17 @@ the page out of the deploy entirely, because `workers/view/build.mjs:566` reads
 **404** while the front page went on drawing a `grains` card with no link behind
 it. The front page never looks at `built`. `byGroup()` filters on `unlisted`,
 once, so the two index renderers cannot disagree.
+
+## positron or visualia: where a thing lives
+
+Decided 2026-11-14 (*"should it live in positron or visualia. i am lost"*). The test is what comes out, and when:
+**if a model makes the final pixels, clip, sound file or mesh, it is visualia; if a device makes the pixels or sound live
+from a description, it is positron.** A model may feed positron, but what positron receives is data (a shader, an emitter
+description, parameters, a seed), never finished media. positron's music analysis (tempo, key, slow envelope) is
+positron's and visualia imports it. Examples: distributed visual synthesis, rule-built geometry and VFX in the headset are
+positron (`plans/plan-visual-worlds.md`); text or image to 3D (TRELLIS, TripoSR; Hunyuan3D excludes the EU), sound to
+prompt to picture or video, Stable Audio loops on the pool are visualia (`research/music-to-prompt.md`,
+`research/local-multimodal.md`). The other repository is `~/personal/visualia`.
 
 ## The standing files, and what each one answers
 
