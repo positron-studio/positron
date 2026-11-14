@@ -6,7 +6,8 @@ import { rng, gcd, chooseLength, findStart, Ring, place, PRESETS, HOSTS, presetO
 import { bootSync, glueOf } from './scsynth-sync.mjs';
 
 // the engine's earlier presets, kept here as fixtures: they drive the switch, host and count checks, and drift is the
-// control with no walk and no opening. The product ships only colours (mem-presets.json).
+// control with no walk and no opening, and colours was soft2, on air until 2026-11-13. The product ships only signals
+// (mem-presets.json, mem-signals.mjs).
 const FIX = JSON.parse(readFileSync(new URL('./mem-test-presets.json', import.meta.url), 'utf8'));
 const old = (name) => presetOf(name, FIX);
 const vendor = {
@@ -62,7 +63,7 @@ assert.ok(far.gain < near.gain && far.air < near.air && far.send > near.send);
 }
 
 // every preset is whole
-for (const name of Object.keys(PRESETS.presets)) { const q = presetOf(name); for (const k of ['players', 'takes', 'colour', 'process', 'room']) assert.ok(q[k], `${name}.${k}`); }
+for (const name of Object.keys(PRESETS.presets)) { if (PRESETS.presets[name].engine) continue; const q = presetOf(name); for (const k of ['players', 'takes', 'colour', 'process', 'room']) assert.ok(q[k], `${name}.${k}`); }
 
 // a new preset while playing (setPreset): no exception, no NaN, no silence at the switch, and the players settle at the
 // new count, by entering (sparse 4 to dense 8) and by leaving (dense 8 to far 6). The presets' timings are shortened
@@ -213,7 +214,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
 // solo passages and the reverb walk, on colours with its timings shortened: a solo leaves one loop heard and the rest
 // at 0, a different player each time, both kinds of edge; the reverb walks, dry moments included
 {
-  const q = presetOf('colours'), m = await new Mem({ preset: { ...q, name: 'colours-quick', solo: { ...q.solo, every: [10, 20], hold: [4, 8], sudden: 0.4 },
+  const q = old('colours'), m = await new Mem({ preset: { ...q, name: 'colours-quick', solo: { ...q.solo, every: [10, 20], hold: [4, 8], sudden: 0.4 },
     room: { ...q.room, reverb: { ...q.room.reverb, walk: { ...q.room.reverb.walk, dryP: 0.5, glide: [2, 4], hold: [3, 6], dryHold: [3, 6] } } } }, seed: 21 }).boot(bootSync, vendor);
   const cr = rng(23), soloists = [], edges = new Set(), withDrones = new Set(), noDrones = new Set(); let silentOthers = 0, heardSolo = 0, rvMin = Infinity, rvMax = -Infinity;
   for (let k = 0; k < 2400; k++) {   // 240 s
@@ -233,7 +234,7 @@ for (const [name, h] of Object.entries(HOSTS)) {
 }
 // an octave down, forced on every new loop: exactly 0.25 (in tune), never glided away, never a soloist
 {
-  const q = presetOf('colours'), m = await new Mem({ preset: { ...q, name: 'colours-octave', process: { ...q.process, octave: { p: 1 } } }, seed: 31 }).boot(bootSync, vendor);
+  const q = old('colours'), m = await new Mem({ preset: { ...q, name: 'colours-octave', process: { ...q.process, octave: { p: 1 } } }, seed: 31 }).boot(bootSync, vendor);
   const cr = rng(29), rates = new Set(); let glided = 0;
   for (let k = 0; k < 900; k++) {   // 90 s
     const b = new Int16Array(SR / 10 * 2); for (let i = 0; i < b.length; i += 2) { const ph = ((k / 10) + i / 2 / SR) % 1.7; b[i] = b[i + 1] = Math.round((cr.next() * 2 - 1) * (ph < 1.2 ? 0.3 : 0.02) * 32767); }
