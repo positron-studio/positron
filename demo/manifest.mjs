@@ -404,6 +404,12 @@ export const DEMOS = [
   { name: 'kit/present', title: 'present', group: 'kit', act: 0, created: '2026-11-11', built: true, unlisted: true,
     one: 'a patch as a slide, its title over an optional picture and How it works beside the arrows',
     tags: ['shell', 'no network'] },
+  // `gl: true` for verify-gl.mjs. settleMs covers the page's own checks, which step the count
+  // before the harness's later presses can move it.
+  { name: 'kit/points', title: 'points', group: 'kit', act: 0, created: '2026-11-14', built: true, unlisted: true,
+    gl: true, xr: true, settleMs: 9000,
+    one: 'a dotted scene moved by sound, drawn on the graphics card, with its frame rate measured from 10,000 to 200,000 points',
+    tags: ['WebGL2', 'no network'] },
   { name: 'kit/frontpage', title: 'frontpage', group: 'kit', act: 0, created: '2026-10-12', built: true, unlisted: true,
     one: 'the two faces this site is set in, JetBrains Mono for what names and Geist for what is read through',
     tags: ['shell', 'no network'] },

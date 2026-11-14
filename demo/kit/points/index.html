@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0e14">
+<title>POSITRON kit/points</title>
+<link rel="stylesheet" href="/shell/shell.css">
+<style>
+  /* The picture: a canvas the page draws into at the render scale, 16:9 at the desk, square on a phone. */
+  .pts-pic { position: relative; margin: 0; background: #05070b; border-radius: var(--r, 4px); overflow: hidden; }
+  .pts-pic canvas { display: block; inline-size: 100%; aspect-ratio: 16 / 9; }
+  @media (max-width: 560px) { .pts-pic canvas { aspect-ratio: 1 / 1; } }
+  .pts-pic.pos-full canvas { aspect-ratio: auto; block-size: 100%; }
+  /* The row of setters under the controls: two by two at the desk, one column on a phone. */
+  .pts-set { display: flex; flex-wrap: wrap; gap: var(--rows-gap, 12px) 22px; align-items: center; flex-basis: 100%; }
+  .pts-scene { display: grid; gap: var(--rows-gap, 12px); }
+  .pts-scene .pos-field { flex: 1 1 100%; }
+  .pts-err { margin: 0; white-space: pre-wrap; font: 400 12px/1.6 var(--mono); color: var(--bad, #ff6b6b); }
+  .pts-err[data-ok="1"] { color: var(--dim); }
+  .pts-err:empty { display: none; }
+</style>
+<script type="module">
+  import { mount, guard, el } from '/shell/shell.mjs';
+  import { SELFCHECK } from '/shell/selfcheck.mjs';
+  import { createPicker } from '/shell/picker.mjs';
+  import { createChoice } from '/shell/choice.mjs';
+  import { createButtonGroup } from '/shell/button-group.mjs';
+  import { createField } from '/shell/field.mjs';
+  import { toggle as toggleFull, watch as watchFull, createFullscreenExit } from '/shell/fullscreen.mjs';
+  import { canEnter, reasonFor, onXrCaps } from '/shell/xr-caps.mjs';
+  import { createXRPanels, beacon } from '/shell/xr-panel.mjs';
+  import { createPanelFooter, FOOT } from '/shell/panel.mjs';
+  import { sharedAudio } from '/shell/audio.mjs';
+  import { EXAMPLES, MAX_POINTS, trackAt, parseScene, validateScene, createFollowers, pointCount } from '/shell/points-scene.mjs';
+  import { createPointsRenderer, perspective, lookAt } from '/shell/points-gl.mjs';
+
+  const d = mount({
+    name: 'kit/points',
+    what: 'A dotted scene moved by sound, drawn in one call on the graphics card, flat or in a headset, with its frame rate measured as the points go up.',
+    readout: { fps: '', 'frame median': 'ms', 'frame worst': 'ms', points: '', renderer: '', view: '' },
+    controls: [],
+    index: '/kit/',
+    indexLabel: 'kit',
+  });
+  guard(d);
+  d.controls.hidden = false;
+
+  const COUNTS = [10000, 25000, 50000, 100000, 200000];
+  const SCALES = [0.5, 0.75, 1];
+  // The headset stands 4 m toward +z from the middle of the room, which is where the format puts a viewer.
+  const XR_OFFSET = [0, 0, -4];
+  const fmt = (n) => n.toLocaleString('en');
+  // Two spaces, with every short list of numbers kept on one line.
+  const pretty = (j) => JSON.stringify(j, null, 2).replace(/\[\s+([-\d.,\s]+?)\s+\]/g, (m, x) => `[${x.split(/,\s*/).join(', ')}]`);
+
+  const S = {
+    sceneName: EXAMPLES[0].name, scene: EXAMPLES[0].scene,
+    count: null,             // null: the scene's own count; otherwise one of COUNTS
+    scale: 1,
+    source: 'track',         // 'track' | 'microphone'
+    view: 'flat',            // 'flat' | 'xr'
+    refused: 0, lastError: '',
+  };
+  window.__demo.points = S;
+
+  // ── the picture ──
+  const pic = el('figure', 'pts-pic');
+  const cv = el('canvas');
+  pic.append(cv);
+  const gl = cv.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
+  const flat = gl ? createPointsRenderer(gl) : null;
+  let rendererName = '';
+  if (gl) {
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    rendererName = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  }
+  window.__demo.gl = { renderer: rendererName || null, compiled: !!flat?.ok, why: flat?.why || (gl ? '' : 'no WebGL2 here') };
+  const shortRenderer = (r) => String(r || '').replace(/^ANGLE \(/, '').replace(/\)$/, '')
+    .replace(/, Unspecified Version/, '').replace(/ANGLE Metal Renderer: /, '').split(',').slice(-1)[0]
+    .trim().replace(/^Apple /, '').replace(/\s*\(TM\)/g, '').trim();
+  if (!gl) d.log('this browser gave no WebGL2 context, so there is nothing to draw with', 'bad');
+  else if (!flat.ok) d.log(`the point shader would not compile: ${flat.why}`, 'bad');
+
+  // ── signals ──
+  const t0 = performance.now();
+  const mic = { an: null, td: null, fd: null, env: 0, low: 0, mid: 0, high: 0, onset: 0, last: 0, stream: null };
+  const hands = { lx: null, ry: null };
+  function signalsAt(t, dt) {
+    const s = trackAt(t);
+    if (S.source === 'microphone' && mic.an) {
+      mic.an.getFloatTimeDomainData(mic.td);
+      let e = 0; for (const v of mic.td) e += v * v;
+      const rms = Math.sqrt(e / mic.td.length);
+      mic.an.getByteFrequencyData(mic.fd);
+      const hz = sharedAudio().sampleRate / 2 / mic.fd.length;
+      const band = (lo, hi) => { let a = 0, k = 0; for (let i = Math.floor(lo / hz); i < Math.min(mic.fd.length, hi / hz); i++) { a += mic.fd[i]; k++; } return k ? a / k / 255 : 0; };
+      const env = Math.min(1, rms * 6);
+      const low = band(20, 200), mid = band(200, 2000), high = band(2000, 8000);
+      if (low - mic.low > 0.12 && low > 0.35) mic.onset = 1;
+      mic.onset *= Math.exp(-dt * 4);
+      mic.env += (env - mic.env) * (1 - Math.exp(-dt / 0.08));
+      mic.low = low; mic.mid = mid; mic.high = high;
+      Object.assign(s, { 'audio.envelope': mic.env, 'audio.low': low, 'audio.mid': mid, 'audio.high': high, 'audio.onset': mic.onset });
+    }
+    if (hands.lx != null) s['hand.left.x'] = hands.lx;
+    if (hands.ry != null) s['hand.right.y'] = hands.ry;
+    return s;
+  }
+  let followers = createFollowers(S.scene.bindings || []);
+
+  // ── frame times over the last 2 s ──
+  const ring = [];
+  let lastT = 0, frames = 0;
+  function tick(now) {
+    if (lastT) ring.push({ t: now, dt: now - lastT });
+    lastT = now; frames++;
+    while (ring.length && now - ring[0].t > 2000) ring.shift();
+  }
+  function stats() {
+    if (ring.length < 5) return null;
+    const dts = ring.map((r) => r.dt).sort((a, b) => a - b);
+    const span = ring.at(-1).t - ring[0].t + ring[0].dt;
+    return { fps: ring.length / (span / 1000), median: dts[Math.floor(dts.length / 2)], worst: dts.at(-1), n: ring.length };
+  }
+  const measured = { fps: null, median: null, worst: null, frames: 0, count: 0, view: 'flat' };
+  window.__demo.measured = measured;
+
+  // ── the scene on both renderers ──
+  let xrPts = null;
+  function apply() {
+    const n = S.count;
+    flat?.setScene(S.scene, n);
+    xrPts?.setScene(S.scene, n);
+    followers = createFollowers(S.scene.bindings || []);
+    measured.count = n ?? pointCount(S.scene.base);
+    ring.length = 0; lastT = 0;
+  }
+
+  // ── the flat loop ──
+  let raf = 0, probeWant = null;
+  function sizeCanvas() {
+    const w = Math.max(64, Math.round(cv.clientWidth * devicePixelRatio * S.scale));
+    const h = Math.max(64, Math.round(cv.clientHeight * devicePixelRatio * S.scale));
+    if (cv.width !== Math.min(w, 3840) || cv.height !== Math.min(h, 2160)) { cv.width = Math.min(w, 3840); cv.height = Math.min(h, 2160); }
+  }
+  function frameFlat(now) {
+    raf = requestAnimationFrame(frameFlat);
+    const t = (now - t0) / 1000;
+    const dt = lastT ? (now - lastT) / 1000 : 0;
+    tick(now);
+    const values = followers.step(signalsAt(t, dt), dt);
+    sizeCanvas();
+    gl.viewport(0, 0, cv.width, cv.height);
+    gl.clearColor(0.02, 0.027, 0.04, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const proj = perspective(55 * Math.PI / 180, cv.width / cv.height, 0.1, 60);
+    const view = lookAt([0, 5, 13], [0, 1.4, 0]);
+    flat.draw({ proj, view, t, values, px: (cv.height / 1080) * 4 });
+    if (probeWant) { const p = probeWant; probeWant = null; p(readProbe()); }
+  }
+  const startFlat = () => { if (!raf && flat?.ok) { lastT = 0; ring.length = 0; raf = requestAnimationFrame(frameFlat); } };
+  const stopFlat = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; } };
+
+  /** A 64 x 36 sample of what was just drawn: how much is lit, how varied, and a fingerprint. */
+  function readProbe() {
+    const W = cv.width, H = cv.height;
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let lit = 0; const lo = [255, 255, 255], hi = [0, 0, 0]; const sample = [];
+    for (let y = 0; y < 36; y++) for (let x = 0; x < 64; x++) {
+      const i = ((Math.floor((y + 0.5) * H / 36) * W) + Math.floor((x + 0.5) * W / 64)) * 4;
+      sample.push(px[i] + px[i + 1] + px[i + 2]);
+    }
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] + px[i + 1] + px[i + 2] > 60) {
+        lit++;
+        for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], px[i + k]); hi[k] = Math.max(hi[k], px[i + k]); }
+      }
+    }
+    return { lit: lit / (W * H), spread: Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), sample, err: gl.getError() };
+  }
+  const probe = () => new Promise((r) => { probeWant = r; });
+
+  // ── the headset ──
+  const foot = createPanelFooter({ width: 640, scale: 2 });
+  const xr = createXRPanels({
+    // The numbers as one strip under your gaze, uploaded only when one moves. Grab its bar to move it.
+    panels: [{ canvas: foot.canvas, foot: foot.canvas, footVersion: () => foot.dirty(), footFrac: 1,
+      live: { attach: (g2) => { liveTex = g2.createTexture(); return true; }, draw: () => liveTex, pixels: { w: 1, h: 1 } },
+      w: 0.9, h: 0.9 * FOOT / 640, dist: 1.4 }],
+    surface: {
+      attach(g2) { xrPts = createPointsRenderer(g2); if (!xrPts.ok) throw new Error(xrPts.why); xrPts.setScene(S.scene, S.count); return true; },
+      // One page clock for both views; the eye's height sets the point size, with no glGet per frame.
+      draw({ proj, view }) {
+        xrPts.draw({ proj, view, t: xrT, values: xrValues, px: ((xr.state.eye?.h || 1760) / 1080) * 4, offset: XR_OFFSET });
+      },
+    },
+    scale: () => S.scale,
+    log: (m, k) => d.log(m, k),
+    onFrame: ({ frame, session }) => onXRFrame(frame, session),
+    onEnd: () => { S.view = 'flat'; measured.view = 'flat'; hands.lx = hands.ry = null; ring.length = 0; startFlat(); },
+  });
+  let liveTex = null, xrT = 0, xrValues = null, xrSpace = null, xrSession = null;
+  const padWas = new WeakMap();
+  window.__demo.xr = xr.state;
+  window.__demo.xrPreview = (o) => xr.preview(o);
+
+  function onXRFrame(frame, session) {
+    if (!session) return;
+    const now = performance.now();
+    if (session !== xrSession) {
+      xrSession = session; xrSpace = null;
+      session.requestReferenceSpace('local-floor').then((sp) => { xrSpace = sp; }, () => {});
+      // A pinch with a tracked hand steps the count up; controllers use A or X, and B or Y.
+      session.addEventListener('select', (e) => { if (e.inputSource?.hand) stepCount(+1, 'a pinch'); });
+    }
+    const t = (now - t0) / 1000;
+    xrT = t;
+    const dt = lastT ? (now - lastT) / 1000 : 0;
+    tick(now);
+    for (const src of session.inputSources) {
+      const bs = src.gamepad?.buttons || [];
+      const was = padWas.get(src) || [];
+      const down = (i) => !!bs[i]?.pressed && !was[i];
+      if (down(4)) stepCount(+1, `the ${src.handedness} controller`);
+      if (down(5)) stepCount(-1, `the ${src.handedness} controller`);
+      padWas.set(src, bs.map((b) => !!b.pressed));
+      if (xrSpace && frame && (src.gripSpace || src.targetRaySpace)) {
+        const p = frame.getPose(src.gripSpace || src.targetRaySpace, xrSpace)?.transform?.position;
+        if (p && src.handedness === 'left') hands.lx = Math.min(1, Math.max(0, p.x + 0.5));
+        if (p && src.handedness === 'right') hands.ry = Math.min(1, Math.max(0, (p.y - 0.8) / 1.2));
+      }
+    }
+    xrValues = followers.step(signalsAt(t, dt), dt);
+  }
+
+  // ── controls ──
+  const xrGroup = createButtonGroup({
+    buttons: [{ id: 'vr', label: 'Run in VR' }, { id: 'ar', label: 'Run in AR' }],
+    onPress: (id) => d.run(id),
+  });
+  d.controls.append(xrGroup.el);
+  onXrCaps((c) => {
+    xrGroup.enable('vr', canEnter(c.vr), reasonFor(c.vr, 'vr'));
+    xrGroup.enable('ar', canEnter(c.ar), reasonFor(c.ar, 'ar'));
+  });
+  async function enter(mode) {
+    for (let i = 0; i < 20 && (mode === 'ar' ? xr.supportedAr() : xr.supported()) === null; i++) await new Promise((r) => setTimeout(r, 50));
+    let got = false;
+    try { got = mode === 'ar' ? await xr.enterAR() : await xr.enter(); }
+    catch (e) { beacon(`FAIL enter ${mode}: ${e.name}, ${e.message}`); d.log(`entering failed. ${e.name}: ${e.message}`, 'bad'); }
+    if (got) {
+      stopFlat();
+      S.view = 'xr'; measured.view = mode === 'ar' ? 'xr passthrough' : 'xr';
+      ring.length = 0; lastT = 0;
+      d.log('A or X adds points, B or Y takes them away, a pinch adds them, and holding any button for three seconds brings you back', 'hi');
+      beacon(`points: entered ${mode} at ${fmt(measured.count)} points, render scale ${S.scale}`);
+    }
+  }
+  d.on('vr', () => enter('vr'));
+  d.on('ar', () => enter('ar'));
+
+  const set = el('div', 'pts-set');
+  const picker = createPicker({
+    label: 'SCENE', what: 'scene',
+    prev: () => pickScene((EXAMPLES.findIndex((e) => e.name === S.sceneName) - 1 + EXAMPLES.length) % EXAMPLES.length),
+    next: () => pickScene((EXAMPLES.findIndex((e) => e.name === S.sceneName) + 1) % EXAMPLES.length),
+    onPick: (i) => pickScene(i),
+  });
+  picker.options(EXAMPLES.map((e) => e.name), 0);
+  const countChoice = createChoice({
+    label: 'POINTS',
+    options: [['scene', null], ...COUNTS.map((n) => [n >= 1000 ? `${n / 1000}k` : String(n), n])],
+    at: 0,
+    onPick: (v) => setCount(v, 'the choice'),
+  });
+  const scaleChoice = createChoice({
+    label: 'SCALE',
+    options: SCALES.map((s) => [String(s), s]),
+    at: SCALES.indexOf(1),
+    onPick: (v) => setScale(v),
+  });
+  const more = createButtonGroup({
+    buttons: [{ id: 'mic', label: 'Microphone' }, { id: 'ramp', label: 'Ramp' }, { id: 'full', label: '⛶', aria: 'full screen' }],
+    onPress: (id) => d.run(id),
+  });
+  set.append(picker.el, countChoice.el, scaleChoice.el, more.el);
+  d.controls.append(set);
+
+  function pickScene(i) {
+    const e = EXAMPLES[i];
+    S.sceneName = e.name; S.scene = e.scene;
+    picker.show(e.name, i);
+    field.set(pretty(e.scene));
+    say('', true);
+    apply();
+    d.log(`${e.name}, ${fmt(measured.count)} points`);
+  }
+  function setCount(n, by) {
+    S.count = n;
+    countChoice.set(n == null ? 0 : COUNTS.indexOf(n) + 1, true);
+    apply();
+    if (S.view === 'xr') beacon(`points: ${fmt(measured.count)} points from ${by}`);
+  }
+  function stepCount(dir, by) {
+    const at = S.count == null ? (dir > 0 ? -1 : COUNTS.length) : COUNTS.indexOf(S.count);
+    const next = COUNTS[Math.max(0, Math.min(COUNTS.length - 1, at + dir))];
+    setCount(next, by);
+    d.log(`${fmt(next)} points, from ${by}`);
+  }
+  function setScale(s) {
+    S.scale = s;
+    if (S.view === 'xr') xr.setScale(s);
+    ring.length = 0; lastT = 0;
+  }
+
+  // The ramp: every count held 3 s, the last 2 s measured, one line each. In a headset each line also
+  // goes to the device log.
+  let ramping = false;
+  async function ramp() {
+    if (ramping) return;
+    ramping = true;
+    const rows = [];
+    try {
+      for (const n of COUNTS) {
+        setCount(n, 'the ramp');
+        await new Promise((r) => setTimeout(r, 3000));
+        const st = stats();
+        const line = `${fmt(n)} points: ${st ? st.fps.toFixed(1) : '?'} fps, median ${st ? st.median.toFixed(1) : '?'} ms, worst ${st ? st.worst.toFixed(1) : '?'} ms, scale ${S.scale}, ${measured.view}`;
+        rows.push({ ...st, n });
+        d.log(line);
+        if (S.view === 'xr') beacon(`points ramp: ${line}`);
+      }
+    } finally { ramping = false; }
+    window.__demo.ramp = rows;
+    return rows;
+  }
+  d.on('ramp', () => ramp());
+
+  // The microphone is opened only by this press, never on load.
+  d.on('mic', async () => {
+    if (S.source === 'microphone') {
+      mic.stream?.getTracks().forEach((tr) => tr.stop());
+      mic.an = null; S.source = 'track';
+      more.button('mic').textContent = 'Microphone';
+      d.log('back on the made-up track');
+      return;
+    }
+    try {
+      const stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }),
+        new Promise((_, no) => setTimeout(() => no(new Error('no answer in 8 s. Is a permission prompt waiting?')), 8000)),
+      ]);
+      const ac = sharedAudio();
+      const an = ac.createAnalyser(); an.fftSize = 1024;
+      ac.createMediaStreamSource(stream).connect(an);
+      Object.assign(mic, { an, stream, td: new Float32Array(an.fftSize), fd: new Uint8Array(an.frequencyBinCount) });
+      S.source = 'microphone';
+      more.button('mic').textContent = 'Made-up track';
+      d.log('listening to the microphone', 'ok');
+    } catch (e) {
+      d.log(`the microphone did not open: ${e.message}`, 'warn');
+    }
+  });
+
+  watchFull(pic, () => setTimeout(sizeCanvas, 50));
+  createFullscreenExit(pic);
+  d.on('full', () => toggleFull(pic));
+
+  // ── the scene as text ──
+  const field = createField({ label: 'SCENE JSON', rows: 10, code: true, value: pretty(S.scene) });
+  const err = el('p', 'pts-err');
+  const play = createButtonGroup({ buttons: [{ id: 'play', label: 'Play this' }], onPress: () => playText() });
+  function say(msg, ok) { err.textContent = msg; if (ok) err.dataset.ok = '1'; else delete err.dataset.ok; }
+  function playText() {
+    const { scene, errors } = parseScene(field.value());
+    if (!scene) {
+      S.refused++; S.lastError = errors.join('\n');
+      say(`Refused:\n${errors.map((e) => `  ${e}`).join('\n')}`);
+      d.log(`refused that scene: ${errors[0]}`, 'warn');
+      return false;
+    }
+    S.sceneName = 'pasted'; S.scene = scene; S.lastError = '';
+    picker.show('pasted', -1);
+    apply();
+    say(`Playing, ${fmt(measured.count)} points.`, true);
+    d.log(`playing the pasted scene, ${fmt(measured.count)} points`);
+    return true;
+  }
+  const sceneBox = el('div', 'pts-scene');
+  sceneBox.append(field.el, play.el, err);
+  d.stack.add(pic, sceneBox);
+
+  // ── the readout, four times a second ──
+  setInterval(() => {
+    const st = stats();
+    Object.assign(measured, st ? { fps: st.fps, median: st.median, worst: st.worst } : { fps: null, median: null, worst: null });
+    measured.frames = frames;
+    d.set('fps', st ? st.fps.toFixed(1) : '');
+    d.set('frame median', st ? st.median.toFixed(1) : '');
+    d.set('frame worst', st ? st.worst.toFixed(1) : '');
+    d.set('points', fmt(measured.count));
+    d.set('renderer', shortRenderer(rendererName));
+    d.set('view', measured.view);
+    if (S.view === 'xr') {
+      foot.draw([['fps', st ? st.fps.toFixed(1) : ''], ['median ms', st ? st.median.toFixed(1) : ''],
+        ['worst ms', st ? st.worst.toFixed(1) : ''], ['points', fmt(measured.count)], ['scale', String(S.scale)],
+        ['fb', xr.state.fb ? `${xr.state.fb.w}x${xr.state.fb.h}` : '']]);
+    }
+  }, 250);
+
+  apply();
+  startFlat();
+
+  // ── the checks, only behind ?selfcheck=1 ──
+  if (SELFCHECK) {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const framesAt = async (k) => { const f = frames; for (let i = 0; i < 100 && frames < f + k; i++) await wait(20); };
+    (async () => {
+      d.assert('the point shader compiled in this context', !!flat?.ok, flat?.ok ? rendererName : (flat?.why || 'no WebGL2'));
+      d.assert('all six built in scenes pass the validator',
+        EXAMPLES.every((e) => validateScene(e.scene).length === 0),
+        EXAMPLES.map((e) => `${e.name} ${validateScene(e.scene).length ? 'REFUSED' : 'ok'}`).join(', '));
+      d.assert('nothing was opened on load: the signals are the made-up track and no microphone is held',
+        S.source === 'track' && !mic.stream, `source ${S.source}`);
+      if (!flat?.ok) { d.ready(); return; }
+      await wait(1200);
+      const st = stats();
+      d.assert('frames are finishing', frames > 20 && !!st && st.fps > 5,
+        st ? `${frames} frames, ${st.fps.toFixed(1)} fps, median ${st.median.toFixed(1)} ms` : `${frames} frames`);
+      const a = await probe();
+      d.assert('the picture is not flat', a.lit > 0.004 && a.spread > 40 && a.err === 0,
+        `${(a.lit * 100).toFixed(2)} % of pixels lit, colour spread ${a.spread}, gl error ${a.err}`);
+      await wait(500);
+      const b = await probe();
+      const changed = a.sample.filter((v, i) => Math.abs(v - b.sample[i]) > 30).length;
+      d.assert('and it moves by itself, half a second apart', changed >= 8, `${changed} of ${a.sample.length} sampled pixels changed`);
+      // Each step of the ramp, applied and drawn: the draw call's own count.
+      const seen = [];
+      for (const n of COUNTS) {
+        setCount(n, 'the check');
+        await framesAt(3);
+        seen.push(`${n / 1000}k drew ${fmt(flat.count)}`);
+        if (flat.count !== n || measured.count !== n) break;
+      }
+      d.assert('every count on the ramp is applied and drawn', seen.length === COUNTS.length
+        && flat.count === COUNTS.at(-1) && countChoice.get() === COUNTS.length, seen.join(', '));
+      setCount(null, 'the check');
+      await framesAt(2);
+      d.assert('back to the scene\'s own count', flat.count === pointCount(S.scene.base), `${fmt(flat.count)}`);
+      // A paste over the cap is refused and changes nothing.
+      const before = { name: S.sceneName, n: flat.count };
+      field.set(JSON.stringify({ ...EXAMPLES[2].scene, base: { type: 'sphere', radius: 1.8, count: 250000 } }));
+      const r1 = playText();
+      await framesAt(2);
+      d.assert('a pasted scene over 200,000 points is refused, with the cap in the words',
+        r1 === false && /200,000/.test(err.textContent) && S.sceneName === before.name && flat.count === before.n,
+        err.textContent.split('\n').slice(0, 2).join(' '));
+      field.set('{"base": {"type": "plane"');
+      d.assert('and so is a paste that is not JSON', playText() === false && /not JSON/.test(err.textContent), err.textContent.split('\n')[1]?.trim());
+      field.set(JSON.stringify(EXAMPLES[1].scene));
+      const r2 = playText();
+      await framesAt(2);
+      d.assert('NEGATIVE CONTROL: a pasted scene under the cap plays', r2 === true && S.sceneName === 'pasted' && flat.count === 60000,
+        `${S.sceneName}, ${fmt(flat.count)} points`);
+      pickScene(0);
+      // The headset path on this laptop: the same renderer in xr-panel's own context, drawn per eye.
+      const pv = await xr.preview({ frames: 4, width: 256, height: 160 });
+      d.assert('the headset path draws the points in its own context, per eye', !!pv?.ok && (pv.surface?.draws ?? 0) > 0 && !!xrPts?.ok && pv.glError === 0,
+        pv?.ok ? `${pv.surface?.draws} surface draws, ${(pv.litShare * 100).toFixed(1)} % lit, gl ${pv.glWhere}` : (pv?.why || 'no preview'));
+      d.assert('and the way out of a headset is built: hold any button for three seconds',
+        xr.state.quit.built && xr.state.quit.button === 'any' && xr.state.quit.holdMs === 3000,
+        `${xr.state.quit.built ? `button ${xr.state.quit.button}, ${xr.state.quit.holdMs} ms` : xr.state.quit.why}`);
+      d.ready();
+    })().catch((e) => d.fail(e));
+  } else {
+    d.ready();
+  }
+</script>
