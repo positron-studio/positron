@@ -182,3 +182,18 @@ the felt latency; Asep's CV module unpublished; nothing measured end to end.
 5. Audio return: to players, room, an online audience, a recording?
 6. What does Nanas Sound build, and when is the CV module due?
 7. Where are the three, on what connections, with what backup power?
+
+## Hardware for a high-resolution control signal to CV (added 2026-11-15)
+
+Prices READ from shop pages through a web search on 2026-11-15, VAT included unless marked:
+
+| device | what | price |
+| --- | --- | --- |
+| Expert Sleepers ES-8 | Eurorack module, USB audio, 8 DC-coupled outputs and 4 inputs, 24 bit | €505 to €528 ([SchneidersLaden €509](https://schneidersladen.de/en/expert-sleepers-es-8), [Sound of You €505](https://soundofyou.eu/eurorack-2/es-8), [Music Store €427.70 without VAT](https://www.musicstore.com/en_OT/EUR/Expert-Sleepers-ES-8/art-SYN0005856-000)) |
+| Expert Sleepers ES-9 | 16 outputs, 14 inputs, 24 bit | €618 to €619 ([Thomann](https://www.thomann.de/ie/expert_sleepers_es_9.htm), [SchneidersLaden](https://schneidersladen.de/en/expert-sleepers-es-9)) |
+| Expert Sleepers FH-2 | USB MIDI to CV, 8 outputs, takes 14 bit CC, NRPN and pitch bend | €318 ([Thomann, SchneidersLaden](https://www.perfectcircuit.com/expert-sleepers-fh-2.html)) |
+| DAC8568 / DAC8564 (TI), AD5686 (ADI) | 16 bit DAC chips, 8 / 4 / 4 channels, 2.5 V internal reference | chips only; not found in Oomipood's own stock, so through Farnell via Oomipood as before (INFERRED) ([DAC8568](https://www.ti.com/product/DAC8568), [AD5686](https://www.analog.com/en/products/ad5686.html)) |
+
+14 bit MIDI: a controller sent as two 7 bit halves (CC 0 to 31 the coarse part, CC 32 to 63 the fine part), or as NRPN
+(CC 99 and 98 pick the parameter, CC 6 and 38 carry the value), or pitch bend, which is 14 bit on its own: 16,384 steps,
+about 0.6 mV over 10 V. MIDI 2.0 controllers are 32 bit.
