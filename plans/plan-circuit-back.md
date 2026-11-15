@@ -70,3 +70,17 @@ drums to Pi drums), each with one press of each control, and the owner listening
 - Whether the Circuit's Save is locked on this unit (the button lit or not): nobody has looked.
 - Whether the earlier "a restart fixed it" was the ENODEV replug trap or something else: it was not logged.
 - Everything in step 3: the Pi is offline tonight.
+
+## Step 1 result, 2026-11-15 (MEASURED from this M2, headless Chrome Web MIDI, Record off)
+
+- Chrome lists `Circuit` as an input and an output. USB is up.
+- Device Inquiry reply, 17 bytes: `f0 7e 00 06 02 00 20 29 79 00 00 00 03 05 09 02 f7` (Novation, family `79 00`).
+- On the session that was loaded: notes on ch 1, 2 and 10 were sent and **none were heard**, twice.
+- The owner switched to an empty patch: single notes on ch 1, ch 2 and ch 10 note 60 were **all heard**. A 12 s phrase
+  (melody ch 1, bass ch 2 from note 36, drums ch 10 notes 60 and 62): melody and drums heard, bass not.
+- **Outcome A: the Circuit receives MIDI and is not deaf.** Silence depended on the session or patch loaded (a
+  silent or very quiet sound, or a low bass note on that patch), not on MIDI receive. INFERRED: the board's deaf
+  Circuit on 2026-11-10 may have been the same thing, which step 3 should rule out first by playing a session that
+  is heard from the M2.
+- Nothing was written to the instrument: only the universal Device Inquiry and note on/off, CC 123.
+- Next: step 3 on the Pi, which needs the Pi on a network.
