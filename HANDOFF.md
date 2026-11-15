@@ -1,3 +1,39 @@
+# Handoff, 2026-11-15, session 97: the CV relay measured under real shaping, batched; the Circuit hears MIDI; a CV app plan
+
+- **The Circuit is not deaf** (plans/plan-circuit-back.md, step 1 result, 28469574). From this M2 by USB, headless Chrome
+  Web MIDI, Record off: Chrome lists it, the Device Inquiry answers (17 bytes, Novation, family 79 00). On the session
+  that was loaded, notes on ch 1, 2, 10 were not heard; on an empty patch all three were. So the silence followed the
+  session, not MIDI receive. The MK-425C was played into it for an hour through a scratch thru (+1 semitone, ch 1).
+  **Next is step 3 on the Pi, which was offline** (`node rig/board/ask.mjs --room studio-1 audio.status`: no reply):
+  start with a session that is heard from the M2. Scratch scripts (probe, thru) are in this session's scratchpad only.
+- **CV relay, all in ~/personal/v2in, committed, NOT pushed, nothing deployed, the v2in server untouched:**
+  ec15dc9 relay and tools, 8d439a0 line test page, 0b4be57 netem harness, 481540b fixes, dd820ac batching.
+  plans/plan-cv-relay-test.md has every table in its last five sections.
+  - Relay `server/cvrelay/relay.mjs`: WebSocket, WebRTC data channel (node-datachannel 0.33.6 by default, werift with
+    `--rtc werift`), UDP; rooms with keys; stale frames dropped by age (`--max-age`, 500 ms); rate limit counts samples
+    with a 1 s burst; `--bw`, `--results` for the line page.
+  - Frames: `BATCH` (type 7), k samples a message, default 10 (380 bytes at 8 channels). Latency counted per sample
+    with the 0 to 9 ms batching wait.
+  - Real shaping without sudo: `node tools/cvtest/netem/run.mjs` (three OrbStack containers, tc netem, Chromium in the
+    sender image, a `line` transport that runs the page).
+  - Line test page: `/cvtest/line?key=<room key>` (60 s WebSocket, 60 s data channel, speed test; result POSTed to a
+    JSONL; no IP stored). Hosting on v2in needs a Caddy `/cv/*` route, an nginx `.mjs` location, a UDP range; the
+    first message to Tarmo's team is drafted in the plan.
+  - **Findings (emulated lines, one Mac):** UDP holds on every line (p99 31 / 43 / 62 ms at 17 / 25 / 35 ms). The data
+    channel matches UDP between cuts only when batched (SCTP congestion control throttled 1,000 messages a second,
+    inferred from a capture); after a 2 s cut it takes 4 to 10 s to recover. WebSocket is a good-line fallback only.
+  - **Open:** `maxPacketLifeTime` near the playout delay (best of three single runs, untried in Chrome); node-datachannel's
+    Linux prebuilts carry OpenSSL 1.1.1w (issue 463) before anything public; no run on a real line, phone, Safari or
+    Firefox; the M1 run (ssh timed out); 500 ms max age unchosen. **Run 3 needs a person in Ukraine; none yet.**
+  - Free numbers already exist: RIPE Atlas anchors Kyiv to Tallinn 27 to 30 ms round trip (measurement 24186698).
+- **plans/plan-cv-app.md (108b98ae), asked "so we need a positron client app a la ../visualia app": a Tauri app on
+  visualia's apps/pool-app pattern, one Rust core (frames, batcher, clock, playout) with golden byte vectors shared with
+  v2in's frame.mjs, OSC and MIDI in, UDP out with a WebSocket fallback; the same core as `positron-cv recv` on the Pi at
+  ECCM. Option 0 first, half a day: the relay accepts OSC straight from Max, Pure Data or SuperCollider. In `rig/cv/`.
+  Built in CI, not on this laptop. About a working week to a receiver on the Pi. Not started; waits on the owner.
+- **Answered:** OSC at the edges, our frames on the wire, MIDI 2 not (Network MIDI 2.0 has no timestamps and is LAN only,
+  plans/plan-midi2.md §5.3b).
+
 # Handoff, 2026-11-15, session 96 (later): the CV relay test running, the Circuit plan waiting
 
 - **CV relay test, step 1, running in the background** (v2in plans/plan-cv-relay-test.md, 2fe24d9): local only, v2in.stream
