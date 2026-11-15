@@ -197,3 +197,13 @@ Prices READ from shop pages through a web search on 2026-11-15, VAT included unl
 14 bit MIDI: a controller sent as two 7 bit halves (CC 0 to 31 the coarse part, CC 32 to 63 the fine part), or as NRPN
 (CC 99 and 98 pick the parameter, CC 6 and 38 carry the value), or pitch bend, which is 14 bit on its own: 16,384 steps,
 about 0.6 mV over 10 V. MIDI 2.0 controllers are 32 bit.
+
+## ADC options for the musicians' end (added 2026-11-15)
+
+| ADC | bits | channels | rate | input | module price (READ, web search 2026-11-15) | fit |
+| --- | --- | --- | --- | --- | --- | --- |
+| Pico 2 (RP2350) built-in | 12 (9.2 ENOB in the datasheet, about 8 measured by one source) | 3 to 4 | 500 kSPS | 0 to 3.3 V | none, on the chip | knobs only, with averaging ([arduino-pico #2763](https://github.com/earlephilhower/arduino-pico/discussions/2763), [Silicon Chip](https://www.siliconchip.com.au/Issue/SC/2025/March/Pico+2+Audio+Analyser)) |
+| ADS1115 | 16 | 4 single or 2 differential | 860 SPS for all channels, about 200 per channel (INFERRED) | 0 to VDD, programmable gain | a few euros (INFERRED, not priced) | knobs and faders at about 200 Hz per channel |
+| ADS1256 | 24 | 8 single or 4 differential | up to 30 kSPS | 0 to 5 V | about €12 (AliExpress) to $17 to $23 ([AliExpress](https://www.aliexpress.com/item/4001058364470.html), [PMD Way](https://pmdway.com/products/value-ads1256-24-bit-8-channel-adc-module)) | high resolution knobs, slow-ish modular CV after scaling |
+| **AD7606** | 16, simultaneous | **8** | 200 kSPS all channels | **±5 V or ±10 V built in** | about €19 ([module listings](https://www.botnroll.com/en/i2c-spi/4202-8ch-16bits-adc-ad7606-data-acquisition-module-200ksps.html), [AD7606](https://www.analog.com/en/products/ad7606.html)) | **a modular's CV straight in, no scaling stage** |
+| ADS8688 | 16 | 8 | 500 kSPS | ±10.24 V built in, ±20 V protection | module price not found ([ADS8688](https://www.ti.com/product/ADS8688)) | the same as AD7606, single 5 V supply |
