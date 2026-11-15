@@ -1,3 +1,21 @@
+# Handoff, 2026-11-15, session 96 (continued): Play My Synth, CV over the network
+
+- **Asked of the owner** (a chat message, 2026-11-15): join as a paid developer on "Play My Synth", an installation where
+  people in Estonia and Ukraine play ECCM's hardware together; if funded, the action is at the end of January; the
+  technical core is three Ukrainian musicians sending CV over the network as close to real time as possible, and
+  "MIDI-to-CV is too crude". Not answered yet.
+- **Research, pushed:** research/cv-over-network-2026-11.md (424554af, 91d62768, 1243c263). Asep Bagja Priandana
+  (github.com/bepitulaz, github.com/nanassound; Nanas Sound, Tallinn; co-founder of Play-a-Synth with Jonna Laaksonen):
+  midimesh_esp32 sends 7 bit CC over UDP broadcast every 150 ms with no timestamps, which is the crude part;
+  EuroPlatvorm (ESP32-C6 Eurorack board) fabrication blocked as of 2026-09-18. Tallinn to Kyiv 34.4 ms round trip.
+- **The architecture talked through:** musicians' knobs, MIDI controller, browser or modular CV, through an ADC (ADS1115
+  for knobs, AD7606 about €19 for ±10 V modular CV) on a Pico 2 W or a browser page, send timestamped floats at about
+  1 kHz; at ECCM a Pico 2 W with an 8 output 16 bit DAC (DAC8568, or MCP4728 12 bit for a cheap test) plus op-amps
+  plays them out after a fixed delay; the synths' sound goes back as audio (Opus 128 to 256 kbit/s or PCM); the room in
+  Tallinn hears it live. Felt round trip about 50 to 80 ms (INFERRED). An ES-8 (about €510) was judged too expensive.
+- **Next:** the owner's reply with the seven questions in the research file; a €25 test (Pico 2 W and MCP4728) with a
+  stream from Ukraine before any 16 bit board is designed.
+
 # Handoff, 2026-11-14 and 15, session 96: the v2in outage, MEM signals, research across positron and visualia
 
 - **v2in outage 2026-11-13, 18:11 to 20:26 UTC, fixed.** The server ran out of memory; nothing answered, ssh included.
