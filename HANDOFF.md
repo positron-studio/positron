@@ -1,3 +1,19 @@
+# Handoff, 2026-11-15, session 96 (later): the CV relay test running, the Circuit plan waiting
+
+- **CV relay test, step 1, running in the background** (v2in plans/plan-cv-relay-test.md, 2fe24d9): local only, v2in.stream
+  untouched; builds server/cvrelay/relay.mjs (WebSocket, WebRTC data channel unordered with no retransmits, UDP),
+  web/cvtest/, tools/cvtest/send.mjs, receive.mjs, report.mjs; runs a baseline (this laptop, then the M1 over the LAN)
+  and three emulated Ukrainian lines (17 ms 0.5 % loss; 25 ms 2 %; 35 ms 5 % with a 2 s outage a minute) with macOS
+  dnctl and pfctl; researches small servers in Ukraine and RIPE Atlas. If the agent's report has not landed, its work
+  is uncommitted in the v2in checkout: read plans/plan-cv-relay-test.md's last section and `git status` there, and
+  check `sudo pfctl -s rules` and `sudo dnctl list` are clean. **No Ukrainian person is available yet** (the owner,
+  2026-11-15), so run 3 waits; stand-ins are a rented server in Ukraine, RIPE Atlas probes, and the emulated links.
+  Before the relay goes onto v2in: ask Tarmo's team.
+- **The Circuit**: plans/plan-circuit-back.md (2026-11-11) is not carried out. Step 1 is the owner's, five minutes:
+  Record off, Circuit to this M2 by USB, https://positron.studio/circuit/ in Chrome, read the output list, the Device
+  Inquiry reply and a note on channels 1, 2 and 10. The outcome decides step 2 (the instrument's MIDI Rx settings,
+  after a fresh backup) or step 3 (the Pi's board write path).
+
 # Handoff, 2026-11-15, session 96 (continued): Play My Synth, CV over the network
 
 - **Asked of the owner** (a chat message, 2026-11-15): join as a paid developer on "Play My Synth", an installation where
