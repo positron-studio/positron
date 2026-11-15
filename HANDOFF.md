@@ -1,3 +1,34 @@
+# Handoff, 2026-11-14 and 15, session 96: the v2in outage, MEM signals, research across positron and visualia
+
+- **v2in outage 2026-11-13, 18:11 to 20:26 UTC, fixed.** The server ran out of memory; nothing answered, ssh included.
+  Cause: Waves' file decoder kept every closed decoder's paused pipe and about 2.7 MB of audio (found by two heap
+  snapshots an hour apart). Fixed in v2in f6f8d30 and in positron's cast (6e536b31, cast deployed 28ee05f9-71a2...,
+  no station was on air). Waves now flat at about 156 MB. Guards also deployed: Waves exits over 700 MB, container
+  caps (v2in 3000m, icecast 512m, caddy 256m), .github/workflows/health.yml every 5 min, MALLOC_ARENA_MAX 2.
+  lessons/workers-cast.md#decoder-close.
+- **MEM signals on air** (v2in 515c8ae, positron 3f5d2faf, demo/shell/mem-signals.mjs): a far AM dial (stretched dark
+  bed, dub throws, fading, rare far signals, static, surprises, an intensity arc); soft2 (colours) is a test fixture.
+  4 h run: heap flat at 6 MB. Plan: v2in plans/plan-mem-signals.md.
+- **Research written today** (all pushed): research/vrch-synth-2026-11.md (a pocket visual box, its MCP and bindings),
+  research/geometry-vfx-2026-11.md, research/local-patch-geometry-2026-11.md (80 wishes, two rounds, sheets in
+  research/local-patch-geometry/renders/: presets lift the 4B's L-systems from 0 to 7 of 8; gemma4:26b is the 32 GB
+  local model; local qwen3.8:27b swaps on this laptop beside the work Kubernetes stack), plans/plan-visual-worlds.md
+  (the owner's brief verbatim and its analysis, eight open decisions). CLAUDE.md now says where a thing lives:
+  positron renders live from a description, visualia's models make finished media.
+- **kit/points deployed** (a23ddd99-190737-0bfe): https://positron.studio/kit/points/?xr=1, point scenes in one draw
+  call, a 10k to 200k ramp. **Owed: the owner's Quest run** (A or X steps the count; lines `points:` in
+  https://pub.positron.studio/logs?format=text). The points-json format cannot say falling motion (rain).
+- **Visualia, pushed:** research/music-to-prompt.md, local-multimodal.md, compute-pools.md, triposr-node.md and
+  research/triposr/ (TripoSR and background removal in Node, no Python, on the M1: about 17.5 s photo to GLB),
+  plans/agent-coders.md, plans/pool-3d.md. Visualia's own HANDOFF.md and worklog have someone else's uncommitted edits,
+  so this session wrote nothing there.
+- **eccm:** the redirect table, every 404 and every redirect counted, /edit/redirects (eccm dc45029, a3a997a, deployed
+  4dee1fb7); checked against the Joomla dump. Open: 40 unrouted old articles (watch the miss log).
+- **Open for the owner:** the eight decisions in plans/plan-visual-worlds.md; the glsl-wish loop and frame guard
+  (BACKLOG); the Rust port of TripoSR into the pool app (first: does ort's WebGPU work on macOS); remove local
+  qwen3.8:27b from this laptop (17.7 GB, 20.7 GB free now); EKA IT: the VR lab's GPUs. This laptop's disk was cleared
+  from 12 to 39 GB (caches, 25 old node_modules listed in the session scratchpad); the local v2in stack is stopped.
+
 # Handoff, 2026-11-11, session 95: the HARNO keynote research, VÄIN on TestFlight
 
 - **HARNO keynote, 27.11.2026, 15.00–15.50** (*"Raamistikust klassiruumi"*, Öpiku, about 150
