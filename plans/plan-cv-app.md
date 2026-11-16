@@ -83,6 +83,44 @@ port and an address we give them.
 - Worth it as the thing to rehearse with in January while the app is built, and as the comparison that shows what the
   app buys.
 
+### Built and run 2026-11-16, on the M2 with nothing installed (ThreatLocker; the M1 was out of reach)
+
+In ~/personal/v2in, committed, not pushed, not deployed:
+- **Relay:** `node server/cvrelay/relay.mjs --osc 9311 --room test:K`. `/cv/<room>/<key>` with 1 to 8 numbers sets
+  channels from 1, `/cv/<room>/<key>/<n>` one channel; f i d h T F; bundles read whole (time tag ignored). Each packet is
+  one DATA frame of the held values, stamped with the relay's clock AFTER the emulated line. Each source address is one
+  sender, ids from 1000. A wrong key is ignored silently.
+- **Stand-in:** `node tools/cvtest/osc-send.mjs --port 9311 --key K --rate 200 --form all|each|bundle`, the packets Max,
+  Pd or SC would send.
+- **Ear page:** `/cvtest/ear?room=test&key=K` (`--web` serves it locally). It plays one sender: one channel is the pitch,
+  another (a 2 Hz square) opens a saw. Timing is a playout buffer (samples put back in seq order, each sounded at its
+  source time plus a delay) or as it arrives. It reads the spread of the gaps between gate rises, the gate's chatter
+  (an edge within 50 ms of the last), late and out of order samples.
+
+MEASURED, one run each, 12 s windows (about 20 gate rises), relay in process at 20 ms delay and 0 to 30 ms jitter (an
+emulated line, not a real one), 200 Hz OSC in `each` form beside `send.mjs` over UDP at 1 kHz in batches of 10:
+
+| sender | timing | gate spread | chatter in 12 s |
+| --- | --- | --- | --- |
+| our frames (`send.mjs`) | playout, 60 ms | **1.3 ms** | 0 |
+| our frames | as it arrives | 12.3 ms | 0 |
+| OSC straight in | playout, 60 ms | 10.6 ms | 62 |
+| OSC straight in | as it arrives | 6.9 ms | 80 |
+
+So the plan's sentence above holds when measured: a playout buffer takes the line's jitter out of our frames and cannot
+take it out of OSC, because the time on an OSC frame is the relay's. Reordered OSC packets also flip a gate back and
+forth near each edge, which is a click or a double trigger on a real module. **Option 0 is for rehearsing on a good line;
+the app (or anything that stamps at the source) is what a jittery line needs.**
+
+From a patch (SYNTAX FROM DOCUMENTATION, none of the three runs on this laptop and none was tried here):
+- Max: `[udpsend <relay> 9311]` fed `/cv/test/K 0.5 0.3`
+- Pure Data 0.54+: `[oscformat cv test K]` → `[list prepend send]` → `[list trim]` → `[netsend -u -b]`, after
+  `[connect <relay> 9311(`
+- SuperCollider: `NetAddr("<relay>", 9311).sendMsg("/cv/test/K", 0.5, 0.3)`
+
+The key travels in clear text in the OSC address (plain UDP), where the pages send it over TLS. Anybody on the path can
+read it and send into that room, so an OSC room's key is changed after each session.
+
 ## 4. Where it lives
 
 - **positron**, by the rule in CLAUDE.md: a device making the signal live from a description is positron.
