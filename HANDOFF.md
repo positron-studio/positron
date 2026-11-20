@@ -28,7 +28,13 @@
   Synths Elektor Formant** (2025 DIY kit of the 1970s Elektor magazine modular, 27 modules, Eurorack, 35 mm deep,
   12 V 3.3 A PSU, a MIDI-CV module, two ADSRs, a formant filter; €2,300 to €3,000), so a Eurorack target for Toomas's
   board; its V/oct is not stated in what was read. Erica's VCV plugin is 4 other modules (Black Wavetable VCO, Black
-  Octasource, Pico Drums, Fusion Delay), no Formant.
+  Octasource, Pico Drums, Fusion Delay), no Formant. **Raul confirmed 2026-11-20: it is the Elektor Formant.** From
+  Erica's assembly files (https://www.ericasynths.lv/elektor-formant-system/, "ElektorFormantAssembly_Dec25.7z" and
+  "General_build_guidelines_Dec25.pdf", READ): Harald Antes adapted it to standard Eurorack power, 16 pin ribbons,
+  external 12 V 3.3 A PSU and a distribution board; modules 35 mm deep; **1 V/oct** (the MIDI-CV is factory 1 V/oct,
+  C4 = 4 V); VCO pitch from the KOV bus or the ECV jack (switch); the INTERFACE module (DIN5 MIDI in, Erica MIDI-CV
+  board) puts CV and gate on the distribution board's bus, so the system plays unpatched; VCO saw ±5 V; ADSR out about
+  0.5 to 5 V; VCF cutoff knob spans ±12 V. Not in what was read: free HP in the enclosure, spare power headers, depth.
 - **MCP4728 sourcing and rig (researched 2026-11-20, web, prices READ that day):**
   - Chip via Oomipood from Farnell, none in local stock: MCP4728-E/UN €4.17 (address 0x60,
     https://www.oomipood.ee/kataloog/farnell/toode?sku=1800217), **MCP4728A1-E/UN €4.04 is factory set to 0x61**
