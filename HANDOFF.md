@@ -1,3 +1,33 @@
+# Handoff, 2026-11-20, session 98: Play My Synth hardware, the brief for Toomas, his MCP4728 CV board
+
+- **No code changed this session.** Read the CV plans (positron plans/plan-cv-app.md, research/cv-over-network-2026-11.md,
+  plan-pico.md and the board plans; v2in plans/plan-play-my-synth.md, plan-cv-relay-test.md) and wrote a brief for
+  Toomas, who builds PCBs and does not know synths. The owner sent it in Estonian.
+- **The three options put to him:**
+  1. Pi 4 + Expert Sleepers NTX-8CV (8 CV out, ±10 V, €172, outputs only) in a Pod48X or uZeus, plus a USB audio
+     interface for the synth's sound (MOTU M2 recommended, about €200; UMC202HD about €70). Quick prototype.
+  2. Pi + a custom HAT: 8 CV out (LTC2666-16, or DAC8568 + OPA4192), stereo audio in (PCM1808, I2S), optional CV in
+     (AD7606). Portable, both directions. LTC2666 price and stock unchecked.
+  3. No Pi: Teensy 4.1, Daisy Seed + W5500, W5500-EVB-Pico2 or ESP32-P4, with the same chips. Firmware.
+- **Toomas answered (2026-11-20):**
+  - A Pi per synth, doing CV out and audio in, is the sensible way; he doubts an ESP moves that much both ways.
+  - Asked whether CV back from the synths has any point (answer drafted: not at ECCM; at a musician's end with a
+    modular, and later for calibration).
+  - The CV count must be mapped per synth; envelopes are rarely CV controllable, so servo knob turners may be needed;
+    clock and gate are binary. Pointed at Thomann's Stompenberg FX (remote guitar pedals, a more destructive hookup).
+  - He has Härmo Härm's instrument (built for Messi), waiting to be collected.
+  - **He is building CV out test modules: MCP4728 (confirmed, "the widespread cheaper solution in Eurorack"), 4 x 12
+    bit, I2C + LDAC + RDY, Eurorack ±12 V, UNI/BI jumper (0..10 V or ±10 V) and a trimmer per output, protection
+    diodes, outputs on 2 pin headers to panel jacks.** Read from his KiCad render; only the chip is confirmed.
+- **The CV path agreed:** UDP in → unpack → clock sync → playout buffer → 1 kHz timer → scale/clamp → I2C → MCP4728 →
+  LDAC → op-amp → jack. Sound goes the other way: synth → Pi audio in → WHIP → MediaMTX → WHEP → musician.
+- **Notes for the Pi side:** two MCP4728 boards share address 0x60 unless one is re-addressed (EEPROM, via LDAC) or
+  each gets its own I2C bus; 4 channels at 400 kHz I2C take about 0.25 ms, so 1 kHz fits; 12 bit is about 3 cents a
+  step at 0..10 V, 6 at ±10 V. Jacks: 3.5 mm for Eurorack and semimodulars, banana for Buchla, DIN pedal for Polivoks.
+- **ECCM's synths, per the owner (unconfirmed):** some Buchla, Erica Synths and a formant (Polivoks?) and a semimodular.
+- **Next, offered and not started:** a Pi-side receiver (UDP, playout buffer, MCP4728 driver with LDAC on a timer)
+  ready before his board arrives; Toomas's reply into v2in plans/plan-play-my-synth.md.
+
 # Handoff, 2026-11-15, session 97: the CV relay measured under real shaping, batched; the Circuit hears MIDI; a CV app plan
 
 - **The Circuit is not deaf** (plans/plan-circuit-back.md, step 1 result, 28469574). From this M2 by USB, headless Chrome
