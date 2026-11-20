@@ -34,6 +34,10 @@
     Electrokit (Sweden, Toomas recommends the shop) has its own EKM016 MCP4728 Qwiic module, 129 SEK with VAT, 22 in
     stock, LDAC and RDY broken out (https://www.electrokit.com/en/da-omvandlare-4-kan-12-bit-i2c-qwiic). Toomas:
     the Botland Adafruit is good, shop and module both.
+  - Option 3 boards at Electrokit (Toomas pointed at them): Teensy 4.1 with the Ethernet PHY 379 SEK (118 in stock,
+    needs the separate Ethernet kit for RJ-45), Daisy Seed 65MB 649 SEK (83 in stock). **Daisy Seed: production was
+    halted and one shop lists it discontinued; Electrosmith guarantees it only until January 2027**, so the Teensy is
+    the safer base for a board meant to last.
   - Pi wiring: VIN pin 1 (3.3 V, not 5 V: VIH is 0.7 VDD), GND 6, SDA 3, SCL 5, LDAC GPIO17 (pin 11), RDY GPIO27 (pin
     13). Adafruit 4470 breaks out LDAC and RDY (seen on the board photo). config.txt `dtparam=i2c_arm=on,i2c_arm_baudrate=400000`,
     `i2cdetect -y 1` shows 60. At 3.3 V: 0..2.048 V internal ref or 0..3.3 V VDD ref; Toomas's op-amp scales to 10 V.
