@@ -60,6 +60,13 @@
     at 400 kHz. Measure volts with a multimeter at 0/2048/4095, LDAC jitter by a 2 Hz square into the Fast Track.
   - **No MCP4728 emulator exists** that a search found. Wokwi custom I2C chips (C) fit Pico/ESP32 firmware only. For
     the Pi: a fake chip in the receiver that decodes fast-write bytes and logs volts per LDAC pulse, then the breakout.
+- **Formant CV inputs, read from the schematics' net labels** (Erica 7z, Main_*/<module>.pdf; label meanings ES, TM, CM
+  INFERRED; the original 111 page Elektor manual in the archive is a scan, tesseract is installed to OCR it):
+  VCO x3 ECV/KOV pitch 1 V/oct, FM CV (LIN/LOG), PWM CV, SYNC IN; 12 and 24 dB VCF ENV IN, KOV CV, TM CV, ES IN,
+  VCO1..3 IN; VCA x2 ENV IN, ES IN, GAIN; RFM ES IN, IS IN; VC LFO x2 ECV1, ECV2; FX TIME, FEEDBACK, TONE, PATCH CV;
+  WAVEPROC CM CV; ADSR x2 GATE IN; ADSR CONTROLLER MANUAL GATE, REPEAT INPUT; S&H SAMPLE 1/2 IN, TRIGGER 1/2 IN; SEQ
+  CLK IN, RESET IN, CV IN; INTERFACE MIDI DIN5. Proposed 8 CVs: 24 dB cutoff, 12 dB cutoff, VCA, VC LFO rate, FX time,
+  FX feedback, VCO FM or PWM, one spare; pitch and gates by MIDI through the INTERFACE; a gate channel to SEQ CLK IN.
 - **What to buy now (advised 2026-11-20):** one EKM016 from Electrokit (a second only as a spare or for the two DAC
   test, both are 0x60); the owner's female jumper wires fit Pi pins to board pins if the board's headers are soldered,
   else a Qwiic to female cable. No Teensy, Daisy, NTX-8CV or audio interface yet (the Fast Track's input 2 serves).
