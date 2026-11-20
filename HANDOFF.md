@@ -24,7 +24,11 @@
 - **Notes for the Pi side:** two MCP4728 boards share address 0x60 unless one is re-addressed (EEPROM, via LDAC) or
   each gets its own I2C bus; 4 channels at 400 kHz I2C take about 0.25 ms, so 1 kHz fits; 12 bit is about 3 cents a
   step at 0..10 V, 6 at ±10 V. Jacks: 3.5 mm for Eurorack and semimodulars, banana for Buchla, DIN pedal for Polivoks.
-- **ECCM's synths, per the owner (unconfirmed):** some Buchla, Erica Synths and a formant (Polivoks?) and a semimodular.
+- **ECCM's synths, per the owner (unconfirmed):** some Buchla, "Erica formant" and a semimodular. Best guess: the **Erica
+  Synths Elektor Formant** (2025 DIY kit of the 1970s Elektor magazine modular, 27 modules, Eurorack, 35 mm deep,
+  12 V 3.3 A PSU, a MIDI-CV module, two ADSRs, a formant filter; €2,300 to €3,000), so a Eurorack target for Toomas's
+  board; its V/oct is not stated in what was read. Erica's VCV plugin is 4 other modules (Black Wavetable VCO, Black
+  Octasource, Pico Drums, Fusion Delay), no Formant.
 - **MCP4728 sourcing and rig (researched 2026-11-20, web, prices READ that day):**
   - Chip via Oomipood from Farnell, none in local stock: MCP4728-E/UN €4.17 (address 0x60,
     https://www.oomipood.ee/kataloog/farnell/toode?sku=1800217), **MCP4728A1-E/UN €4.04 is factory set to 0x61**
