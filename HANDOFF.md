@@ -60,6 +60,16 @@
     at 400 kHz. Measure volts with a multimeter at 0/2048/4095, LDAC jitter by a 2 Hz square into the Fast Track.
   - **No MCP4728 emulator exists** that a search found. Wokwi custom I2C chips (C) fit Pico/ESP32 firmware only. For
     the Pi: a fake chip in the receiver that decodes fast-write bytes and logs volts per LDAC pulse, then the breakout.
+- **What to buy now (advised 2026-11-20):** one EKM016 from Electrokit (a second only as a spare or for the two DAC
+  test, both are 0x60); the owner's female jumper wires fit Pi pins to board pins if the board's headers are soldered,
+  else a Qwiic to female cable. No Teensy, Daisy, NTX-8CV or audio interface yet (the Fast Track's input 2 serves).
+- **Station box, advised:** A first: a small powered case (Pod48X about $158, or uZeus with adapter about €130) holding
+  Toomas's module on ±12 V, the Pi on a bracket behind it with its own 5 V (a Pod is 50 mm deep, a Pi 4 needs about
+  90 mm). B later: a case at least 95 mm deep, the Pi on the printed 8 HP panel in v2in tmp/pi4-panel/, fed from +12 V
+  by a DC-DC (about 0.7 A), one plug. Ask Toomas for a spare case; for the Formant ask Raul for a photo of the back,
+  free HP and a spare power header. Two ways into the Formant: Pi USB-MIDI into the INTERFACE DIN5 (pitch and gate on
+  the bus, unpatched) and Toomas's CVs into the ECV jacks and cutoffs; driving the bus from our DAC instead of the
+  INTERFACE is possible later, never both at once (bus pinout unchecked).
 - **Next, offered and not started:** a Pi-side receiver (UDP, playout buffer, MCP4728 driver with LDAC on a timer)
   ready before his board arrives; Toomas's reply into v2in plans/plan-play-my-synth.md.
 
