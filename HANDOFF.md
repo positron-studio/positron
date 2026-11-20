@@ -25,6 +25,20 @@
   each gets its own I2C bus; 4 channels at 400 kHz I2C take about 0.25 ms, so 1 kHz fits; 12 bit is about 3 cents a
   step at 0..10 V, 6 at ±10 V. Jacks: 3.5 mm for Eurorack and semimodulars, banana for Buchla, DIN pedal for Polivoks.
 - **ECCM's synths, per the owner (unconfirmed):** some Buchla, Erica Synths and a formant (Polivoks?) and a semimodular.
+- **MCP4728 sourcing and rig (researched 2026-11-20, web, prices READ that day):**
+  - Chip via Oomipood from Farnell, none in local stock: MCP4728-E/UN €4.17 (address 0x60,
+    https://www.oomipood.ee/kataloog/farnell/toode?sku=1800217), **MCP4728A1-E/UN €4.04 is factory set to 0x61**
+    (sku=2851665), A0 €4.00 (sku=2764386). A0..A4 variants put two boards on one bus with no address programming.
+  - Breakout Adafruit 4470: Botland €9.99 (Poland), DigiKey DE €7.84 (739 in stock), Pimoroni £6, Pi Hut £7.20 (UK,
+    customs); Oomipood has only the MikroE Click €23.70 via TME.
+  - Pi wiring: VIN pin 1 (3.3 V, not 5 V: VIH is 0.7 VDD), GND 6, SDA 3, SCL 5, LDAC GPIO17 (pin 11), RDY GPIO27 (pin
+    13). Adafruit breaking out LDAC/RDY is unconfirmed. config.txt `dtparam=i2c_arm=on,i2c_arm_baudrate=400000`,
+    `i2cdetect -y 1` shows 60. At 3.3 V: 0..2.048 V internal ref or 0..3.3 V VDD ref; Toomas's op-amp scales to 10 V.
+  - Bytes: fast write (8 bytes, 4 channels, no EEPROM) in the loop; multi-write once for ref and gain; sequential write
+    writes EEPROM, never in the loop. LDAC low pulse updates all four, 6 us settling, about 0.25 ms per 4 channel write
+    at 400 kHz. Measure volts with a multimeter at 0/2048/4095, LDAC jitter by a 2 Hz square into the Fast Track.
+  - **No MCP4728 emulator exists** that a search found. Wokwi custom I2C chips (C) fit Pico/ESP32 firmware only. For
+    the Pi: a fake chip in the receiver that decodes fast-write bytes and logs volts per LDAC pulse, then the breakout.
 - **Next, offered and not started:** a Pi-side receiver (UDP, playout buffer, MCP4728 driver with LDAC on a timer)
   ready before his board arrives; Toomas's reply into v2in plans/plan-play-my-synth.md.
 
