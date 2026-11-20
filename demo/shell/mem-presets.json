@@ -6,15 +6,15 @@
       "engine": "signals"
     },
     "echo": {
-      "says": "Raul kept in front, calm: the live feed dry, and echoes of its last minute or so 4 to 6 dB under it, takes of 6 to 30 s at their own speed and direction, their low end cut, full top, a near still room",
+      "says": "echoes of the live feed carry it, calm: takes of its last minute or so, 6 to 30 s at their own speed and direction, their low end cut, full top, a near still room; the feed itself about 8 dB under them, a thread",
       "players": 4,
       "enter": [
         4,
         10
       ],
       "spacing": 6,
-      "level": 0.22,
-      "dry": 1,
+      "level": 0.33,
+      "dry": 0.24,
       "open": {
         "dry": 1,
         "hold": 4,
