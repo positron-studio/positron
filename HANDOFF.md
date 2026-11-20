@@ -31,8 +31,11 @@
     (sku=2851665), A0 €4.00 (sku=2764386). A0..A4 variants put two boards on one bus with no address programming.
   - Breakout Adafruit 4470: Botland €9.99 (Poland), DigiKey DE €7.84 (739 in stock), Pimoroni £6, Pi Hut £7.20 (UK,
     customs); Oomipood has only the MikroE Click €23.70 via TME.
+    Electrokit (Sweden, Toomas recommends the shop) has its own EKM016 MCP4728 Qwiic module, 129 SEK with VAT, 22 in
+    stock, LDAC and RDY broken out (https://www.electrokit.com/en/da-omvandlare-4-kan-12-bit-i2c-qwiic). Toomas:
+    the Botland Adafruit is good, shop and module both.
   - Pi wiring: VIN pin 1 (3.3 V, not 5 V: VIH is 0.7 VDD), GND 6, SDA 3, SCL 5, LDAC GPIO17 (pin 11), RDY GPIO27 (pin
-    13). Adafruit breaking out LDAC/RDY is unconfirmed. config.txt `dtparam=i2c_arm=on,i2c_arm_baudrate=400000`,
+    13). Adafruit 4470 breaks out LDAC and RDY (seen on the board photo). config.txt `dtparam=i2c_arm=on,i2c_arm_baudrate=400000`,
     `i2cdetect -y 1` shows 60. At 3.3 V: 0..2.048 V internal ref or 0..3.3 V VDD ref; Toomas's op-amp scales to 10 V.
   - Bytes: fast write (8 bytes, 4 channels, no EEPROM) in the loop; multi-write once for ref and gain; sequential write
     writes EEPROM, never in the loop. LDAC low pulse updates all four, 6 us settling, about 0.25 ms per 4 channel write
