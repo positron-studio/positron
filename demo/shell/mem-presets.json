@@ -6,49 +6,49 @@
       "engine": "signals"
     },
     "echo": {
-      "says": "Raul kept in front: the live feed dry, and echoes of its last minute or so coming back around it, full band, a near room; for a live set that should stay recognisable",
+      "says": "Raul kept in front, calm: the live feed dry, and echoes of its last minute or so 4 to 6 dB under it, takes of 6 to 30 s at their own speed and direction, their low end cut, full top, a near still room",
       "players": 4,
       "enter": [
         4,
         10
       ],
       "spacing": 6,
-      "level": 1.27,
-      "dry": 0.6,
+      "level": 0.22,
+      "dry": 1,
       "open": {
-        "dry": 0.6,
+        "dry": 1,
         "hold": 4,
         "fade": 6
       },
       "takes": {
-        "min": 2,
-        "max": 20,
+        "min": 6,
+        "max": 30,
         "tiers": {
           "short": [
-            2,
-            5
-          ],
-          "mid": [
-            5,
+            6,
             10
           ],
-          "long": [
+          "mid": [
             10,
-            20
+            18
+          ],
+          "long": [
+            18,
+            30
           ]
         },
         "mix": {
-          "short": 0.35,
+          "short": 0.3,
           "mid": 0.45,
-          "long": 0.2
+          "long": 0.25
         },
         "every": [
-          8,
-          20
+          10,
+          24
         ],
         "life": [
-          30,
-          90
+          40,
+          120
         ],
         "fadeIn": [
           3,
@@ -64,7 +64,7 @@
         "gateDb": -38,
         "minLcm": 600,
         "speech": 1,
-        "apart": 4,
+        "apart": 6,
         "stay": {
           "p": 0.1,
           "life": [
@@ -78,8 +78,8 @@
       },
       "colour": {
         "hp": [
-          30,
-          80
+          150,
+          250
         ],
         "lp": [
           9000,
@@ -107,8 +107,8 @@
           "players": 3,
           "colour": {
             "hp": [
-              30,
-              80
+              150,
+              250
             ],
             "lp": [
               8000,
@@ -125,8 +125,8 @@
           "players": 1,
           "colour": {
             "hp": [
-              120,
-              300
+              300,
+              500
             ],
             "lp": [
               12000,
@@ -145,7 +145,7 @@
       ],
       "process": {
         "speed": {
-          "p": 0.1,
+          "p": 0,
           "lo": 0.9,
           "hi": 1.02,
           "every": [
@@ -158,7 +158,7 @@
           ],
           "max": 1
         },
-        "reverse": 0.05,
+        "reverse": 0,
         "disintegrate": [
           0,
           0
@@ -188,18 +188,18 @@
           "line"
         ],
         "hold": [
-          120,
-          260
+          240,
+          480
         ],
         "move": [
-          90,
-          200
+          120,
+          240
         ],
         "width": 0.6,
         "distance": 0.8,
         "itd": 0.0006,
         "walk": {
-          "p": 0.75,
+          "p": 0.2,
           "angle": 28,
           "distance": 0.6,
           "period": [
@@ -221,7 +221,7 @@
               0.03,
               0.12
             ],
-            "dryP": 0.25,
+            "dryP": 0,
             "glide": [
               20,
               60
@@ -250,8 +250,8 @@
           ],
           "mix": {
             "short": 0.3,
-            "mid": 0.5,
-            "long": 0.2
+            "mid": 0.45,
+            "long": 0.25
           },
           "pace": 1,
           "process": 0.8
@@ -267,9 +267,9 @@
             4
           ],
           "mix": {
-            "short": 0.35,
+            "short": 0.3,
             "mid": 0.45,
-            "long": 0.2
+            "long": 0.25
           },
           "pace": 0.8,
           "process": 1
@@ -285,9 +285,9 @@
             2
           ],
           "mix": {
-            "short": 0.4,
-            "mid": 0.4,
-            "long": 0.2
+            "short": 0.3,
+            "mid": 0.45,
+            "long": 0.25
           },
           "pace": 1.2,
           "process": 0.6
@@ -295,8 +295,8 @@
       ],
       "solo": {
         "every": [
-          60,
-          120
+          180,
+          360
         ],
         "hold": [
           8,
