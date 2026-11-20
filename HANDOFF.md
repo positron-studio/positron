@@ -38,6 +38,10 @@
     needs the separate Ethernet kit for RJ-45), Daisy Seed 65MB 649 SEK (83 in stock). **Daisy Seed: production was
     halted and one shop lists it discontinued; Electrosmith guarantees it only until January 2027**, so the Teensy is
     the safer base for a board meant to last.
+  - Shipping to Estonia (READ 2026-11-20): Botland by GLS, from €7.50, 2 to 5 days, same day dispatch before 13:00.
+    Electrokit (Malmö) ships EU by DB Schenker or DHL, letters by Postnord, charges euro countries in EUR, 1 to 3 days
+    to dispatch; its freight to Estonia is shown only at checkout (not found). EUR at 0.0892 per SEK: EKM016 about
+    €11.50, Teensy 4.1 about €33.80, its Ethernet kit (SparkFun DEV-18615, 129 SEK) about €11.50, Daisy Seed about €57.90.
   - Pi wiring: VIN pin 1 (3.3 V, not 5 V: VIH is 0.7 VDD), GND 6, SDA 3, SCL 5, LDAC GPIO17 (pin 11), RDY GPIO27 (pin
     13). Adafruit 4470 breaks out LDAC and RDY (seen on the board photo). config.txt `dtparam=i2c_arm=on,i2c_arm_baudrate=400000`,
     `i2cdetect -y 1` shows 60. At 3.3 V: 0..2.048 V internal ref or 0..3.3 V VDD ref; Toomas's op-amp scales to 10 V.
