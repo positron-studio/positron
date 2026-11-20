@@ -70,6 +70,11 @@
 - **What to buy now (advised 2026-11-20):** one EKM016 from Electrokit (a second only as a spare or for the two DAC
   test, both are 0x60); the owner's female jumper wires fit Pi pins to board pins if the board's headers are soldered,
   else a Qwiic to female cable. No Teensy, Daisy, NTX-8CV or audio interface yet (the Fast Track's input 2 serves).
+- **Jacks from the Adafruit/EKM016 breakout:** output pad to tip, GND to sleeve. No solder: a 3.5 mm mono patch cable
+  cut in half, core to VA, braid to GND, Dupont crimps onto the header. Proper: Thonkiconn PJ398SM panel jacks in a
+  small box or blank panel, 1 kOhm in series per output, all sleeves to GND. Limits: 0 to 3.3 V unipolar (cutoff, LFO
+  rate, VCA, about 3 octaves of 1 V/oct), not ±10 V; the sleeve joins Pi and synth grounds (hum: separate supply or a
+  USB isolator); 3.3 V may not trigger every gate input (Formant sequencer gates are about 5 V), test each.
 - **Station box, advised:** A first: a small powered case (Pod48X about $158, or uZeus with adapter about €130) holding
   Toomas's module on ±12 V, the Pi on a bracket behind it with its own 5 V (a Pod is 50 mm deep, a Pi 4 needs about
   90 mm). B later: a case at least 95 mm deep, the Pi on the printed 8 HP panel in v2in tmp/pi4-panel/, fed from +12 V
