@@ -4,7 +4,7 @@
   (https://github.com/kristjanjansen/talks, pushed; push needs `gh auth switch -u kristjanjansen`, then back to the
   work account). Index: `talks/harno/README.md`.
 - **Moved:** visualia `research/harno/` to `talks/harno/research/` (visualia `fff9ec7`, pushed; the old versions stay in
-  visualia's public history, `0c53229`, `ec3ad60`). Copied: `kristjanjansen-port-ai.md`, `talk-model-runs.md`.
+  visualia's public history, `0c53229`, `ec3ad60`). Copied: `kristjan-port-ai.md`, `talk-model-runs.md`.
 - **Written in `talks/harno/`:**
   - `visuals/ee-institutions.md`: the 2021 state structure map (https://kristjanjansen.github.io/ee/, repo
     kristjanjansen/ee), Harno under HTM.
