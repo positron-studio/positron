@@ -1,3 +1,37 @@
+# Handoff, 2026-11-21, session 98 (continued): HARNO moved to a private talks repo, the jobs and AI research
+
+- **Nothing changed in positron's code; HARNO work lives in `~/personal/talks`, now a private git repo**
+  (https://github.com/kristjanjansen/talks, pushed; push needs `gh auth switch -u kristjanjansen`, then back to the
+  work account). Index: `talks/harno/README.md`.
+- **Moved:** visualia `research/harno/` to `talks/harno/research/` (visualia `fff9ec7`, pushed; the old versions stay in
+  visualia's public history, `0c53229`, `ec3ad60`). Copied: `kristjanjansen-port-ai.md`, `talk-model-runs.md`.
+- **Written in `talks/harno/`:**
+  - `visuals/ee-institutions.md`: the 2021 state structure map (https://kristjanjansen.github.io/ee/, repo
+    kristjanjansen/ee), Harno under HTM.
+  - `visuals/vocational.md`: `~/personal/vocational_data` (public pipeline: 432 curricula, 31,432 students, 34
+    schools, mixed years), `~/personal/vocational` (Nuxt arc diagram, local only), `~/personal/schools` (ai.csv,
+    a model's 0 to 100 AI score per curriculum, label it).
+  - `research/robots-jobs.md`: willrobotstakemyjob.com dropped Frey and Osborne for an undated in-house model; OECD 9%
+    and 14% (Estonia 6%, and 12% + 31% in 2019); ILO 2025 index is the Estonian fit; Yale, Stanford canaries.
+  - `research/estonia-jobs-data.md`: TT2109 employment by ISCO (698.8k in 2025) x ILO exposure (mean 0.31, clerical
+    0.53, crafts 0.16); Kutseregister ISCO codes link curricula to jobs (78% of students matched); vocational and higher
+    education output 2025 by ISCED-F.
+  - `research/estonia-layoffs.md`: Töötukassa open data, redundancy-registered unemployed per 100 employed by sector;
+    ICT 1.20 (2019) to 2.57 (2025), the highest of any real sector.
+  - `research/estonia-now-2026.md`: register 5.5% and falling vs Statistics Estonia's survey 7.9% and rising (Q3 2026);
+    youth unemployment 23.7%, 5,400 fewer young people employed; 255 unemployed per vacancy in finance, 66 in ICT, 3
+    in trades; collective notices Jan to Oct 3,638 (2025) to 5,374 (2026); barometer Dec 2025 names AI; Pipedrive
+    267 jobs; AI use 65% of people, 90% of 16 to 24.
+  - `research/occupations-then-now.md`: 41 jobs, Frey and Osborne 2013 against ILO 2025 from the raw data, with task
+    scores (dancer 0.19, psychologist 0.39 but therapy 0.28, counsellor 0.28).
+- **Proposed charts, not built:** (1) slope chart 2013 vs 2025 "the list flipped"; (2) occupation scatter, exposure x
+  demand, size employed, ring students; (3) graduates by field coloured by exposure; (4) "first rung" timelines
+  2019 to 2026. Build 1 and 4 first.
+- **Open, waiting on the owner:** demand by occupation is only in Töötukassa's Tableau dashboards (CSV export 404,
+  WAF on plain requests); next route is the dashboard's "Download, Crosstab" in Chrome (a file download, ask first)
+  or statistika@tootukassa.ee. Anthropic Economic Index not opened yet.
+- No headless Chrome started; the Claude in Chrome tabs were closed.
+
 # Handoff, 2026-11-20, session 98: Play My Synth hardware, the brief for Toomas, his MCP4728 CV board
 
 - **No code changed this session.** Read the CV plans (positron plans/plan-cv-app.md, research/cv-over-network-2026-11.md,
