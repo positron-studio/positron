@@ -1,3 +1,34 @@
+# Handoff, 2026-11-21, session 98 (evening): HARNO deck, the jobs flip chart
+
+- **Nothing changed in positron's code.** All work is in `~/personal/talks` (private,
+  https://github.com/kristjanjansen/talks). Deck: `node harno/deck/server.mjs`, then http://127.0.0.1:8895/
+  (`#koik` for the all jobs chart). Main sequence: algus, flip-0 (12 jobs), koik (118 jobs), lill, koolid; everything
+  else in `reserve.html`.
+- **The flip chart, as it stands:** three columns, least exposed on top: **2013 ennustus** (Frey and Osborne, 702 US
+  occupations), **2025 ennustus** (ILO 2025 genAI exposure), **2025 kasutus** (Anthropic Economic Index observed
+  exposure, Aug and Nov 2025, 54% of occupations zero). Renamed from "reaalsus" because it is use, not displacement.
+  Each job ranked by its percentile in its own study; ties by the 2025 order.
+- **`#koik`:** all 118 on one screen, sidebar with 18 everyday groups (`GROUPS`, `CULTURE`, `groupKey` in
+  `deck.js`), names on hover or for the chosen group, long names wrap.
+- **A 2035 column was built and removed on request.** BLS employment projections 2025 to 2035 (the newest release;
+  bls.gov blocks scripts, the owner downloaded it in the browser). All 118 matched; the values stay in `data.js` as
+  `bls`/`pbls`, undrawn; file and scripts in `talks/harno/research/data/occupations/` (`occupation.xlsx`, `bls.mjs`,
+  `xl.mjs`). Why removed: BLS is a demand model plus analysts' per occupation judgement, not a model of AI or robots.
+  Declines: data entry -25.5%, call centre sales -21.4%, payroll -15.9%, tellers -13.2%, programmers -7.3%; growth:
+  home care aides +18.1%, machine mechanics +17.8%. The older 2020 to 2030 file (in the GPTs-are-GPTs repo) is
+  distorted by the COVID rebound (actors +32%) and must not be used.
+- **Told the owner, from memory and not yet checked against the sources:** AI job forecasts (WEF Future of Jobs 2025,
+  McKinsey 2023, Goldman 2023, IMF 2024, Acemoglu 2024, Amodei 2025) and Stanford's "Canaries in the Coal Mine" (Aug
+  2025: 22 to 25 year olds in the most exposed jobs down about 13% relative). Offered to verify the numbers and write
+  them into the research; no answer yet.
+- **Prompts for another model, on the clipboard and in the scratchpad (not in the repo):** the talk and its argument;
+  the `#koik` chart with its rankings (2013 safest: doctors, teachers, psychologists; 2025 safest: bricklayers,
+  cleaners, welders; biggest moves: welder 95 places safer, systems analyst 81 more exposed).
+- **Open:** the talks repo is 2 commits ahead of origin (push with `gh auth switch -u kristjanjansen`, then back to
+  `Kristjan-Jansen_enefit`); sidebar source lines are long next to 18 groups; the line "Avatus ei ole töökohtade kadu"
+  was offered for the sidebar, not answered.
+- No headless Chrome started; the Claude in Chrome tabs were closed.
+
 # Handoff, 2026-11-21, session 98 (continued): HARNO moved to a private talks repo, the jobs and AI research
 
 - **Nothing changed in positron's code; HARNO work lives in `~/personal/talks`, now a private git repo**
