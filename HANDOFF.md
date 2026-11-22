@@ -1,3 +1,34 @@
+# Handoff, 2026-11-22, session 98 (day): local coding for visualia, run 1 on the M2, EKA 4080s
+
+- **Nothing changed in positron's code.** Work is in `~/personal/visualia` (pushed) and `~/personal/talks`.
+- **Plan:** `visualia/plans/local-coding.md` (status idea). The page creator already is a harness, so nothing is
+  embedded; four joins: A local model in the studio loop through the pool (the pool drops tool jobs to the cloud today),
+  B outside harnesses pull files with `get_project` and `hand_in`, C `check_page` as an MCP tool, D one source for
+  instructions and skills. Recommended harness OpenCode, Cline for VS Code. Kapitsa read, not installed: it serves
+  Ollama, OpenAI and Anthropic APIs with tools; its signing is unknown; six design ideas (launcher per run, memory
+  planner, prefix cache, keepalive, thinking cap, LAN) are in the plan.
+- **Step 1 built and committed:** `evals/multi-file/` five tasks (spiraal, punane, viga, kivid, plakat) with fixtures,
+  `tasks-test.mjs` 45 self-tests; page checks use the installed Chrome (`channel: 'chrome'`, no Playwright download).
+  Run: `node capture.mjs --local http://127.0.0.1:11434/v1 --tasks all gemma4:26b`. Fact check is case free now.
+- **Run 1 (MEASURED, in the plan):** gemma4:26b 4 of 5 (kivid used unpkg against the rule), about 2 min and 2.2 kJ for
+  all five, 58 °C peak, every tool call valid. qwen3.8:27b passed 3 of 3 at 4 to 7 times the time and energy and hit the
+  85 °C guard twice on kivid: removed. Ollama was started for the run with `OLLAMA_CONTEXT_LENGTH=16384` and stopped.
+- **Disk on the M2:** caches cleared (owner approved), qwen3.8:27b removed: 49 GB free, floor 30. The duplicate Drupal
+  PDF is in the Trash (0.7 GB until emptied).
+- **Gemma:** the installed `gemma4:26b` is the older MLX build without a drafter (16.1 GB). The registry's `gemma4:26b`
+  is now the MTP build (17.1 GB + 0.5 GB draft, same as `26b-a4b-it-mtp-q4_K_M`). Local Ollama is 0.40.8, newest
+  0.40.17; DFlash drafts arrived in 0.40.10 and 0.40.12. **Waiting on the owner:** pull it (about 17.6 GB, leaves about
+  31 GB), and only if 0.40.8 cannot load it, approve an Ollama upgrade.
+- **EKA VR lab:** "a couple" of RTX 4080 (16 GB) with 64 GB RAM, Windows (`schools/eka/docs/INFRA.md`, EKA's
+  computers). First to try: Qwen3.6-35B-A3B and Laguna XS 2.1 (MoE, about 20 to 21 GB at Q4, experts in system memory
+  with llama.cpp `--n-cpu-moe`), Gemma 4 26B as the Mac comparison, the five tasks in OpenCode, watts from
+  `nvidia-smi`. Laguna's licence (OpenMDW-1.1) unread. Needs EKA IT: count, install rights, network.
+- **Also today:** Inkling 2 Mini assessed (`visualia/research/inkling-2-mini.md`: helper only, test after the talk);
+  octomind's local LLM list judged untested and dated; Voxtral Mini 4B Realtime has no Estonian, Whisper large-v3 turbo
+  stays.
+- **Next, no approval needed:** a second Gemma run; join A step 3 (tools through pool and worker app).
+- No headless Chrome left; Ollama server stopped.
+
 # Handoff, 2026-11-22, session 98 (night): HARNO jobs section rebuilt on 2026 data; Inkling 2 Mini assessed
 
 - **Nothing changed in positron's code.** Deck in `~/personal/talks` (private, kristjanjansen/talks): `node
