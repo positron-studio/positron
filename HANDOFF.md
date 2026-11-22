@@ -1,3 +1,36 @@
+# Handoff, 2026-11-22, session 98 (night): HARNO jobs section rebuilt on 2026 data; Inkling 2 Mini assessed
+
+- **Nothing changed in positron's code.** Deck in `~/personal/talks` (private, kristjanjansen/talks): `node
+  harno/deck/server.mjs`, http://127.0.0.1:8895/. Hash changes do not redraw; reload or use the arrow keys.
+- **Main sequence now:** algus, Nimekiri pöördus (12 jobs, subtitles under the heads, grey band for zero use), **Kaks
+  masinat** (`#masinad`, 3 steps: AI, robots, neither, per everyday group), **Võimalik ei ole sama mis päris** (80% within
+  reach, 0.3% where a robot is cheaper, 54% of occupations with no Claude work use), Esimene aste (Stanford Canaries Aug
+  2026: 22 to 25 in exposed jobs -11%, less exposed +10%, 35 to 49 exposed +10%; descriptive, not causal), lill, koolid.
+  Moved to `reserve.html`: Kõik ametid, Robotid 2013 ja 2026 (two column flip), both scatters (Võimalik ja kasutatud,
+  Tehisaru ja robotid). The owner finds scatters hard to follow: keep them secondary.
+- **Kaks masinat, how it is computed** (`talks/harno/research/data/occupations/machines.mjs`, `groups.mjs`): per O*NET
+  task, robots if physical and tier E1 to E3 (Anthropic, What work can robots do?, 30.9.2026), else AI if Eloundou et al.
+  label E1 or E2 (`full_labelset.tsv`, GPTs-are-GPTs repo), else neither; time shares from the robot file. Over 923 US
+  occupations: robots 30%, AI 49%, either 80%; Anthropic's own: 34%, about 50%, about 80%. Group = mean of the 118 jobs.
+  Neither, highest: Teater ja muusika 57%, Tervis ja hool 48%, Pääste 46%, Haridus 40%; Kontor 0%, IT 1%.
+- **Checked against originals 2026-11-21** (in `research/occupations-then-now.md`): Anthropic observed exposure published
+  5.3.2026 from Aug and Nov 2025 use, Eloundou feasibility filter, automation full weight; 54% of occupations zero (411/756)
+  vs 30% of workers. Stanford 19% relative is the Aug 2026 version (13% was 2025). Flip on the 118: Spearman 2013 vs
+  2025 0.18, 2025 vs use 0.70, 2013 vs use 0.02; 78 of 118 move 25+ places.
+- **Newer Claude use data measured and NOT used:** same measure Nov 2025 vs Feb 2026 barely moves (mean 8.1% to 8.2% on the
+  118). The June 2026 release (Apr and May 2026) changed the work/personal classification and rounds to 0.01%; customer
+  service 53% to 0 is an artefact. Scripts `trend.mjs`, `recent.mjs`.
+- **An outside model's brief** is in `talks/harno/research/sources/occupations-chart-brief-2026-11-21.md`. Done from it:
+  subtitles, zero band, rank note, sources. Not done: stage presets and readable labels without hover, a crosswalk CSV.
+- **Known defects:** Kõik ametid sidebar runs off the bottom (Lihttöö hidden); Esimene aste leaves the lower half empty.
+- **Inkling 2 Mini** (Thinking Machines, 20.11.2026): assessed for visualia, `~/personal/visualia/research/inkling-2-mini.md`
+  (pushed). 26.4B MoE, about 3.4B active, Apache 2.0, about 20 GB at 4 bit. Verdict: a helper only, test after the talk on
+  the M2 after freeing disk and approving an Ollama upgrade. Its DeepSWE 48.2% is self-reported on a benchmark Epoch rates
+  Flawed; independent index level with Qwen3.8 27B. Vals CyberBench: 74.58%, shared 9th and 10th with Opus 5.5, $0.93
+  per test, slowest of the ten. 16 GB only at 2 bit (about 8.5 GB, 90.6% top-token agreement).
+- **Open:** talks repo not pushed since the last handoff; decide whether Võimalik ja kasutatud returns to the main sequence.
+- No headless Chrome running; Claude in Chrome tabs closed.
+
 # Handoff, 2026-11-21, session 98 (evening): HARNO deck, the jobs flip chart
 
 - **Nothing changed in positron's code.** All work is in `~/personal/talks` (private,
