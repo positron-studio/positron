@@ -59,13 +59,15 @@ Each is a patch of existing bay nodes plus the new ports.
   `.syx`. Refuses any base whose SHA-256 is not stock 3592, refuses a hook whose original bytes differ, refuses code
   that lands outside its declared free region, and prints every changed byte range. Novation's image never leaves
   `purchased/`.
-- Emulation (step 3): run the patched handler on Unicorn or QEMU in a container with a fake MIDI buffer, assert the
-  DSP writes. Circuit Extended verifies this way (READ).
+- Emulation (step 3): `rig/circuit-fw/emu.mjs`, a strict Thumb interpreter (no Unicorn exists for JS, and new
+  scripts are .mjs) that throws on any instruction it does not know and stubs stock functions by address. Each patch
+  test runs stock first as the control. Circuit Extended verifies with Unicorn (READ).
 
 ## 5. Order
 
 1. The builder, with patch A as its first input, reproducing the hook shape Circuit Extended proved on hardware.
-2. Locate the sequencer state, the MIDI out routine and free space (a read-only agent, running now).
+2. Locate the sequencer state, the MIDI out routine and free space (done, research section 9: SysEx out and the
+   clock tick found; the playhead is on the heap; only 92 B of proven free space).
 3. Emulate A: feed `E0 00 40` to the dispatcher, assert a write to DSP 727.
 4. Device Inquiry once the board is back: our unit must report build 3592.
 5. B, then F, then E, each emulated before anything else.
