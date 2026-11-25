@@ -1,6 +1,6 @@
 # plan-circuit-firmware: our own patches to the original Circuit, as a patchbay node
 
-Status (2026-11-25): open. Steps 1 to 3 done for idea A: `node rig/circuit-fw/build.mjs bend` (62 B in the dead `_start` at `0x080081E4`, hook bytes identical to Circuit Extended's) and `node rig/circuit-fw/bend-test.mjs` (9/9, stock as the control). Step 2's findings are in `research/circuit-firmware-2026-11-25.md` section 9. Next: find space beyond 92 B, then B.
+Status (2026-11-25): open. Steps 1 to 3 done for idea A: `node rig/circuit-fw/build.mjs bend` (62 B in the dead `_start` at `0x080081E4`, hook bytes identical to Circuit Extended's) and `node rig/circuit-fw/bend-test.mjs` (9/9, stock as the control). Step 2's findings are in `research/circuit-firmware-2026-11-25.md` section 9. Space (research section 10): 116 B proven (bend uses 62), about 37 KB past the image end if the bootloader writes it, which one owner-approved test flash settles. B's playhead needs no firmware: count the stock clock out on the Pi.
 
 > **The ask**, 2026-11-25: *"what else we could do with custom firmware?"*, then *"plan and start working. more
 > ideas / iteractions?"*. Background: `research/circuit-firmware-2026-11-25.md` (container, load address, the MIDI

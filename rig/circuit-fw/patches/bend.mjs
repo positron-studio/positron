@@ -10,9 +10,10 @@ export default {
     { at: 0x08020508, expect: '902b04d0', branchTo: 'entry' },
   ],
   code: {
-    // newlib crt0 _start: the reset vector (0x080244A1) bypasses it; no branch or literal reaches it
+    // newlib crt0 _start and its literal pool, 0x080081E4 to main at 0x08008258: the reset vector (0x080244A1)
+    // bypasses it; no branch or literal reaches it
     at: 0x080081E4,
-    reuse: { len: 92, sha: '363f44a7baad2a7ed4c93f61ae37da3329b3d424dd4addcbd7d38ba8b48eec53' },
+    reuse: { len: 116, sha: 'e8f320976f0d97aaba93fd8f6fa16564ee71efea3f2a70e79c02de4d09a7b40d' },
     asm: `
 entry:
     cmp   r3, #0x90

@@ -179,3 +179,26 @@ size we measured on our own (`BASE = 0x08008000`, `IMAGE_SIZE = 0x2EB80`, READ).
 **What this means for the ideas** (`plans/plan-circuit-firmware.md`): state out (B) can reuse the SysEx path the
 Device Inquiry already uses, with the clock tick as the hook, but 92 bytes is the whole proven budget; anything
 bigger than bend needs more space found first.
+
+## 10. Space, third pass (MEASURED, 2026-11-25)
+
+- **The dead `_start` region is 116 bytes**, `0x080081E4` to `main()` at `0x08008258`, the last 24 being its own
+  literal pool (Circuit Extended's `CAVE_END`, READ, re-checked here: no branch and no literal from outside reaches it).
+  Our bend patch uses 62, leaving 54.
+- **There is no other dead code to speak of.** Every function start (a `push` with `lr`, widened by 8 bytes for the
+  `cmp` the compiler hoists above it) was checked for any branch, call or literal reaching it from outside: 3
+  candidates, 30 bytes in all. The image is tightly linked.
+- **The image starts exactly at STM32F2/F4 sector 2 (`0x08008000`)** after two 16 KB bootloader sectors, which
+  corroborates the chip family, and **ends inside sector 5** (`0x08020000` to `0x0803FFFF`), leaving `0x08036B80` to
+  `0x0803FFFF`, about 37 KB.
+- **No code addresses internal flash above the image.** 27 words in the image look like such addresses and none is
+  loaded by any instruction; they are instruction bytes. INFERRED: sessions and samples are not kept in the rest of
+  sector 5 (they also survive firmware updates, which erase it), so that tail is free, **if the bootloader writes
+  blocks past the stock length.** Unmeasured: Novation publishes only 3592 (the other builds answer 403 at the same
+  prefix, and the Components list carries one build per product), so there is no older or newer image whose size
+  would show the bootloader taking another length, and Circuit Extended never appends (its builder refuses a size
+  change, READ). One test flash would settle it: our bend code placed past the end instead of in `_start`. If the
+  Circuit boots and bends, the 37 KB are ours; if not, bootloader mode reinstalls stock.
+- **The step counter's advance was not found statically.** `+48` is a common field offset, and telling the clock
+  object's stores from others needs types or a whole-system emulator. **Not needed for the playhead:** with Clock TX
+  on (stock setting since 1.4), the Circuit sends `F8` and start/stop, so the Pi counts 6 clocks per step from start.
