@@ -95,7 +95,7 @@ MEASURED: the three Extended hashes equal the ones their README publishes. Their
   zeros sit in the DSP and data zone, so whether they are really unused was their judgement, confirmed only by the
   device running.
 - **Performance v2 adds a hook at `0x18508`** (`B.W -> 0x001E4`) and rewrites 92 bytes at `0x001E4`, early in the
-  image. INFERRED: the MIDI input path, where pitch bend and CC 1 are now taken in. That matters to us because
+  image. MEASURED in section 8: `0x18508` is `0x08020508`, inside the MIDI channel dispatcher, and the stub takes pitch bend, aftertouch and CC 1. That matters to us because
   `positron-hardware` records that **the Circuit's MIDI port drops pitch bend and mod wheel**.
 - **The free space is small.** INFERRED from the above: there is a few KB of zero and `0xFF` runs, not a big empty
   tail, because the image ends in data with no `0xFF` padding. Large features would need the free-space hunting
@@ -107,7 +107,7 @@ MEASURED: the three Extended hashes equal the ones their README publishes. Their
   `node rig/board/ask.mjs --room studio-1 midi.send '{"source":"circuit","bytes":[240,126,127,6,1,247]}'`. The gate
   allows exactly this message (`rig/board/inputs.mjs`). Circuit Extended requires 3592. Untried: whether
   `midi.send` with `source` is the right envelope; the input's handler is what answers `midi.identity`.
-- **A real disassembly.** Ghidra (ARM Cortex, Thumb, little endian, base `0x08008000`) for the ARM part, and dsptool
+- **A full disassembly.** A flat `objdump` of the ARM part is done (section 8); for naming functions across 190 KB, Ghidra (ARM Cortex, Thumb, little endian, base `0x08008000`) for the ARM part, and dsptool
   or dsp56300's disassembler for `0x1D000` to `0x25FFF`. Ghidra is a Java app: an install that needs asking first on
   this managed Mac. The M1 is the place.
 - **Flashing anything.** Not proposed here. Before any flash: a fresh pack backup (the stored one is from
