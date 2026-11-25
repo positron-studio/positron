@@ -151,3 +151,31 @@ size we measured on our own (`BASE = 0x08008000`, `IMAGE_SIZE = 0x2EB80`, READ).
   range agrees once the firmware's signed storage is read: centred parameters are kept as an offset from 64
   (`192..63` is −64..+63, so 0..127; `244..12` is 52..76; `250..5` is 58..69; `244..18` is 52..82). The map we wrote
   from the Programmer's Reference is right for build 3592. NRPN rows (`b6 == 0xFF`) were not compared.
+
+## 9. MIDI out, clock, playhead and free space (MEASURED by a read-only agent pass, 2026-11-25)
+
+- **MIDI out:** `0x08013464` sends a 3-byte message (`r0` port mask, `r1` pointer) into one of two ring buffers;
+  port bit 0 is gated by a flag at `0x20001948` (INFERRED: USB connected), bit 1 is the other port. Which bit is DIN
+  is not settled. Note on `0x080135C0`, note off `0x080135EE`, CC `0x08013546`, song position `0x08013514`, song select
+  `0x080134B8`. The MIDI-out object (vtable `0x0802E908`) keeps a channel table copied from `0x08024644`
+  (`00 01 09`: Synth 1 on 1, Synth 2 on 2, drums on 10).
+- **SysEx out exists:** `0x0800C944` (`r0` port mask, `r1` buffer, `r2` length) copies into `0x20000C38` for port bit
+  0 and refuses a busy port. Only two callers: the Device Inquiry reply built at `0x0801D724`
+  (`F0 7E 00 06 02 00 20 29 79 00 00 00` + 4 version bytes + `F7`, port bit 0 only) and a second version reply near
+  `0x0801E670`. No patch dump is ever transmitted. While a SysEx is in flight, ordinary messages to that port are
+  dropped and realtime passes.
+- **Clock:** `0x0801361C` sends `F8`; start, continue and stop at `0x08013564`, `0x08013592`, `0x080134E6`. The clock
+  object's tick (`0x0801DD68`) increments a tick count at `+72` and calls clock out when the setting allows.
+- **Playhead:** step in bar (0..15) is a byte at `clock + 48`, set by song position (`0x0801ADA4`) and zeroed by start
+  (`0x0801D4B8`); the clock object is on the heap, so its RAM address is not static. The per-step increment site, the
+  pattern and the session index were not found.
+- **Free space:** outside the DSP zone there is no 0x00 or 0xFF run of 256 bytes or more. The runs of 48 bytes and
+  up sit among vtables, rodata, the patch table and the `.data` initialiser at the tail, so none is proven free (our
+  first build used the one at `0x080367E4` and moved off it). **The safe place is `0x080081E4`, 92 bytes of newlib's
+  `_start`**: the reset vector goes to `0x080244A1` instead, and no branch or literal in the image reaches it. Circuit
+  Extended's stub is there too. Past the image end (`0x08036B80`) needs the chip's flash size and what the bootloader
+  accepts, both unknown.
+
+**What this means for the ideas** (`plans/plan-circuit-firmware.md`): state out (B) can reuse the SysEx path the
+Device Inquiry already uses, with the clock tick as the hook, but 92 bytes is the whole proven budget; anything
+bigger than bend needs more space found first.
