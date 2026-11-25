@@ -1,3 +1,33 @@
+# Handoff, 2026-11-25, session 99: the Circuit's firmware read, a bend patch in emulation, the pads lit by stock SysEx
+
+- **Nothing was sent to the Circuit and nothing was flashed.** The board was not in room `studio-1` all session
+  (`node rig/board/ask.mjs --room studio-1 board.ping` answered nothing), so the Device Inquiry and the pad test wait.
+- **Read:** `research/circuit-firmware-2026-11-25.md` (sections 1 to 11), `plans/plan-circuit-firmware.md` (ideas A to
+  J, interactions, order). Firmware files live in `purchased/circuit-firmware/` (gitignored; stock 3592 from
+  Novation's S3, three Circuit Extended builds, our builds in `out/`).
+- **Firmware facts (MEASURED):** `.syx` is INIT/WRITE/FINISH, 32 bytes as 37 seven-bit, block 0 sent last, no image
+  checksum. ARM Thumb, STM32F2/F4 class, app at `0x08008000` behind a 32 KB bootloader, image 191,360 B ending inside
+  flash sector 5. DSP56300 program inside at `0x1D000` to `0x25FFF`. Our reader `demo/shell/circuit-firmware.mjs`
+  rebuilds the file byte for byte (test 9/9). `demo/shell/circuit-cc.mjs` matches the firmware's own CC tables exactly.
+- **Why bend is dropped:** the dispatcher at `0x08020500` handles only `90`, `B0`, `80`. `0x0801633C` writes a DSP
+  parameter; bend, mod wheel, aftertouch go to DSP 727 to 729 (+370 for Synth 2), which stock never feeds.
+- **Built:** `rig/circuit-fw/` builder (asm in a debian container, refuses wrong base, wrong hook bytes, used space),
+  strict Thumb interpreter `emu.mjs`, `patches/bend.mjs` (62 B in newlib `_start`, 116 B dead region; hook bytes equal
+  Circuit Extended's). `node rig/circuit-fw/bend-test.mjs` 9/9 with stock as the control. NOT flashed.
+- **Space:** 116 B proven, no other dead code. About 37 KB past the image end in sector 5 if the bootloader writes it;
+  one owner-approved test flash settles it. The playhead needs no firmware: count the stock clock out on the Pi.
+- **Pads as a display, no flash:** stock 3592 answers `F0 00 20 29 01 60 74 <led 0..68> <r> <g> <b 0..63> F7`, held in an
+  additive LED layer the UI never clears (agent said `72`; the `tbb` table says `74`). The Circuit does not bound the
+  LED index, so the board gate (`isPadLight`, `rig/board/inputs.mjs`) takes exactly that shape; 7 new tests pass.
+  `lessons/rig-board.md#pad-light`. The pre-existing collide compiler FAIL in `rig/board/test.mjs` is unrelated.
+- **Waiting on the owner, at the desk, board online:** `rig/board/push.sh` (the gate change is not on the Pi yet);
+  Device Inquiry (`midi.send` with `source: "circuit"`, research section 6); first pad light (LED 0 red), then a sweep
+  of 0 to 68 to map pads and buttons, watched; first flash of the bend build only on the owner's go.
+- **Answered:** the Pi's larger screen is the 2.4" ILI9341 TFT from Oomipood (plans/plan-pi-tft.md, not bought); the
+  CV part is the Adafruit 4470 MCP4728, Botland EUR 9.99, test kit in session 98's handoff; a TFT on the Circuit itself
+  needs soldering, so the Pi TFT shows the Circuit instead (BACKLOG).
+- No headless Chrome left; no containers left running (all `--rm`).
+
 # Handoff, 2026-11-22, session 98 (day): local coding for visualia, run 1 on the M2, EKA 4080s
 
 - **Nothing changed in positron's code.** Work is in `~/personal/visualia` (pushed) and `~/personal/talks`.
