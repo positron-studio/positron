@@ -21,7 +21,7 @@ which a power cycle fixes, and the bootloader (Scales + Note + Velocity at power
 | --- | --- | --- | --- | --- |
 | A | **bend, mod wheel, aftertouch in** on Synth 1/2 (the hook at `0x08020508`, DSP 727 to 729) | no | ~90 B | expressive playing from https://positron.studio/remote/circuit/ |
 | B | **state out**: one short SysEx per step (step, pattern, session, mutes, scale) | no | ~150 B + finding the state | `pi-1:circuit:value-out` ports; pages follow the Circuit; the Pi times its clock from inside |
-| C | **pads as a display**: a SysEx that lights pads, held until released or a timeout | no | ~200 B + finding the LED buffer | the Circuit shows a distributed grid, remote players, a meter |
+| C | **pads as a display**: STOCK FIRMWARE ALREADY DOES IT, `F0 00 20 29 01 60 74 <led> <r> <g> <b> F7` (research section 11), held in an additive layer | no | **0 B, no flash** | the Circuit shows a distributed grid, remote players, a meter |
 | D | **dump the live session from RAM** on a SysEx request | no | ~100 B + the session's RAM address | a backup with no power cycle, the Save-disabled trap defused |
 | E | **guard in the instrument**: refuse patch command `01` (flash) and notes while Record is armed, unless a pad combo unlocks | no | ~60 B | the consent rule holds when a laptop replaces the Pi |
 | F | **echo ping**: answer a timestamped SysEx at once, from the MIDI handler | no | ~40 B | USB MIDI round trip measured inside the device |

@@ -1,5 +1,9 @@
 ## Open
 
+- **A TFT for the Circuit** (2026-11-25, *"also tft up for circuit?"*). Answered in chat: a screen on the Circuit itself means opening it and soldering to MCU pins plus an SPI driver in firmware (no space yet, and no soldering here); the reachable form is the Pi TFT (plans/plan-pi-tft.md, Oomipood 2.4" ILI9341, 28 EUR, not bought) showing the Circuit: clock-follow playhead, CCs it sends, later firmware state out.
+
+- **Circuit pads as a display, firmware idea C** (2026-11-25, *"i'd like screen functuoanlty"*, picked "Circuit pads as display"). Find the pad LED pipeline (set function, frame buffer, redraw, colour encoding, free RAM for an overlay), design the smallest message that lights a pad and holds it, build and emulate. Space: 54 B left in _start, more only after the sector 5 test flash. plans/plan-circuit-firmware.md idea C.
+
 - **Circuit firmware, next** (2026-11-25, *"work on firmware"*). Device Inquiry once the board is back; disassemble the ARM part in a container (no host install); map the MIDI input path and CC tables Performance v2 touches, toward pitch bend and mod wheel on /remote/circuit/. Read only, nothing flashed. Report into research/circuit-firmware-2026-11-25.md.
 
 - ~~**Original Circuit firmware, read-only teardown**~~ DONE 2026-11-25 except the Device Inquiry (board not in studio-1 that day; command in research/circuit-firmware-2026-11-25.md section 6). (2026-11-25, *"decompole firmware?"* then *"do it"*). Download stock 1.8.1 build 3592 to purchased/ (never committed), unpack the 37-to-32 SysEx blocks with our own .mjs, diff against Circuit Extended (github.com/tracelistener/tracelistener-circuit-extended) builds to map hook points, ARM vs DSP regions, ask our unit its build with the Device Inquiry over the relay. Nothing written to the Circuit. Report to research/circuit-firmware-2026-11-25.md.

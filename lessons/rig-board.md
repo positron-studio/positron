@@ -2218,3 +2218,16 @@ Above `function camDirect(msg, reply, peerId, waited = 0) {`, lines 821 to 826 b
 // direct only on the retry 1.5 s later. So a missing channel is waited for,
 // 25 ms at a time for half a second, before it is refused.
 ~~~
+
+### pad-light
+
+`isPadLight` in `rig/board/inputs.mjs`, added 2026-11-25 on *"i'd like screen functuoanlty"* (the Circuit's pads as a
+display). Read out of stock firmware 3592 by disassembly, not yet sent to the instrument:
+`research/circuit-firmware-2026-11-25.md` section 11. The SysEx handler at `0x0801E484` matches `F0 00 20 29 01 60`,
+runs the patch callback (`0x08014104`, which acts only on command `00`, `01`, `40` and `43` and returns on anything
+else), then switches on byte 6. Command `74` takes LED, R, G, B (0 to 63, scaled to 0 to 255) and calls the LED
+setter `0x0800C868`, which writes the "target" layer the compositor adds to the UI's colours; the UI never clears
+it, so a light holds. **The firmware does not bound the LED index**: 69 LEDs use 207 channels, and an index past 68
+reads the channel map out of range and writes past the 207 byte array at `0x20001846`, toward the USB flag at
+`0x20001948`. So the gate takes exactly 12 bytes, LED 0 to 68, colours 0 to 63, and nothing next to it: `70` writes a
+raw channel, `71` to `73` are unknown routines and a reply, and none of them passes.

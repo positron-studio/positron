@@ -4,7 +4,7 @@
 import { parseAconnect, addressable, resolve, plan, apply, listPorts, CARRY, sourcesOf } from './alsa.mjs';
 import { parseJackLsp, jackChain, jackRebuild , setBayRows, jackdArgs, cardPortNames, jackdOwns, countXruns, JACKD_ENV, strayMidiSources } from './jacksynth.mjs';
 import * as jack from './jack.mjs';
-import { parseInputs, takeChannel, createByteOrder, leaseExpired, createInputs, midiVerdict, SYNTH_CC } from './inputs.mjs';
+import { parseInputs, takeChannel, createByteOrder, leaseExpired, createInputs, midiVerdict, SYNTH_CC, padLightBytes } from './inputs.mjs';
 import { CIRCUIT_CC } from '../../demo/shell/circuit-cc.mjs';
 import { fresher, midiKey, MAX_PEERS, noteKey, fresherNote, createMainDirect } from './rtc.mjs';
 import { helloMsg, aliveMsg, graphOf } from './beat.mjs';
@@ -678,6 +678,15 @@ console.log('inputs: what a page may send the Circuit');
   is('NEGATIVE: a device id other than 7F is refused, 00 included', [0x00, 0x01, 0x10, 0x7E].map((n) => midiVerdict([0xF0, 0x7E, n, 0x06, 0x01, 0xF7], CH).ok), [false, false, false, false]);
   is('NEGATIVE: real time universal 7F in place of 7E is refused', midiVerdict([0xF0, 0x7F, 0x7F, 0x06, 0x01, 0xF7], CH).ok, false);
   is('NEGATIVE: and the dump request is not mistaken for it, nor it for the dump request', [midiVerdict(REQ(0), CH).identity, midiVerdict(INQ, CH).dump], [undefined, undefined]);
+  // The one LED write stock 3592 answers; the Circuit does not bound the LED, so the gate does.
+  // why: lessons/rig-board.md#pad-light
+  is('a pad light passes, and says so', midiVerdict(padLightBytes(0, 63, 0, 0), CH), { ok: true, light: true });
+  is('the last LED, 68, and black pass', [midiVerdict(padLightBytes(68, 0, 0, 0), CH).ok, midiVerdict(padLightBytes(12, 63, 63, 63), CH).ok], [true, true]);
+  is('NEGATIVE: LED 69 and up are refused, the Circuit would write past its array', [69, 70, 100, 127].map((l) => midiVerdict(padLightBytes(l, 1, 1, 1), CH).ok), [false, false, false, false]);
+  is('NEGATIVE: a colour over 63 is refused, in each of r, g and b', [[64, 0, 0], [0, 64, 0], [0, 0, 127]].map(([r, g, b]) => midiVerdict(padLightBytes(1, r, g, b), CH).ok), [false, false, false]);
+  is('NEGATIVE: the commands beside it, 70 to 73 and 75, are refused', [0x70, 0x71, 0x72, 0x73, 0x75].map((c) => { const m = padLightBytes(1, 1, 1, 1); m[6] = c; return midiVerdict(m, CH).ok; }), [false, false, false, false, false]);
+  is('NEGATIVE: one byte short or one long is refused', [midiVerdict(padLightBytes(1, 1, 1, 1).filter((_, i) => i !== 10), CH).ok, midiVerdict([...padLightBytes(1, 1, 1, 1).slice(0, 11), 0, 0xF7], CH).ok], [false, false]);
+  is('NEGATIVE: a 350 byte Replace Patch with its command byte turned into 74 is refused', midiVerdict([0xF0, 0x00, 0x20, 0x29, 0x01, 0x60, 0x74, ...Array(342).fill(0), 0xF7], CH).ok, false);
   is('and a refusal of the request shape names it sysex', midiVerdict([...REQ(0).slice(0, 6), 0x01, 0, 0xF7], CH).kind, 'sysex');
 
   const cfg = parseInputs('{"circuit":{"device":"hw:CARD=Pro,DEV=0","channels":2,"take":1,"midi":{"port":"Circuit","channels":[1,2,10]}}}');

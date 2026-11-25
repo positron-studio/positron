@@ -202,3 +202,37 @@ bigger than bend needs more space found first.
 - **The step counter's advance was not found statically.** `+48` is a common field offset, and telling the clock
   object's stores from others needs types or a whole-system emulator. **Not needed for the playhead:** with Clock TX
   on (stock setting since 1.4), the Circuit sends `F8` and start/stop, so the Pi counts 6 clocks per step from start.
+
+## 11. The pads are already a display: a stock SysEx lights them (MEASURED, 2026-11-25)
+
+Found by a read-only agent pass and re-read here instruction by instruction; one of its command numbers was wrong and
+is corrected below. **No firmware change is needed.** Not yet sent to the instrument.
+
+- **LED hardware:** SPI1 (PA5 to PA7) by DMA2 stream 3 into shift registers, 7 bytes a row, four rows switched on
+  PC3 to PC6 by the TIM4 interrupt (`0x0802364C`), 7 bit planes of binary-coded brightness, double-buffered 196 byte
+  frames (`0x2000399D`, `0x20003A61`). 69 RGB LEDs on 207 of 224 channels.
+- **Three layers:** the UI rewrites a 69-word `0x00RRGGBB` overlay every frame (`0x200021E4`, from the UI callback
+  `0x0800F25C`); a 207 byte "target" layer (`0x20001846`) is written only by the LED setter `0x0800C868`, a boot-time
+  clear and SysEx; the compositor (`0x08009E7C`) sends `min(255, target + overlay)`. So **what is written to the target
+  layer stays lit, added to whatever the UI shows.** UI palette: 145 entries in RAM from flash `0x08036380`
+  (`ff00ff` Synth 1 purple, `00ff8e` Synth 2 green, `ff8000` orange, `ffff00` yellow).
+- **The SysEx handler** (`0x0801E484`, the receive callback of a 540 byte buffer) matches `F0 00 20 29 01 60`, calls
+  the patch callback `0x08014104` (acts on command `00` replace current patch, `01` replace stored patch, the flash
+  write, `40` dump request, `43`; **returns at once on anything else**), then `tbb` on byte 6 minus `0x70`
+  (table `03 5E 65 1A 39`):
+
+| byte 6 | target | does |
+| --- | --- | --- |
+| `70` | `0x0801E4C6` | raw write of one channel in the target layer |
+| `71` | `0x0801E57C` | `0x08010F26(n)`, n 0 to 2, unknown |
+| `72` | `0x0801E58A` | `0x0801A0F4(n, n, n)`, unknown, touches UI state |
+| `73` | `0x0801E4F4` | builds an 11 byte reply (byte 6 `73`) from a table |
+| **`74`** | `0x0801E532` | **`F0 00 20 29 01 60 74 <led> <r> <g> <b> F7`**: r, g, b 0 to 63 scaled by `0x0800CB88`, then `set_rgb(3 x led, rgb)` |
+
+  (The agent's report had `72` as the RGB command; the `tbb` offsets say `74`.)
+- **The Circuit does not bound `<led>`.** Above 68 the setter reads the channel map out of range and writes past the
+  207 byte target array. The board's gate (`isPadLight`, `rig/board/inputs.mjs`) takes LED 0 to 68 and colours 0 to
+  63 only, and refuses `70` to `73` and `75`.
+- **Unknown, settled by the first send:** which port the 540 byte buffer listens on (USB or DIN; the Pi reaches the
+  Circuit over its USB MIDI); the mapping from LED index to the 32 pads and the buttons (one sweep of 0 to 68 settles
+  it); whether the additive layer makes a lit pad read well on top of the UI colours.

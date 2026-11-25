@@ -38,6 +38,19 @@ export const DEVICE_INQUIRY = Object.freeze([0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7]
 export function isDeviceInquiry(bytes) {
   return Array.isArray(bytes) && bytes.length === DEVICE_INQUIRY.length && DEVICE_INQUIRY.every((b, i) => bytes[i] === b);
 }
+// Stock firmware 3592 lights one LED: F0 00 20 29 01 60 74 <led> <r> <g> <b> F7, colours 0 to 63, held in a layer
+// the UI adds to and never clears. The Circuit does not bound <led>; above 68 it writes past a RAM array.
+// why: lessons/rig-board.md#pad-light
+export const PAD_LIGHT_HEAD = Object.freeze([0xF0, 0x00, 0x20, 0x29, 0x01, 0x60, 0x74]);
+export const PAD_LIGHT_LEDS = 69;
+export function isPadLight(bytes) {
+  if (!Array.isArray(bytes) || bytes.length !== 12) return false;
+  if (!PAD_LIGHT_HEAD.every((b, i) => bytes[i] === b) || bytes[11] !== 0xF7) return false;
+  return bytes[7] < PAD_LIGHT_LEDS && bytes.slice(8, 11).every((c) => c <= 63);
+}
+export function padLightBytes(led, r, g, b) {
+  return [...PAD_LIGHT_HEAD, led, r, g, b, 0xF7];
+}
 // A Novation Identity Reply (F0 7E <dev> 06 02 00 20 29 ...), with slack on length so a reply is
 // not
 // refused for its size.
@@ -86,8 +99,8 @@ export function createSysexCatcher(max = 400) {
 export const DUMP_MS = 1000;
 
 // What a page may send the instrument, an allowlist: note on/off and CC 123 on configured channels,
-// SYNTH_CC on 1 and 2, program change 0 to 63 on 1 and 2 only (on 16 it is a session), and the two
-// SysEx reads. Nothing else: the relay room is reachable by anyone who knows its name.
+// SYNTH_CC on 1 and 2, program change 0 to 63 on 1 and 2 only (on 16 it is a session), the two
+// SysEx reads, and the one LED write. Nothing else: the relay room is reachable by anyone who knows its name.
 // why: lessons/rig-board.md#midi-verdict
 export function midiVerdict(bytes, channels) {
   const v = verdict(bytes, channels);
@@ -99,6 +112,7 @@ export function midiVerdict(bytes, channels) {
 function verdict(bytes, channels) {
   if (!Array.isArray(bytes) || !bytes.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)) return { ok: false, why: 'bytes are 0 to 255' };
   if (isDeviceInquiry(bytes)) return { ok: true, identity: true };
+  if (isPadLight(bytes)) return { ok: true, light: true };
   const loc = dumpRequestSynth(bytes);
   if (loc !== null) {
     const ch = loc + 1;
