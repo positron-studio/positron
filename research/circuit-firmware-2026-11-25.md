@@ -126,3 +126,28 @@ MEASURED: the three Extended hashes equal the ones their README publishes. Their
 | [awesome-music-gear-firmware](https://github.com/Lapin/awesome-music-gear-firmware) | the curated list |
 
 All of them date from July to November 2026, and two say they were built with an AI coding assistant.
+
+## 8. The MIDI input path and the CC tables, disassembled (MEASURED, 2026-11-25, second pass)
+
+Disassembled with `arm-none-eabi-objdump -D -b binary -marm -Mforce-thumb --adjust-vma=0x08008000` in a
+`debian:trixie-slim` container (nothing installed on this Mac). Circuit Extended's CC tool states the same base and
+size we measured on our own (`BASE = 0x08008000`, `IMAGE_SIZE = 0x2EB80`, READ).
+
+- **Why our Circuit drops pitch bend.** The channel-message dispatcher at `0x08020500` masks the status byte
+  (`and #0xF0`) and compares with `0x90`, `0xB0` and `0x80` only. Anything else, `0xE0` pitch bend and `0xD0`
+  aftertouch included, branches to the exit at `0x08020582`. That is the code behind `positron-hardware`'s measured
+  "the Circuit's MIDI port drops pitch bend and mod wheel". CC 1 does arrive as a CC but has no row in the receive table.
+- **`0x0801633C` writes one 24-bit parameter to the DSP**: value in the top 24 bits of `r0`, DSP address in `r1`,
+  sent as three bytes through `0x080158A4`. It is called from 216 places.
+- **What Performance v2 adds is only the front end.** Its stub at `0x080081E4` (reached from a `B.W` at `0x08020508`)
+  takes `0xE0`, `0xD0` and CC 1 on Synth 1's or Synth 2's channel and writes them through that same function:
+  bend to DSP address 727, CC 1 to 728, aftertouch to 729, plus 370 for Synth 2. Bend is the 14-bit value minus
+  `0x2000`, shifted into the top bits. No stock code writes those addresses with an immediate. INFERRED: the DSP
+  already has bend, mod wheel and aftertouch inputs (the patch's mod matrix lists them as sources), and only the
+  ARM side never feeds them. That makes a bend-only mod small: one hook and about 90 bytes.
+- **`demo/shell/circuit-cc.mjs` checked against the firmware's own tables.** The receive tables (128 int16 per part,
+  `0x8000` = unmapped; synth `0x08035340`, drums `0x08035240`, session `0x08035480`, READ from Circuit Extended)
+  map **52 synth, 28 drum and 18 session CCs, the same sets as our 52, 28 and 18, with none missing either way.** Every
+  range agrees once the firmware's signed storage is read: centred parameters are kept as an offset from 64
+  (`192..63` is −64..+63, so 0..127; `244..12` is 52..76; `250..5` is 58..69; `244..18` is 52..82). The map we wrote
+  from the Programmer's Reference is right for build 3592. NRPN rows (`b6 == 0xFF`) were not compared.
